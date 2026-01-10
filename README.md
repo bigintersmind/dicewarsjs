@@ -2,7 +2,7 @@
 
 This is a modern, enhanced version of [Dice Wars](https://www.gamedesign.jp/games/dicewars/), a strategic dice-based territory conquest game. The project builds upon:
 
-👉 [**Play the game online**](https://ivanlay.github.io/dicewarsjs/) 👈
+👉 [**Play the game online**](https://bigintersmind.github.io/dicewarsjs/) 👈
 
 1. The original game from [gamedesign.jp](https://www.gamedesign.jp/games/dicewars/)
 2. [Chris Raff's modification](https://github.com/chrisraff/dicewarsjs) that added custom AI capabilities

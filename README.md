@@ -15,7 +15,7 @@ This fork significantly extends the project with:
 - Comprehensive documentation for players and developers
 - Developer tooling and quality assurance
 
-The project is currently undergoing a significant modernization effort, migrating to ES6+ modules and practices. See our [ES6 Migration Plan](docs/ES6_MIGRATION_PLAN.md) and [Project Roadmap](docs/ROADMAP.md) for more details.
+The project is undergoing a major modernization. See the [Modernization Roadmap](docs/MODERNIZATION_ROADMAP.md) for the full plan, including a move to PixiJS rendering, a Bot SDK for community-built AI, and an arena system for bot competitions.
 
 ## Features
 
@@ -225,15 +225,9 @@ dicewarsjs/
 └── package.json             # Dependencies and scripts
 ```
 
-### Bridge Architecture
+### Current Architecture
 
-The project currently uses a bridge pattern to transition from legacy JavaScript to modern ES6 modules. This allows new code to be written using modern practices while maintaining compatibility with older parts of the system.
-
-1.  **Modern Code**: New features and refactored components are developed as ES6 modules within the `src/` directory.
-2.  **Legacy Compatibility**: Specific bridge modules (primarily under `src/bridge/`) expose functionalities from the modern ES6 modules to the global scope, making them accessible to legacy scripts that expect global variables and functions.
-3.  **Incremental Migration**: This setup allows for a gradual modernization process. Components are migrated one by one, minimizing disruption and ensuring the game remains functional throughout the transition.
-
-For more details, see [BRIDGE_ARCHITECTURE.md](./docs/BRIDGE_ARCHITECTURE.md). This bridge is a temporary measure to facilitate the migration. Our goal is to eventually have a fully ES6-module-based codebase or use adapters for any truly unmigratable legacy parts, as detailed in the ES6 Migration Plan.
+The codebase is in a hybrid state: legacy JavaScript (root-level files using CreateJS) coexists with modern ES6 modules (`src/`). A bridge layer (`src/bridge/`) was previously used to connect them but is now deprecated. The [Modernization Roadmap](./docs/MODERNIZATION_ROADMAP.md) details the plan to replace the legacy rendering with PixiJS, extract a pure game engine, and build a Bot SDK and arena system.
 
 ## Development Workflow
 
@@ -327,13 +321,13 @@ Pre-commit hooks automatically format and lint changed files.
 
 ## Roadmap Highlights
 
-See [ROADMAP.md](./docs/ROADMAP.md) for the detailed development roadmap.
+See the [Modernization Roadmap](./docs/MODERNIZATION_ROADMAP.md) for the full plan. Key goals:
 
-- Complete ES6 modernization of game components
-- Add AI performance testing and statistics
-- Implement online multiplayer capability
-- Add saving and loading game states
-- Expand AI strategies and improve AI decision making
+- Replace CreateJS rendering with PixiJS (WebGL-accelerated)
+- Extract a pure, renderer-independent game engine
+- Build a Bot SDK so anyone can write a competing AI in a single file
+- Create an arena system with ELO rankings and replay viewer
+- Make the project easy for the community to contribute to
 
 ## Available AI Types
 
@@ -350,9 +344,9 @@ Comprehensive documentation is available in the `docs/` directory:
 
 > **Note for Contributors**: When making significant changes to the codebase, please ensure that relevant documentation is updated accordingly. This includes architecture docs, API references, and any affected development guides.
 
-- [**AI Developer Guide**](./docs/ai/DEVELOPER_GUIDE.md): Detailed guide for AI development
-- [**Bridge Architecture**](./docs/BRIDGE_ARCHITECTURE.md): Details on the architectural approach
-- [**Roadmap**](./docs/ROADMAP.md): Future development plans
+- [**Modernization Roadmap**](./docs/MODERNIZATION_ROADMAP.md): Project vision, architecture, and phased plan
+- [**AI Developer Guide**](./docs/ai/DEVELOPER_GUIDE.md): Guide for creating custom AI strategies
+- [**AI Strategies**](./docs/ai-strategies/README.md): Detailed documentation of AI strategy patterns
 
 For AI coding assistants:
 

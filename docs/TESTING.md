@@ -167,16 +167,7 @@ As we continue the migration to ES6 modules, we plan to:
 3. Add performance testing for critical game operations
 4. Implement end-to-end testing for complete game scenarios
 
-## Phase 2 Enhancements
-
-The ES6 migration plan outlines several improvements to the testing infrastructure during Phase 2. Details are provided in [PHASE2_TESTING_PLAN.md](./PHASE2_TESTING_PLAN.md). Highlights include:
-
-1. Unit tests covering each bridge module and their fallback logic
-2. Integration tests verifying legacy code interaction via the bridges
-3. A new regression test suite located in `tests/regression`
-4. Updated CI configuration to run unit, integration, and regression tests on every pull request
-
-### Regression Suite
+## Regression Suite
 
 The regression suite resides in `tests/regression`. These tests capture previous bugs or key game scenarios to detect regressions. Run only this suite with:
 
@@ -186,6 +177,10 @@ npm run test:regression
 
 Regression tests are also executed with the standard `npm test` command.
 
-### Bridge Tests
+## Bridge Tests (Deprecated)
 
-Bridge-related unit and integration tests are located in `tests/bridge`. They ensure ES6 modules are properly exposed to legacy code and that fallback logic works. These tests run automatically with `npm test`.
+Bridge-related tests are located in `tests/bridge`. The bridge pattern is deprecated (see [MODERNIZATION_ROADMAP.md](./MODERNIZATION_ROADMAP.md)) and these tests will be removed when the bridge code is deleted. They still run with `npm test` while the bridge code exists.
+
+## Future Testing Plans
+
+The project will migrate from Jest to Vitest as part of the modernization. See [MODERNIZATION_ROADMAP.md](./MODERNIZATION_ROADMAP.md) for details on the testing strategy across all phases.

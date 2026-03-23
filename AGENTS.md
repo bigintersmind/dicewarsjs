@@ -4,15 +4,7 @@ This file provides guidance to AI coding assistants when working with code in th
 
 > **Note**: This file mirrors CLAUDE.md to ensure all AI agents work from the same best practices and have consistent understanding of the project.
 
-**Important Project Status Update:** The project's ES6 migration plan and roadmap have been recently updated (see `docs/ES6_MIGRATION_PLAN.md` and `docs/ROADMAP.md`). Please refer to these documents for the latest architectural goals and migration strategies when assisting with code changes.
-
-## Git Workflow Preferences
-
-When working with git:
-
-- Provide git commands for users to run manually rather than executing git commits directly
-- This allows users to maintain control over commit messages and authorship
-- For example, provide the `git add` and `git commit` commands for manual execution
+**Important Project Status Update:** The project is following a new modernization roadmap (see `docs/MODERNIZATION_ROADMAP.md`) that replaces the old bridge-based ES6 migration. The bridge pattern is deprecated and will be removed. Refer to the roadmap for all architectural goals and migration strategies.
 
 ## Build and Development Commands
 
@@ -52,6 +44,30 @@ npm run lint:fix
 
 # Format code with Prettier
 npm run format
+
+# Check formatting without writing
+npm run format:check
+
+# Run regression tests
+npm run test:regression
+
+# Run jest benchmark tests
+npm run test:benchmark
+
+# Check bundle size
+npm run perf:check
+
+# Build both modern and legacy bundles
+npm run build:all
+
+# Start legacy development server
+npm run dev:legacy
+
+# Build legacy bundle only
+npm run build:legacy
+
+# Auto-fix lint warnings
+npm run fix-warnings
 ```
 
 ## Code Quality Requirements
@@ -60,7 +76,7 @@ Before completing any task, always ensure:
 
 1. **Tests Pass**: Run `npm test` to verify all tests pass
 2. **Linting**: Run `npm run lint` to check for code quality issues
-3. **Coverage**: Maintain test coverage above 60% (run `npm run test:coverage`)
+3. **Coverage**: Maintain test coverage above 60% globally, 70% for models, 50% for mechanics (run `npm run test:coverage`)
 4. **Build Verification**: Run `npm run build` to ensure the project builds successfully
 
 When test failures occur:
@@ -81,7 +97,7 @@ The codebase uses a hybrid architecture with three main components:
 
 2. **Modern ES6 Modules**: Structured code with proper imports/exports in the src/ directory.
 
-3. **Bridge Pattern**: Connects legacy code with ES6 modules by exposing modern functionality to the global scope (src/bridge/).
+3. **Bridge Pattern** (DEPRECATED): Previously connected legacy code with ES6 modules (src/bridge/). This pattern is deprecated and will be removed per the modernization roadmap. Do not add new bridge modules.
 
 ### Core Components
 
@@ -100,13 +116,19 @@ The codebase uses a hybrid architecture with three main components:
 
 - **State Management** (src/state/): Contains immutable data structures for game state.
 
-- **Models** (src/models/): Data structures for game entities (Area, Player, Battle).
+- **Models** (src/models/): Data structures for game entities (AreaData, PlayerData, Battle, HistoryData, JoinData).
+
+- **Enhanced Modules** (src/enhanced/, src/models/enhanced/, src/mechanics/enhanced/): Improved variants of core components with additional features like adjacency graphs, territory graphs, and disjoint sets.
+
+- **UI** (src/ui/): UI components including player status display and title screen.
+
+- **Adapters** (src/adapters/): Adapter classes for interfacing with legacy components (e.g., MCAdapter).
 
 - **Error Handling** (src/mechanics/errors/): Custom error classes for different error types.
 
 ### Important Design Patterns
 
-1. **Bridge Pattern**: Used for transitioning between legacy and modern code. Bridge modules import from ES6 modules and expose functionality to both global scope (for legacy code) and as ES6 exports (for modern code).
+1. **Bridge Pattern** (DEPRECATED): Previously used for transitioning between legacy and modern code. The bridge is deprecated per `docs/MODERNIZATION_ROADMAP.md` — do not extend it. New functionality should follow the modernization roadmap's architecture.
 
 2. **Immutable Data**: The state directory implements immutable data patterns for the game state.
 
@@ -126,10 +148,11 @@ When working with AI strategies:
 ### Testing Approach
 
 1. Unit tests for individual components (AI strategies, map generation, battle resolution).
-2. Integration tests for the bridge components.
+2. Integration tests for the bridge components (bridge is deprecated but tests remain while code exists).
 3. Performance tests for comparing AI strategies.
 4. Test utilities and mocks are located in the tests/mocks/ directory.
-5. Error handling should be tested thoroughly, including edge cases.
+5. Regression tests are in tests/regression/ and benchmarks in tests/benchmarks/.
+6. Error handling should be tested thoroughly, including edge cases.
 
 ## Best Practices
 
@@ -139,11 +162,18 @@ When working with AI strategies:
 4. **Testing**: Write tests for new functionality and ensure existing tests pass
 5. **Commit Messages**: Use conventional commit format (e.g., "feat:", "fix:", "test:", "docs:")
 
+## Gotchas
+
+- **ESLint ignores legacy root files**: The .eslintrc.js explicitly excludes `areadice.js`, `mc.js`, `game.js`, `config.js`, and `main.js` from linting.
+- **Jest module aliases**: Tests use path aliases (`@utils`, `@ai`, `@models`, `@mechanics`, `@state`) configured in jest.config.js. Use these in test imports.
+- **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` files.
+- **Bridge files excluded from coverage**: jest.config.js excludes `src/bridge/` from coverage thresholds. The bridge is deprecated and will be removed.
+
 ## Common Pitfalls to Avoid
 
 1. Don't modify legacy files unless specifically required
 2. Always run tests before suggesting code is complete
-3. Maintain the bridge pattern when adding new functionality
+3. Do not extend the bridge pattern — it is deprecated. Follow `docs/MODERNIZATION_ROADMAP.md` for new functionality
 4. Ensure error events are properly emitted for error tracking
 5. Keep AI functions pure and deterministic for testing
 

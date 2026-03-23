@@ -168,8 +168,4 @@ stage.addChild(statusDisplay);
 
 ## Future Development
 
-- Add unit tests for game logic
-- Implement AI vs AI simulation mode
-- Add statistics tracking for AI performance
-- Create additional AI strategies
-- Implement mobile touch controls
+See [`docs/MODERNIZATION_ROADMAP.md`](../docs/MODERNIZATION_ROADMAP.md) for the full modernization plan, including PixiJS rendering, a Bot SDK, and an arena system for bot competitions.

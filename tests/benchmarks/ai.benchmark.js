@@ -14,7 +14,7 @@ import { ai_adaptive } from '../../src/ai/ai_adaptive.js';
  * Tests each AI strategy in isolation with standard game state
  */
 describe('AI Strategy Performance Benchmarks', () => {
-  // Use smaller iteration counts for jest test environment
+  // Use smaller iteration counts for vitest test environment
   const ITERATIONS = 100;
   const WARMUP_RUNS = 5;
   const SMALL_ITERATIONS = 20; // For more complex AIs
@@ -105,8 +105,8 @@ describe('AI Strategy Performance Benchmarks', () => {
  */
 describe('AI Strategy Comparison Benchmark', () => {
   /*
-   * Only skip when running Jest's normal test suite - run it during benchmarks
-   * Run with: NODE_ENV=benchmark jest -t "Compare all AI strategies" --no-coverage
+   * Only skip when running Vitest's normal test suite - run it during benchmarks
+   * Run with: NODE_ENV=benchmark vitest run -t "Compare all AI strategies"
    */
   test(
     process.env.NODE_ENV === 'benchmark'

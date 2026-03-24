@@ -1,10 +1,6 @@
 /**
  * Tests for AI Handler Module
- *
- * @vitest-environment jsdom
  */
-
-import { vi } from 'vitest';
 
 // Now import modules
 import {

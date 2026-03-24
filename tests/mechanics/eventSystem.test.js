@@ -1,10 +1,7 @@
 /**
  * Tests for Event System Module
- *
- * @vitest-environment jsdom
  */
 
-import { vi } from 'vitest';
 import {
   EventType,
   gameEvents,

@@ -1,10 +1,6 @@
 /**
  * Tests for Battle Resolution Module
- *
- * @vitest-environment jsdom
  */
-
-import { vi } from 'vitest';
 
 // Import the actual module after mocks are set up
 import {

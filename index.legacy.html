@@ -97,7 +97,7 @@
         }
       }
     </script>
-    <!-- All script tags need to be in body for proper ordering with webpack -->
+    <!-- All script tags are in body for proper load ordering -->
   </head>
 
   <body>
@@ -112,6 +112,6 @@
     <script src="main.js"></script>
     <!-- Modern module entry point -->
     <script type="module" src="src/gameWrapper.js"></script>
-    <!-- Webpack will inject ES6 module bundles after these scripts -->
+    <!-- Legacy entry point: scripts are loaded manually in order -->
   </body>
 </html>

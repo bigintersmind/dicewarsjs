@@ -67,7 +67,7 @@ Before completing any task, always ensure:
 
 1. **Tests Pass**: Run `npm test` to verify all tests pass
 2. **Linting**: Run `npm run lint` to check for code quality issues
-3. **Coverage**: Maintain test coverage above 60% globally, 70% for models, 50% for mechanics (run `npm run test:coverage`)
+3. **Coverage**: Maintain test coverage above 60% globally, 70% for models, 50%+ statements for mechanics (run `npm run test:coverage`; see `vite.config.js` for exact per-directory thresholds)
 4. **Build Verification**: Run `npm run build` to ensure the project builds successfully
 
 When test failures occur:

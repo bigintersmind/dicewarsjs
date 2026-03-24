@@ -1,10 +1,6 @@
 /**
  * Tests for Error Handling Module
- *
- * @vitest-environment jsdom
  */
-
-import { vi } from 'vitest';
 
 // Now import the modules
 import {

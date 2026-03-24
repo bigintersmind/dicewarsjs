@@ -9,7 +9,7 @@ This is a modern, enhanced version of [Dice Wars](https://www.gamedesign.jp/game
 
 This fork significantly extends the project with:
 
-- Modern JavaScript practices (ES6+ modules, webpack)
+- Modern JavaScript practices (ES6+ modules, Vite)
 - Improved architecture and code organization
 - Enhanced gameplay features and UI improvements
 - Comprehensive documentation for players and developers
@@ -218,9 +218,7 @@ dicewarsjs/
 ├── docs/                    # Documentation
 │   ├── ai-strategies/       # AI strategy documentation
 │   └── ...                  # Other documentation
-├── webpack.common.js        # Shared webpack configuration
-├── webpack.legacy.js        # Legacy build config
-├── webpack.modern.js        # Modern ES module build config
+├── vite.config.js           # Vite build and test configuration
 ├── .eslintrc.js             # ESLint configuration
 └── package.json             # Dependencies and scripts
 ```
@@ -314,8 +312,8 @@ If any of these checks fail, fix the issues before committing your changes. This
 
 - **ESLint**: Enforces coding standards
 - **Prettier**: Ensures consistent code formatting
-- **Jest**: For unit and integration testing
-- **Webpack**: Bundles and optimizes code
+- **Vitest**: For unit and integration testing
+- **Vite**: Bundles and optimizes code
 
 Pre-commit hooks automatically format and lint changed files.
 

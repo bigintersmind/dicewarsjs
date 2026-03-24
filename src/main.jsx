@@ -3,6 +3,13 @@ import { App } from './ui/App.jsx';
 import { initRenderer } from './renderer/GameRenderer.js';
 
 const canvas = document.getElementById('pixi-canvas');
-initRenderer(canvas);
+if (canvas) {
+  initRenderer(canvas).catch(err => {
+    console.error('PixiJS renderer failed to initialize:', err);
+  });
+}
 
-render(<App />, document.getElementById('app'));
+const appRoot = document.getElementById('app');
+if (appRoot) {
+  render(<App />, appRoot);
+}

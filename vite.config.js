@@ -1,20 +1,17 @@
 import { defineConfig } from 'vite';
 import preact from '@preact/preset-vite';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [preact()],
 
   resolve: {
     alias: {
-      '@utils': path.resolve(__dirname, 'src/utils'),
-      '@ai': path.resolve(__dirname, 'src/ai'),
-      '@models': path.resolve(__dirname, 'src/models'),
-      '@mechanics': path.resolve(__dirname, 'src/mechanics'),
-      '@state': path.resolve(__dirname, 'src/state'),
+      '@utils': path.resolve(import.meta.dirname, 'src/utils'),
+      '@ai': path.resolve(import.meta.dirname, 'src/ai'),
+      '@models': path.resolve(import.meta.dirname, 'src/models'),
+      '@mechanics': path.resolve(import.meta.dirname, 'src/mechanics'),
+      '@state': path.resolve(import.meta.dirname, 'src/state'),
     },
   },
 
@@ -35,10 +32,6 @@ export default defineConfig({
     },
   },
 
-  worker: {
-    format: 'es',
-  },
-
   test: {
     environment: 'jsdom',
     setupFiles: ['./tests/setup.js'],
@@ -47,14 +40,14 @@ export default defineConfig({
 
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.js'],
+      include: ['src/**/*.{js,jsx}'],
       exclude: ['src/bridge/**/*.js'],
       reportsDirectory: 'coverage',
       reporter: ['text', 'lcov', 'html'],
       thresholds: {
         statements: 60,
         branches: 50,
-        functions: 59,
+        functions: 60,
         lines: 60,
         'src/utils/**/*.js': {
           statements: 30,

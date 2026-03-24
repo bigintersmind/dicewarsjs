@@ -34,9 +34,8 @@ build/
 .cache/
 .parcel-cache/
 
-# Webpack (legacy, can be removed)
-.webpack/
-webpack-stats.json
+# Sound assets at root are legacy; canonical location is public/sound/
+sound/
 
 # Vite
 .vite/

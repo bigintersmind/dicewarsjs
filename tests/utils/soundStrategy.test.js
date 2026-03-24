@@ -24,19 +24,19 @@ describe('Sound Strategy', () => {
     originalSetTimeout = window.setTimeout;
 
     // Reset and mock setTimeout
-    window.setTimeout = jest.fn(callback => {
+    window.setTimeout = vi.fn(callback => {
       callback();
       return 123; // Mock timer ID
     });
 
     // Mock requestIdleCallback
-    window.requestIdleCallback = jest.fn(callback => {
+    window.requestIdleCallback = vi.fn(callback => {
       callback({ timeRemaining: () => 50, didTimeout: false });
       return 456; // Mock timer ID
     });
 
     // Spy on console.error
-    consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -70,7 +70,7 @@ describe('Sound Strategy', () => {
   });
 
   test('addLoadListener registers and returns unregister function', () => {
-    const mockListener = jest.fn();
+    const mockListener = vi.fn();
 
     // Add listener
     const removeListener = addLoadListener(mockListener);
@@ -87,8 +87,8 @@ describe('Sound Strategy', () => {
   });
 
   test('updateLoadStatus updates loading count and notifies listeners', () => {
-    const mockListener1 = jest.fn();
-    const mockListener2 = jest.fn();
+    const mockListener1 = vi.fn();
+    const mockListener2 = vi.fn();
 
     // Add listeners
     addLoadListener(mockListener1);
@@ -134,7 +134,7 @@ describe('Sound Strategy', () => {
     const tempRequestIdleCallback = window.requestIdleCallback;
     delete window.requestIdleCallback;
 
-    const mockCallback = jest.fn();
+    const mockCallback = vi.fn();
 
     // Call scheduleWhenIdle
     scheduleWhenIdle(mockCallback);
@@ -148,7 +148,7 @@ describe('Sound Strategy', () => {
 
   test('loadSoundsByPriority loads critical sounds immediately', () => {
     // Setup fresh mocks for this test
-    const mockLoadSoundFn = jest.fn();
+    const mockLoadSoundFn = vi.fn();
 
     // Call loadSoundsByPriority
     loadSoundsByPriority(mockLoadSoundFn);
@@ -179,8 +179,8 @@ describe('Sound Strategy', () => {
   test('createLoadingIndicator creates and attaches DOM element', () => {
     // Set up mock container
     const mockContainer = {
-      appendChild: jest.fn(),
-      removeChild: jest.fn(),
+      appendChild: vi.fn(),
+      removeChild: vi.fn(),
     };
 
     // Mock document.createElement
@@ -190,7 +190,7 @@ describe('Sound Strategy', () => {
       style: {},
       innerHTML: '',
     };
-    document.createElement = jest.fn(() => mockIndicator);
+    document.createElement = vi.fn(() => mockIndicator);
 
     // Create loading indicator
     const indicator = createLoadingIndicator(mockContainer);
@@ -216,8 +216,8 @@ describe('Sound Strategy', () => {
   test('loading indicator responds to loading state changes', () => {
     // Set up mock container
     const mockContainer = {
-      appendChild: jest.fn(),
-      removeChild: jest.fn(),
+      appendChild: vi.fn(),
+      removeChild: vi.fn(),
     };
 
     // Mock document.createElement
@@ -227,7 +227,7 @@ describe('Sound Strategy', () => {
       style: {},
       innerHTML: '',
     };
-    document.createElement = jest.fn(() => mockIndicator);
+    document.createElement = vi.fn(() => mockIndicator);
 
     // Create loading indicator
     createLoadingIndicator(mockContainer);

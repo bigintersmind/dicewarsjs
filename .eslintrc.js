@@ -3,14 +3,16 @@ module.exports = {
     browser: true,
     es2021: true,
     node: true,
-    jest: true,
   },
-  extends: ['plugin:jest/recommended', 'plugin:prettier/recommended'],
+  extends: ['plugin:vitest/recommended', 'plugin:prettier/recommended'],
   parserOptions: {
     ecmaVersion: 2022,
     sourceType: 'module',
+    ecmaFeatures: {
+      jsx: true,
+    },
   },
-  plugins: ['jest', 'prettier'],
+  plugins: ['vitest', 'prettier'],
   rules: {
     // Prettier integration
     'prettier/prettier': ['error'],
@@ -45,8 +47,6 @@ module.exports = {
       { code: 100, ignoreComments: true, ignoreStrings: true, ignoreTemplateLiterals: true },
     ],
 
-    // Allow file extensions in import statements
-
     // Allow non-camelcase identifiers (due to existing AI implementation)
     camelcase: ['off'],
 
@@ -56,7 +56,7 @@ module.exports = {
     // Allow continue statements (common in game loops)
     'no-continue': ['off'],
 
-    // Allow underscore prefixes for private members (common ES6 pattern before private fields)
+    // Allow underscore prefixes for private members
     'no-underscore-dangle': ['off'],
 
     // Allow iterators (for...of) for game logic
@@ -83,19 +83,19 @@ module.exports = {
     'global-require': ['off'],
     // Allow prefer-destructuring in Game code
     'prefer-destructuring': ['off'],
-    // Disable jest/valid-title for benchmark titles
-    'jest/valid-title': ['off'],
+    // Disable vitest/valid-title for benchmark titles
+    'vitest/valid-title': ['off'],
     // Allow return-assign in test code
     'no-return-assign': ['off'],
-    // Disable jest/expect-expect in tests
-    'jest/expect-expect': ['off'],
+    // Disable vitest/expect-expect in tests
+    'vitest/expect-expect': ['off'],
     // Allow func-names in test files
     'func-names': ['off'],
   },
   settings: {
     'import/resolver': {
       node: {
-        extensions: ['.js'],
+        extensions: ['.js', '.jsx'],
       },
     },
   },

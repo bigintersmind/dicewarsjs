@@ -18,7 +18,7 @@ describe('Adaptive AI', () => {
     });
 
     // Add the required set_area_tc method for testing
-    mockGame.set_area_tc = jest.fn(playerNum => {
+    mockGame.set_area_tc = vi.fn(playerNum => {
       if (mockGame.player[playerNum]) {
         // Default implementation sets area_tc to area_c
         mockGame.player[playerNum].area_tc = mockGame.player[playerNum].area_c;
@@ -45,7 +45,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
 
@@ -63,7 +63,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       const result = ai_adaptive(mockGame);
 
@@ -99,7 +99,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
 
@@ -135,7 +135,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
 
@@ -165,7 +165,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
 
@@ -201,7 +201,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
 
@@ -226,7 +226,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
 
@@ -264,7 +264,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
 
@@ -297,7 +297,7 @@ describe('Adaptive AI', () => {
 
       // Force a very low risk tolerance with deterministic random
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.1);
+      Math.random = vi.fn().mockReturnValue(0.1);
 
       ai_adaptive(mockGame);
 
@@ -334,7 +334,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
 
@@ -354,7 +354,7 @@ describe('Adaptive AI', () => {
         1: 2, // Player 1 has 2 connected territories initially
       };
 
-      mockGame.set_area_tc = jest.fn(playerNum => {
+      mockGame.set_area_tc = vi.fn(playerNum => {
         // Simulate recalculation of area_tc
         if (playerNum === 1) {
           // When territory 2 is captured, area_tc increases to 3
@@ -379,7 +379,7 @@ describe('Adaptive AI', () => {
 
       // Mock Math.random to ensure consistent results
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
 

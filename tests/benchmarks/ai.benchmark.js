@@ -24,7 +24,7 @@ describe('AI Strategy Performance Benchmarks', () => {
 
   beforeAll(() => {
     // Disable console logging during tests
-    jest.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
 
     benchmark = new AIBenchmark({
       iterations: ITERATIONS,

@@ -28,7 +28,7 @@ console.log(`%cDiceWars JS - ES6 Edition`, 'font-size:14px;font-weight:bold;colo
  */
 
 // Export modules for reference and future use
-export * from '@models/index.js';
-export * from '@ai/index.js';
-export * from '@utils/config.js';
+export * from './models/index.js';
+export * from './ai/index.js';
+export * from './utils/config.js';
 export { Game } from './Game.js';

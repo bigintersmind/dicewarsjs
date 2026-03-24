@@ -6,7 +6,7 @@
  * the interface for gameplay mechanics.
  */
 
-import { AreaData, PlayerData, JoinData, HistoryData } from '@models/index.js';
+import { AreaData, PlayerData, JoinData, HistoryData } from './models/index.js';
 // AI implementations are loaded dynamically via configuration
 import { 
   // Map generation
@@ -15,10 +15,10 @@ import {
   executeAttack, distributeReinforcements, setPlayerTerritoryData,
   // AI handling
   executeAIMove, AI_REGISTRY
-} from '@mechanics/index.js';
-import { getConfig } from '@utils/config.js';
-import { loadSoundsByPriority } from '@utils/soundStrategy.js';
-import { loadSound, getAllSoundIds } from '@utils/sound.js';
+} from './mechanics/index.js';
+import { getConfig } from './utils/config.js';
+import { loadSoundsByPriority } from './utils/soundStrategy.js';
+import { loadSound, getAllSoundIds } from './utils/sound.js';
 
 /**
  * Game Class
@@ -405,18 +405,18 @@ export class Game {
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
       window.requestIdleCallback(() => {
         // Preload battle resolution mechanics
-        import('@mechanics/battleResolution.js')
+        import('./mechanics/battleResolution.js')
           .catch(err => console.warn('Error preloading battle mechanics:', err));
           
         // Preload map generation for when starting a new game  
         setTimeout(() => {
-          import('@mechanics/mapGenerator.js')
+          import('./mechanics/mapGenerator.js')
             .catch(err => console.warn('Error preloading map generator:', err));
         }, 1000);
         
         // Load debugging tools in development mode
         if (process.env.NODE_ENV === 'development') {
-          import('@utils/debugTools.js').then(module => {
+          import('./utils/debugTools.js').then(module => {
             const { createStateInspector, createPerformancePanel, measureFPS } = module;
             
             // Initialize debug panels if enabled

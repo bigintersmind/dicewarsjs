@@ -7,10 +7,9 @@
  * Run with: node tests/benchmarks/benchmark.cjs
  */
 
-// Use require() instead of import
+const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const jest = require('jest');
 
 // Configuration
 const RESULTS_DIR = path.join(process.cwd(), 'benchmark-results');
@@ -21,24 +20,24 @@ if (!fs.existsSync(RESULTS_DIR)) {
 }
 
 console.log('\n===== Running AI Strategy Benchmarks =====');
-console.log('This will execute the benchmark tests using Jest\n');
+console.log('This will execute the benchmark tests using Vitest\n');
 
 // Set environment to enable benchmark tests
 process.env.NODE_ENV = 'benchmark';
 
 // Run the benchmark tests with increased timeouts
-jest.run(['tests/benchmarks/ai.benchmark.js', '--testTimeout=30000', '--no-coverage']).then(() => {
+try {
+  execSync('npx vitest run tests/benchmarks/ai.benchmark.js --testTimeout=30000', {
+    stdio: 'inherit',
+    env: { ...process.env, NODE_ENV: 'benchmark' },
+  });
   console.log('\n===== Benchmarks Complete =====');
   console.log(
     `\nBenchmark tests have completed. To run the full benchmark suite with visualizations:`
   );
-  console.log(`1. Add "type": "module" to your package.json temporarily`);
-  console.log(`2. Run: node --experimental-json-modules tests/benchmarks/runBenchmarks.js`);
-  console.log(`3. Check the benchmark-results/ directory for detailed reports`);
-});
-
-/**
- * This script runs the Jest benchmark tests without ESM import issues.
- * For the full benchmark experience with visualizations, follow the
- * instructions printed after the tests complete.
- */
+  console.log(`1. Run: node tests/benchmarks/runBenchmarks.js`);
+  console.log(`2. Check the benchmark-results/ directory for detailed reports`);
+} catch (error) {
+  console.error('Benchmark run failed:', error.message);
+  process.exit(1);
+}

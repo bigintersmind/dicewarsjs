@@ -17,13 +17,13 @@ import { BridgeInitializer, initCallbacks } from './initialization.js';
 import './ai.js';
 import './Game.js';
 // Import mechanics but only re-export non-conflicting parts
-import * as Mechanics from '@mechanics/index.js';
+import * as Mechanics from '../mechanics/index.js';
 
 // Export utility modules for ES6 usage
-export * from '@utils/config.js';
-export * from '@utils/gameUtils.js';
-export * from '@utils/render.js';
-export * from '@utils/sound.js';
+export * from '../utils/config.js';
+export * from '../utils/gameUtils.js';
+export * from '../utils/render.js';
+export * from '../utils/sound.js';
 
 // Export core modules for ES6 usage
 export { Game } from '../Game.js';
@@ -39,7 +39,7 @@ export const {
 } = Mechanics;
 
 // Export AI modules for ES6 usage
-export * from '@ai/index.js';
+export * from '../ai/index.js';
 
 // Export initialization system
 export { BridgeInitializer, initCallbacks };

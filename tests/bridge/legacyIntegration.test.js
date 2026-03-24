@@ -11,7 +11,7 @@ const setupMcjsMock = () => {
   global.lib = global.lib || {};
 
   // Create the anonymous function wrapper that mc.js expects
-  const mcInit = jest.fn((lib, _img, _cjs, _ss) => {
+  const mcInit = vi.fn((lib, _img, _cjs, _ss) => {
     // Mock basic lib properties that mc.js sets
     lib.webFontTxtFilters = {};
     lib.properties = {
@@ -44,7 +44,7 @@ describe('Bridge to Legacy Integration', () => {
   let originalWindow;
 
   beforeEach(() => {
-    jest.resetModules();
+    vi.resetModules();
     // fresh DOM with canvas element for main.js
     document.body.innerHTML = '<canvas id="myCanvas"></canvas>';
 
@@ -119,7 +119,7 @@ describe('Bridge to Legacy Integration', () => {
     require('../../src/gameWrapper.js');
 
     // Before loading main.js, we need to ensure applyGameConfig is available
-    global.applyGameConfig = jest.fn();
+    global.applyGameConfig = vi.fn();
 
     // main.js creates the game instance and other globals
     require('../../src/main.js');

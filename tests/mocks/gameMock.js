@@ -23,7 +23,7 @@ export const createGameMock = (options = {}) => {
     adat: [],
     area_from: 0,
     area_to: 0,
-    get_pn: jest.fn().mockReturnValue(currentPlayer),
+    get_pn: vi.fn().mockReturnValue(currentPlayer),
   };
 
   // Initialize area data

@@ -4,7 +4,7 @@
 
 describe('Bridge Module Global Exports', () => {
   beforeEach(() => {
-    jest.resetModules();
+    vi.resetModules();
     global.window = global.window || {};
     global.process = global.process || { env: { NODE_ENV: 'development' } };
   });

@@ -1,10 +1,10 @@
 /**
  * Tests for AI Handler Module
  *
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
-import { jest } from '@jest/globals';
+import { vi } from 'vitest';
 
 // Now import modules
 import {
@@ -16,11 +16,11 @@ import {
 import { AI_STRATEGIES, createAIFunctionMapping } from '../../src/ai/index.js';
 
 // Mock createAIFunctionMapping before importing the module
-jest.mock('../../src/ai/index.js', () => {
-  const actualModule = jest.requireActual('../../src/ai/index.js');
+vi.mock('../../src/ai/index.js', async () => {
+  const actualModule = await vi.importActual('../../src/ai/index.js');
   return {
     ...actualModule,
-    createAIFunctionMapping: jest.fn(),
+    createAIFunctionMapping: vi.fn(),
   };
 });
 
@@ -110,9 +110,9 @@ describe('AI Handler Module', () => {
     let consoleLogSpy;
 
     beforeEach(() => {
-      mockAIFunction = jest.fn().mockReturnValue(1);
-      consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      mockAIFunction = vi.fn().mockReturnValue(1);
+      consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       gameState = {
         ai: [null, mockAIFunction],
@@ -138,7 +138,7 @@ describe('AI Handler Module', () => {
 
       // Mock the default AI
       const originalDefault = AI_STRATEGIES.ai_default?.implementation;
-      const mockDefaultAI = jest.fn().mockReturnValue(0);
+      const mockDefaultAI = vi.fn().mockReturnValue(0);
       AI_STRATEGIES.ai_default = {
         ...AI_STRATEGIES.ai_default,
         implementation: mockDefaultAI,
@@ -160,26 +160,20 @@ describe('AI Handler Module', () => {
     it('should handle missing AI function without fallback', () => {
       gameState.ai[1] = null;
 
-      // Mock the aiHandler module directly to test when ai_default is undefined
-      jest.isolateModules(() => {
-        const mockAIModule = {
-          AI_STRATEGIES: {},
-          createAIFunctionMapping: jest.fn(),
-        };
+      // Temporarily remove ai_default so there's no fallback
+      const originalDefault = AI_STRATEGIES.ai_default;
+      delete AI_STRATEGIES.ai_default;
 
-        jest.doMock('../../src/ai/index.js', () => mockAIModule);
+      try {
+        const result = executeAIMove(gameState);
 
-        // Import again in isolated environment
-        const {
-          executeAIMove: isolatedExecuteAIMove,
-        } = require('../../src/mechanics/aiHandler.js');
-
-        const result = isolatedExecuteAIMove(gameState);
-
-        // Should only call console.error once for the missing AI function
+        // Should call console.error for the missing AI function
         expect(consoleErrorSpy).toHaveBeenCalledWith('AI function not found for player 1');
         expect(result).toBe(0);
-      });
+      } finally {
+        // Restore ai_default
+        AI_STRATEGIES.ai_default = originalDefault;
+      }
     });
 
     it('should handle AI function that is not actually a function', () => {
@@ -187,7 +181,7 @@ describe('AI Handler Module', () => {
 
       // Ensure ai_default exists for fallback
       const originalDefault = AI_STRATEGIES.ai_default?.implementation;
-      const mockDefaultAI = jest.fn().mockReturnValue(0);
+      const mockDefaultAI = vi.fn().mockReturnValue(0);
       AI_STRATEGIES.ai_default = {
         ...AI_STRATEGIES.ai_default,
         implementation: mockDefaultAI,
@@ -219,8 +213,8 @@ describe('AI Handler Module', () => {
     });
 
     it('should configure AI strategies from assignments', async () => {
-      const mockAI1 = jest.fn();
-      const mockAI2 = jest.fn();
+      const mockAI1 = vi.fn();
+      const mockAI2 = vi.fn();
       const mockAIs = [mockAI1, mockAI2];
 
       // Mock the createAIFunctionMapping to return our mock functions
@@ -248,7 +242,7 @@ describe('AI Handler Module', () => {
 
     it('should not mutate original game state', async () => {
       const originalAI = [...gameState.ai];
-      const mockAIs = [jest.fn(), jest.fn()];
+      const mockAIs = [vi.fn(), vi.fn()];
 
       // Mock the createAIFunctionMapping to return our mock functions
       createAIFunctionMapping.mockResolvedValue(mockAIs);

@@ -1,6 +1,6 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Regression: Game boot sequence start_game initializes consistent state 1`] = `
+exports[`Regression: Game boot sequence > start_game initializes consistent state 1`] = `
 {
   "ban": 0,
   "firstAreaOwner": 5,

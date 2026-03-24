@@ -64,7 +64,7 @@ describe('Default AI', () => {
 
     // Mock Math.random to make the test deterministic
     const originalRandom = Math.random;
-    Math.random = jest.fn().mockReturnValue(0.5);
+    Math.random = vi.fn().mockReturnValue(0.5);
 
     ai_default(mockGame);
 
@@ -90,7 +90,7 @@ describe('Default AI', () => {
 
     // Mock Math.random to make the test deterministic - will attack with 90% probability
     const originalRandom = Math.random;
-    Math.random = jest.fn().mockReturnValue(0.5); // > 0.1, so should attack
+    Math.random = vi.fn().mockReturnValue(0.5); // > 0.1, so should attack
 
     ai_default(mockGame);
 
@@ -126,7 +126,7 @@ describe('Default AI', () => {
 
     // Mock Math.random to avoid the equal dice attack
     const originalRandom = Math.random;
-    Math.random = jest
+    Math.random = vi
       .fn()
       .mockReturnValueOnce(0.05) // <= 0.1, should skip equal dice attack
       .mockReturnValueOnce(0.5); // For move selection

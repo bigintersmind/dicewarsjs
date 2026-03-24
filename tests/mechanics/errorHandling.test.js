@@ -1,10 +1,10 @@
 /**
  * Tests for Error Handling Module
  *
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
-import { jest } from '@jest/globals';
+import { vi } from 'vitest';
 
 // Now import the modules
 import {
@@ -18,9 +18,9 @@ import {
 import { GameError, TerritoryError, PlayerError } from '../../src/mechanics/errors/index.js';
 
 // Mock the event system before importing the errors
-jest.mock('../../src/mechanics/eventSystem.js', () => ({
+vi.mock('../../src/mechanics/eventSystem.js', () => ({
   gameEvents: {
-    emit: jest.fn(),
+    emit: vi.fn(),
   },
   EventType: {
     CUSTOM: 'custom',
@@ -227,7 +227,7 @@ describe('Error Handling Module', () => {
     let consoleErrorSpy;
 
     beforeEach(() => {
-      consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(() => {
@@ -235,7 +235,7 @@ describe('Error Handling Module', () => {
     });
 
     it('should execute function normally when no error', () => {
-      const mockFn = jest.fn((a, b) => a + b);
+      const mockFn = vi.fn((a, b) => a + b);
       const wrapped = withErrorHandling(mockFn);
 
       const result = wrapped(1, 2);
@@ -245,10 +245,10 @@ describe('Error Handling Module', () => {
     });
 
     it('should catch errors and use custom error handler', () => {
-      const mockFn = jest.fn(() => {
+      const mockFn = vi.fn(() => {
         throw new Error('Test error');
       });
-      const errorHandler = jest.fn((error, ...args) => ({
+      const errorHandler = vi.fn((error, ...args) => ({
         error: error.message,
         args,
       }));
@@ -266,19 +266,19 @@ describe('Error Handling Module', () => {
 
     it('should log error and rethrow GameError', () => {
       const gameError = new GameError('Game error', 'ERR_TEST');
-      const mockFn = jest.fn(() => {
+      const mockFn = vi.fn(() => {
         throw gameError;
       });
 
       const wrapped = withErrorHandling(mockFn);
 
       expect(() => wrapped()).toThrow(gameError);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error in mockConstructor:', gameError);
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Error in spy:', gameError);
     });
 
     it('should convert non-GameError to GameError and rethrow', () => {
       const regularError = new Error('Regular error');
-      const mockFn = jest.fn(() => {
+      const mockFn = vi.fn(() => {
         throw regularError;
       });
 

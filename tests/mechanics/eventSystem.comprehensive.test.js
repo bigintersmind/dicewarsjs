@@ -26,7 +26,7 @@ describe('EventSystem - Comprehensive Coverage', () => {
 
   describe('EventEmitter middleware functionality', () => {
     it('should process events through middleware', async () => {
-      const middleware = jest.fn((eventType, data) => ({ ...data, processed: true }));
+      const middleware = vi.fn((eventType, data) => ({ ...data, processed: true }));
 
       gameEvents.addMiddleware(middleware);
 
@@ -51,9 +51,9 @@ describe('EventSystem - Comprehensive Coverage', () => {
        * The middleware are run in parallel in the actual implementation
        * so we need to test differently
        */
-      const middleware1 = jest.fn((eventType, data) => ({ ...data, step1: true }));
+      const middleware1 = vi.fn((eventType, data) => ({ ...data, step1: true }));
 
-      const middleware2 = jest.fn((eventType, data) => ({ ...data, step2: true }));
+      const middleware2 = vi.fn((eventType, data) => ({ ...data, step2: true }));
 
       gameEvents.addMiddleware(middleware1);
       gameEvents.addMiddleware(middleware2);
@@ -75,7 +75,7 @@ describe('EventSystem - Comprehensive Coverage', () => {
     });
 
     it('should allow middleware to be removed', async () => {
-      const middleware = jest.fn((eventType, data) => ({ ...data, processed: true }));
+      const middleware = vi.fn((eventType, data) => ({ ...data, processed: true }));
 
       const removeMiddleware = gameEvents.addMiddleware(middleware);
 
@@ -98,11 +98,11 @@ describe('EventSystem - Comprehensive Coverage', () => {
     });
 
     it('should handle middleware that returns null', async () => {
-      const middleware1 = jest.fn(
+      const middleware1 = vi.fn(
         () => null // Returns null
       );
 
-      const middleware2 = jest.fn((eventType, data) => ({ ...data, processed: true }));
+      const middleware2 = vi.fn((eventType, data) => ({ ...data, processed: true }));
 
       gameEvents.addMiddleware(middleware1);
       gameEvents.addMiddleware(middleware2);
@@ -128,17 +128,17 @@ describe('EventSystem - Comprehensive Coverage', () => {
     });
 
     it('should handle errors in handlers gracefully', async () => {
-      const errorHandler = jest.fn(() => {
+      const errorHandler = vi.fn(() => {
         throw new Error('Handler error');
       });
 
-      const normalHandler = jest.fn(() => 'success');
+      const normalHandler = vi.fn(() => 'success');
 
       gameEvents.on(EventType.GAME_START, errorHandler);
       gameEvents.on(EventType.GAME_START, normalHandler);
 
       // Mock console.error to verify it's called
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation();
 
       const results = await gameEvents.emit(EventType.GAME_START, {});
 
@@ -153,14 +153,14 @@ describe('EventSystem - Comprehensive Coverage', () => {
     });
 
     it('should handle async handlers correctly', async () => {
-      const asyncHandler1 = jest.fn(
+      const asyncHandler1 = vi.fn(
         async () =>
           new Promise(resolve => {
             setTimeout(() => resolve('result1'), 10);
           })
       );
 
-      const asyncHandler2 = jest.fn(
+      const asyncHandler2 = vi.fn(
         async () =>
           new Promise(resolve => {
             setTimeout(() => resolve('result2'), 5);
@@ -216,7 +216,7 @@ describe('EventSystem - Comprehensive Coverage', () => {
 
     describe('emitTerritoryAttack', () => {
       it('should emit territory attack event with correct data', async () => {
-        const handler = jest.fn();
+        const handler = vi.fn();
         gameEvents.on(EventType.TERRITORY_ATTACK, handler);
 
         await emitTerritoryAttack(mockGameState, 1, 2);
@@ -235,7 +235,7 @@ describe('EventSystem - Comprehensive Coverage', () => {
 
     describe('emitTerritoryCapture', () => {
       it('should emit territory capture event with correct data', async () => {
-        const handler = jest.fn();
+        const handler = vi.fn();
         gameEvents.on(EventType.TERRITORY_CAPTURE, handler);
 
         await emitTerritoryCapture(mockGameState, 2, 2, 1);
@@ -252,7 +252,7 @@ describe('EventSystem - Comprehensive Coverage', () => {
 
     describe('emitDiceRolled', () => {
       it('should emit dice rolled event with correct data', async () => {
-        const handler = jest.fn();
+        const handler = vi.fn();
         gameEvents.on(EventType.DICE_ROLLED, handler);
 
         const values = [3, 4, 5];
@@ -272,7 +272,7 @@ describe('EventSystem - Comprehensive Coverage', () => {
 
     describe('emitTerritoryReinforced', () => {
       it('should emit territory reinforced event with correct data', async () => {
-        const handler = jest.fn();
+        const handler = vi.fn();
         gameEvents.on(EventType.TERRITORY_REINFORCED, handler);
 
         await emitTerritoryReinforced(mockGameState, 1, 2);
@@ -291,7 +291,7 @@ describe('EventSystem - Comprehensive Coverage', () => {
   describe('Middleware implementations', () => {
     describe('loggingMiddleware', () => {
       it('should log events and return unchanged data', () => {
-        const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+        const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation();
         const data = { test: true };
 
         const result = loggingMiddleware(EventType.GAME_START, data);
@@ -307,7 +307,7 @@ describe('EventSystem - Comprehensive Coverage', () => {
       it('should record events with timestamp', async () => {
         const timeTravel = createTimeTravel();
         const mockDate = Date.now();
-        jest.spyOn(Date, 'now').mockReturnValue(mockDate);
+        vi.spyOn(Date, 'now').mockReturnValue(mockDate);
 
         // Add the recording middleware
         gameEvents.addMiddleware(timeTravel.middleware);
@@ -376,7 +376,7 @@ describe('EventSystem - Comprehensive Coverage', () => {
 
   describe('Async middleware handling', () => {
     it('should handle async middleware correctly', async () => {
-      const asyncMiddleware = jest.fn(
+      const asyncMiddleware = vi.fn(
         async (eventType, data) =>
           new Promise(resolve => {
             setTimeout(() => {

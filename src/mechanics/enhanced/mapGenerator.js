@@ -6,7 +6,7 @@
  * generating game maps with territories of varied sizes.
  */
 
-import { AreaData, JoinData } from '@models/enhanced/index.js';
+import { AreaData, JoinData } from '../../models/enhanced/index.js';
 
 /**
  * Grow a Territory

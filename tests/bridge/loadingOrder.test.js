@@ -5,7 +5,7 @@
 describe('Legacy Script Loading Order', () => {
   const setupMcjsMock = () => {
     global.lib = global.lib || {};
-    const mcInit = jest.fn((libObj, _img, _cjs, _ss) => {
+    const mcInit = vi.fn((libObj, _img, _cjs, _ss) => {
       libObj.webFontTxtFilters = {};
       libObj.properties = {
         id: 'TEST',
@@ -23,7 +23,7 @@ describe('Legacy Script Loading Order', () => {
   };
 
   beforeEach(() => {
-    jest.resetModules();
+    vi.resetModules();
     document.body.innerHTML = '<canvas id="myCanvas"></canvas>';
     global.createjs = global.cjs;
   });

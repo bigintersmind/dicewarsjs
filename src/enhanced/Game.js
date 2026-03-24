@@ -5,7 +5,7 @@
  * like Maps for better performance and more idiomatic JavaScript.
  */
 
-import { AreaData, PlayerData, JoinData, HistoryData, GridData } from '@models/enhanced/index.js';
+import { AreaData, PlayerData, JoinData, HistoryData, GridData } from '../models/enhanced/index.js';
 // AI implementations will be loaded on demand via configuration
 import { 
   // Map generation
@@ -14,8 +14,8 @@ import {
   executeAttack, distributeReinforcements, setPlayerTerritoryData,
   // AI handling
   executeAIMove, AI_REGISTRY
-} from '@mechanics/enhanced/index.js';
-import { getConfig } from '@utils/config.js';
+} from '../mechanics/enhanced/index.js';
+import { getConfig } from '../utils/config.js';
 
 /**
  * Enhanced Game Class

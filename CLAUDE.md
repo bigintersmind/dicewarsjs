@@ -6,20 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build and Development Commands
 
+The project uses **Vite** for builds and **Vitest** for testing (migrated from Webpack/Jest in Phase 1).
+
 ```bash
 # Install dependencies
 npm install
 
-# Start development server
+# Start Vite development server (port 3000)
 npm run dev
 
 # Build for production
 npm run build
 
-# Generate bundle analysis report
-npm run analyze
+# Preview production build
+npm run preview
 
-# Run all tests
+# Run all tests (Vitest)
 npm test
 
 # Run tests in watch mode
@@ -49,20 +51,11 @@ npm run format:check
 # Run regression tests
 npm run test:regression
 
-# Run jest benchmark tests
+# Run Vitest benchmark tests
 npm run test:benchmark
 
 # Check bundle size
 npm run perf:check
-
-# Build both modern and legacy bundles
-npm run build:all
-
-# Start legacy development server
-npm run dev:legacy
-
-# Build legacy bundle only
-npm run build:legacy
 
 # Auto-fix lint warnings
 npm run fix-warnings
@@ -85,17 +78,25 @@ When test failures occur:
 
 ## Project Architecture
 
-DiceWarsJS is a turn-based strategy game where players compete to conquer territories on a hexagonal grid using dice for attack and defense. The project is in the process of transitioning from legacy JavaScript to modern ES6 modules.
+DiceWarsJS is a turn-based strategy game where players compete to conquer territories on a hexagonal grid using dice for attack and defense. The project is being modernized per `docs/MODERNIZATION_ROADMAP.md`.
 
-### Hybrid Architecture
+### Build Stack
 
-The codebase uses a hybrid architecture with three main components:
+- **Build**: Vite (replaced Webpack)
+- **Tests**: Vitest (replaced Jest)
+- **Rendering**: PixiJS v8 (replacing CreateJS — in progress)
+- **UI**: Preact (replacing legacy DOM manipulation — in progress)
+- **Config**: `vite.config.js` contains both build and test configuration
 
-1. **Legacy Code**: Original implementation with global variables/functions in the root directory (game.js, main.js, ai\_\*.js).
+### Architecture
 
-2. **Modern ES6 Modules**: Structured code with proper imports/exports in the src/ directory.
+1. **Modern ES6 Modules**: All active code in the `src/` directory uses ES6 imports/exports with relative paths.
 
-3. **Bridge Pattern** (DEPRECATED): Previously connected legacy code with ES6 modules (src/bridge/). This pattern is deprecated and will be removed per the modernization roadmap. Do not add new bridge modules.
+2. **Legacy Code** (reference only): Root directory files (game.js, main.js, areadice.js, mc.js) are preserved for reference but not loaded by the Vite build. `index.legacy.html` preserves the old entry point.
+
+3. **Bridge Pattern** (DEPRECATED): `src/bridge/` is deprecated and will be removed. Do not add new bridge modules.
+
+4. **New scaffolding** (Phase 1): `src/renderer/` (PixiJS), `src/ui/` (Preact), `src/engine/`, `src/audio/`, `src/events/`, `src/store/` are scaffolded for Phase 2+.
 
 ### Core Components
 
@@ -163,9 +164,10 @@ When working with AI strategies:
 ## Gotchas
 
 - **ESLint ignores legacy root files**: The .eslintrc.js explicitly excludes `areadice.js`, `mc.js`, `game.js`, `config.js`, and `main.js` from linting.
-- **Jest module aliases**: Tests use path aliases (`@utils`, `@ai`, `@models`, `@mechanics`, `@state`) configured in jest.config.js. Use these in test imports.
-- **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` files.
-- **Bridge files excluded from coverage**: jest.config.js excludes `src/bridge/` from coverage thresholds. The bridge is deprecated and will be removed.
+- **Path aliases**: `@utils`, `@ai`, `@models`, `@mechanics`, `@state` are configured in `vite.config.js` for both builds and tests. Source files use relative imports; aliases are available but prefer relative paths in new code.
+- **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` and `.jsx` files.
+- **Bridge files excluded from coverage**: `vite.config.js` excludes `src/bridge/` from coverage thresholds. The bridge is deprecated and will be removed.
+- **Vitest globals**: Tests use `globals: true` in vitest config, so `describe`, `it`, `expect`, `vi`, `beforeEach`, `afterEach` are available without imports. Use `import { vi } from 'vitest'` only if needed for explicit typing.
 
 ## Common Pitfalls to Avoid
 

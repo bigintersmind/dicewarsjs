@@ -1,10 +1,10 @@
 /**
  * Tests for state index module
  */
+import * as state from '../../src/state/index.js';
+
 describe('State Index Module', () => {
   it('should export all state management components', () => {
-    const state = require('../../src/state/index.js');
-
     // Core state management exports
     expect(state.GameState).toBeDefined();
     expect(typeof state.createInitialState).toBe('function');

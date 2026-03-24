@@ -1,10 +1,10 @@
 /**
  * Tests for utils index module
  */
+import * as utils from '../../src/utils/index.js';
+
 describe('Utils Index Module', () => {
   it('should export all utility modules', () => {
-    const utils = require('../../src/utils/index.js');
-
     // Config exports
     expect(typeof utils.DEFAULT_CONFIG).toBe('object');
     expect(typeof utils.getConfig).toBe('function');

@@ -5,7 +5,7 @@
  * Implemented using functional programming patterns and ES6 features.
  */
 
-import { HistoryData } from '@models/index.js';
+import { HistoryData } from '../models/index.js';
 
 // Import to avoid circular dependency
 import { setAreaTc } from './mapGenerator.js';
@@ -27,7 +27,7 @@ import { BattleError, PlayerError } from './errors/index.js';
 // Import debug tools (will be auto disabled in production)
 let measurePerformance = fn => fn; // Default no-op
 if (process.env.NODE_ENV === 'development') {
-  import('@utils/debugTools.js')
+  import('../utils/debugTools.js')
     .then(module => {
       if (module.isDebugModeEnabled()) {
         measurePerformance = module.measurePerformance;

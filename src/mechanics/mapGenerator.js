@@ -8,7 +8,7 @@
  * @module mechanics/mapGenerator
  */
 
-import { AreaData } from '@models/index.js';
+import { AreaData } from '../models/index.js';
 import { withErrorHandling } from './errorHandling.js';
 import { GameError, TerritoryError } from './errors/index.js';
 import { gameEvents, EventType } from './eventSystem.js';

@@ -10,8 +10,8 @@ import {
 } from '../../src/utils/render.js';
 
 // Mock the config module
-jest.mock('../../src/utils/config.js', () => ({
-  getConfig: jest.fn().mockReturnValue({ displayScale: 2 }),
+vi.mock('../../src/utils/config.js', () => ({
+  getConfig: vi.fn().mockReturnValue({ displayScale: 2 }),
 }));
 
 describe('Rendering Utilities', () => {
@@ -79,7 +79,7 @@ describe('Rendering Utilities', () => {
 
   describe('createButton', () => {
     test('creates a createjs.Container with a button shape and text', () => {
-      const clickHandler = jest.fn();
+      const clickHandler = vi.fn();
       const button = createButton('Click Me', 10, 20, 100, 50, clickHandler);
 
       expect(button).toBeInstanceOf(createjs.Container);

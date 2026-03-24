@@ -14,14 +14,16 @@ import {
 } from '../../src/utils/sound.js';
 
 // Mock the config module
-jest.mock('../../src/utils/config.js', () => ({
-  getConfig: jest.fn().mockReturnValue({ soundEnabled: true }),
-  updateConfig: jest.fn(),
+vi.mock('../../src/utils/config.js', () => ({
+  getConfig: vi.fn().mockReturnValue({ soundEnabled: true }),
+  updateConfig: vi.fn(),
 }));
 
+import { getConfig, updateConfig } from '../../src/utils/config.js';
+
 // Mock the soundStrategy module
-jest.mock('../../src/utils/soundStrategy.js', () => ({
-  updateLoadStatus: jest.fn(),
+vi.mock('../../src/utils/soundStrategy.js', () => ({
+  updateLoadStatus: vi.fn(),
 }));
 
 describe('Sound Utilities', () => {
@@ -31,12 +33,12 @@ describe('Sound Utilities', () => {
       PLAY_SUCCEEDED: 'succeeded',
       INTERRUPT_ANY: 'interrupt',
       _initializeDefaultPluginsWasCalled: false,
-      play: jest.fn(),
-      stop: jest.fn(),
-      initializeDefaultPlugins: jest.fn().mockReturnValue(true),
-      registerSound: jest.fn().mockReturnValue(true),
-      registerSounds: jest.fn().mockReturnValue(true),
-      registerPlugins: jest.fn(),
+      play: vi.fn(),
+      stop: vi.fn(),
+      initializeDefaultPlugins: vi.fn().mockReturnValue(true),
+      registerSound: vi.fn().mockReturnValue(true),
+      registerSounds: vi.fn().mockReturnValue(true),
+      registerPlugins: vi.fn(),
       activePlugin: {
         capabilities: {
           formats: ['wav'],
@@ -49,7 +51,7 @@ describe('Sound Utilities', () => {
 
   // Spy on createjs.Sound methods
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 
     // Reset the SOUND_MANIFEST before each test
     while (SOUND_MANIFEST.length > 0) {
@@ -58,7 +60,7 @@ describe('Sound Utilities', () => {
 
     // Setup default mock returns
     createjs.Sound.play.mockReturnValue({
-      on: jest.fn(),
+      on: vi.fn(),
       volume: 1,
       playState: createjs.Sound.PLAY_SUCCEEDED,
     });
@@ -124,7 +126,7 @@ describe('Sound Utilities', () => {
       // Store the original Promise so it can be restored after each test
       originalPromise = global.Promise;
       // Mock loadSound to resolve immediately
-      jest.spyOn(global, 'Promise').mockImplementation(executor => ({
+      vi.spyOn(global, 'Promise').mockImplementation(executor => ({
         then: callback => {
           callback('./sound/button.wav');
           return {
@@ -142,7 +144,7 @@ describe('Sound Utilities', () => {
 
     test('plays a sound with default options', async () => {
       const instance = {
-        on: jest.fn(),
+        on: vi.fn(),
         volume: 1,
         loop: 0,
         interrupt: 'interrupt',
@@ -160,11 +162,11 @@ describe('Sound Utilities', () => {
       const options = {
         volume: 0.5,
         loop: 2,
-        onComplete: jest.fn(),
+        onComplete: vi.fn(),
       };
 
       const instance = {
-        on: jest.fn(),
+        on: vi.fn(),
         volume: 1,
         loop: 0,
         interrupt: 'interrupt',
@@ -183,7 +185,6 @@ describe('Sound Utilities', () => {
 
     test('returns null if sound is disabled', async () => {
       // Mock getConfig to return soundEnabled: false
-      const { getConfig } = require('../../src/utils/config.js');
       getConfig.mockReturnValueOnce({ soundEnabled: false });
 
       const result = await playSound('snd_button');
@@ -208,14 +209,14 @@ describe('Sound Utilities', () => {
   describe('volume and enable/disable', () => {
     test('setVolume clamps values between 0 and 1 and updates instances', async () => {
       const instance = {
-        on: jest.fn(),
+        on: vi.fn(),
         volume: 1,
         loop: 0,
         interrupt: 'interrupt',
         playState: createjs.Sound.PLAY_SUCCEEDED,
       };
       createjs.Sound.play.mockReturnValueOnce(instance);
-      jest.spyOn(global, 'Promise').mockImplementation(executor => ({
+      vi.spyOn(global, 'Promise').mockImplementation(executor => ({
         then: callback => {
           callback('./sound/button.wav');
           return { catch: () => {} };
@@ -234,11 +235,10 @@ describe('Sound Utilities', () => {
     });
 
     test('setSoundEnabled(false) stops all sounds and toggles the flag', () => {
-      const { getConfig, updateConfig } = require('../../src/utils/config.js');
       getConfig.mockReturnValueOnce({ soundEnabled: true });
 
       // Spy on stopSound which should be called by stopAllSounds
-      const stopSpy = jest.spyOn(createjs.Sound, 'stop').mockClear();
+      const stopSpy = vi.spyOn(createjs.Sound, 'stop').mockClear();
 
       const previous = setSoundEnabled(false);
 

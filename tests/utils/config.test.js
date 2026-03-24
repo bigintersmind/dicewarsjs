@@ -13,11 +13,11 @@ import {
   applyConfigToGame,
 } from '../../src/utils/config.js';
 
-jest.mock('../../src/ai/index.js', () => {
-  const mockDefaultAI = jest.fn();
-  const mockDefensiveAI = jest.fn();
-  const mockExampleAI = jest.fn();
-  const mockAdaptiveAI = jest.fn();
+vi.mock('../../src/ai/index.js', () => {
+  const mockDefaultAI = vi.fn();
+  const mockDefensiveAI = vi.fn();
+  const mockExampleAI = vi.fn();
+  const mockAdaptiveAI = vi.fn();
 
   return {
     AI_STRATEGIES: {
@@ -26,7 +26,7 @@ jest.mock('../../src/ai/index.js', () => {
       ai_example: { loader: async () => mockExampleAI, implementation: mockExampleAI },
       ai_adaptive: { loader: async () => mockAdaptiveAI, implementation: mockAdaptiveAI },
     },
-    createAIFunctionMapping: jest.fn(async aiAssignments => {
+    createAIFunctionMapping: vi.fn(async aiAssignments => {
       const mapping = Array(8).fill(null);
 
       if (!aiAssignments) return mapping;
@@ -53,14 +53,14 @@ jest.mock('../../src/ai/index.js', () => {
 const localStorageMock = (() => {
   let store = {};
   return {
-    getItem: jest.fn(key => store[key] || null),
-    setItem: jest.fn((key, value) => {
+    getItem: vi.fn(key => store[key] || null),
+    setItem: vi.fn((key, value) => {
       store[key] = String(value);
     }),
-    removeItem: jest.fn(key => {
+    removeItem: vi.fn(key => {
       delete store[key];
     }),
-    clear: jest.fn(() => {
+    clear: vi.fn(() => {
       store = {};
     }),
   };
@@ -73,7 +73,7 @@ Object.defineProperty(window, 'localStorage', {
 describe('Configuration Management', () => {
   beforeEach(() => {
     localStorageMock.clear();
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('DEFAULT_CONFIG', () => {
@@ -155,10 +155,10 @@ describe('Configuration Management', () => {
   describe('applyConfigToGame', () => {
     test('applies config values to game object', async () => {
       // Mock AI functions for testing
-      const mockDefaultAI = jest.fn();
-      const mockDefensiveAI = jest.fn();
-      const mockExampleAI = jest.fn();
-      const mockAdaptiveAI = jest.fn();
+      const mockDefaultAI = vi.fn();
+      const mockDefensiveAI = vi.fn();
+      const mockExampleAI = vi.fn();
+      const mockAdaptiveAI = vi.fn();
 
       // Our mocks are already set up at the top of the file
 
@@ -176,7 +176,7 @@ describe('Configuration Management', () => {
           ai_example: mockExampleAI,
           ai_adaptive: mockAdaptiveAI,
         },
-        configureAI: jest.fn(function (aiAssignments) {
+        configureAI: vi.fn(function (aiAssignments) {
           // Simple implementation to simulate the configureAI function
           for (let i = 0; i < aiAssignments.length && i < this.ai.length; i++) {
             if (aiAssignments[i] === 'ai_default') this.ai[i] = this.aiRegistry.ai_default;
@@ -227,14 +227,14 @@ describe('Configuration Management', () => {
 
     test('handles unknown AI types gracefully', async () => {
       // Create mock function
-      const mockDefaultAI = jest.fn();
+      const mockDefaultAI = vi.fn();
 
       const game = {
         ai: [null, null],
         aiRegistry: {
           ai_default: mockDefaultAI,
         },
-        configureAI: jest.fn(function (aiAssignments) {
+        configureAI: vi.fn(function (aiAssignments) {
           // Simple implementation to simulate the configureAI function
           for (let i = 0; i < aiAssignments.length && i < this.ai.length; i++) {
             if (aiAssignments[i] === null) {

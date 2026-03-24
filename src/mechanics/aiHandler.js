@@ -5,7 +5,7 @@
  * Extracted from Game.js for modularity.
  */
 
-import { AI_STRATEGIES, createAIFunctionMapping } from '@ai/index.js';
+import { AI_STRATEGIES, createAIFunctionMapping } from '../ai/index.js';
 
 /**
  * AI Strategy Registry
@@ -80,7 +80,7 @@ export function executeAIMove(gameState) {
     console.error(`AI function not found for player ${currentPlayer}`);
 
     // Try to use default AI as a fallback
-    const defaultAI = AI_STRATEGIES.ai_default.implementation;
+    const defaultAI = AI_STRATEGIES.ai_default?.implementation;
     if (typeof defaultAI === 'function') {
       console.log('Using default AI as fallback');
       return defaultAI(gameState);

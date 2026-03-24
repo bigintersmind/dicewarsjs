@@ -6,7 +6,7 @@
  * and attack mechanics.
  */
 
-import { Battle, HistoryData } from '@models/enhanced/index.js';
+import { Battle, HistoryData } from '../../models/enhanced/index.js';
 
 // Import to avoid circular dependency
 import { setAreaTc } from './mapGenerator.js';

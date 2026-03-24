@@ -16,7 +16,7 @@ import {
   getAllAIStrategies,
   createAIFunctionMapping,
   DEFAULT_AI_ASSIGNMENTS,
-} from '@ai/index.js';
+} from '../ai/index.js';
 
 // Also export as ES6 module for new code
 export {

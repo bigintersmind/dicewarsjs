@@ -8,13 +8,13 @@ import { AreaData } from '../../src/models/index.js';
 import { gameEvents, EventType } from '../../src/mechanics/eventSystem.js';
 
 // Mock modules
-jest.mock('../../src/mechanics/errorHandling.js', () => ({
+vi.mock('../../src/mechanics/errorHandling.js', () => ({
   withErrorHandling: fn => fn,
 }));
 
-jest.mock('../../src/mechanics/eventSystem.js', () => ({
+vi.mock('../../src/mechanics/eventSystem.js', () => ({
   gameEvents: {
-    emit: jest.fn().mockResolvedValue([]),
+    emit: vi.fn().mockResolvedValue([]),
   },
   EventType: {
     MAP_GENERATED: 'map:generated',
@@ -23,13 +23,13 @@ jest.mock('../../src/mechanics/eventSystem.js', () => ({
 }));
 
 // Mock errors
-jest.mock('../../src/mechanics/errors/index.js', () => ({
+vi.mock('../../src/mechanics/errors/index.js', () => ({
   GameError: Error,
   TerritoryError: Error,
 }));
 
 // Add global mock for next_cel
-global.next_cel = jest.fn((pos, dir) => {
+global.next_cel = vi.fn((pos, dir) => {
   // Simple mock implementation
   if (dir === 0) return pos + 1;
   if (dir === 3) return pos - 1;
@@ -290,7 +290,7 @@ describe('Map Generator', () => {
   describe('setAreaTc', () => {
     beforeEach(() => {
       // Clear any previous mock calls
-      jest.clearAllMocks();
+      vi.clearAllMocks();
     });
 
     it('should calculate largest connected component for a player', () => {

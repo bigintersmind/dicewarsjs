@@ -1,10 +1,10 @@
 /**
  * Tests for models index module
  */
+import * as models from '../../src/models/index.js';
+
 describe('Models Index Module', () => {
   it('should export all model classes', () => {
-    const models = require('../../src/models/index.js');
-
     // Test that all model classes are exported
     expect(typeof models.AreaData).toBe('function');
     expect(typeof models.PlayerData).toBe('function');
@@ -14,13 +14,7 @@ describe('Models Index Module', () => {
   });
 
   it('should create instances of model classes', () => {
-    const {
-      AreaData,
-      PlayerData,
-      JoinData,
-      HistoryData,
-      Battle,
-    } = require('../../src/models/index.js');
+    const { AreaData, PlayerData, JoinData, HistoryData, Battle } = models;
 
     // Test that we can create instances
     expect(new AreaData()).toBeDefined();

@@ -1,10 +1,10 @@
 /**
  * Tests for Event System Module
  *
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
-import { jest } from '@jest/globals';
+import { vi } from 'vitest';
 import {
   EventType,
   gameEvents,
@@ -63,7 +63,7 @@ describe('Event System Module', () => {
 
     it('should handle event registration and emission', async () => {
       const events = createEventSystem();
-      const mockHandler = jest.fn();
+      const mockHandler = vi.fn();
 
       events.on('test', mockHandler);
       await events.emit('test', { data: 'test' });
@@ -73,7 +73,7 @@ describe('Event System Module', () => {
 
     it('should handle once event handler', async () => {
       const events = createEventSystem();
-      const mockHandler = jest.fn();
+      const mockHandler = vi.fn();
 
       events.once('test', mockHandler);
       await events.emit('test', { data: 'first' });
@@ -85,7 +85,7 @@ describe('Event System Module', () => {
 
     it('should handle event handler removal', async () => {
       const events = createEventSystem();
-      const mockHandler = jest.fn();
+      const mockHandler = vi.fn();
 
       const subscriptionId = events.on('test', mockHandler);
       events.off(subscriptionId);
@@ -96,8 +96,8 @@ describe('Event System Module', () => {
 
     it('should clear all handlers', async () => {
       const events = createEventSystem();
-      const mockHandler1 = jest.fn();
-      const mockHandler2 = jest.fn();
+      const mockHandler1 = vi.fn();
+      const mockHandler2 = vi.fn();
 
       events.on('test1', mockHandler1);
       events.on('test2', mockHandler2);
@@ -111,8 +111,8 @@ describe('Event System Module', () => {
 
     it('should handle multiple handlers for same event', async () => {
       const events = createEventSystem();
-      const mockHandler1 = jest.fn();
-      const mockHandler2 = jest.fn();
+      const mockHandler1 = vi.fn();
+      const mockHandler2 = vi.fn();
 
       events.on('test', mockHandler1);
       events.on('test', mockHandler2);
@@ -124,8 +124,8 @@ describe('Event System Module', () => {
 
     it('should handle middleware', async () => {
       const events = createEventSystem();
-      const mockHandler = jest.fn();
-      const mockMiddleware = jest.fn((eventType, data) => ({
+      const mockHandler = vi.fn();
+      const mockMiddleware = vi.fn((eventType, data) => ({
         ...data,
         modified: true,
       }));
@@ -143,8 +143,8 @@ describe('Event System Module', () => {
 
     it('should stop propagation when middleware does not call next', async () => {
       const events = createEventSystem();
-      const mockHandler = jest.fn();
-      const blockingMiddleware = jest.fn(
+      const mockHandler = vi.fn();
+      const blockingMiddleware = vi.fn(
         (eventType, data) =>
           // Return null to not modify data
           null
@@ -161,11 +161,11 @@ describe('Event System Module', () => {
 
     it('should handle errors in middleware', async () => {
       const events = createEventSystem();
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      const mockMiddleware = jest.fn(() => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockMiddleware = vi.fn(() => {
         throw new Error('Middleware error');
       });
-      const mockHandler = jest.fn();
+      const mockHandler = vi.fn();
 
       events.addMiddleware(mockMiddleware);
       events.on('test', mockHandler);
@@ -183,8 +183,8 @@ describe('Event System Module', () => {
 
     it('should handle errors in event handlers', async () => {
       const events = createEventSystem();
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      const mockHandler = jest.fn(() => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockHandler = vi.fn(() => {
         throw new Error('Handler error');
       });
 
@@ -296,8 +296,8 @@ describe('Event System Module', () => {
     let emitSpy;
 
     beforeEach(() => {
-      emitSpy = jest.spyOn(gameEvents, 'emit');
-      jest.clearAllMocks();
+      emitSpy = vi.spyOn(gameEvents, 'emit');
+      vi.clearAllMocks();
       gameState = {
         player: {
           1: { name: 'Player 1' },
@@ -384,7 +384,7 @@ describe('Event System Module', () => {
     });
 
     it('should emit and handle events', async () => {
-      const mockHandler = jest.fn();
+      const mockHandler = vi.fn();
       gameEvents.on(EventType.GAME_START, mockHandler);
 
       await gameEvents.emit(EventType.GAME_START, { test: 'data' });
@@ -398,7 +398,7 @@ describe('Event System Module', () => {
 
     beforeEach(() => {
       clearEventHistory();
-      consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     });
 
     afterEach(() => {

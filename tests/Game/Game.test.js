@@ -9,8 +9,8 @@
 import { Game } from '../../src/Game.js';
 import { AreaData, PlayerData } from '../../src/models/index.js';
 
-jest.mock('../../src/models/index.js', () => ({
-  AreaData: jest.fn().mockImplementation(function () {
+vi.mock('../../src/models/index.js', () => ({
+  AreaData: vi.fn().mockImplementation(function () {
     this.size = 0;
     this.arm = 0;
     this.dice = 0;
@@ -18,39 +18,39 @@ jest.mock('../../src/models/index.js', () => ({
     this.line_cel = Array(100).fill(0);
     this.line_dir = Array(100).fill(0);
   }),
-  PlayerData: jest.fn().mockImplementation(function () {
+  PlayerData: vi.fn().mockImplementation(function () {
     this.area_c = 0;
     this.area_tc = 0;
     this.dice_c = 0;
   }),
-  JoinData: jest.fn().mockImplementation(function () {
+  JoinData: vi.fn().mockImplementation(function () {
     this.dir = [0, 0, 0, 0, 0, 0];
   }),
-  HistoryData: jest.fn(),
-  Battle: jest.fn(),
+  HistoryData: vi.fn(),
+  Battle: vi.fn(),
 }));
 
-jest.mock('../../src/ai/index.js', () => ({
-  ai_default: jest.fn(),
-  ai_defensive: jest.fn(),
-  ai_example: jest.fn(),
-  ai_adaptive: jest.fn(),
+vi.mock('../../src/ai/index.js', () => ({
+  ai_default: vi.fn(),
+  ai_defensive: vi.fn(),
+  ai_example: vi.fn(),
+  ai_adaptive: vi.fn(),
   AI_STRATEGIES: {
-    ai_default: { loader: async () => jest.fn(), implementation: jest.fn() },
-    ai_defensive: { loader: async () => jest.fn(), implementation: jest.fn() },
-    ai_example: { loader: async () => jest.fn(), implementation: jest.fn() },
-    ai_adaptive: { loader: async () => jest.fn(), implementation: jest.fn() },
+    ai_default: { loader: async () => vi.fn(), implementation: vi.fn() },
+    ai_defensive: { loader: async () => vi.fn(), implementation: vi.fn() },
+    ai_example: { loader: async () => vi.fn(), implementation: vi.fn() },
+    ai_adaptive: { loader: async () => vi.fn(), implementation: vi.fn() },
   },
-  createAIFunctionMapping: jest.fn(),
-  getAIImplementation: jest.fn(),
-  getAIById: jest.fn(),
+  createAIFunctionMapping: vi.fn(),
+  getAIImplementation: vi.fn(),
+  getAIById: vi.fn(),
 }));
 
 describe('Game', () => {
   let game;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     // Create a fresh Game instance for each test
     game = new Game();
   });
@@ -190,7 +190,7 @@ describe('Game', () => {
 
       // Mock Math.random to make the test deterministic
       const originalRandom = Math.random;
-      Math.random = jest.fn().mockReturnValue(0.5);
+      Math.random = vi.fn().mockReturnValue(0.5);
 
       game.start_game();
 

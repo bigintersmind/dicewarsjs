@@ -105,7 +105,7 @@ describe('Defensive AI', () => {
 
   test('evaluates reinforcement situation', () => {
     // Setup: Player has many territories but no reinforcements
-    const mockSetAreaTc = jest.fn(playerNum => {
+    const mockSetAreaTc = vi.fn(playerNum => {
       mockGame.player[playerNum].area_tc = 5; // Simulate 5 connected territories
     });
 

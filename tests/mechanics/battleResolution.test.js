@@ -1,10 +1,10 @@
 /**
  * Tests for Battle Resolution Module
  *
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
-import { jest } from '@jest/globals';
+import { vi } from 'vitest';
 
 // Import the actual module after mocks are set up
 import {
@@ -35,9 +35,9 @@ import { HistoryData } from '../../src/models/index.js';
 import { BattleError, PlayerError, TerritoryError } from '../../src/mechanics/errors/index.js';
 
 // Mock dependencies before importing the module
-jest.mock('../../src/mechanics/eventSystem.js', () => ({
+vi.mock('../../src/mechanics/eventSystem.js', () => ({
   gameEvents: {
-    emit: jest.fn(),
+    emit: vi.fn(),
   },
   EventType: {
     TERRITORY_ATTACK: 'territory:attack',
@@ -50,19 +50,19 @@ jest.mock('../../src/mechanics/eventSystem.js', () => ({
     PLAYER_ELIMINATED: 'player:eliminated',
     PLAYER_VICTORY: 'player:victory',
   },
-  emitTerritoryAttack: jest.fn(),
-  emitTerritoryCapture: jest.fn(),
-  emitDiceRolled: jest.fn(),
-  emitTerritoryReinforced: jest.fn(),
+  emitTerritoryAttack: vi.fn(),
+  emitTerritoryCapture: vi.fn(),
+  emitDiceRolled: vi.fn(),
+  emitTerritoryReinforced: vi.fn(),
 }));
 
-jest.mock('../../src/mechanics/mapGenerator.js', () => ({
-  setAreaTc: jest.fn(),
+vi.mock('../../src/mechanics/mapGenerator.js', () => ({
+  setAreaTc: vi.fn(),
 }));
 
-jest.mock('../../src/mechanics/errorHandling.js', () => ({
-  validateTerritories: jest.fn(),
-  validatePlayer: jest.fn(),
+vi.mock('../../src/mechanics/errorHandling.js', () => ({
+  validateTerritories: vi.fn(),
+  validatePlayer: vi.fn(),
   withErrorHandling:
     (fn, errorHandler) =>
     (...args) => {
@@ -77,8 +77,8 @@ jest.mock('../../src/mechanics/errorHandling.js', () => ({
     },
 }));
 
-jest.mock('../../src/models/index.js', () => ({
-  HistoryData: jest.fn().mockImplementation(() => ({
+vi.mock('../../src/models/index.js', () => ({
+  HistoryData: vi.fn().mockImplementation(() => ({
     from: 0,
     to: 0,
     res: 0,
@@ -169,12 +169,12 @@ describe('Battle Resolution Module', () => {
       };
 
       // Mock Math.random for predictable tests
-      jest.spyOn(Math, 'random');
+      vi.spyOn(Math, 'random');
     });
 
     afterEach(() => {
       Math.random.mockRestore();
-      jest.clearAllMocks();
+      vi.clearAllMocks();
     });
 
     it('should resolve a battle with attacker victory', () => {
@@ -269,13 +269,13 @@ describe('Battle Resolution Module', () => {
       };
 
       // Mock Math.random for predictable tests
-      jest.spyOn(Math, 'random');
+      vi.spyOn(Math, 'random');
       Math.random.mockReturnValue(0.5); // Attacker wins
     });
 
     afterEach(() => {
       Math.random.mockRestore();
-      jest.clearAllMocks();
+      vi.clearAllMocks();
     });
 
     it('should execute a successful attack', () => {
@@ -434,7 +434,7 @@ describe('Battle Resolution Module', () => {
     });
 
     afterEach(() => {
-      jest.clearAllMocks();
+      vi.clearAllMocks();
     });
 
     it('should calculate and distribute reinforcements', () => {
@@ -599,7 +599,7 @@ describe('Battle Resolution Module', () => {
     });
 
     afterEach(() => {
-      jest.clearAllMocks();
+      vi.clearAllMocks();
     });
 
     it('should update player territory and dice counts', () => {

@@ -34,11 +34,14 @@ build/
 .cache/
 .parcel-cache/
 
-# Webpack
+# Webpack (legacy, can be removed)
 .webpack/
 webpack-stats.json
 
-# Babel cache
+# Vite
+.vite/
+
+# Babel cache (legacy)
 .babel-cache/
 
 # Logs

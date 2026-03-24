@@ -1,10 +1,10 @@
 /**
  * Tests for mechanics index module
  */
+import * as mechanics from '../../src/mechanics/index.js';
+
 describe('Mechanics Index Module', () => {
   it('should export all game mechanics functions', () => {
-    const mechanics = require('../../src/mechanics/index.js');
-
     // Map generator exports
     expect(typeof mechanics.percolate).toBe('function');
     expect(typeof mechanics.setAreaLine).toBe('function');

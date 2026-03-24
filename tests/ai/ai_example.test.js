@@ -15,7 +15,7 @@ describe('Example AI', () => {
       adat: [],
       area_from: 0,
       area_to: 0,
-      get_pn: jest.fn().mockReturnValue(1), // Current player is 1
+      get_pn: vi.fn().mockReturnValue(1), // Current player is 1
     };
 
     // Initialize territory data
@@ -102,7 +102,7 @@ describe('Example AI', () => {
     mockGame.adat[3].dice = 2;
 
     // First test: select first option
-    Math.random = jest.fn().mockReturnValue(0);
+    Math.random = vi.fn().mockReturnValue(0);
     ai_example(mockGame);
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(2);
@@ -112,7 +112,7 @@ describe('Example AI', () => {
     mockGame.area_to = 0;
 
     // Second test: select second option
-    Math.random = jest.fn().mockReturnValue(0.99);
+    Math.random = vi.fn().mockReturnValue(0.99);
     ai_example(mockGame);
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(3);

@@ -6,7 +6,7 @@
  */
 
 // Re-export AI handler from main directory as it hasn't been enhanced yet
-import { executeAIMove, AI_REGISTRY } from '@mechanics/aiHandler.js';
+import { executeAIMove, AI_REGISTRY } from '../aiHandler.js';
 
 export {
   // Map generation

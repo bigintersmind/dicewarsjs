@@ -7,7 +7,7 @@
  * - Dynamic configuration options
  */
 
-import { createAIFunctionMapping } from '@ai/index.js';  // Import AI configuration utilities
+import { createAIFunctionMapping } from '../ai/index.js';  // Import AI configuration utilities
 
 /**
  * Default game configuration

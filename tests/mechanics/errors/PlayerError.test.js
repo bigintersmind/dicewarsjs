@@ -1,9 +1,9 @@
 import { PlayerError } from '../../../src/mechanics/errors/PlayerError.js';
 import { gameEvents } from '../../../src/mechanics/eventSystem.js';
 
-jest.mock('../../../src/mechanics/eventSystem.js', () => ({
+vi.mock('../../../src/mechanics/eventSystem.js', () => ({
   gameEvents: {
-    emit: jest.fn(),
+    emit: vi.fn(),
   },
   EventType: {
     CUSTOM: 'custom',
@@ -12,7 +12,7 @@ jest.mock('../../../src/mechanics/eventSystem.js', () => ({
 
 describe('PlayerError', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('constructor', () => {

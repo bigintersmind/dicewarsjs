@@ -11,6 +11,7 @@ import {
   setSoundEnabled,
   toggleSound,
   loadSound,
+  loadedSounds,
 } from '../../src/utils/sound.js';
 
 // Mock the config module
@@ -53,10 +54,11 @@ describe('Sound Utilities', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Reset the SOUND_MANIFEST before each test
+    // Reset the SOUND_MANIFEST and loadedSounds cache before each test
     while (SOUND_MANIFEST.length > 0) {
       SOUND_MANIFEST.pop();
     }
+    loadedSounds.clear();
 
     // Setup default mock returns
     createjs.Sound.play.mockReturnValue({
@@ -120,28 +122,6 @@ describe('Sound Utilities', () => {
   });
 
   describe('playSound', () => {
-    let originalPromise;
-
-    beforeEach(() => {
-      // Store the original Promise so it can be restored after each test
-      originalPromise = global.Promise;
-      // Mock loadSound to resolve immediately
-      vi.spyOn(global, 'Promise').mockImplementation(executor => ({
-        then: callback => {
-          callback('./sound/button.wav');
-          return {
-            catch: () => {},
-          };
-        },
-        catch: () => {},
-      }));
-    });
-
-    afterEach(() => {
-      // Restore global.Promise to its original value
-      global.Promise = originalPromise;
-    });
-
     test('plays a sound with default options', async () => {
       const instance = {
         on: vi.fn(),
@@ -216,13 +196,6 @@ describe('Sound Utilities', () => {
         playState: createjs.Sound.PLAY_SUCCEEDED,
       };
       createjs.Sound.play.mockReturnValueOnce(instance);
-      vi.spyOn(global, 'Promise').mockImplementation(executor => ({
-        then: callback => {
-          callback('./sound/button.wav');
-          return { catch: () => {} };
-        },
-        catch: () => {},
-      }));
       await playSound('snd_button');
 
       setVolume(2);

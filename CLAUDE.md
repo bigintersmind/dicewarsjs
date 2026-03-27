@@ -192,17 +192,4 @@ When making changes:
 1. Update inline code comments for clarity
 2. Update relevant docs in the docs/ directory
 3. Update this CLAUDE.md file if workflow changes
-4. Update AGENTS.md to maintain parity between agent guidance files
-5. Keep README.md synchronized with new features
-
-## Keeping Agent Files Synchronized
-
-This file (CLAUDE.md) and AGENTS.md should be kept in sync to ensure all AI assistants have the same understanding of:
-
-- Project architecture
-- Development workflows
-- Best practices
-- Testing requirements
-- Documentation standards
-
-When updating either file, consider whether the change should be reflected in both.
+4. Keep README.md synchronized with new features

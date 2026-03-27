@@ -87,21 +87,23 @@ When test failures occur:
 
 ## Project Architecture
 
-DiceWarsJS is a turn-based strategy game where players compete to conquer territories on a hexagonal grid using dice for attack and defense. The project is in the process of transitioning from legacy JavaScript to modern ES6 modules.
+DiceWarsJS is a turn-based strategy game where players compete to conquer territories on a hexagonal grid using dice for attack and defense. The project is being modernized per `docs/MODERNIZATION_ROADMAP.md`. Phases 1–3 are complete.
 
-### Hybrid Architecture
+### Architecture
 
-The codebase uses a hybrid architecture with three main components:
+1. **Modern ES6 Modules**: All active code in the `src/` directory uses ES6 imports/exports with relative paths.
 
-1. **Legacy Code**: Original implementation with global variables/functions in the root directory (game.js, main.js, ai\_\*.js).
+2. **Legacy Code** (reference only): Root directory files (game.js, main.js, areadice.js, mc.js) are preserved for reference but not loaded by the Vite build.
 
-2. **Modern ES6 Modules**: Structured code with proper imports/exports in the src/ directory.
+3. **Bridge Pattern** (DEPRECATED): `src/bridge/` is deprecated and will be removed. Do not add new bridge modules.
 
-3. **Bridge Pattern** (DEPRECATED): Previously connected legacy code with ES6 modules (src/bridge/). This pattern is deprecated and will be removed per the modernization roadmap. Do not add new bridge modules.
+4. **Game Engine** (Phase 2): `src/engine/` contains the pure game engine — no DOM, no rendering. Includes StateManager, BattleResolver, MapGenerator, TurnManager, HexGrid, AIAdapter, and GameRunner.
+
+5. **Rendering & UI** (Phase 3): `src/renderer/` (PixiJS hex grid, dice, battle animation), `src/ui/` (Preact screens and HUD), `src/store/` (observable GameStore), `src/controller/` (GameController state machine), `src/audio/` (Web Audio SoundManager).
 
 ### Core Components
 
-- **Game Engine** (src/Game.js): Manages game state, player turns, territory ownership, and dice placement.
+- **Game Engine** (src/engine/): Pure game logic — `createGame`, `applyAction`, `getValidMoves`, `runAI`. No DOM dependencies. Runs in both browser and Node.js.
 
 - **AI System** (src/ai/): Contains different AI strategies:
 
@@ -110,17 +112,23 @@ The codebase uses a hybrid architecture with three main components:
   - ai_example: Basic implementation for educational purposes
   - ai_adaptive: Adapts strategy based on game conditions
 
+- **GameController** (src/controller/GameController.js): Orchestrates the full game loop — title → mapPreview → playing → gameOver. Handles human input, AI turns with animation, and turn advancement.
+
+- **GameStore** (src/store/GameStore.js): Observable pub/sub store shared by renderer, controller, and UI.
+
+- **Renderer** (src/renderer/): PixiJS rendering — GameRenderer, HexGridRenderer, DiceRenderer, BattleAnimation.
+
+- **UI** (src/ui/): Preact components — App, TitleScreen, MapPreview, GameHUD, GameOverlay, GameOverScreen.
+
+- **SoundManager** (src/audio/SoundManager.js): Web Audio API sound system.
+
 - **Map Generation** (src/mechanics/mapGenerator.js): Creates the hexagonal grid and territories.
 
 - **Battle Resolution** (src/mechanics/battleResolution.js): Handles attack resolution and dice distribution.
 
-- **State Management** (src/state/): Contains immutable data structures for game state.
-
 - **Models** (src/models/): Data structures for game entities (AreaData, PlayerData, Battle, HistoryData, JoinData).
 
-- **Enhanced Modules** (src/enhanced/, src/models/enhanced/, src/mechanics/enhanced/): Improved variants of core components with additional features like adjacency graphs, territory graphs, and disjoint sets.
-
-- **UI** (src/ui/): UI components including player status display and title screen.
+- **Enhanced Modules** (src/enhanced/, src/models/enhanced/, src/mechanics/enhanced/): Improved variants of core components.
 
 - **Adapters** (src/adapters/): Adapter classes for interfacing with legacy components (e.g., MCAdapter).
 

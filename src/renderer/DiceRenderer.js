@@ -92,10 +92,8 @@ export class DiceRenderer {
   drawAll(state) {
     const { grid, areas } = state;
 
-    // Compute cell positions if needed
-    if (!this._cellPos) {
-      this._cellPos = computeCellPositions(grid.width, grid.height);
-    }
+    // Recompute cell positions each draw to handle map size changes between games
+    this._cellPos = computeCellPositions(grid.width, grid.height);
 
     // Ensure we have enough containers
     while (this._diceContainers.length < areas.length) {

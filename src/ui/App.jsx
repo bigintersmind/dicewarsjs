@@ -15,8 +15,8 @@ import { GameOverScreen } from './GameOverScreen.jsx';
 
 /**
  * @param {Object} props
- * @param {import('../store/GameStore.js').GameStore} props.store
- * @param {import('../controller/GameController.js').GameController} props.controller
+ * @param {Object} props.store - GameStore instance
+ * @param {Object} props.controller - GameController instance
  */
 export function App({ store, controller }) {
   const screen = useGameStore(store, s => s.screen);

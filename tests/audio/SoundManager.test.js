@@ -22,7 +22,7 @@ function createMockAudioContext() {
     createBufferSource: vi.fn(() => ({ ...sourceNode })),
     decodeAudioData: vi.fn(async buf => buf),
     resume: vi.fn(),
-    close: vi.fn(),
+    close: vi.fn(() => Promise.resolve()),
     destination: {},
     _gainNode: gainNode,
   };

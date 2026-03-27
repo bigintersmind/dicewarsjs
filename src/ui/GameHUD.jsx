@@ -53,7 +53,7 @@ const STYLE = {
 
 /**
  * @param {Object} props
- * @param {import('../store/GameStore.js').GameStore} props.store
+ * @param {Object} props.store - GameStore instance
  */
 export function GameHUD({ store }) {
   const gameState = useGameStore(store, s => s.gameState);

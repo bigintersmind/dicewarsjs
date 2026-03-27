@@ -25,6 +25,8 @@ export class GameRenderer {
     this.dice = null;
     /** @type {{ play, destroy } | null} */
     this.battle = null;
+    /** @type {boolean} */
+    this.initialized = false;
   }
 
   /**
@@ -34,29 +36,35 @@ export class GameRenderer {
    * @returns {Promise<GameRenderer>}
    */
   async init(canvas) {
-    this.app = new Application();
-    await this.app.init({
-      canvas,
-      resizeTo: window,
-      backgroundColor: BG_COLOR,
-      antialias: true,
-      autoDensity: true,
-      resolution: window.devicePixelRatio || 1,
-    });
+    try {
+      this.app = new Application();
+      await this.app.init({
+        canvas,
+        resizeTo: window,
+        backgroundColor: BG_COLOR,
+        antialias: true,
+        autoDensity: true,
+        resolution: window.devicePixelRatio || 1,
+      });
 
-    this.app.stage.addChild(this.root);
+      this.app.stage.addChild(this.root);
 
-    // Create child renderers
-    this.hexGrid = new HexGridRenderer(this.root);
-    this.dice = new DiceRenderer(this.hexGrid.container);
-    this.battle = createBattleAnimation(this.app);
+      // Create child renderers
+      this.hexGrid = new HexGridRenderer(this.root);
+      this.dice = new DiceRenderer(this.hexGrid.container);
+      this.battle = createBattleAnimation(this.app);
 
-    // Responsive scaling
-    this._onResize = () => this._resize();
-    this._resize();
-    window.addEventListener('resize', this._onResize);
+      // Responsive scaling
+      this._onResize = () => this._resize();
+      this._resize();
+      window.addEventListener('resize', this._onResize);
 
-    return this;
+      this.initialized = true;
+      return this;
+    } catch (err) {
+      this.destroy();
+      throw err;
+    }
   }
 
   /** Recalculate scale to fit the game board in the window. */
@@ -77,6 +85,7 @@ export class GameRenderer {
    * @param {import('../engine/types.js').GameState} state
    */
   drawMap(state) {
+    if (!this.initialized) return;
     this.hexGrid.drawMap(state);
     this.dice.drawAll(state);
   }
@@ -87,6 +96,7 @@ export class GameRenderer {
    * @param {import('../engine/types.js').GameState} nextState
    */
   update(prevState, nextState) {
+    if (!this.initialized) return;
     this.hexGrid.updateFromState(prevState, nextState);
     this.dice.drawAll(nextState);
   }
@@ -100,10 +110,17 @@ export class GameRenderer {
    * @returns {{ x: number, y: number }}
    */
   screenToMap(screenX, screenY) {
+    if (!this.initialized) return { x: 0, y: 0 };
+
+    // Convert viewport coordinates to canvas-local coordinates
+    const rect = this.app.canvas.getBoundingClientRect();
+    const canvasX = screenX - rect.left;
+    const canvasY = screenY - rect.top;
+
     // Account for root container position and scale
     const scale = this.root.scale.x;
-    const localX = (screenX - this.root.x) / scale - this.hexGrid.container.x;
-    const localY = (screenY - this.root.y) / scale - this.hexGrid.container.y;
+    const localX = (canvasX - this.root.x) / scale - this.hexGrid.container.x;
+    const localY = (canvasY - this.root.y) / scale - this.hexGrid.container.y;
     return { x: localX, y: localY };
   }
 
@@ -114,6 +131,7 @@ export class GameRenderer {
    * @returns {number} areaId (0 = no territory)
    */
   hitTest(screenX, screenY) {
+    if (!this.initialized) return 0;
     const { x, y } = this.screenToMap(screenX, screenY);
     return this.hexGrid.hitTest(x, y);
   }
@@ -126,7 +144,10 @@ export class GameRenderer {
   /** Clean up. */
   destroy() {
     window.removeEventListener('resize', this._onResize);
+    if (this.battle) this.battle.destroy();
+    if (this.dice) this.dice.destroy();
     if (this.hexGrid) this.hexGrid.destroy();
     if (this.app) this.app.destroy(true);
+    this.initialized = false;
   }
 }

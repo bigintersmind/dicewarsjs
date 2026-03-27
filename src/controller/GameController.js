@@ -22,10 +22,10 @@ import { DEFAULT_CONFIG } from '../utils/config.js';
 /**
  * Create a game controller.
  *
- * @param {import('../store/GameStore.js').ReturnType<createGameStore>} store
+ * @param {Object} store - GameStore instance from createGameStore()
  * @param {import('../renderer/GameRenderer.js').GameRenderer | null} renderer
  * @param {Object | null} soundManager - Optional sound manager
- * @returns {GameController}
+ * @returns {Object} GameController public API
  */
 export function createGameController(store, renderer, soundManager) {
   /** @type {Function[]} AI functions per player index (null = human) */
@@ -60,8 +60,17 @@ export function createGameController(store, renderer, soundManager) {
         try {
           fns.push(await getAIImplementation(aiId));
         } catch (err) {
-          console.error(`Failed to load AI "${aiId}" for player ${i}:`, err);
-          fns.push(null);
+          console.error(
+            `Failed to load AI "${aiId}" for player ${i}, falling back to ai_default:`,
+            err
+          );
+          try {
+            fns.push(await getAIImplementation('ai_default'));
+          } catch (fallbackErr) {
+            throw new Error(
+              `Cannot load any AI for player ${i}: both "${aiId}" and "ai_default" failed`
+            );
+          }
         }
       }
     }
@@ -79,7 +88,11 @@ export function createGameController(store, renderer, soundManager) {
     aiAborted = true; // abort any running AI turn
 
     // Preload sounds on first user gesture (autoplay policy)
-    if (soundManager && soundManager.loadAll) soundManager.loadAll();
+    if (soundManager && soundManager.loadAll) {
+      soundManager.loadAll().catch(err => {
+        console.warn('Sound preload failed:', err);
+      });
+    }
 
     const playerCount = config.playerCount;
     const spectator = config.spectator;
@@ -90,30 +103,40 @@ export function createGameController(store, renderer, soundManager) {
       humanPlayerIndex: spectator ? null : 0,
     });
 
-    // Load AI functions
-    aiFunctions = await loadAIFunctions(playerCount, spectator);
+    try {
+      // Load AI functions
+      aiFunctions = await loadAIFunctions(playerCount, spectator);
 
-    // Create game via engine
-    const gameState = createGame({
-      playerCount,
-      mapWidth: DEFAULT_CONFIG.mapWidth,
-      mapHeight: DEFAULT_CONFIG.mapHeight,
-      maxAreas: DEFAULT_CONFIG.territoriesCount,
-    });
+      // Create game via engine
+      const gameState = createGame({
+        playerCount,
+        mapWidth: DEFAULT_CONFIG.mapWidth,
+        mapHeight: DEFAULT_CONFIG.mapHeight,
+        maxAreas: DEFAULT_CONFIG.territoriesCount,
+      });
 
-    store.setState({
-      gameState,
-      screen: 'mapPreview',
-      selectedFrom: null,
-      selectedTo: null,
-      battleResult: null,
-      animationPhase: 'idle',
-      awaitingInput: null,
-    });
+      store.setState({
+        gameState,
+        screen: 'mapPreview',
+        selectedFrom: null,
+        selectedTo: null,
+        battleResult: null,
+        animationPhase: 'idle',
+        awaitingInput: null,
+      });
 
-    // Draw the map in the renderer
-    if (renderer) {
-      renderer.drawMap(gameState);
+      // Draw the map in the renderer
+      if (renderer) {
+        renderer.drawMap(gameState);
+      }
+    } catch (err) {
+      console.error('Failed to start new game:', err);
+      store.setState({
+        screen: 'title',
+        gameState: null,
+        animationPhase: 'idle',
+        awaitingInput: null,
+      });
     }
   }
 
@@ -128,12 +151,19 @@ export function createGameController(store, renderer, soundManager) {
     const storeState = store.getState();
     const playerCount = storeState.config.playerCount;
 
-    const gameState = createGame({
-      playerCount,
-      mapWidth: DEFAULT_CONFIG.mapWidth,
-      mapHeight: DEFAULT_CONFIG.mapHeight,
-      maxAreas: DEFAULT_CONFIG.territoriesCount,
-    });
+    let gameState;
+    try {
+      gameState = createGame({
+        playerCount,
+        mapWidth: DEFAULT_CONFIG.mapWidth,
+        mapHeight: DEFAULT_CONFIG.mapHeight,
+        maxAreas: DEFAULT_CONFIG.territoriesCount,
+      });
+    } catch (err) {
+      console.error('Failed to regenerate map:', err);
+      store.setState({ screen: 'title', gameState: null });
+      return;
+    }
 
     store.setState({ gameState });
     if (renderer) {
@@ -221,7 +251,10 @@ export function createGameController(store, renderer, soundManager) {
 
       if (!isValid) {
         invalidCount++;
-        if (invalidCount >= 3) break;
+        if (invalidCount >= 3) {
+          console.warn(`AI player ${playerId} force-stopped: 3 consecutive invalid moves`);
+          break;
+        }
         continue;
       }
 
@@ -304,6 +337,7 @@ export function createGameController(store, renderer, soundManager) {
     const storeState = store.getState();
     const state = storeState.gameState;
     if (!state || storeState.screen !== 'playing') return;
+    if (storeState.animationPhase !== 'idle') return;
 
     const currentPlayerId = state.turnOrder[state.currentPlayerIndex];
     if (currentPlayerId !== storeState.humanPlayerIndex) return;
@@ -356,6 +390,9 @@ export function createGameController(store, renderer, soundManager) {
    * @param {number} toId
    */
   async function executeAttack(fromId, toId) {
+    // Block further input during animation
+    store.setState({ awaitingInput: null });
+
     const prevState = store.getState().gameState;
 
     let nextState;
@@ -366,7 +403,7 @@ export function createGameController(store, renderer, soundManager) {
         to: toId,
       });
     } catch (err) {
-      console.error('Human attack action failed:', err);
+      console.warn('[GameController] Human attack failed, resetting selection:', err.message);
       // Invalid move — reset selection
       store.setState({
         selectedFrom: null,

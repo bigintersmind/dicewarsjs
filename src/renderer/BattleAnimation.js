@@ -1,8 +1,10 @@
 /**
  * Battle Animation
  *
- * Animated dice combat display using PixiJS. Ports the physics from
- * the legacy `battle_dice()` function in main.js.
+ * Animated dice combat display using PixiJS. Inspired by the legacy
+ * `battle_dice()` function in main.js. Vertical bounce physics (gravity,
+ * bounce count) are faithfully ported; horizontal movement uses a
+ * decelerating velocity model instead of the original's accelerating offsets.
  *
  * Dice fly in from opposite sides, bounce, then settle showing their
  * final values and running totals.

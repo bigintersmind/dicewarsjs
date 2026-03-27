@@ -119,10 +119,14 @@ export function createSoundManager(options = {}) {
     const buffer = buffers.get(soundId);
     if (!buffer) {
       // Try loading on demand
-      load(soundId).then(() => {
-        const buf = buffers.get(soundId);
-        if (buf && enabled) playBuffer(buf);
-      });
+      load(soundId)
+        .then(() => {
+          const buf = buffers.get(soundId);
+          if (buf && enabled) playBuffer(buf);
+        })
+        .catch(err => {
+          console.warn(`[SoundManager] On-demand load failed for "${soundId}":`, err.message);
+        });
       return;
     }
 
@@ -170,8 +174,10 @@ export function createSoundManager(options = {}) {
     for (const source of activeSources) {
       try {
         source.stop();
-      } catch {
-        // already stopped
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'InvalidStateError')) {
+          console.warn('[SoundManager] Unexpected error stopping source:', err);
+        }
       }
     }
     activeSources.clear();
@@ -181,7 +187,9 @@ export function createSoundManager(options = {}) {
   function destroy() {
     stopAll();
     if (ctx) {
-      ctx.close();
+      ctx.close().catch(err => {
+        console.warn('[SoundManager] Error closing AudioContext:', err.message);
+      });
       ctx = null;
     }
     buffers.clear();

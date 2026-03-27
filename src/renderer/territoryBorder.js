@@ -61,6 +61,7 @@ export function traceBorder(cells, cellToArea, adjacency, areaId) {
   let c = start.cell;
   let d = start.dir;
 
+  // Safety limit: 200 (raised from 100 in the legacy code) handles larger territories
   for (let i = 0; i < 200; i++) {
     // Advance direction clockwise
     d = (d + 1) % 6;

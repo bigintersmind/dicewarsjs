@@ -9,7 +9,7 @@
  */
 
 /** @typedef {'title' | 'mapPreview' | 'playing' | 'gameOver'} Screen */
-/** @typedef {'idle' | 'battle' | 'supply' | 'gameOver'} AnimationPhase */
+/** @typedef {'idle' | 'battle'} AnimationPhase */
 /** @typedef {'selectFrom' | 'selectTo' | null} AwaitingInput */
 
 /**
@@ -78,7 +78,8 @@ export function createGameStore(initialOverrides) {
       try {
         fn(state, prev);
       } catch (err) {
-        console.error('[GameStore] Subscriber threw:', err);
+        console.error('[GameStore] Subscriber threw (removing it):', err);
+        listeners.delete(fn);
       }
     }
   }

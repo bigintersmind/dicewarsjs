@@ -1,0 +1,524 @@
+/**
+ * GameController tests
+ *
+ * Tests the game loop orchestration: start/accept/reject game, human click
+ * handling, AI turn execution, and error recovery.
+ */
+
+import { createGameController } from '../../src/controller/GameController.js';
+import { createGameStore } from '../../src/store/GameStore.js';
+
+/*
+ * ---------------------------------------------------------------------------
+ * Mocks
+ * ---------------------------------------------------------------------------
+ */
+
+// Minimal game state factory
+function makeGameState(overrides = {}) {
+  return {
+    phase: 'playing',
+    grid: { width: 28, height: 32, cellCount: 896 },
+    turnOrder: [0, 1],
+    currentPlayerIndex: 0,
+    history: [],
+    areas: {
+      0: null, // area 0 is unused
+      1: { owner: 0, dice: 3, neighborAreaIds: [2, 3] },
+      2: { owner: 1, dice: 2, neighborAreaIds: [1, 3] },
+      3: { owner: 0, dice: 1, neighborAreaIds: [1, 2] },
+    },
+    players: [
+      { id: 0, alive: true, territoryCount: 2 },
+      { id: 1, alive: true, territoryCount: 1 },
+    ],
+    ...overrides,
+  };
+}
+
+// Mock engine
+vi.mock('../../src/engine/index.js', () => ({
+  createGame: vi.fn(() => makeGameState()),
+  applyAction: vi.fn((state, action) => {
+    if (action.type === 'END_TURN') {
+      return {
+        ...state,
+        currentPlayerIndex: (state.currentPlayerIndex + 1) % state.turnOrder.length,
+        history: [...state.history, { type: 'END_TURN' }],
+      };
+    }
+    if (action.type === 'ATTACK') {
+      return {
+        ...state,
+        history: [
+          ...state.history,
+          {
+            type: 'ATTACK',
+            from: action.from,
+            to: action.to,
+            result: {
+              success: true,
+              attackerRoll: { values: [6], total: 6 },
+              defenderRoll: { values: [1], total: 1 },
+            },
+          },
+        ],
+      };
+    }
+    return state;
+  }),
+  getValidMoves: vi.fn(() => []),
+  ACTION_TYPES: { ATTACK: 'ATTACK', END_TURN: 'END_TURN' },
+  GAME_PHASES: { PLAYING: 'playing', GAME_OVER: 'gameOver' },
+}));
+
+vi.mock('../../src/engine/AIAdapter.js', () => ({
+  runAI: vi.fn(() => null), // AI immediately ends turn
+}));
+
+vi.mock('../../src/ai/aiConfig.js', () => ({
+  getAIImplementation: vi.fn(async id => {
+    if (id === 'FAIL_ALL') throw new Error('Module load failed');
+    return vi.fn(() => 0); // AI function that ends turn
+  }),
+}));
+
+vi.mock('../../src/utils/config.js', () => ({
+  DEFAULT_CONFIG: {
+    mapWidth: 28,
+    mapHeight: 32,
+    territoriesCount: 32,
+  },
+}));
+
+/*
+ * ---------------------------------------------------------------------------
+ * Helpers
+ * ---------------------------------------------------------------------------
+ */
+
+function createMockRenderer() {
+  return {
+    initialized: true,
+    drawMap: vi.fn(),
+    update: vi.fn(),
+    hitTest: vi.fn(() => 0),
+    screenToMap: vi.fn(() => ({ x: 0, y: 0 })),
+    hexGrid: {
+      clearHighlights: vi.fn(),
+      setHighlight: vi.fn(),
+    },
+    battle: {
+      play: vi.fn(async () => {}),
+      destroy: vi.fn(),
+    },
+    dice: { destroy: vi.fn() },
+    destroy: vi.fn(),
+  };
+}
+
+function createMockSoundManager() {
+  return {
+    play: vi.fn(),
+    loadAll: vi.fn(async () => {}),
+  };
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Tests
+ * ---------------------------------------------------------------------------
+ */
+
+describe('GameController', () => {
+  let store, renderer, soundManager, controller;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    store = createGameStore();
+    renderer = createMockRenderer();
+    soundManager = createMockSoundManager();
+    controller = createGameController(store, renderer, soundManager);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * startNewGame
+   * -----------------------------------------------------------------------
+   */
+
+  describe('startNewGame', () => {
+    it('creates a game and transitions to mapPreview', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      const state = store.getState();
+      expect(state.screen).toBe('mapPreview');
+      expect(state.gameState).toBeTruthy();
+      expect(state.animationPhase).toBe('idle');
+    });
+
+    it('calls renderer.drawMap with game state', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(renderer.drawMap).toHaveBeenCalledTimes(1);
+      expect(renderer.drawMap).toHaveBeenCalledWith(expect.objectContaining({ phase: 'playing' }));
+    });
+
+    it('preloads sounds', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(soundManager.loadAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('resets to title screen on createGame failure', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+      createGame.mockImplementationOnce(() => {
+        throw new Error('Map generation failed');
+      });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      const state = store.getState();
+      expect(state.screen).toBe('title');
+      expect(state.gameState).toBeNull();
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * acceptMap / rejectMap
+   * -----------------------------------------------------------------------
+   */
+
+  describe('acceptMap', () => {
+    it('transitions to playing screen and starts turn', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      const state = store.getState();
+      expect(state.screen).toBe('playing');
+    });
+
+    it('sets awaitingInput for human player', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+    });
+  });
+
+  describe('rejectMap', () => {
+    it('generates a new map and calls drawMap', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      renderer.drawMap.mockClear();
+
+      await controller.rejectMap();
+
+      expect(renderer.drawMap).toHaveBeenCalledTimes(1);
+      expect(store.getState().screen).toBe('mapPreview');
+    });
+
+    it('resets to title on createGame failure', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      const { createGame } = await import('../../src/engine/index.js');
+      createGame.mockImplementationOnce(() => {
+        throw new Error('Map generation failed');
+      });
+
+      await controller.rejectMap();
+      expect(store.getState().screen).toBe('title');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * goToTitle
+   * -----------------------------------------------------------------------
+   */
+
+  describe('goToTitle', () => {
+    it('resets to title screen', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.goToTitle();
+
+      const state = store.getState();
+      expect(state.screen).toBe('title');
+      expect(state.gameState).toBeNull();
+      expect(state.awaitingInput).toBeNull();
+      expect(state.animationPhase).toBe('idle');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * handleTerritoryClick
+   * -----------------------------------------------------------------------
+   */
+
+  describe('handleTerritoryClick', () => {
+    beforeEach(async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      // Now: screen='playing', awaitingInput='selectFrom', humanPlayerIndex=0
+    });
+
+    it('ignores areaId 0', () => {
+      controller.handleTerritoryClick(0);
+      expect(store.getState().selectedFrom).toBeNull();
+    });
+
+    it('ignores clicks when not on playing screen', () => {
+      store.setState({ screen: 'title' });
+      controller.handleTerritoryClick(1);
+      expect(store.getState().selectedFrom).toBeNull();
+    });
+
+    it('ignores clicks when not human turn', () => {
+      const gs = store.getState().gameState;
+      store.setState({ gameState: { ...gs, currentPlayerIndex: 1 } });
+      controller.handleTerritoryClick(1);
+      expect(store.getState().selectedFrom).toBeNull();
+    });
+
+    it('selects a valid attack source territory', () => {
+      controller.handleTerritoryClick(1); // area 1: owned by player 0, 3 dice
+
+      expect(store.getState().selectedFrom).toBe(1);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      expect(renderer.hexGrid.setHighlight).toHaveBeenCalledWith('from', 1);
+    });
+
+    it('rejects selecting territory with only 1 die', () => {
+      controller.handleTerritoryClick(3); // area 3: owned by player 0, 1 die
+
+      expect(store.getState().selectedFrom).toBeNull();
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+    });
+
+    it('rejects selecting enemy territory as source', () => {
+      controller.handleTerritoryClick(2); // area 2: owned by player 1
+
+      expect(store.getState().selectedFrom).toBeNull();
+    });
+
+    it('executes attack on valid target', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      controller.handleTerritoryClick(1); // select from
+      controller.handleTerritoryClick(2); // select to (adjacent enemy)
+
+      // Let animation complete
+      await vi.runAllTimersAsync();
+
+      expect(applyAction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'ATTACK', from: 1, to: 2 })
+      );
+    });
+
+    it('allows reselecting own territory during selectTo phase', () => {
+      // Modify area 3 to have more dice for re-selection test
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: { ...gs.areas, 3: { ...gs.areas[3], dice: 2 } },
+        },
+      });
+
+      controller.handleTerritoryClick(1); // select from area 1
+      expect(store.getState().selectedFrom).toBe(1);
+
+      controller.handleTerritoryClick(3); // re-select own area 3 (now 2 dice)
+      expect(store.getState().selectedFrom).toBe(3);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+    });
+
+    it('rejects non-adjacent target', () => {
+      // area 1's neighbors are [2, 3]; we need an area not in that list
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: {
+            ...gs.areas,
+            4: { owner: 1, dice: 2, neighborAreaIds: [5] },
+          },
+        },
+      });
+
+      controller.handleTerritoryClick(1); // select from
+      controller.handleTerritoryClick(4); // non-adjacent target
+
+      // Should still be in selectTo phase, no attack executed
+      expect(store.getState().awaitingInput).toBe('selectTo');
+    });
+
+    it('rejects clicks during animation (C1 fix)', () => {
+      store.setState({ animationPhase: 'battle' });
+
+      controller.handleTerritoryClick(1);
+      expect(store.getState().selectedFrom).toBeNull();
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * executeAttack race condition (C1)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('executeAttack race condition (C1)', () => {
+    it('sets awaitingInput to null immediately on attack', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      controller.handleTerritoryClick(1); // select from
+      expect(store.getState().awaitingInput).toBe('selectTo');
+
+      controller.handleTerritoryClick(2); // trigger attack
+
+      // awaitingInput should be null immediately (before animation completes)
+      expect(store.getState().awaitingInput).toBeNull();
+
+      // Let animation finish
+      await vi.runAllTimersAsync();
+
+      // After animation, it should be back to selectFrom
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+    });
+
+    it('blocks second click during animation', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      controller.handleTerritoryClick(1); // select from
+      controller.handleTerritoryClick(2); // trigger attack
+
+      applyAction.mockClear();
+
+      // Second click while animation is playing — should be blocked
+      controller.handleTerritoryClick(1);
+      controller.handleTerritoryClick(2);
+
+      expect(applyAction).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'ATTACK' })
+      );
+
+      await vi.runAllTimersAsync();
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * endHumanTurn
+   * -----------------------------------------------------------------------
+   */
+
+  describe('endHumanTurn', () => {
+    it('ends turn when awaitingInput is set', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+
+      controller.endHumanTurn();
+
+      expect(applyAction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'END_TURN' })
+      );
+      expect(store.getState().awaitingInput).toBeNull();
+    });
+
+    it('no-ops when awaitingInput is null', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      // Don't call acceptMap, so awaitingInput stays null
+      applyAction.mockClear();
+
+      controller.endHumanTurn();
+
+      expect(applyAction).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'END_TURN' })
+      );
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * loadAIFunctions fallback (C3)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('AI load fallback (C3)', () => {
+    it('falls back to ai_default when primary AI fails', async () => {
+      const { getAIImplementation } = await import('../../src/ai/aiConfig.js');
+
+      // First call fails, second (fallback) succeeds
+      getAIImplementation
+        .mockRejectedValueOnce(new Error('Module load failed'))
+        .mockResolvedValueOnce(vi.fn(() => 0)); // fallback AI
+
+      // Should not throw — falls back gracefully
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      expect(store.getState().screen).toBe('mapPreview');
+    });
+
+    it('resets to title when both primary and fallback AI fail', async () => {
+      const { getAIImplementation } = await import('../../src/ai/aiConfig.js');
+
+      // Both calls fail
+      getAIImplementation
+        .mockResolvedValueOnce(vi.fn(() => 0)) // player 0 (human, null — won't call)
+        .mockRejectedValueOnce(new Error('Primary failed'))
+        .mockRejectedValueOnce(new Error('Fallback failed'));
+
+      // With spectator mode to force all players to load AI
+      await controller.startNewGame({ playerCount: 2, spectator: true });
+      expect(store.getState().screen).toBe('title');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * executeAttack error handling
+   * -----------------------------------------------------------------------
+   */
+
+  describe('executeAttack error handling', () => {
+    it('resets selection on applyAction failure', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      applyAction.mockImplementationOnce(() => {
+        throw new Error('Invalid attack');
+      });
+
+      controller.handleTerritoryClick(1); // select from
+      controller.handleTerritoryClick(2); // select to — will fail
+
+      await vi.runAllTimersAsync();
+
+      expect(store.getState().selectedFrom).toBeNull();
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
+    });
+  });
+});

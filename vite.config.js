@@ -12,6 +12,7 @@ export default defineConfig({
       '@models': path.resolve(import.meta.dirname, 'src/models'),
       '@mechanics': path.resolve(import.meta.dirname, 'src/mechanics'),
       '@state': path.resolve(import.meta.dirname, 'src/state'),
+      '@engine': path.resolve(import.meta.dirname, 'src/engine'),
     },
   },
 
@@ -66,6 +67,12 @@ export default defineConfig({
           branches: 35,
           functions: 55,
           lines: 55,
+        },
+        'src/engine/**/*.js': {
+          statements: 70,
+          branches: 50,
+          functions: 70,
+          lines: 70,
         },
       },
     },

@@ -1,9 +1,9 @@
 /**
  * Observable Game Store
  *
- * Lightweight pub/sub state container shared by the PixiJS renderer
- * and Preact UI.  The GameController pushes state here; subscribers
- * react to changes.
+ * Lightweight pub/sub state container.  The GameController pushes state
+ * here; the Preact UI subscribes to changes via the useGameStore hook.
+ * The renderer is updated imperatively by the controller.
  *
  * @module store/GameStore
  */
@@ -24,6 +24,7 @@
  * @property {number | null} humanPlayerIndex
  * @property {number} aiSpeed
  * @property {boolean} soundEnabled
+ * @property {string | null} error
  * @property {Object} config
  */
 
@@ -38,6 +39,7 @@ const DEFAULT_STATE = {
   humanPlayerIndex: 0,
   aiSpeed: 1,
   soundEnabled: true,
+  error: null,
   config: {
     playerCount: 7,
     aiAssignments: [
@@ -78,8 +80,7 @@ export function createGameStore(initialOverrides) {
       try {
         fn(state, prev);
       } catch (err) {
-        console.error('[GameStore] Subscriber threw (removing it):', err);
-        listeners.delete(fn);
+        console.error('[GameStore] Subscriber threw:', err);
       }
     }
   }

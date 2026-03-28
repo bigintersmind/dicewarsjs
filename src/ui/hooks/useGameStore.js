@@ -26,12 +26,20 @@ export function useGameStore(store, selector) {
 
   useEffect(() => {
     // Sync in case state changed between render and effect
-    const current = selectorRef.current(store.getState());
-    setValue(prev => (prev === current ? prev : current));
+    try {
+      const current = selectorRef.current(store.getState());
+      setValue(prev => (prev === current ? prev : current));
+    } catch {
+      // Selector may fail during state transitions (e.g., null gameState)
+    }
 
     return store.subscribe(next => {
-      const selected = selectorRef.current(next);
-      setValue(prev => (prev === selected ? prev : selected));
+      try {
+        const selected = selectorRef.current(next);
+        setValue(prev => (prev === selected ? prev : selected));
+      } catch {
+        // Keep previous value when selector fails
+      }
     });
   }, [store]);
 

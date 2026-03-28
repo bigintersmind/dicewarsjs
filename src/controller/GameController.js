@@ -28,7 +28,7 @@ import { DEFAULT_CONFIG } from '../utils/config.js';
  * @returns {Object} GameController public API
  */
 export function createGameController(store, renderer, soundManager) {
-  /** @type {Function[]} AI functions per player index (null = human) */
+  /** @type {(Function | null)[]} AI functions per player index (null = human) */
   let aiFunctions = [];
   /** @type {boolean} True while an AI turn is running */
   let aiRunning = false;
@@ -77,8 +77,6 @@ export function createGameController(store, renderer, soundManager) {
     return fns;
   }
 
-  // --- Public API ---
-
   /**
    * Start a new game from the title screen.
    *
@@ -86,6 +84,12 @@ export function createGameController(store, renderer, soundManager) {
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
+    store.setState({ error: null });
+
+    if (!renderer) {
+      store.setState({ error: 'Cannot start game: graphics engine not available.' });
+      return;
+    }
 
     // Preload sounds on first user gesture (autoplay policy)
     if (soundManager && soundManager.loadAll) {
@@ -136,6 +140,7 @@ export function createGameController(store, renderer, soundManager) {
         gameState: null,
         animationPhase: 'idle',
         awaitingInput: null,
+        error: 'Failed to start game. Please try again.',
       });
     }
   }
@@ -161,7 +166,11 @@ export function createGameController(store, renderer, soundManager) {
       });
     } catch (err) {
       console.error('Failed to regenerate map:', err);
-      store.setState({ screen: 'title', gameState: null });
+      store.setState({
+        screen: 'title',
+        gameState: null,
+        error: 'Map generation failed. Please try again.',
+      });
       return;
     }
 
@@ -270,6 +279,8 @@ export function createGameController(store, renderer, soundManager) {
         console.error('AI attack action failed:', err);
         break;
       }
+
+      invalidCount = 0;
 
       // Extract battle result from the latest history entry
       const lastAction = state.history[state.history.length - 1];
@@ -458,7 +469,7 @@ export function createGameController(store, renderer, soundManager) {
     }
   }
 
-  /** End the current player's turn (human or AI). */
+  /** End the human player's turn (called from the UI END TURN button). */
   function endHumanTurn() {
     const storeState = store.getState();
     if (storeState.awaitingInput === null) return;
@@ -475,6 +486,11 @@ export function createGameController(store, renderer, soundManager) {
       nextState = applyAction(prevState, { type: ACTION_TYPES.END_TURN });
     } catch (err) {
       console.error('End turn action failed:', err);
+      store.setState({
+        screen: 'title',
+        gameState: null,
+        error: 'An error occurred. Returning to title screen.',
+      });
       return;
     }
 

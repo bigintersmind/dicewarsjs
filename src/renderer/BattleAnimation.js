@@ -52,6 +52,11 @@ export function createBattleAnimation(app) {
   function play(battleResult, attackerPlayerIndex, defenderPlayerIndex, options = {}) {
     const speed = options.speed || 1;
 
+    if (!battleResult?.attackerRoll?.values || !battleResult?.defenderRoll?.values) {
+      container.visible = false;
+      return Promise.resolve();
+    }
+
     // Resolve any pending animation
     if (pendingResolve) pendingResolve();
 
@@ -104,29 +109,38 @@ export function createBattleAnimation(app) {
       let settleWait = 0;
 
       function tick() {
-        if (phase === 0) {
-          // Animate attacker dice
-          const allSettled = updateDice(atkDice, speed);
-          if (allSettled) {
-            atkTotalText.visible = true;
-            phase = 1;
+        try {
+          if (phase === 0) {
+            // Animate attacker dice
+            const allSettled = updateDice(atkDice, speed);
+            if (allSettled) {
+              atkTotalText.visible = true;
+              phase = 1;
+            }
+          } else if (phase === 1) {
+            // Animate defender dice
+            const allSettled = updateDice(defDice, speed);
+            if (allSettled) {
+              defTotalText.visible = true;
+              phase = 2;
+            }
+          } else if (phase === 2) {
+            // Show result briefly
+            settleWait++;
+            if (settleWait >= SETTLE_FRAMES / speed) {
+              phase = 3;
+            }
           }
-        } else if (phase === 1) {
-          // Animate defender dice
-          const allSettled = updateDice(defDice, speed);
-          if (allSettled) {
-            defTotalText.visible = true;
-            phase = 2;
-          }
-        } else if (phase === 2) {
-          // Show result briefly
-          settleWait++;
-          if (settleWait >= SETTLE_FRAMES / speed) {
-            phase = 3;
-          }
-        }
 
-        if (phase === 3) {
+          if (phase === 3) {
+            app.ticker.remove(tick);
+            container.visible = false;
+            container.removeChildren();
+            pendingResolve = null;
+            resolve();
+          }
+        } catch (err) {
+          console.error('[BattleAnimation] tick error, aborting:', err);
           app.ticker.remove(tick);
           container.visible = false;
           container.removeChildren();
@@ -211,7 +225,7 @@ function updateDice(dice, speed) {
         // Show final value
         drawDieFace(d.gfx, d.color, d.finalValue);
       } else {
-        d.up = (5 - d.bc * BOUNCE_REDUCTION) * speed;
+        d.up = 5 - d.bc * BOUNCE_REDUCTION;
       }
     }
 

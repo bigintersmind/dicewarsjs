@@ -98,7 +98,7 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 4. **Game Engine** (Phase 2): `src/engine/` contains the pure game engine — no DOM, no rendering. Includes StateManager, BattleResolver, MapGenerator, TurnManager, HexGrid, AIAdapter, and GameRunner.
 
-5. **Rendering & UI** (Phase 3): `src/renderer/` (PixiJS hex grid, dice, battle animation), `src/ui/` (Preact screens and HUD), `src/store/` (observable GameStore), `src/controller/` (GameController state machine), `src/audio/` (Web Audio SoundManager).
+5. **Rendering & UI** (Phase 3): `src/renderer/` (PixiJS hex grid, dice, battle animation), `src/ui/` (Preact screens and HUD), `src/store/` (observable GameStore), `src/controller/` (GameController orchestrator), `src/audio/` (Web Audio SoundManager).
 
 ### Core Components
 

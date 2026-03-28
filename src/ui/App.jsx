@@ -7,6 +7,7 @@
  */
 
 import { useGameStore } from './hooks/useGameStore.js';
+import { ErrorBoundary } from './ErrorBoundary.jsx';
 import { TitleScreen } from './TitleScreen.jsx';
 import { GameHUD } from './GameHUD.jsx';
 import { MapPreview } from './MapPreview.jsx';
@@ -20,31 +21,45 @@ import { GameOverScreen } from './GameOverScreen.jsx';
  */
 export function App({ store, controller }) {
   const screen = useGameStore(store, s => s.screen);
+  const error = useGameStore(store, s => s.error);
 
   if (screen === 'title') {
-    return <TitleScreen onStart={config => controller.startNewGame(config)} />;
+    return (
+      <ErrorBoundary>
+        <TitleScreen error={error} onStart={config => controller.startNewGame(config)} />
+      </ErrorBoundary>
+    );
   }
 
   if (screen === 'mapPreview') {
     return (
-      <MapPreview onAccept={() => controller.acceptMap()} onReject={() => controller.rejectMap()} />
+      <ErrorBoundary>
+        <MapPreview
+          onAccept={() => controller.acceptMap()}
+          onReject={() => controller.rejectMap()}
+        />
+      </ErrorBoundary>
     );
   }
 
   if (screen === 'gameOver') {
     return (
-      <div style={{ height: '100%', position: 'relative' }}>
-        <GameHUD store={store} />
-        <GameOverScreen store={store} onTitle={() => controller.goToTitle()} />
-      </div>
+      <ErrorBoundary>
+        <div style={{ height: '100%', position: 'relative' }}>
+          <GameHUD store={store} />
+          <GameOverScreen store={store} onTitle={() => controller.goToTitle()} />
+        </div>
+      </ErrorBoundary>
     );
   }
 
   // screen === 'playing'
   return (
-    <div style={{ height: '100%', position: 'relative' }}>
-      <GameHUD store={store} />
-      <GameOverlay store={store} onEndTurn={() => controller.endHumanTurn()} />
-    </div>
+    <ErrorBoundary>
+      <div style={{ height: '100%', position: 'relative' }}>
+        <GameHUD store={store} />
+        <GameOverlay store={store} onEndTurn={() => controller.endHumanTurn()} />
+      </div>
+    </ErrorBoundary>
   );
 }

@@ -83,13 +83,25 @@ const STYLE = {
     color: '#aaaaaa',
     marginTop: '3rem',
   },
+  errorBanner: {
+    background: 'rgba(233, 69, 96, 0.15)',
+    border: '1px solid #e94560',
+    color: '#e94560',
+    padding: '0.6rem 1.2rem',
+    borderRadius: '6px',
+    marginBottom: '1.5rem',
+    fontSize: '0.95rem',
+    maxWidth: '400px',
+    textAlign: 'center',
+  },
 };
 
 /**
  * @param {Object} props
+ * @param {string | null} [props.error] - Error message to display
  * @param {(config: { playerCount: number, spectator: boolean }) => void} props.onStart
  */
-export function TitleScreen({ onStart }) {
+export function TitleScreen({ error, onStart }) {
   const [playerCount, setPlayerCount] = useState(7);
 
   const handleStart = () => {
@@ -103,6 +115,8 @@ export function TitleScreen({ onStart }) {
   return (
     <div style={STYLE.container}>
       <h1 style={STYLE.title}>DICE WARS</h1>
+
+      {error && <div style={STYLE.errorBanner}>{error}</div>}
 
       <div style={STYLE.playerRow}>
         {[2, 3, 4, 5, 6, 7, 8].map(n => (

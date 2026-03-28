@@ -521,4 +521,242 @@ describe('GameController', () => {
       expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
     });
   });
+
+  /*
+   * -----------------------------------------------------------------------
+   * AI turn: invalidCount reset (C1 fix)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('AI turn invalidCount reset', () => {
+    it('resets invalid count after a valid move so AI is not force-stopped', async () => {
+      const { applyAction, getValidMoves } = await import('../../src/engine/index.js');
+      const { runAI } = await import('../../src/engine/AIAdapter.js');
+
+      /*
+       * Configure AI to return: invalid, invalid, valid, invalid, invalid, valid, null.
+       * Without the reset fix, the AI would stop after 3 total invalids (moves 1,2,4).
+       * With the fix, count resets after each valid move.
+       */
+      let moveCount = 0;
+      runAI.mockImplementation(() => {
+        moveCount++;
+        if (moveCount <= 2) return { from: 99, to: 99 }; // invalid
+        if (moveCount === 3) return { from: 1, to: 2 }; // valid — resets counter
+        if (moveCount <= 5) return { from: 99, to: 99 }; // invalid again
+        if (moveCount === 6) return { from: 1, to: 2 }; // valid
+        return null; // end turn
+      });
+
+      getValidMoves.mockImplementation(() => [{ from: 1, to: 2 }]);
+
+      /*
+       * applyAction: ATTACK succeeds, first END_TURN advances player,
+       * second END_TURN (AI's) triggers game over to stop the loop.
+       */
+      let endTurnCount = 0;
+      applyAction.mockImplementation((state, action) => {
+        if (action.type === 'ATTACK') {
+          return {
+            ...state,
+            history: [
+              ...state.history,
+              {
+                type: 'ATTACK',
+                from: action.from,
+                to: action.to,
+                result: {
+                  success: true,
+                  attackerRoll: { values: [6], total: 6 },
+                  defenderRoll: { values: [1], total: 1 },
+                },
+              },
+            ],
+          };
+        }
+        endTurnCount++;
+        if (endTurnCount === 1) {
+          // First END_TURN (human) → advance to player 1 (AI)
+          return {
+            ...state,
+            currentPlayerIndex: 1,
+            history: [...state.history, { type: 'END_TURN' }],
+          };
+        }
+        // Subsequent END_TURN → game over to stop the loop
+        return { ...state, phase: 'gameOver', winner: 0 };
+      });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      // End human turn, which triggers AI turn for player 1
+      controller.endHumanTurn();
+      await vi.runAllTimersAsync();
+
+      /*
+       * With the fix, AI should have made 2 valid ATTACK moves (moves 3 and 6).
+       * Without the fix, it would stop after move 4 (3 total invalids) and make only 1 attack.
+       */
+      const attackCalls = applyAction.mock.calls.filter(([, action]) => action.type === 'ATTACK');
+      expect(attackCalls.length).toBe(2);
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Game over transitions
+   * -----------------------------------------------------------------------
+   */
+
+  describe('game over transitions', () => {
+    it('transitions to gameOver screen when human attack wins the game', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      // Make applyAction return game-over state on ATTACK
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'ATTACK') {
+          return {
+            ...state,
+            phase: 'gameOver',
+            winner: 0,
+            history: [
+              ...state.history,
+              {
+                type: 'ATTACK',
+                from: action.from,
+                to: action.to,
+                result: {
+                  success: true,
+                  attackerRoll: { values: [6], total: 6 },
+                  defenderRoll: { values: [1], total: 1 },
+                },
+              },
+            ],
+          };
+        }
+        return state;
+      });
+
+      controller.handleTerritoryClick(1); // select from
+      controller.handleTerritoryClick(2); // attack — triggers game over
+
+      await vi.runAllTimersAsync();
+
+      expect(store.getState().screen).toBe('gameOver');
+      expect(soundManager.play).toHaveBeenCalledWith('over');
+    });
+
+    it('transitions to gameOver screen when endTurn results in game over', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      // Make END_TURN return game-over
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          return { ...state, phase: 'gameOver', winner: 1 };
+        }
+        return state;
+      });
+
+      controller.endHumanTurn();
+      await vi.runAllTimersAsync();
+
+      expect(store.getState().screen).toBe('gameOver');
+      expect(soundManager.play).toHaveBeenCalledWith('over');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * endTurn error handling (I2 fix)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('endTurn error handling', () => {
+    it('sets error in store and navigates to title when applyAction throws', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      applyAction.mockImplementationOnce(() => {
+        throw new Error('State corrupted');
+      });
+
+      controller.endHumanTurn();
+      await vi.runAllTimersAsync();
+
+      const state = store.getState();
+      expect(state.screen).toBe('title');
+      expect(state.error).toBeTruthy();
+      expect(state.gameState).toBeNull();
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Renderer guard (C2 fix)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('renderer guard', () => {
+    it('sets error when starting game without renderer', async () => {
+      const noRendererStore = createGameStore();
+      const noRendererController = createGameController(noRendererStore, null, soundManager);
+
+      await noRendererController.startNewGame({ playerCount: 2, spectator: false });
+
+      const state = noRendererStore.getState();
+      expect(state.screen).toBe('title');
+      expect(state.error).toContain('graphics');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Error messages in catch blocks (C3 fix)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('error messages in catch blocks', () => {
+    it('sets error message on startNewGame failure', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+      createGame.mockImplementationOnce(() => {
+        throw new Error('Map generation failed');
+      });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(store.getState().error).toBeTruthy();
+      expect(store.getState().screen).toBe('title');
+    });
+
+    it('sets error message on rejectMap failure', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      const { createGame } = await import('../../src/engine/index.js');
+      createGame.mockImplementationOnce(() => {
+        throw new Error('Map generation failed');
+      });
+
+      await controller.rejectMap();
+
+      expect(store.getState().error).toBeTruthy();
+      expect(store.getState().screen).toBe('title');
+    });
+
+    it('clears error on successful game start', async () => {
+      store.setState({ error: 'Previous error' });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(store.getState().error).toBeNull();
+    });
+  });
 });

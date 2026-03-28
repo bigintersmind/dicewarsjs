@@ -27,6 +27,9 @@ async function main() {
       await gameRenderer.init(canvas);
     } catch (err) {
       console.error('PixiJS renderer failed to initialize:', err);
+      store.setState({
+        error: 'Graphics failed to initialize. Your browser may not support WebGL.',
+      });
     }
   }
 

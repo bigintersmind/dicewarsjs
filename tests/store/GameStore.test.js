@@ -81,6 +81,30 @@ describe('GameStore', () => {
     expect(store.getState().gameState).toBe(fakeGameState);
   });
 
+  it('subscriber survives a throw and continues receiving updates', () => {
+    const store = createGameStore();
+    let callCount = 0;
+    const listener = vi.fn(() => {
+      callCount++;
+      if (callCount === 1) throw new Error('transient error');
+    });
+
+    store.subscribe(listener);
+
+    // First call throws
+    store.setState({ screen: 'playing' });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // Subscriber should still receive subsequent updates
+    store.setState({ screen: 'gameOver' });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it('includes error field in default state', () => {
+    const store = createGameStore();
+    expect(store.getState().error).toBeNull();
+  });
+
   it('handles rapid successive updates', () => {
     const store = createGameStore();
     const listener = vi.fn();

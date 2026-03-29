@@ -166,7 +166,15 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
       if (bestCachedIdx >= 0) {
         const baseState = stateCache.current.get(bestCachedIdx);
         const actions = replay.actions.slice(bestCachedIdx, idx);
-        state = actions.length > 0 ? replayGame(baseState, actions) : baseState;
+        if (actions.length > 0) {
+          try {
+            state = replayGame(baseState, actions);
+          } catch (err) {
+            throw new Error(`Replay failed at action ${idx}: ${err.message}`);
+          }
+        } else {
+          state = baseState;
+        }
       } else {
         state = replayToState(replay, idx);
       }

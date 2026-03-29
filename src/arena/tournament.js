@@ -39,6 +39,7 @@ import { updateEloRatings, DEFAULT_RATING } from './elo.js';
  * @property {TournamentStanding[]} standings - Ordered by points/ELO
  * @property {TournamentMatch[][]}  rounds    - Matches grouped by round
  * @property {number}               totalGames
+ * @property {number}               failedGames - Games that threw errors
  * @property {string|null}          champion  - Winner name
  */
 
@@ -81,6 +82,7 @@ export function runRoundRobin(config) {
   const rounds = [];
   let seedCounter = baseSeed;
   let totalGames = 0;
+  let failedGames = 0;
 
   for (let roundIdx = 0; roundIdx < pairings.length; roundIdx++) {
     const pairing = pairings[roundIdx];
@@ -104,6 +106,7 @@ export function runRoundRobin(config) {
           `[Tournament] Round-robin match failed (seed ${seedCounter - 1}):`,
           err.message
         );
+        failedGames++;
         continue;
       }
 
@@ -141,6 +144,7 @@ export function runRoundRobin(config) {
     standings,
     rounds,
     totalGames,
+    failedGames,
     champion: standings.length > 0 ? standings[0].name : null,
   };
 }
@@ -181,6 +185,7 @@ export function runSingleElimination(config) {
   const rounds = [];
   let seedCounter = baseSeed;
   let totalGames = 0;
+  let failedGames = 0;
 
   while (bracket.length > 1) {
     const roundMatches = [];
@@ -222,6 +227,7 @@ export function runSingleElimination(config) {
             `[Tournament] Elimination match failed (seed ${seedCounter - 1}):`,
             err.message
           );
+          failedGames++;
           continue;
         }
 
@@ -275,6 +281,7 @@ export function runSingleElimination(config) {
     standings,
     rounds,
     totalGames,
+    failedGames,
     champion,
   };
 }

@@ -1,7 +1,5 @@
 import { createBotState } from '../../src/arena/botState.js';
 import { createGame } from '../../src/engine/GameRunner.js';
-import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
-import { ACTION_TYPES, GAME_PHASES } from '../../src/engine/constants.js';
 
 function createTestState(seed = 42) {
   return createGame({ seed, playerCount: 4 });
@@ -194,66 +192,38 @@ describe('createBotState', () => {
     }
   });
 
-  it('gamePhase is mid when some players are eliminated but fewer than half', () => {
-    // Play enough turns to eliminate at least one player but not half
-    let state = createGame({ seed: 100, playerCount: 4 });
+  it('gamePhase is mid after early game with 1 of 4 players eliminated', () => {
+    /*
+     * computeGamePhase returns 'mid' when: turnNumber > 3 OR eliminated > 0,
+     * AND activePlayers > 2 AND eliminated < totalPlayers/2.
+     */
+    const state = createTestState();
 
-    // Advance the game until at least one player is eliminated
-    for (let i = 0; i < 200; i++) {
-      if (state.phase === GAME_PHASES.GAME_OVER) break;
-      const playerId = state.turnOrder[state.currentPlayerIndex];
+    // Craft a state where 1 of 4 players is eliminated and turn > 3
+    const midState = {
+      ...state,
+      turnNumber: 10,
+      players: state.players.map((p, i) => (i === 3 ? { ...p, eliminated: true } : p)),
+    };
 
-      const moves = getValidMoves(state);
-      if (moves.length > 0) {
-        state = applyAction(state, {
-          type: ACTION_TYPES.ATTACK,
-          from: moves[0].from,
-          to: moves[0].to,
-        });
-      }
-      if (state.phase === GAME_PHASES.GAME_OVER) break;
-      state = applyAction(state, { type: ACTION_TYPES.END_TURN });
-    }
-
-    const eliminated = state.players.filter(p => p.eliminated).length;
-    const active = state.players.filter(p => !p.eliminated).length;
-
-    // Only check phase if we're in a mid-game state (some eliminated, but not half)
-    if (eliminated > 0 && eliminated < state.players.length / 2 && active > 2) {
-      const playerId = state.turnOrder[state.currentPlayerIndex];
-      const botState = createBotState(state, playerId);
-      expect(botState.gamePhase).toBe('mid');
-    }
+    const playerId = midState.turnOrder[midState.currentPlayerIndex];
+    const botState = createBotState(midState, playerId);
+    expect(botState.gamePhase).toBe('mid');
   });
 
   it('gamePhase is late when half or more players are eliminated', () => {
-    // Play a long game to get lots of eliminations
-    let state = createGame({ seed: 42, playerCount: 4 });
+    // computeGamePhase returns 'late' when activePlayers <= 2 OR eliminated >= totalPlayers/2
+    const state = createTestState();
 
-    for (let i = 0; i < 2000; i++) {
-      if (state.phase === GAME_PHASES.GAME_OVER) break;
-      const moves = getValidMoves(state);
-      if (moves.length > 0) {
-        state = applyAction(state, {
-          type: ACTION_TYPES.ATTACK,
-          from: moves[0].from,
-          to: moves[0].to,
-        });
-      }
-      if (state.phase === GAME_PHASES.GAME_OVER) break;
-      state = applyAction(state, { type: ACTION_TYPES.END_TURN });
-    }
+    // Craft a state where 2 of 4 players are eliminated (half)
+    const lateState = {
+      ...state,
+      turnNumber: 50,
+      players: state.players.map((p, i) => (i >= 2 ? { ...p, eliminated: true } : p)),
+    };
 
-    const eliminated = state.players.filter(p => p.eliminated).length;
-    const active = state.players.filter(p => !p.eliminated).length;
-
-    // If enough players were eliminated, verify late phase
-    if (eliminated >= state.players.length / 2 || active <= 2) {
-      const alivePlayers = state.players.filter(p => !p.eliminated);
-      if (alivePlayers.length > 0) {
-        const botState = createBotState(state, alivePlayers[0].id);
-        expect(botState.gamePhase).toBe('late');
-      }
-    }
+    const playerId = lateState.turnOrder[lateState.currentPlayerIndex];
+    const botState = createBotState(lateState, playerId);
+    expect(botState.gamePhase).toBe('late');
   });
 });

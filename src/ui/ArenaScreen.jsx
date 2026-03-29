@@ -7,7 +7,7 @@
  * @module ui/ArenaScreen
  */
 
-import { useState, useCallback, useRef } from 'preact/hooks';
+import { useState, useCallback } from 'preact/hooks';
 import { runMatch } from '../arena/matchRunner.js';
 import { updateEloRatings, DEFAULT_RATING } from '../arena/elo.js';
 import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
@@ -168,7 +168,6 @@ export function ArenaScreen({ onBack }) {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const cancelledRef = useRef(false);
 
   const toggleBot = useCallback(id => {
     setSelectedBots(prev => {
@@ -191,7 +190,6 @@ export function ArenaScreen({ onBack }) {
     setProgress(0);
     setResult(null);
     setError(null);
-    cancelledRef.current = false;
 
     const bots = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
       name: b.name,
@@ -246,52 +244,54 @@ export function ArenaScreen({ onBack }) {
 
     // Run one game per macrotask so Preact can paint progress updates
     const runNextGame = i => {
-      if (cancelledRef.current) {
-        setRunning(false);
-        return;
-      }
       if (i >= gameCount) {
         finalize();
         return;
       }
 
-      let matchResult;
       try {
-        matchResult = runMatch({ bots, seed: baseSeed + i, maxTurns: 500 });
-      } catch (err) {
-        console.error(`[Arena] Match ${i} failed (seed ${baseSeed + i}):`, err.message);
-        failedGames++;
+        let matchResult;
+        try {
+          matchResult = runMatch({ bots, seed: baseSeed + i, maxTurns: 500 });
+        } catch (err) {
+          console.error(`[Arena] Match ${i} failed (seed ${baseSeed + i}):`, err.message);
+          failedGames++;
+          setProgress((i + 1) / gameCount);
+          setTimeout(() => runNextGame(i + 1), 0);
+          return;
+        }
+
+        matches.push(matchResult);
+        totalTurns += matchResult.turnCount;
+
+        for (const stat of matchResult.botStats) {
+          const a = accum[stat.name];
+          a.gamesPlayed++;
+          a.totalPlacement += stat.placement;
+          a.totalTerritories += stat.finalTerritories;
+          a.totalAttacks += stat.attacksMade;
+          a.totalAttackWins += stat.attacksWon;
+          if (matchResult.winner === stat.playerIndex) {
+            a.wins++;
+          }
+        }
+
+        const eloPlayers = matchResult.placements.map(playerIdx => {
+          const botStat = matchResult.botStats.find(s => s.playerIndex === playerIdx);
+          return { name: botStat.name, elo: ratings[botStat.name] };
+        });
+        const updatedRatings = updateEloRatings(eloPlayers);
+        for (const r of updatedRatings) {
+          ratings[r.name] = r.elo;
+        }
+
         setProgress((i + 1) / gameCount);
         setTimeout(() => runNextGame(i + 1), 0);
-        return;
+      } catch (err) {
+        console.error('[Arena] Fatal error during game processing:', err);
+        setError(err.message || 'Arena run failed');
+        setRunning(false);
       }
-
-      matches.push(matchResult);
-      totalTurns += matchResult.turnCount;
-
-      for (const stat of matchResult.botStats) {
-        const a = accum[stat.name];
-        a.gamesPlayed++;
-        a.totalPlacement += stat.placement;
-        a.totalTerritories += stat.finalTerritories;
-        a.totalAttacks += stat.attacksMade;
-        a.totalAttackWins += stat.attacksWon;
-        if (matchResult.winner === stat.playerIndex) {
-          a.wins++;
-        }
-      }
-
-      const eloPlayers = matchResult.placements.map(playerIdx => {
-        const botStat = matchResult.botStats.find(s => s.playerIndex === playerIdx);
-        return { name: botStat.name, elo: ratings[botStat.name] };
-      });
-      const updatedRatings = updateEloRatings(eloPlayers);
-      for (const r of updatedRatings) {
-        ratings[r.name] = r.elo;
-      }
-
-      setProgress((i + 1) / gameCount);
-      setTimeout(() => runNextGame(i + 1), 0);
     };
 
     // Defer first game to let "RUNNING..." state paint
@@ -365,7 +365,9 @@ export function ArenaScreen({ onBack }) {
       {result && (
         <div style={STYLE.resultsContainer}>
           <div style={STYLE.statsRow}>
-            {result.totalGames} games played — avg {result.avgTurns} turns/game
+            {result.totalGames} games played
+            {result.failedGames > 0 && ` (${result.failedGames} failed)`} — avg {result.avgTurns}{' '}
+            turns/game
           </div>
           <Leaderboard bots={result.bots} />
         </div>

@@ -121,7 +121,7 @@ export function isGameOver(state) {
 
 /**
  * Calculate reinforcement dice count for a player.
- * Formula: floor(largestConnectedGroup / 3), minimum 1 if player has territories.
+ * Formula: size of largest connected territory group (matches original DiceWars).
  *
  * @param {{ areas: import('./types.js').Area[], players: import('./types.js').Player[] }} state
  * @param {number} playerId
@@ -131,8 +131,7 @@ export function calculateReinforcements(state, playerId) {
   const player = state.players[playerId];
   if (player.eliminated || player.territoryCount === 0) return 0;
 
-  const largestGroup = findLargestConnectedGroup(state.areas, playerId);
-  return Math.max(Math.floor(largestGroup / 3), 1);
+  return findLargestConnectedGroup(state.areas, playerId);
 }
 
 /**
@@ -168,13 +167,15 @@ export function nextTurn(state) {
 
 /**
  * Distribute reinforcement dice to a player's territories.
+ * Dice are placed randomly (matches original DiceWars).
  * Returns a new areas array with dice added. Does NOT mutate the input.
  *
  * @param {{ areas: import('./types.js').Area[], players: import('./types.js').Player[] }} state
  * @param {number} playerId
+ * @param {Object} rng - Seeded RNG instance (from engine/rng.js)
  * @returns {{ areas: import('./types.js').Area[], playerStock: number }}
  */
-export function distributeReinforcements(state, playerId) {
+export function distributeReinforcements(state, playerId, rng) {
   const player = state.players[playerId];
   const reinforcements = calculateReinforcements(state, playerId);
   let stock = Math.min(player.stock + reinforcements, STOCK_MAX);
@@ -190,31 +191,25 @@ export function distributeReinforcements(state, playerId) {
     cells: [...a.cells],
   }));
 
-  // Build list of player territories that can receive dice, sorted by priority
+  // Build list of player territories that can receive dice
   const eligible = [];
   for (let i = 1; i < newAreas.length; i++) {
     const area = newAreas[i];
     if (area.size > 0 && area.owner === playerId && area.dice < MAX_DICE) {
-      // Border territories (adjacent to enemy) get higher priority
-      const isBorder = area.neighborAreaIds.some(
-        adjId =>
-          adjId > 0 &&
-          adjId < newAreas.length &&
-          newAreas[adjId].size > 0 &&
-          newAreas[adjId].owner !== playerId
-      );
-      const priority = (isBorder ? 100 : 0) + (MAX_DICE - area.dice) * 10;
-      eligible.push({ id: i, priority });
+      eligible.push(i);
     }
   }
-  eligible.sort((a, b) => b.priority - a.priority);
 
-  // Distribute dice
-  for (const { id } of eligible) {
-    if (stock <= 0) break;
-    if (newAreas[id].dice < MAX_DICE) {
-      newAreas[id].dice++;
-      stock--;
+  // Distribute dice randomly, one at a time
+  while (stock > 0 && eligible.length > 0) {
+    const idx = rng.nextInt(0, eligible.length - 1);
+    const id = eligible[idx];
+
+    newAreas[id].dice++;
+    stock--;
+
+    if (newAreas[id].dice >= MAX_DICE) {
+      eligible.splice(idx, 1);
     }
   }
 

@@ -201,8 +201,8 @@ export const PlayerState = {
       return 0;
     }
 
-    // Original reinforcement formula: largest territory size + min(territoryCount / 2)
-    return player.largestTerritorySize + Math.min(3, Math.floor(player.territoryCount / 2));
+    // Reinforcements = largest connected territory group (matches original DiceWars)
+    return player.largestTerritorySize;
   },
 
   /**

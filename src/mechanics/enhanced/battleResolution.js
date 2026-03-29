@@ -197,13 +197,8 @@ export function executeAttack(gameState, fromArea, toArea) {
 export function distributeReinforcements(gameState, playerIndex) {
   const { player, adat, AREA_MAX, STOCK_MAX } = gameState;
 
-  // Calculate reinforcements - larger connected territory groups give more dice
-  let reinforcements = Math.floor(player[playerIndex].area_tc / 3);
-
-  // Minimum of 1 reinforcement if player has any territories
-  if (player[playerIndex].area_c > 0 && reinforcements < 1) {
-    reinforcements = 1;
-  }
+  // Reinforcements = largest connected territory group (matches original DiceWars)
+  const reinforcements = player[playerIndex].area_tc;
 
   // Add to player's stock, up to the maximum
   player[playerIndex].stock += reinforcements;
@@ -216,50 +211,35 @@ export function distributeReinforcements(gameState, playerIndex) {
     return gameState;
   }
 
-  // Find all territories owned by this player
-  const territories = [];
-
+  // Find all territories owned by this player that can receive dice
+  const eligible = [];
   for (let i = 1; i < AREA_MAX; i++) {
     if (adat[i].size === 0) continue;
     if (adat[i].arm !== playerIndex) continue;
-    if (adat[i].dice >= 8) continue; // Skip territories at max dice
-
-    // Check if this territory borders an enemy using Map-based adjacency
-    const isBorder = adat[i]
-      .getAdjacentAreas()
-      .some(
-        adjAreaId =>
-          adjAreaId > 0 && adat[adjAreaId].size > 0 && adat[adjAreaId].arm !== playerIndex
-      );
-
-    // Calculate priority score - border territories and those with fewer dice get priority
-    const priority = (isBorder ? 100 : 0) + (8 - adat[i].dice) * 10;
-
-    territories.push({
-      id: i,
-      priority,
-    });
+    if (adat[i].dice >= 8) continue;
+    eligible.push(i);
   }
 
-  // Sort by priority (higher first)
-  territories.sort((a, b) => b.priority - a.priority);
+  // Distribute dice randomly, one at a time (matches original DiceWars)
+  while (player[playerIndex].stock > 0 && eligible.length > 0) {
+    const idx = Math.floor(Math.random() * eligible.length);
+    const id = eligible[idx];
 
-  // Distribute available reinforcements
-  for (let i = 0; i < territories.length && player[playerIndex].stock > 0; i++) {
-    const territoryId = territories[i].id;
-
-    adat[territoryId].dice++;
+    adat[id].dice++;
     player[playerIndex].stock--;
 
     // Add to history
     if (!gameState.his[gameState.his_c]) {
       gameState.his[gameState.his_c] = new HistoryData();
     }
-
-    gameState.his[gameState.his_c].from = territoryId;
-    gameState.his[gameState.his_c].to = 0; // 0 indicates reinforcement, not attack
+    gameState.his[gameState.his_c].from = id;
+    gameState.his[gameState.his_c].to = 0;
     gameState.his[gameState.his_c].res = 0;
     gameState.his_c++;
+
+    if (adat[id].dice >= 8) {
+      eligible.splice(idx, 1);
+    }
   }
 
   return gameState;

@@ -208,11 +208,17 @@ function applyEndTurn(state) {
   const areas = cloneAreas(state.areas);
   const players = clonePlayers(state.players);
 
-  // Distribute reinforcements (calculates reinforcements + places dice)
+  // Create RNG for deterministic reinforcement distribution
+  const rng = createRng(state.rngState);
+
+  // Distribute reinforcements (calculates reinforcements + places dice randomly)
   const { areas: newAreas, playerStock } = distributeReinforcementsDice(
     { areas, players },
-    currentPlayer
+    currentPlayer,
+    rng
   );
+
+  const newRngState = rng.state();
 
   // Update the player's stock after distribution
   players[currentPlayer].stock = playerStock;
@@ -234,6 +240,7 @@ function applyEndTurn(state) {
     players,
     currentPlayerIndex,
     turnNumber,
+    rngState: newRngState,
     history: [...state.history, { type: ACTION_TYPES.END_TURN }],
   });
 }

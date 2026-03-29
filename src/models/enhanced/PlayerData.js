@@ -181,8 +181,8 @@ export class PlayerData {
    * @returns {number} Reinforcement amount
    */
   calculateReinforcements() {
-    // Larger connected territory groups give more reinforcements
-    return Math.max(Math.floor(this.#largestTerritory / 3), this.#areaCount > 0 ? 1 : 0);
+    // Reinforcements = largest connected territory group (matches original DiceWars)
+    return this.#largestTerritory;
   }
 
   // Legacy compatibility getters/setters

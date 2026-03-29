@@ -305,11 +305,8 @@ export const distributeReinforcements = withErrorHandling(
     // Validate player
     validatePlayer(gameState, playerIndex);
 
-    // Calculate reinforcements with minimum of 1 if player has territories
-    const calculateReinforcements = () => {
-      const baseReinforcements = Math.floor(player[playerIndex].area_tc / 3);
-      return player[playerIndex].area_c > 0 ? Math.max(baseReinforcements, 1) : baseReinforcements;
-    };
+    // Reinforcements = largest connected territory group (matches original DiceWars)
+    const calculateReinforcements = () => player[playerIndex].area_tc;
 
     // Add reinforcements to player's stock, capped at maximum
     const addReinforcementsToStock = reinforcements => {
@@ -333,75 +330,41 @@ export const distributeReinforcements = withErrorHandling(
       return gameState;
     }
 
-    // Find all territories owned by this player
-    const findPlayerTerritories = () =>
-      Array.from({ length: AREA_MAX })
-        .map((_, i) => i)
-        .filter(
-          areaId =>
-            areaId > 0 &&
-            adat[areaId].size > 0 &&
-            adat[areaId].arm === playerIndex &&
-            adat[areaId].dice < 8 // Skip territories at max dice
-        )
-        .map(id => {
-          // Check if this territory borders an enemy
-          const isBorder =
-            Array.from({ length: AREA_MAX })
-              .map((_, j) => j)
-              .filter(
-                j =>
-                  j > 0 && adat[j].size > 0 && adat[id].join[j] === 1 && adat[j].arm !== playerIndex
-              ).length > 0;
+    // Find all territories owned by this player that can receive dice
+    const eligible = [];
+    for (let i = 1; i < AREA_MAX; i++) {
+      if (adat[i].size === 0) continue;
+      if (adat[i].arm !== playerIndex) continue;
+      if (adat[i].dice >= 8) continue;
+      eligible.push(i);
+    }
 
-          // Calculate priority score - border territories and those with fewer dice get priority
-          const priority = (isBorder ? 100 : 0) + (8 - adat[id].dice) * 10;
+    // Distribute dice randomly, one at a time (matches original DiceWars)
+    let currentHistory = gameState.his_c;
+    while (player[playerIndex].stock > 0 && eligible.length > 0) {
+      const idx = Math.floor(Math.random() * eligible.length);
+      const id = eligible[idx];
 
-          return { id, priority };
-        })
-        .sort((a, b) => b.priority - a.priority); // Sort by priority (higher first)
+      adat[id].dice++;
+      player[playerIndex].stock--;
 
-    const territories = findPlayerTerritories();
+      // Emit territory reinforced event
+      emitTerritoryReinforced(gameState, id, 1);
 
-    // Distribute available reinforcements to territories based on priority
-    const distributeAvailableDice = () => {
-      let remainingStock = player[playerIndex].stock;
-      let currentHistory = gameState.his_c;
-
-      // Try to distribute to each territory in priority order until stock is depleted
-      for (const { id } of territories) {
-        if (remainingStock <= 0) break;
-
-        // Check if territory can receive more dice
-        if (adat[id].dice >= 8) {
-          continue;
-        }
-
-        // Add a die to this territory
-        adat[id].dice++;
-        remainingStock--;
-
-        // Emit territory reinforced event
-        emitTerritoryReinforced(gameState, id, 1);
-
-        // Add to history
-        if (!gameState.his[currentHistory]) {
-          gameState.his[currentHistory] = new HistoryData();
-        }
-
-        gameState.his[currentHistory].from = id;
-        gameState.his[currentHistory].to = 0; // 0 indicates reinforcement, not attack
-        gameState.his[currentHistory].res = 0;
-        currentHistory++;
+      // Add to history
+      if (!gameState.his[currentHistory]) {
+        gameState.his[currentHistory] = new HistoryData();
       }
+      gameState.his[currentHistory].from = id;
+      gameState.his[currentHistory].to = 0;
+      gameState.his[currentHistory].res = 0;
+      currentHistory++;
 
-      // Update the game state
-      player[playerIndex].stock = remainingStock;
-      return currentHistory;
-    };
-
-    // Distribute the dice and update history counter
-    gameState.his_c = distributeAvailableDice();
+      if (adat[id].dice >= 8) {
+        eligible.splice(idx, 1);
+      }
+    }
+    gameState.his_c = currentHistory;
 
     // Emit turn start event after reinforcements are distributed
     gameEvents.emit(EventType.TURN_START, {

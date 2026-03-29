@@ -152,17 +152,16 @@ describe('calculateReinforcements', () => {
     expect(calculateReinforcements(state, 0)).toBe(0);
   });
 
-  it('returns minimum 1 for a player with territories', () => {
+  it('returns 1 for a player with a single territory', () => {
     const state = makeState({
       areas: [area(0, -1, 0, [], 0), area(1, 0, 2, [])],
       players: [player(0, { territoryCount: 1 })],
     });
-    // largestGroup = 1, floor(1/3) = 0, but min is 1
     expect(calculateReinforcements(state, 0)).toBe(1);
   });
 
-  it('calculates floor(largestGroup / 3) for larger groups', () => {
-    // Player 0 owns 6 connected territories → floor(6/3) = 2
+  it('returns full largest connected group size', () => {
+    // Player 0 owns 6 connected territories → reinforcements = 6
     const areas = [area(0, -1, 0, [], 0)];
     for (let i = 1; i <= 6; i++) {
       const adj = [];
@@ -174,7 +173,7 @@ describe('calculateReinforcements', () => {
       areas,
       players: [player(0, { territoryCount: 6 })],
     });
-    expect(calculateReinforcements(state, 0)).toBe(2);
+    expect(calculateReinforcements(state, 0)).toBe(6);
   });
 });
 
@@ -239,7 +238,7 @@ describe('distributeReinforcements', () => {
     const originalDice1 = areas[1].dice;
     const originalDice2 = areas[2].dice;
 
-    distributeReinforcements(state, 0);
+    distributeReinforcements(state, 0, createRng(42));
 
     expect(areas[1].dice).toBe(originalDice1);
     expect(areas[2].dice).toBe(originalDice2);
@@ -251,7 +250,7 @@ describe('distributeReinforcements', () => {
       areas,
       players: [player(0, { territoryCount: 2, stock: 3 })],
     });
-    const { areas: newAreas, playerStock } = distributeReinforcements(state, 0);
+    const { areas: newAreas, playerStock } = distributeReinforcements(state, 0, createRng(42));
 
     // Should have placed dice
     const totalNewDice = newAreas[1].dice + newAreas[2].dice;
@@ -267,7 +266,7 @@ describe('distributeReinforcements', () => {
       areas,
       players: [player(0, { territoryCount: 1, stock: 10 })],
     });
-    const { areas: newAreas } = distributeReinforcements(state, 0);
+    const { areas: newAreas } = distributeReinforcements(state, 0, createRng(42));
     expect(newAreas[1].dice).toBeLessThanOrEqual(8);
   });
 
@@ -290,10 +289,10 @@ describe('distributeReinforcements', () => {
       ],
     });
     /*
-     * Player 0 has largestGroup=6, so reinforcements = floor(6/3) = 2
-     * stock = min(63 + 2, 64) = 64, not 65
+     * Player 0 has largestGroup=6, so reinforcements = 6
+     * stock = min(63 + 6, 64) = 64, capped at STOCK_MAX
      */
-    const { playerStock } = distributeReinforcements(state, 0);
+    const { playerStock } = distributeReinforcements(state, 0, createRng(42));
     expect(playerStock).toBeLessThanOrEqual(64);
   });
 
@@ -303,10 +302,30 @@ describe('distributeReinforcements', () => {
       areas,
       players: [player(0, { territoryCount: 0, stock: 0, eliminated: true })],
     });
-    const { areas: newAreas, playerStock } = distributeReinforcements(state, 0);
+    const { areas: newAreas, playerStock } = distributeReinforcements(state, 0, createRng(42));
 
     expect(playerStock).toBe(0);
     expect(newAreas[1].dice).toBe(3);
     expect(newAreas[2].dice).toBe(2);
+  });
+
+  it('is deterministic with the same seed', () => {
+    const areas = [area(0, -1, 0, [], 0), area(1, 0, 2, [2]), area(2, 0, 2, [1])];
+    const mkState = () =>
+      makeState({
+        areas: areas.map(a => ({
+          ...a,
+          neighborAreaIds: [...a.neighborAreaIds],
+          cells: [...a.cells],
+        })),
+        players: [player(0, { territoryCount: 2, stock: 5 })],
+      });
+
+    const result1 = distributeReinforcements(mkState(), 0, createRng(99));
+    const result2 = distributeReinforcements(mkState(), 0, createRng(99));
+
+    expect(result1.areas[1].dice).toBe(result2.areas[1].dice);
+    expect(result1.areas[2].dice).toBe(result2.areas[2].dice);
+    expect(result1.playerStock).toBe(result2.playerStock);
   });
 });

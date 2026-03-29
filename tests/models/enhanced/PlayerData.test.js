@@ -167,21 +167,21 @@ describe('Enhanced PlayerData', () => {
       expect(playerData.isDefeated()).toBe(false);
     });
 
-    test('can calculate reinforcements based on territory size', () => {
+    test('returns largest connected group size as reinforcements', () => {
       // No territories = no reinforcements
       playerData.areaCount = 0;
       playerData.largestTerritory = 0;
       expect(playerData.calculateReinforcements()).toBe(0);
 
-      // Small territory = minimum 1 reinforcement
+      // Single territory
       playerData.areaCount = 1;
       playerData.largestTerritory = 2;
-      expect(playerData.calculateReinforcements()).toBe(1);
+      expect(playerData.calculateReinforcements()).toBe(2);
 
-      // Larger territory = more reinforcements
+      // Larger connected group
       playerData.areaCount = 5;
       playerData.largestTerritory = 9;
-      expect(playerData.calculateReinforcements()).toBe(3);
+      expect(playerData.calculateReinforcements()).toBe(9);
     });
   });
 

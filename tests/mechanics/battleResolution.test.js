@@ -438,39 +438,25 @@ describe('Battle Resolution Module', () => {
 
       expect(validatePlayer).toHaveBeenCalledWith(gameState, 1);
 
-      // Should get floor(6/3) = 2 reinforcements
-      expect(result.player[1].stock).toBe(3); // 3 + 2, but one die distributed
-
+      // Should get area_tc=6 reinforcements (full largest connected group)
       expect(gameEvents.emit).toHaveBeenCalledWith(
         EventType.DICE_ADDED,
         expect.objectContaining({
           playerId: 1,
-          diceAdded: 2,
-          stockTotal: 5,
+          diceAdded: 6,
+          stockTotal: 9,
         })
       );
 
-      /*
-       * The mocked gameState is passed by reference, so these checks might be different
-       * from what's actually happening due to the mock
-       */
-      console.log('Territory 1 dice:', result.adat[1].dice);
-      console.log('Player stock:', result.player[1].stock);
-
-      /*
-       * emitTerritoryReinforced passes the gameState by reference
-       * Check that it was called with the right parameters
-       */
       expect(emitTerritoryReinforced).toHaveBeenCalled();
       expect(result.his_c).toBeGreaterThan(0);
     });
 
-    it('should give minimum 1 reinforcement if player has territories', () => {
-      gameState.player[1].area_tc = 1; // Would normally get 0
+    it('should give 1 reinforcement when largest group is 1', () => {
+      gameState.player[1].area_tc = 1;
 
       const result = distributeReinforcements(gameState, 1);
 
-      // Should get max(floor(1/3), 1) = 1 reinforcement
       expect(gameEvents.emit).toHaveBeenCalledWith(
         EventType.DICE_ADDED,
         expect.objectContaining({
@@ -496,26 +482,24 @@ describe('Battle Resolution Module', () => {
 
     it('should respect stock maximum', () => {
       gameState.player[1].stock = 18;
-      gameState.player[1].area_tc = 12; // Would get 4 reinforcements
+      gameState.player[1].area_tc = 12; // Gets 12 reinforcements
 
       const result = distributeReinforcements(gameState, 1);
 
       /*
-       * 18 + 4 = 22, but capped at 20
-       * And the stock is then distributed to territories
+       * 18 + 12 = 30, but capped at STOCK_MAX=20
        * Territories 1 can go from 3->8 (5 dice) and 3 can go from 7->8 (1 dice)
        * Total of 6 dice can be distributed, leaving 20-6 = 14 in stock
-       * But I think the test is looking at the intermediate state
        */
 
-      expect(result.player[1].stock).toBe(18); // After distribution
+      expect(result.player[1].stock).toBe(14); // After distribution
 
-      // The emit event should show 4 dice were added to stock
+      // The emit event should show 12 dice were added to stock (before cap)
       expect(gameEvents.emit).toHaveBeenCalledWith(
         EventType.DICE_ADDED,
         expect.objectContaining({
           playerId: 1,
-          diceAdded: 4,
+          diceAdded: 12,
           stockTotal: 20,
         })
       );
@@ -529,16 +513,6 @@ describe('Battle Resolution Module', () => {
 
       expect(result.adat[1].dice).toBe(8); // Unchanged
       expect(result.adat[3].dice).toBe(8); // Got the reinforcement
-    });
-
-    it('should prioritize border territories', () => {
-      gameState.adat[3].dice = 2; // Fewer dice but not a border
-      gameState.adat[1].dice = 4; // More dice but is a border
-
-      const result = distributeReinforcements(gameState, 1);
-
-      // Territory 1 should get reinforcement first (border priority)
-      expect(result.adat[1].dice).toBe(5);
     });
 
     it('should handle no stock available', () => {
@@ -557,7 +531,7 @@ describe('Battle Resolution Module', () => {
         EventType.TURN_START,
         expect.objectContaining({
           playerId: 1,
-          reinforcementsAdded: 2,
+          reinforcementsAdded: 6,
         })
       );
     });

@@ -42,6 +42,12 @@ export function updateEloRatings(players, kFactor = DEFAULT_K) {
     return players.map(p => ({ name: p.name, elo: p.elo, delta: 0 }));
   }
 
+  for (const p of players) {
+    if (typeof p.elo !== 'number' || !Number.isFinite(p.elo)) {
+      throw new Error(`Invalid ELO for player "${p.name}": ${p.elo}`);
+    }
+  }
+
   // K per comparison — normalize for number of pairwise matchups
   const kPerPair = kFactor / (n - 1);
 

@@ -2,7 +2,7 @@
  * Arena Runner
  *
  * Runs multiple matches between bots and aggregates statistics.
- * Supports progress callbacks and chunked execution to avoid blocking the UI.
+ * Supports a progress callback after each game completes.
  *
  * @module arena/arenaRunner
  */
@@ -25,8 +25,9 @@ import { updateEloRatings, DEFAULT_RATING } from './elo.js';
 /**
  * @typedef {Object} ArenaResult
  * @property {ArenaBotStat[]}                   bots       - Aggregated bot stats
- * @property {number}                           totalGames - Total games run
- * @property {number}                           avgTurns   - Average turns per game
+ * @property {number}                           totalGames   - Total games completed
+ * @property {number}                           failedGames  - Games that threw errors
+ * @property {number}                           avgTurns     - Average turns per game
  * @property {import('./matchRunner.js').MatchResult[]} matches - Individual match results
  */
 
@@ -43,6 +44,11 @@ import { updateEloRatings, DEFAULT_RATING } from './elo.js';
  */
 export function runArena(config) {
   const { bots, gameCount = 100, baseSeed = 1, maxTurns = 500, onGameComplete } = config;
+
+  const names = new Set(bots.map(b => b.name));
+  if (names.size !== bots.length) {
+    throw new Error('Bot names must be unique');
+  }
 
   const matches = [];
 
@@ -133,6 +139,7 @@ export function runArena(config) {
   return {
     bots: botStats,
     totalGames: matches.length,
+    failedGames,
     avgTurns: matches.length > 0 ? +(totalTurns / matches.length).toFixed(1) : 0,
     matches,
   };

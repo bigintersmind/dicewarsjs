@@ -1,10 +1,10 @@
 /**
  * Bot Runner
  *
- * Provides two execution paths for bot functions:
+ * Provides three functions for bot execution:
  * - runBotDirect: synchronous, for trusted built-in bots (fast arena path)
  * - runBotMove: async via Web Worker with timeout, for untrusted user bots
- * - createBotWorker: creates a sandboxed Worker from bot source code
+ * - createBotWorker: creates an isolated Worker from bot source code
  *
  * @module arena/botRunner
  */

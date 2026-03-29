@@ -208,4 +208,39 @@ describe('runMatch', () => {
     expect(result.config.seed).toBe(42);
     expect(result.config.playerCount).toBe(2);
   });
+
+  it('throws when bot names are not unique', () => {
+    expect(() =>
+      runMatch({
+        bots: [
+          { name: 'same', fn: exampleBot },
+          { name: 'same', fn: defaultBot },
+        ],
+        seed: 42,
+      })
+    ).toThrow(/unique/i);
+  });
+
+  it('botStats include errors and invalidMoves counts', () => {
+    const crashBot = () => {
+      throw new Error('crash');
+    };
+
+    const result = runMatch({
+      bots: [
+        { name: 'crasher', fn: crashBot },
+        { name: 'normal', fn: exampleBot },
+      ],
+      seed: 42,
+      maxTurns: 10,
+    });
+
+    for (const stat of result.botStats) {
+      expect(typeof stat.errors).toBe('number');
+      expect(typeof stat.invalidMoves).toBe('number');
+    }
+
+    const crasherStat = result.botStats.find(s => s.name === 'crasher');
+    expect(crasherStat.errors).toBeGreaterThan(0);
+  });
 });

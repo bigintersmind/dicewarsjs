@@ -7,8 +7,9 @@
  * @module ui/ArenaScreen
  */
 
-import { useState, useCallback } from 'preact/hooks';
-import { runArena } from '../arena/arenaRunner.js';
+import { useState, useCallback, useRef } from 'preact/hooks';
+import { runMatch } from '../arena/matchRunner.js';
+import { updateEloRatings, DEFAULT_RATING } from '../arena/elo.js';
 import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
 import { Leaderboard } from './Leaderboard.jsx';
 
@@ -167,6 +168,7 @@ export function ArenaScreen({ onBack }) {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const cancelledRef = useRef(false);
 
   const toggleBot = useCallback(id => {
     setSelectedBots(prev => {
@@ -189,32 +191,111 @@ export function ArenaScreen({ onBack }) {
     setProgress(0);
     setResult(null);
     setError(null);
+    cancelledRef.current = false;
 
     const bots = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
       name: b.name,
       fn: b.fn,
     }));
 
-    setTimeout(() => {
-      try {
-        const arenaResult = runArena({
-          bots,
-          gameCount,
-          baseSeed: Date.now(),
-          onGameComplete: i => {
-            setProgress((i + 1) / gameCount);
-          },
-        });
+    // Per-bot accumulators
+    const ratings = {};
+    const accum = {};
+    for (const bot of bots) {
+      ratings[bot.name] = DEFAULT_RATING;
+      accum[bot.name] = {
+        wins: 0,
+        gamesPlayed: 0,
+        totalPlacement: 0,
+        totalTerritories: 0,
+        totalAttacks: 0,
+        totalAttackWins: 0,
+      };
+    }
 
-        setResult(arenaResult);
-        setProgress(1);
-      } catch (err) {
-        console.error('[Arena] Run failed:', err);
-        setError(err.message || 'Arena run failed');
-      } finally {
+    const matches = [];
+    let totalTurns = 0;
+    let failedGames = 0;
+    const baseSeed = Date.now();
+
+    const finalize = () => {
+      const botStats = bots.map(bot => {
+        const a = accum[bot.name];
+        return {
+          name: bot.name,
+          wins: a.wins,
+          gamesPlayed: a.gamesPlayed,
+          avgPlacement: a.gamesPlayed > 0 ? +(a.totalPlacement / a.gamesPlayed).toFixed(2) : 0,
+          avgTerritories: a.gamesPlayed > 0 ? +(a.totalTerritories / a.gamesPlayed).toFixed(1) : 0,
+          avgAttacks: a.gamesPlayed > 0 ? +(a.totalAttacks / a.gamesPlayed).toFixed(1) : 0,
+          attackWinRate: a.totalAttacks > 0 ? +(a.totalAttackWins / a.totalAttacks).toFixed(3) : 0,
+          elo: ratings[bot.name],
+        };
+      });
+      botStats.sort((a, b) => b.elo - a.elo);
+
+      setResult({
+        bots: botStats,
+        totalGames: matches.length,
+        failedGames,
+        avgTurns: matches.length > 0 ? +(totalTurns / matches.length).toFixed(1) : 0,
+      });
+      setProgress(1);
+      setRunning(false);
+    };
+
+    // Run one game per macrotask so Preact can paint progress updates
+    const runNextGame = i => {
+      if (cancelledRef.current) {
         setRunning(false);
+        return;
       }
-    }, 50);
+      if (i >= gameCount) {
+        finalize();
+        return;
+      }
+
+      let matchResult;
+      try {
+        matchResult = runMatch({ bots, seed: baseSeed + i, maxTurns: 500 });
+      } catch (err) {
+        console.error(`[Arena] Match ${i} failed (seed ${baseSeed + i}):`, err.message);
+        failedGames++;
+        setProgress((i + 1) / gameCount);
+        setTimeout(() => runNextGame(i + 1), 0);
+        return;
+      }
+
+      matches.push(matchResult);
+      totalTurns += matchResult.turnCount;
+
+      for (const stat of matchResult.botStats) {
+        const a = accum[stat.name];
+        a.gamesPlayed++;
+        a.totalPlacement += stat.placement;
+        a.totalTerritories += stat.finalTerritories;
+        a.totalAttacks += stat.attacksMade;
+        a.totalAttackWins += stat.attacksWon;
+        if (matchResult.winner === stat.playerIndex) {
+          a.wins++;
+        }
+      }
+
+      const eloPlayers = matchResult.placements.map(playerIdx => {
+        const botStat = matchResult.botStats.find(s => s.playerIndex === playerIdx);
+        return { name: botStat.name, elo: ratings[botStat.name] };
+      });
+      const updatedRatings = updateEloRatings(eloPlayers);
+      for (const r of updatedRatings) {
+        ratings[r.name] = r.elo;
+      }
+
+      setProgress((i + 1) / gameCount);
+      setTimeout(() => runNextGame(i + 1), 0);
+    };
+
+    // Defer first game to let "RUNNING..." state paint
+    setTimeout(() => runNextGame(0), 50);
   }, [canRun, selectedBots, gameCount]);
 
   return (

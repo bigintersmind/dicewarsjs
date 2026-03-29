@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 import { replayToState, getReplayLength, serializeReplay } from '../arena/replayFormat.js';
+import { replayGame } from '../engine/GameRunner.js';
 
 const SPEEDS = [1, 2, 4, 8];
 
@@ -101,6 +102,17 @@ const STYLE = {
     cursor: 'pointer',
     borderRadius: '3px',
   },
+  errorBanner: {
+    background: 'rgba(233, 69, 96, 0.15)',
+    border: '1px solid #e94560',
+    color: '#e94560',
+    padding: '0.6rem 1.2rem',
+    borderRadius: '6px',
+    marginBottom: '1rem',
+    fontSize: '0.85rem',
+    textAlign: 'center',
+    maxWidth: '400px',
+  },
   copied: {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.75rem',
@@ -122,6 +134,7 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
   const [speed, setSpeed] = useState(1);
   const [copied, setCopied] = useState(false);
   const [shareError, setShareError] = useState(null);
+  const [replayError, setReplayError] = useState(null);
   const intervalRef = useRef(null);
   const stateCache = useRef(new Map());
 
@@ -131,14 +144,32 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
     setActionIndex(0);
   }, [replay]);
 
-  // Reconstruct state at current index (with caching every 50 actions)
+  /*
+   * Reconstruct state at current index, using nearest cached checkpoint
+   * to avoid replaying from action 0 every time. Caches every 50 actions.
+   */
   const getState = useCallback(
     idx => {
       if (stateCache.current.has(idx)) {
         return stateCache.current.get(idx);
       }
 
-      const state = replayToState(replay, idx);
+      // Find nearest cached checkpoint at or below idx
+      let bestCachedIdx = -1;
+      for (const cachedIdx of stateCache.current.keys()) {
+        if (cachedIdx <= idx && cachedIdx > bestCachedIdx) {
+          bestCachedIdx = cachedIdx;
+        }
+      }
+
+      let state;
+      if (bestCachedIdx >= 0) {
+        const baseState = stateCache.current.get(bestCachedIdx);
+        const actions = replay.actions.slice(bestCachedIdx, idx);
+        state = actions.length > 0 ? replayGame(baseState, actions) : baseState;
+      } else {
+        state = replayToState(replay, idx);
+      }
 
       if (idx % 50 === 0 || idx === totalActions) {
         stateCache.current.set(idx, state);
@@ -155,8 +186,10 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
       try {
         const state = getState(actionIndex);
         onStateChange(state);
+        setReplayError(null);
       } catch (err) {
         console.error('[ReplayViewer] State reconstruction failed:', err);
+        setReplayError(err.message);
       }
     }
   }, [actionIndex, getState, onStateChange]);
@@ -218,6 +251,8 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
   return (
     <div style={STYLE.container}>
       <h2 style={STYLE.title}>REPLAY</h2>
+
+      {replayError && <div style={STYLE.errorBanner}>Replay error: {replayError}</div>}
 
       <div style={STYLE.info}>
         {metadata.bots.join(' vs ')} — {metadata.turnCount} turns

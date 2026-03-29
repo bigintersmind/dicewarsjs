@@ -70,7 +70,11 @@ function createLegacyViewFromBotState(botState) {
     }
   }
 
-  // Build turn order — we only know myPlayer is current, fill rest sequentially
+  /*
+   * Build synthetic turn order with myPlayer at index 0.
+   * Legacy AIs call game.get_pn() which returns jun[ban]; setting ban=0 and
+   * jun[0]=myPlayer satisfies that contract. Other player order is arbitrary.
+   */
   const jun = new Array(8);
   jun[0] = myPlayer;
   let slot = 1;

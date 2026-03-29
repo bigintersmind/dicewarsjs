@@ -43,26 +43,24 @@ import { createGame, replayGame } from '../engine/GameRunner.js';
  * @returns {Replay}
  */
 export function createReplay(matchResult, botNames) {
-  const actions = matchResult.finalState
-    ? matchResult.finalState.history.map(entry =>
-        entry.type === 'ATTACK'
-          ? { type: 'ATTACK', from: entry.from, to: entry.to }
-          : { type: 'END_TURN' }
-      )
-    : [];
+  if (!matchResult.finalState) {
+    throw new Error('Cannot create replay: match result has no finalState');
+  }
+
+  const actions = matchResult.finalState.history.map(entry =>
+    entry.type === 'ATTACK'
+      ? { type: 'ATTACK', from: entry.from, to: entry.to }
+      : { type: 'END_TURN' }
+  );
 
   return {
     version: 1,
     config: {
       seed: matchResult.config.seed,
       playerCount: matchResult.config.playerCount,
-      ...(matchResult.finalState
-        ? {
-            mapWidth: matchResult.finalState.config.mapWidth,
-            mapHeight: matchResult.finalState.config.mapHeight,
-            maxAreas: matchResult.finalState.config.maxAreas,
-          }
-        : {}),
+      mapWidth: matchResult.finalState.config.mapWidth,
+      mapHeight: matchResult.finalState.config.mapHeight,
+      maxAreas: matchResult.finalState.config.maxAreas,
     },
     actions,
     metadata: {
@@ -169,11 +167,15 @@ export function deserializeReplay(encoded) {
  * @returns {import('../engine/types.js').GameState}
  */
 export function replayToState(replay, actionIndex) {
-  const initialState = createGame(replay.config);
-  if (actionIndex <= 0) return initialState;
+  try {
+    const initialState = createGame(replay.config);
+    if (actionIndex <= 0) return initialState;
 
-  const actionsToApply = replay.actions.slice(0, actionIndex);
-  return replayGame(initialState, actionsToApply);
+    const actionsToApply = replay.actions.slice(0, actionIndex);
+    return replayGame(initialState, actionsToApply);
+  } catch (err) {
+    throw new Error(`Replay failed at action ${actionIndex}: ${err.message}`);
+  }
 }
 
 /**

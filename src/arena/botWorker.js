@@ -46,5 +46,11 @@ self.onmessage = ({ data }) => {
     } catch (err) {
       self.postMessage({ type: 'MOVE_RESULT', move: null, error: err.message });
     }
+    return;
   }
+
+  self.postMessage({
+    type: 'ERROR',
+    error: `Unknown message type: "${data.type}"`,
+  });
 };

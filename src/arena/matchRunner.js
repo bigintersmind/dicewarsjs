@@ -35,6 +35,8 @@ const DEFAULT_MAX_TURNS = 500;
  * @property {number} placement      - 1-based finishing position
  * @property {number} attacksMade    - Total attacks attempted
  * @property {number} attacksWon     - Total successful attacks
+ * @property {number} errors         - Bot errors (exceptions) during turn
+ * @property {number} invalidMoves   - Invalid moves attempted
  */
 
 /**
@@ -192,6 +194,8 @@ export function runMatch(config) {
     placement: placements.indexOf(playerIndex) + 1,
     attacksMade: attackStats[playerIndex].attacks,
     attacksWon: attackStats[playerIndex].wins,
+    errors: attackStats[playerIndex].errors || 0,
+    invalidMoves: attackStats[playerIndex].invalidMoves || 0,
   }));
 
   return {

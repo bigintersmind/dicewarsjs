@@ -65,6 +65,11 @@ export function runRoundRobin(config) {
     onMatchComplete,
   } = config;
 
+  const botNames = new Set(bots.map(b => b.name));
+  if (botNames.size !== bots.length) {
+    throw new Error('Bot names must be unique');
+  }
+
   const ratings = {};
   const stats = {};
   for (const bot of bots) {
@@ -87,11 +92,20 @@ export function runRoundRobin(config) {
         fn: bots[idx].fn,
       }));
 
-      const result = runMatch({
-        bots: matchBots,
-        seed: seedCounter++,
-        maxTurns,
-      });
+      let result;
+      try {
+        result = runMatch({
+          bots: matchBots,
+          seed: seedCounter++,
+          maxTurns,
+        });
+      } catch (err) {
+        console.error(
+          `[Tournament] Round-robin match failed (seed ${seedCounter - 1}):`,
+          err.message
+        );
+        continue;
+      }
 
       totalGames++;
 
@@ -146,6 +160,11 @@ export function runRoundRobin(config) {
 export function runSingleElimination(config) {
   const { bots, gamesPerRound = 3, baseSeed = 1, maxTurns = 500, onMatchComplete } = config;
 
+  const botNames = new Set(bots.map(b => b.name));
+  if (botNames.size !== bots.length) {
+    throw new Error('Bot names must be unique');
+  }
+
   const ratings = {};
   const stats = {};
   for (const bot of bots) {
@@ -191,11 +210,20 @@ export function runSingleElimination(config) {
           { name: botB.name, fn: botB.fn },
         ];
 
-        const result = runMatch({
-          bots: matchBots,
-          seed: seedCounter++,
-          maxTurns,
-        });
+        let result;
+        try {
+          result = runMatch({
+            bots: matchBots,
+            seed: seedCounter++,
+            maxTurns,
+          });
+        } catch (err) {
+          console.error(
+            `[Tournament] Elimination match failed (seed ${seedCounter - 1}):`,
+            err.message
+          );
+          continue;
+        }
 
         totalGames++;
 

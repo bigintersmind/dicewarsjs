@@ -1,10 +1,14 @@
 import {
+  createReplay,
   createReplayFromState,
   serializeReplay,
   deserializeReplay,
   replayToState,
   getReplayLength,
 } from '../../src/arena/replayFormat.js';
+import { runMatch } from '../../src/arena/matchRunner.js';
+import { adaptLegacyBot } from '../../src/arena/legacyBotAdapter.js';
+import { ai_example } from '../../src/ai/ai_example.js';
 import { createGame } from '../../src/engine/GameRunner.js';
 import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
 import { ACTION_TYPES } from '../../src/engine/constants.js';
@@ -94,6 +98,23 @@ describe('serializeReplay / deserializeReplay', () => {
   it('throws on invalid base64', () => {
     expect(() => deserializeReplay('not-valid-base64!!!')).toThrow();
   });
+
+  it('throws on valid base64 but malformed JSON', () => {
+    const encoded = btoa('not json at all');
+    expect(() => deserializeReplay(encoded)).toThrow(/malformed JSON/);
+  });
+
+  it('throws on wrong replay version', () => {
+    const replay = { version: 99, config: {}, actions: [], metadata: {} };
+    const encoded = btoa(JSON.stringify(replay));
+    expect(() => deserializeReplay(encoded)).toThrow(/Unsupported replay version/);
+  });
+
+  it('throws on missing required fields', () => {
+    const replay = { version: 1 };
+    const encoded = btoa(JSON.stringify(replay));
+    expect(() => deserializeReplay(encoded)).toThrow(/missing required fields/);
+  });
 });
 
 describe('replayToState', () => {
@@ -130,6 +151,44 @@ describe('replayToState', () => {
     // After one action, history should have grown
     expect(s1.history.length).toBe(1);
     expect(s0.history.length).toBe(0);
+  });
+});
+
+describe('createReplay (from MatchResult)', () => {
+  const exampleBot = adaptLegacyBot(ai_example);
+
+  it('creates a valid replay from a match result', () => {
+    const result = runMatch({
+      bots: [
+        { name: 'bot1', fn: exampleBot },
+        { name: 'bot2', fn: exampleBot },
+      ],
+      seed: 42,
+      maxTurns: 20,
+    });
+
+    const replay = createReplay(result, ['bot1', 'bot2']);
+
+    expect(replay.version).toBe(1);
+    expect(replay.config.seed).toBe(result.config.seed);
+    expect(replay.config.playerCount).toBe(2);
+    expect(replay.config.mapWidth).toBeDefined();
+    expect(replay.config.mapHeight).toBeDefined();
+    expect(Array.isArray(replay.actions)).toBe(true);
+    expect(replay.actions.length).toBeGreaterThan(0);
+    expect(replay.metadata.bots).toEqual(['bot1', 'bot2']);
+    expect(replay.metadata.winner).toBe(result.winner);
+  });
+
+  it('throws when finalState is missing', () => {
+    const fakeResult = {
+      config: { seed: 1, playerCount: 2 },
+      finalState: null,
+      winner: null,
+      turnCount: 0,
+    };
+
+    expect(() => createReplay(fakeResult, ['a', 'b'])).toThrow(/finalState/);
   });
 });
 

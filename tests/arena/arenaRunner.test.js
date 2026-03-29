@@ -155,4 +155,30 @@ describe('runArena', () => {
       expect(bot.attackWinRate).toBeLessThanOrEqual(1);
     }
   });
+
+  it('reports failedGames in the result', () => {
+    const result = runArena({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: exampleBot },
+      ],
+      gameCount: 3,
+      baseSeed: 1,
+    });
+
+    expect(typeof result.failedGames).toBe('number');
+    expect(result.failedGames).toBe(0);
+  });
+
+  it('throws when bot names are not unique', () => {
+    expect(() =>
+      runArena({
+        bots: [
+          { name: 'same', fn: exampleBot },
+          { name: 'same', fn: defaultBot },
+        ],
+        gameCount: 1,
+      })
+    ).toThrow(/unique/i);
+  });
 });

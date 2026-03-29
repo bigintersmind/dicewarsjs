@@ -30,7 +30,7 @@ export function expectedScore(ratingA, ratingB) {
  *
  * Players are ordered by placement (index 0 = winner/1st place).
  * Each player is compared pairwise: higher placement = win (score 1),
- * lower placement = loss (score 0). Equal placement = draw (score 0.5).
+ * lower placement = loss (score 0).
  *
  * @param {Array<{ name: string, elo: number }>} players - Ordered by placement (0 = 1st)
  * @param {number} [kFactor=32] - K-factor for rating volatility

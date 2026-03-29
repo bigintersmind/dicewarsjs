@@ -36,17 +36,34 @@ import { createGame, replayGame } from '../engine/GameRunner.js';
 
 /**
  * Create a compact replay from a match result.
+ * Uses the finalState's history to extract actions.
  *
  * @param {import('./matchRunner.js').MatchResult} matchResult
  * @param {string[]} botNames - Bot names by player index
  * @returns {Replay}
  */
 export function createReplay(matchResult, botNames) {
-  const actions = matchResult.botStats ? extractActionsFromResult(matchResult) : [];
+  const actions = matchResult.finalState
+    ? matchResult.finalState.history.map(entry =>
+        entry.type === 'ATTACK'
+          ? { type: 'ATTACK', from: entry.from, to: entry.to }
+          : { type: 'END_TURN' }
+      )
+    : [];
 
   return {
     version: 1,
-    config: { ...matchResult.config },
+    config: {
+      seed: matchResult.config.seed,
+      playerCount: matchResult.config.playerCount,
+      ...(matchResult.finalState
+        ? {
+            mapWidth: matchResult.finalState.config.mapWidth,
+            mapHeight: matchResult.finalState.config.mapHeight,
+            maxAreas: matchResult.finalState.config.maxAreas,
+          }
+        : {}),
+    },
     actions,
     metadata: {
       bots: botNames,
@@ -93,13 +110,15 @@ export function createReplayFromState(finalState, metadata) {
 }
 
 /**
- * Serialize a replay to a URL-safe base64 string.
+ * Serialize a replay to a base64 string.
+ * Uses encodeURIComponent to handle Unicode bot names safely.
  *
  * @param {Replay} replay
  * @returns {string}
  */
 export function serializeReplay(replay) {
-  return btoa(JSON.stringify(replay));
+  const json = JSON.stringify(replay);
+  return btoa(unescape(encodeURIComponent(json)));
 }
 
 /**
@@ -107,14 +126,33 @@ export function serializeReplay(replay) {
  *
  * @param {string} encoded
  * @returns {Replay}
- * @throws {Error} If decoding or parsing fails
+ * @throws {Error} If the replay is invalid or corrupted
  */
 export function deserializeReplay(encoded) {
-  const json = atob(encoded);
-  const replay = JSON.parse(json);
+  let json;
+  try {
+    json = decodeURIComponent(escape(atob(encoded)));
+  } catch {
+    throw new Error('Invalid replay data: could not decode');
+  }
+
+  let replay;
+  try {
+    replay = JSON.parse(json);
+  } catch {
+    throw new Error('Invalid replay data: malformed JSON');
+  }
+
+  if (!replay || typeof replay !== 'object') {
+    throw new Error('Invalid replay data: not an object');
+  }
 
   if (replay.version !== 1) {
     throw new Error(`Unsupported replay version: ${replay.version}`);
+  }
+
+  if (!replay.config || !Array.isArray(replay.actions) || !replay.metadata) {
+    throw new Error('Invalid replay data: missing required fields');
   }
 
   return replay;
@@ -146,20 +184,4 @@ export function replayToState(replay, actionIndex) {
  */
 export function getReplayLength(replay) {
   return replay.actions.length;
-}
-
-/**
- * Extract compact actions from a match result by re-simulating the game.
- * This is a fallback when the match runner doesn't store history directly.
- *
- * @param {import('./matchRunner.js').MatchResult} matchResult
- * @returns {CompactAction[]}
- */
-function extractActionsFromResult(/* matchResult */) {
-  /*
-   * The match runner doesn't currently store the full action history.
-   * For now, return an empty array. The createReplayFromState function
-   * is the preferred path since it has access to the engine's history.
-   */
-  return [];
 }

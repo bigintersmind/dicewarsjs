@@ -44,7 +44,8 @@ const DEFAULT_MAX_TURNS = 500;
  * @property {number}        turnCount   - Total turns played
  * @property {number[]}      placements  - Player indices ordered by placement
  * @property {MatchBotStat[]} botStats   - Per-bot statistics
- * @property {Object}        config      - Game config used (for replay)
+ * @property {{ seed: number, playerCount: number }} config - Game config used (for replay)
+ * @property {import('../engine/types.js').GameState} finalState - Engine state at game end
  */
 
 /**
@@ -67,25 +68,38 @@ function runBotTurn(state, botFn, botName, stats) {
     const botState = createBotState(currentState, playerId);
     const { move, error } = runBotDirect(botFn, botState);
 
-    if (error) break;
+    if (error) {
+      stats.errors = (stats.errors || 0) + 1;
+      break;
+    }
     if (move === null) break;
 
     const validation = validateMove(move, botState);
-    if (!validation.valid) break;
+    if (!validation.valid) {
+      stats.invalidMoves = (stats.invalidMoves || 0) + 1;
+      break;
+    }
 
-    // Double-check against engine's valid moves
     const validMoves = getValidMoves(currentState);
     const isEngineValid = validMoves.some(m => m.from === move.from && m.to === move.to);
-    if (!isEngineValid) break;
+    if (!isEngineValid) {
+      stats.invalidMoves = (stats.invalidMoves || 0) + 1;
+      break;
+    }
 
-    currentState = applyAction(currentState, {
-      type: ACTION_TYPES.ATTACK,
-      from: move.from,
-      to: move.to,
-    });
+    try {
+      currentState = applyAction(currentState, {
+        type: ACTION_TYPES.ATTACK,
+        from: move.from,
+        to: move.to,
+      });
+    } catch (err) {
+      console.error(`[Match] applyAction failed for "${botName}":`, err.message);
+      stats.errors = (stats.errors || 0) + 1;
+      break;
+    }
 
     stats.attacks++;
-    // Check if the attack was successful (territory changed owner)
     if (currentState.areas[move.to].owner === playerId) {
       stats.wins++;
     }
@@ -110,6 +124,11 @@ function runBotTurn(state, botFn, botName, stats) {
  */
 export function runMatch(config) {
   const { bots, seed, maxTurns = DEFAULT_MAX_TURNS, onTurn } = config;
+
+  const names = new Set(bots.map(b => b.name));
+  if (names.size !== bots.length) {
+    throw new Error('Bot names must be unique');
+  }
 
   const gameState = createGame({
     seed,
@@ -182,6 +201,7 @@ export function runMatch(config) {
     placements,
     botStats,
     config: { seed: gameState.config.seed, playerCount: bots.length },
+    finalState: state,
   };
 }
 

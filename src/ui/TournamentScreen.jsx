@@ -8,19 +8,8 @@
 
 import { useState, useCallback } from 'preact/hooks';
 import { runRoundRobin, runSingleElimination } from '../arena/tournament.js';
-import { adaptLegacyBot } from '../arena/legacyBotAdapter.js';
-import { ai_example } from '../ai/ai_example.js';
-import { ai_default } from '../ai/ai_default.js';
-import { ai_defensive } from '../ai/ai_defensive.js';
-import { ai_adaptive } from '../ai/ai_adaptive.js';
+import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
 import { Leaderboard } from './Leaderboard.jsx';
-
-const BUILT_IN_BOTS = [
-  { id: 'ai_example', name: 'Example', fn: adaptLegacyBot(ai_example, 'Example') },
-  { id: 'ai_default', name: 'Default', fn: adaptLegacyBot(ai_default, 'Default') },
-  { id: 'ai_defensive', name: 'Defensive', fn: adaptLegacyBot(ai_defensive, 'Defensive') },
-  { id: 'ai_adaptive', name: 'Adaptive', fn: adaptLegacyBot(ai_adaptive, 'Adaptive') },
-];
 
 const STYLE = {
   container: {
@@ -124,6 +113,17 @@ const STYLE = {
     width: '100%',
     maxWidth: '600px',
   },
+  errorBanner: {
+    background: 'rgba(233, 69, 96, 0.15)',
+    border: '1px solid #e94560',
+    color: '#e94560',
+    padding: '0.6rem 1.2rem',
+    borderRadius: '6px',
+    marginBottom: '1.5rem',
+    fontSize: '0.95rem',
+    maxWidth: '500px',
+    textAlign: 'center',
+  },
 };
 
 /**
@@ -136,6 +136,7 @@ export function TournamentScreen({ onBack }) {
   const [gamesPerRound, setGamesPerRound] = useState(3);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
 
   const toggleBot = useCallback(id => {
     setSelectedBots(prev => {
@@ -156,22 +157,29 @@ export function TournamentScreen({ onBack }) {
 
     setRunning(true);
     setResult(null);
+    setError(null);
 
     const bots = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id));
 
     setTimeout(() => {
-      const config = {
-        bots,
-        gamesPerRound,
-        gamesPerPairing: gamesPerRound,
-        baseSeed: Date.now(),
-      };
+      try {
+        const config = {
+          bots,
+          gamesPerRound,
+          gamesPerPairing: gamesPerRound,
+          baseSeed: Date.now(),
+        };
 
-      const tournamentResult =
-        tournamentType === 'round-robin' ? runRoundRobin(config) : runSingleElimination(config);
+        const tournamentResult =
+          tournamentType === 'round-robin' ? runRoundRobin(config) : runSingleElimination(config);
 
-      setResult(tournamentResult);
-      setRunning(false);
+        setResult(tournamentResult);
+      } catch (err) {
+        console.error('[Tournament] Run failed:', err);
+        setError(err.message || 'Tournament run failed');
+      } finally {
+        setRunning(false);
+      }
     }, 50);
   }, [canRun, selectedBots, tournamentType, gamesPerRound]);
 
@@ -192,6 +200,8 @@ export function TournamentScreen({ onBack }) {
   return (
     <div style={STYLE.container}>
       <h1 style={STYLE.title}>TOURNAMENT</h1>
+
+      {error && <div style={STYLE.errorBanner}>{error}</div>}
 
       <div style={STYLE.section}>
         <span style={STYLE.label}>FORMAT</span>

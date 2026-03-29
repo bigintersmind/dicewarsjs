@@ -23,7 +23,7 @@ import { updateEloRatings, DEFAULT_RATING } from './elo.js';
  * @property {number} losses      - Total match losses
  * @property {number} gamesPlayed - Total games
  * @property {number} elo         - ELO rating
- * @property {number} points      - Tournament points (3 per win, 1 per draw)
+ * @property {number} points      - Tournament points (3 per win, 1 per stalemate)
  */
 
 /**
@@ -95,27 +95,7 @@ export function runRoundRobin(config) {
 
       totalGames++;
 
-      // Update stats
-      for (const botStat of result.botStats) {
-        const s = stats[botStat.name];
-        s.gamesPlayed++;
-        if (result.winner === botStat.playerIndex) {
-          s.wins++;
-          s.points += 3;
-        } else {
-          s.losses++;
-        }
-      }
-
-      // Update ELO
-      const eloPlayers = result.placements.map(playerIdx => {
-        const botStat = result.botStats.find(bs => bs.playerIndex === playerIdx);
-        return { name: botStat.name, elo: ratings[botStat.name] };
-      });
-      const updated = updateEloRatings(eloPlayers);
-      for (const r of updated) {
-        ratings[r.name] = r.elo;
-      }
+      updateMatchStats(stats, ratings, result);
 
       roundMatches.push({
         botNames: matchBots.map(b => b.name),
@@ -219,27 +199,7 @@ export function runSingleElimination(config) {
 
         totalGames++;
 
-        // Update stats
-        for (const bs of result.botStats) {
-          const s = stats[bs.name];
-          s.gamesPlayed++;
-          if (result.winner === bs.playerIndex) {
-            s.wins++;
-            s.points += 3;
-          } else {
-            s.losses++;
-          }
-        }
-
-        // Update ELO
-        const eloPlayers = result.placements.map(playerIdx => {
-          const bs = result.botStats.find(b => b.playerIndex === playerIdx);
-          return { name: bs.name, elo: ratings[bs.name] };
-        });
-        const updated = updateEloRatings(eloPlayers);
-        for (const r of updated) {
-          ratings[r.name] = r.elo;
-        }
+        updateMatchStats(stats, ratings, result);
 
         if (result.winner === 0) winsA++;
         else if (result.winner === 1) winsB++;
@@ -255,7 +215,14 @@ export function runSingleElimination(config) {
         }
       }
 
-      nextBracket.push(winsA >= winsB ? botA : botB);
+      // Advance the series winner; on tie, use ELO as tiebreaker
+      if (winsA > winsB) {
+        nextBracket.push(botA);
+      } else if (winsB > winsA) {
+        nextBracket.push(botB);
+      } else {
+        nextBracket.push(ratings[botA.name] >= ratings[botB.name] ? botA : botB);
+      }
     }
 
     rounds.push(roundMatches);
@@ -282,6 +249,40 @@ export function runSingleElimination(config) {
     totalGames,
     champion,
   };
+}
+
+/**
+ * Update stats and ELO ratings from a single match result.
+ * Handles stalemates (winner === null) as draws.
+ *
+ * @param {Object} stats - Mutable stats accumulator keyed by bot name
+ * @param {Object} ratings - Mutable ELO ratings keyed by bot name
+ * @param {import('./matchRunner.js').MatchResult} result
+ */
+function updateMatchStats(stats, ratings, result) {
+  const isStalemate = result.winner === null;
+
+  for (const botStat of result.botStats) {
+    const s = stats[botStat.name];
+    s.gamesPlayed++;
+    if (isStalemate) {
+      s.points += 1;
+    } else if (result.winner === botStat.playerIndex) {
+      s.wins++;
+      s.points += 3;
+    } else {
+      s.losses++;
+    }
+  }
+
+  const eloPlayers = result.placements.map(playerIdx => {
+    const botStat = result.botStats.find(bs => bs.playerIndex === playerIdx);
+    return { name: botStat.name, elo: ratings[botStat.name] };
+  });
+  const updated = updateEloRatings(eloPlayers);
+  for (const r of updated) {
+    ratings[r.name] = r.elo;
+  }
 }
 
 /**

@@ -121,20 +121,23 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [copied, setCopied] = useState(false);
+  const [shareError, setShareError] = useState(null);
   const intervalRef = useRef(null);
   const stateCache = useRef(new Map());
 
-  // Reconstruct state at current index (with caching)
+  // Clear cache when replay changes
+  useEffect(() => {
+    stateCache.current = new Map();
+    setActionIndex(0);
+  }, [replay]);
+
+  // Reconstruct state at current index (with caching every 50 actions)
   const getState = useCallback(
     idx => {
       if (stateCache.current.has(idx)) {
         return stateCache.current.get(idx);
       }
 
-      /*
-       * Find nearest cached state before the target index.
-       * Cache snapshots every 50 actions for scrub performance.
-       */
       const state = replayToState(replay, idx);
 
       if (idx % 50 === 0 || idx === totalActions) {
@@ -149,8 +152,12 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
   // Notify parent of state changes
   useEffect(() => {
     if (onStateChange) {
-      const state = getState(actionIndex);
-      onStateChange(state);
+      try {
+        const state = getState(actionIndex);
+        onStateChange(state);
+      } catch (err) {
+        console.error('[ReplayViewer] State reconstruction failed:', err);
+      }
     }
   }, [actionIndex, getState, onStateChange]);
 
@@ -192,14 +199,17 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
   };
 
   const handleShare = async () => {
+    setShareError(null);
     try {
       const encoded = serializeReplay(replay);
       const url = `${window.location.origin}${window.location.pathname}#replay=${encoded}`;
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API may not be available
+    } catch (err) {
+      console.error('[ReplayViewer] Share failed:', err);
+      setShareError('Could not copy link');
+      setTimeout(() => setShareError(null), 3000);
     }
   };
 
@@ -263,6 +273,7 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
           Share
         </button>
         {copied && <span style={STYLE.copied}>Copied!</span>}
+        {shareError && <span style={STYLE.copied}>{shareError}</span>}
       </div>
 
       <button style={STYLE.backBtn} onClick={onBack}>

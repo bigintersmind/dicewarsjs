@@ -33,7 +33,9 @@ export function runBotDirect(botFn, botState) {
 }
 
 /**
- * Create a sandboxed Web Worker for an untrusted bot.
+ * Create an isolated Web Worker for a user-provided bot.
+ * The worker runs on a separate thread with timeout enforcement,
+ * but is not a security sandbox (bots can still access network APIs).
  *
  * The bot source should be a function body that receives `state`
  * as a parameter and returns `{ from, to }` or `null`.

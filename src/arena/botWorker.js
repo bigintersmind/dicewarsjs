@@ -1,7 +1,9 @@
 /**
  * Bot Worker Entry Point
  *
- * Web Worker that sandboxes untrusted bot execution.
+ * Web Worker that isolates bot execution on a separate thread.
+ * Provides timeout enforcement but not a security sandbox —
+ * bots can still access fetch, WebSocket, etc.
  * Receives bot source on INIT, then executes it per MOVE request.
  *
  * Protocol:

@@ -67,17 +67,26 @@ export function runArena(config) {
 
   let totalTurns = 0;
 
+  let failedGames = 0;
+
   for (let i = 0; i < gameCount; i++) {
-    const result = runMatch({
-      bots,
-      seed: baseSeed + i,
-      maxTurns,
-    });
+    let result;
+    try {
+      result = runMatch({
+        bots,
+        seed: baseSeed + i,
+        maxTurns,
+      });
+    } catch (err) {
+      console.error(`[Arena] Match ${i} failed (seed ${baseSeed + i}):`, err.message);
+      failedGames++;
+      if (onGameComplete) onGameComplete(i, null);
+      continue;
+    }
 
     matches.push(result);
     totalTurns += result.turnCount;
 
-    // Update per-bot accumulators
     for (const stat of result.botStats) {
       const a = accum[stat.name];
       a.gamesPlayed++;
@@ -90,7 +99,6 @@ export function runArena(config) {
       }
     }
 
-    // Update ELO ratings based on placements
     const eloPlayers = result.placements.map(playerIdx => {
       const botStat = result.botStats.find(s => s.playerIndex === playerIdx);
       return { name: botStat.name, elo: ratings[botStat.name] };
@@ -101,9 +109,7 @@ export function runArena(config) {
       ratings[r.name] = r.elo;
     }
 
-    if (onGameComplete) {
-      onGameComplete(i, result);
-    }
+    if (onGameComplete) onGameComplete(i, result);
   }
 
   // Build final stats

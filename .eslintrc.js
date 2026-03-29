@@ -114,5 +114,6 @@ module.exports = {
     'game.js',
     'config.js',
     'main.js',
+    'bots/',
   ],
 };

@@ -25,7 +25,8 @@
     "fix-warnings": "node scripts/fix-lint-warnings.js",
     "prepare": "husky install",
     "test:regression": "vitest run tests/regression",
-    "perf:check": "node scripts/check-bundle-size.js"
+    "perf:check": "node scripts/check-bundle-size.js",
+    "arena": "node scripts/arena.mjs"
   },
   "keywords": [
     "game",

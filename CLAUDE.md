@@ -59,6 +59,9 @@ npm run perf:check
 
 # Auto-fix lint warnings
 npm run fix-warnings
+
+# Run bot arena (CLI)
+npm run arena
 ```
 
 ## Code Quality Requirements

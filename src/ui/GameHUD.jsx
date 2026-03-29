@@ -7,7 +7,8 @@
  */
 
 import { useGameStore } from './hooks/useGameStore.js';
-import { PLAYER_COLORS_CSS } from '../renderer/constants.js';
+import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
+import { getTheme } from '../renderer/themes.js';
 
 const STYLE = {
   bar: {
@@ -57,28 +58,34 @@ const STYLE = {
  */
 export function GameHUD({ store }) {
   const gameState = useGameStore(store, s => s.gameState);
+  const prefs = useGameStore(store, s => s.preferences);
   if (!gameState) return null;
 
+  const theme = getTheme(prefs?.theme);
+  const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const { players, turnOrder, currentPlayerIndex } = gameState;
   const currentPlayerId = turnOrder[currentPlayerIndex];
 
   return (
-    <div style={STYLE.bar}>
+    <div style={{ ...STYLE.bar, background: theme.uiBg }}>
       {players.map(p => {
         if (p.eliminated) return null;
         const isCurrent = p.id === currentPlayerId;
-        const color = PLAYER_COLORS_CSS[p.id % PLAYER_COLORS_CSS.length];
+        const color = colorPalette[p.id % colorPalette.length];
         return (
           <div
             key={p.id}
             style={{
               ...STYLE.player,
+              color: theme.uiText,
               ...(isCurrent ? STYLE.current : {}),
             }}
           >
             <span style={{ ...STYLE.swatch, background: color }} />
             <span>{p.territoryCount}</span>
-            {p.stock > 0 && <span style={STYLE.stock}>+{p.stock}</span>}
+            {p.stock > 0 && (
+              <span style={{ ...STYLE.stock, color: theme.uiTextMuted }}>+{p.stock}</span>
+            )}
           </div>
         );
       })}

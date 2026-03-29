@@ -7,7 +7,8 @@
  */
 
 import { useGameStore } from './hooks/useGameStore.js';
-import { PLAYER_COLORS_CSS } from '../renderer/constants.js';
+import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
+import { getTheme } from '../renderer/themes.js';
 
 const STYLE = {
   overlay: {
@@ -56,16 +57,24 @@ const STYLE = {
  */
 export function GameOverScreen({ store, onTitle }) {
   const gameState = useGameStore(store, s => s.gameState);
+  const prefs = useGameStore(store, s => s.preferences);
   if (!gameState) return null;
 
+  const theme = getTheme(prefs?.theme);
+  const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const winner = gameState.winner;
-  const color = winner !== null ? PLAYER_COLORS_CSS[winner % PLAYER_COLORS_CSS.length] : '#fff';
+  const winnerColor = winner !== null ? colorPalette[winner % colorPalette.length] : theme.uiText;
 
   return (
-    <div style={STYLE.overlay}>
-      <h1 style={STYLE.title}>G A M E&nbsp;&nbsp;O V E R</h1>
-      {winner !== null && <p style={{ ...STYLE.winner, color }}>Player {winner + 1} wins!</p>}
-      <button style={STYLE.btn} onClick={onTitle}>
+    <div style={{ ...STYLE.overlay, background: theme.uiOverlayBg }}>
+      <h1 style={{ ...STYLE.title, color: theme.uiText }}>G A M E&nbsp;&nbsp;O V E R</h1>
+      {winner !== null && (
+        <p style={{ ...STYLE.winner, color: winnerColor }}>Player {winner + 1} wins!</p>
+      )}
+      <button
+        style={{ ...STYLE.btn, borderColor: theme.uiAccent, color: theme.uiAccent }}
+        onClick={onTitle}
+      >
         TITLE
       </button>
     </div>

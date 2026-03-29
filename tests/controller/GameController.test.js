@@ -107,6 +107,7 @@ function createMockRenderer() {
     hexGrid: {
       clearHighlights: vi.fn(),
       setHighlight: vi.fn(),
+      _getPlayerColor: vi.fn(() => 0xffffff),
     },
     battle: {
       play: vi.fn(async () => {}),
@@ -114,7 +115,16 @@ function createMockRenderer() {
     },
     dice: { destroy: vi.fn() },
     destroy: vi.fn(),
+    playParticleEffect: vi.fn(),
+    screenShake: vi.fn(() => Promise.resolve()),
+    animateReinforcements: vi.fn(() => Promise.resolve()),
+    playCelebration: vi.fn(() => Promise.resolve()),
   };
+}
+
+/** Flush all pending microtasks (Promise callbacks). */
+function flushPromises() {
+  return vi.advanceTimersByTimeAsync(0);
 }
 
 function createMockSoundManager() {
@@ -407,8 +417,9 @@ describe('GameController', () => {
       // awaitingInput should be null immediately (before animation completes)
       expect(store.getState().awaitingInput).toBeNull();
 
-      // Let animation finish
+      // Let animation and async effects finish
       await vi.runAllTimersAsync();
+      await flushPromises();
 
       // After animation, it should be back to selectFrom
       expect(store.getState().awaitingInput).toBe('selectFrom');
@@ -609,9 +620,17 @@ describe('GameController', () => {
       await controller.startNewGame({ playerCount: 2, spectator: false });
       controller.acceptMap();
 
-      // End human turn, which triggers AI turn for player 1
+      /*
+       * End human turn, which triggers AI turn for player 1.
+       * endTurn is async; the chain is:
+       * endTurn → setTimeout(startTurn) → runAITurn → endTurn → gameOver
+       * Flush multiple rounds of timers + microtasks.
+       */
       controller.endHumanTurn();
-      await vi.runAllTimersAsync();
+      for (let i = 0; i < 5; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
 
       /*
        * With the fix, AI should have made 2 valid ATTACK moves (moves 3 and 6).
@@ -663,7 +682,14 @@ describe('GameController', () => {
       controller.handleTerritoryClick(1); // select from
       controller.handleTerritoryClick(2); // attack — triggers game over
 
-      await vi.runAllTimersAsync();
+      /*
+       * executeAttack is async (fire-and-forget from handleTerritoryClick).
+       * Flush multiple rounds: timers and microtasks interleave.
+       */
+      for (let i = 0; i < 3; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
 
       expect(store.getState().screen).toBe('gameOver');
       expect(soundManager.play).toHaveBeenCalledWith('over');
@@ -683,8 +709,7 @@ describe('GameController', () => {
         return state;
       });
 
-      controller.endHumanTurn();
-      await vi.runAllTimersAsync();
+      await controller.endHumanTurn();
 
       expect(store.getState().screen).toBe('gameOver');
       expect(soundManager.play).toHaveBeenCalledWith('over');

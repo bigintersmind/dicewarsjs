@@ -16,21 +16,31 @@ import { GameOverScreen } from './GameOverScreen.jsx';
 import { ArenaScreen } from './ArenaScreen.jsx';
 import { TournamentScreen } from './TournamentScreen.jsx';
 import { ReplayViewer } from './ReplayViewer.jsx';
+import { SettingsPanel } from './SettingsPanel.jsx';
+import { ScreenReaderAnnouncer } from './ScreenReaderAnnouncer.jsx';
 
 /**
  * @param {Object} props
  * @param {Object} props.store - GameStore instance
  * @param {Object} props.controller - GameController instance
  */
-export function App({ store, controller }) {
+export function App({ store, controller, preferencesManager }) {
   const screen = useGameStore(store, s => s.screen);
   const error = useGameStore(store, s => s.error);
   const currentReplay = useGameStore(store, s => s.currentReplay);
 
+  const settings = preferencesManager ? (
+    <SettingsPanel store={store} preferencesManager={preferencesManager} />
+  ) : null;
+
+  const announcer = <ScreenReaderAnnouncer store={store} />;
+
   if (screen === 'title') {
     return (
       <ErrorBoundary>
+        {settings}
         <TitleScreen
+          store={store}
           error={error}
           onStart={config => controller.startNewGame(config)}
           onArena={() => controller.goToArena()}
@@ -43,6 +53,7 @@ export function App({ store, controller }) {
   if (screen === 'arena') {
     return (
       <ErrorBoundary>
+        {settings}
         <ArenaScreen
           onBack={() => controller.goToTitle()}
           onViewReplay={replay => controller.goToReplay(replay)}
@@ -54,6 +65,7 @@ export function App({ store, controller }) {
   if (screen === 'tournament') {
     return (
       <ErrorBoundary>
+        {settings}
         <TournamentScreen
           onBack={() => controller.goToTitle()}
           onViewReplay={replay => controller.goToReplay(replay)}
@@ -69,6 +81,7 @@ export function App({ store, controller }) {
     }
     return (
       <ErrorBoundary>
+        {settings}
         <ReplayViewer replay={currentReplay} onBack={() => controller.goToTitle()} />
       </ErrorBoundary>
     );
@@ -77,6 +90,7 @@ export function App({ store, controller }) {
   if (screen === 'mapPreview') {
     return (
       <ErrorBoundary>
+        {settings}
         <MapPreview
           onAccept={() => controller.acceptMap()}
           onReject={() => controller.rejectMap()}
@@ -88,6 +102,8 @@ export function App({ store, controller }) {
   if (screen === 'gameOver') {
     return (
       <ErrorBoundary>
+        {settings}
+        {announcer}
         <div style={{ height: '100%', position: 'relative' }}>
           <GameHUD store={store} />
           <GameOverScreen store={store} onTitle={() => controller.goToTitle()} />
@@ -99,6 +115,8 @@ export function App({ store, controller }) {
   // screen === 'playing'
   return (
     <ErrorBoundary>
+      {settings}
+      {announcer}
       <div style={{ height: '100%', position: 'relative' }}>
         <GameHUD store={store} />
         <GameOverlay store={store} onEndTurn={() => controller.endHumanTurn()} />

@@ -12,6 +12,10 @@ import { HexGridRenderer } from './HexGridRenderer.js';
 import { DiceRenderer } from './DiceRenderer.js';
 import { createBattleAnimation } from './BattleAnimation.js';
 import { BASE_WIDTH, BASE_HEIGHT, BG_COLOR } from './constants.js';
+import { getTheme } from './themes.js';
+import { createBurstEffect } from './ParticleEffect.js';
+import { animateReinforcements } from './ReinforcementAnimation.js';
+import { playCelebration } from './CelebrationEffect.js';
 
 export class GameRenderer {
   constructor() {
@@ -27,6 +31,14 @@ export class GameRenderer {
     this.battle = null;
     /** @type {boolean} */
     this.initialized = false;
+    /** @type {string} Current theme name */
+    this._theme = 'dark';
+    /** @type {boolean} Color-blind mode */
+    this._colorBlindMode = false;
+    /** @type {{ x: number, y: number }} Saved root position for screen shake */
+    this._rootOrigin = { x: 0, y: 0 };
+    /** @type {boolean} Whether a screen shake is active */
+    this._shaking = false;
   }
 
   /**
@@ -134,6 +146,118 @@ export class GameRenderer {
     if (!this.initialized) return 0;
     const { x, y } = this.screenToMap(screenX, screenY);
     return this.hexGrid.hitTest(x, y);
+  }
+
+  /**
+   * Switch the visual theme.
+   * @param {string} themeName - 'dark' or 'light'
+   */
+  setTheme(themeName) {
+    if (this._theme === themeName) return;
+    this._theme = themeName;
+    if (!this.initialized) return;
+
+    const theme = getTheme(themeName);
+    this.app.renderer.background.color = theme.bgColor;
+
+    // Repaint all territories with new border colors
+    if (this.hexGrid && this.hexGrid._lastState) {
+      this.hexGrid.setTheme(theme);
+      this.hexGrid.redrawAll();
+      this.dice.drawAll(this.hexGrid._lastState);
+    }
+  }
+
+  /**
+   * Toggle color-blind mode.
+   * @param {boolean} enabled
+   */
+  setColorBlindMode(enabled) {
+    if (this._colorBlindMode === enabled) return;
+    this._colorBlindMode = enabled;
+    if (!this.initialized) return;
+
+    if (this.hexGrid) this.hexGrid.setColorBlindMode(enabled);
+    if (this.dice) this.dice.setColorBlindMode(enabled);
+    if (this.battle) this.battle.setColorBlindMode(enabled);
+
+    // Repaint if we have state
+    if (this.hexGrid && this.hexGrid._lastState) {
+      this.hexGrid.redrawAll();
+      this.dice.drawAll(this.hexGrid._lastState);
+    }
+  }
+
+  /**
+   * Screen shake effect.
+   * @param {number} intensity - Max pixel offset
+   * @param {number} duration - Duration in ms
+   * @returns {Promise<void>}
+   */
+  screenShake(intensity, duration) {
+    if (!this.initialized || this._shaking) return Promise.resolve();
+    this._shaking = true;
+    this._rootOrigin.x = this.root.x;
+    this._rootOrigin.y = this.root.y;
+
+    let elapsed = 0;
+    const ticker = this.app.ticker;
+    const root = this.root;
+    const origin = this._rootOrigin;
+
+    return new Promise(resolve => {
+      const tick = frame => {
+        elapsed += frame.deltaMS;
+        const t = Math.min(elapsed / duration, 1);
+        const decay = 1 - t;
+        root.x = origin.x + (Math.random() - 0.5) * 2 * intensity * decay;
+        root.y = origin.y + (Math.random() - 0.5) * 2 * intensity * decay;
+
+        if (t >= 1) {
+          root.x = origin.x;
+          root.y = origin.y;
+          ticker.remove(tick);
+          this._shaking = false;
+          resolve();
+        }
+      };
+      ticker.add(tick);
+    });
+  }
+
+  /**
+   * Play a particle burst at a territory center.
+   * @param {number} areaId
+   * @param {number} color
+   */
+  playParticleEffect(areaId, color) {
+    if (!this.initialized || !this.hexGrid._lastState) return;
+    const area = this.hexGrid._lastState.areas[areaId];
+    if (!area) return;
+    const cellPos = this.hexGrid._cellPos;
+    const x = cellPos.x[area.centerCell] + 13;
+    const y = cellPos.y[area.centerCell] + 9;
+    createBurstEffect(this.hexGrid.container, x, y, color, this.app.ticker);
+  }
+
+  /**
+   * Animate reinforcement dice distribution.
+   * @param {Array<{areaId: number, oldDice: number, newDice: number}>} changes
+   * @returns {Promise<void>}
+   */
+  animateReinforcements(changes) {
+    if (!this.initialized) return Promise.resolve();
+    return animateReinforcements(changes, this.hexGrid, this.app.ticker);
+  }
+
+  /**
+   * Play win celebration animation.
+   * @param {number} winnerId
+   * @param {import('../engine/types.js').GameState} state
+   * @returns {Promise<void>}
+   */
+  playCelebration(winnerId, state) {
+    return playCelebration(winnerId, state, this);
   }
 
   /** Get the PixiJS Application instance. */

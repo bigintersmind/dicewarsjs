@@ -9,7 +9,7 @@
  */
 
 import { Container, Graphics, Text } from 'pixi.js';
-import { PLAYER_COLORS } from './constants.js';
+import { PLAYER_COLORS, COLORBLIND_PLAYER_COLORS } from './constants.js';
 import { computeCellPositions } from './HexGridRenderer.js';
 
 /** Dice display settings (before map scaling). */
@@ -83,6 +83,26 @@ export class DiceRenderer {
 
     /** @type {Container[]} One container per area (indexed by areaId) */
     this._diceContainers = [];
+    /** @type {boolean} Color-blind mode */
+    this._colorBlindMode = false;
+  }
+
+  /**
+   * Toggle color-blind mode.
+   * @param {boolean} enabled
+   */
+  setColorBlindMode(enabled) {
+    this._colorBlindMode = enabled;
+  }
+
+  /**
+   * Get the player color, respecting color-blind mode.
+   * @param {number} owner
+   * @returns {number}
+   */
+  _getPlayerColor(owner) {
+    const palette = this._colorBlindMode ? COLORBLIND_PLAYER_COLORS : PLAYER_COLORS;
+    return palette[owner % palette.length];
   }
 
   /**
@@ -135,7 +155,7 @@ export class DiceRenderer {
     diceContainer.x = this._cellPos.x[centerCell] + DICE_OFFSET_X;
     diceContainer.y = this._cellPos.y[centerCell] + DICE_OFFSET_Y;
 
-    const color = PLAYER_COLORS[area.owner % PLAYER_COLORS.length];
+    const color = this._getPlayerColor(area.owner);
     const gfx = new Graphics();
 
     // Draw stacked dice from bottom to top

@@ -12,6 +12,7 @@ import { Container, Graphics } from 'pixi.js';
 import { traceBorder, buildCellToArea } from './territoryBorder.js';
 import {
   PLAYER_COLORS,
+  COLORBLIND_PLAYER_COLORS,
   BORDER_COLOR,
   BORDER_WIDTH,
   HIGHLIGHT_COLOR,
@@ -108,6 +109,11 @@ export class HexGridRenderer {
     this._highlightTo.visible = false;
     this.container.addChild(this._highlightTo);
 
+    /** @type {Graphics} Focus highlight for keyboard navigation */
+    this._highlightFocus = new Graphics();
+    this._highlightFocus.visible = false;
+    this.container.addChild(this._highlightFocus);
+
     /** @type {{ x: Float64Array, y: Float64Array } | null} */
     this._cellPos = null;
 
@@ -119,6 +125,54 @@ export class HexGridRenderer {
 
     /** @type {import('../engine/types.js').GameState | null} */
     this._lastState = null;
+
+    /** @type {number} Current border color (theme-dependent) */
+    this._borderColor = BORDER_COLOR;
+    /** @type {number} Current highlight stroke color */
+    this._highlightColor = HIGHLIGHT_COLOR;
+    /** @type {number} Current highlight fill color */
+    this._highlightFill = HIGHLIGHT_FILL;
+    /** @type {boolean} Color-blind mode */
+    this._colorBlindMode = false;
+  }
+
+  /**
+   * Get the player color for a given owner index, respecting color-blind mode.
+   * @param {number} owner
+   * @returns {number}
+   */
+  _getPlayerColor(owner) {
+    const palette = this._colorBlindMode ? COLORBLIND_PLAYER_COLORS : PLAYER_COLORS;
+    return owner >= 0 ? palette[owner % palette.length] : 0x888888;
+  }
+
+  /**
+   * Apply a theme to the renderer.
+   * @param {{ borderColor: number, highlightColor: number, highlightFill: number }} theme
+   */
+  setTheme(theme) {
+    this._borderColor = theme.borderColor;
+    this._highlightColor = theme.highlightColor;
+    this._highlightFill = theme.highlightFill;
+  }
+
+  /**
+   * Toggle color-blind mode.
+   * @param {boolean} enabled
+   */
+  setColorBlindMode(enabled) {
+    this._colorBlindMode = enabled;
+  }
+
+  /**
+   * Redraw all territories using the current theme and palette.
+   */
+  redrawAll() {
+    if (!this._lastState) return;
+    const { areas } = this._lastState;
+    for (let a = 1; a < areas.length; a++) {
+      this.redrawTerritory(a, this._lastState);
+    }
   }
 
   /**
@@ -157,8 +211,8 @@ export class HexGridRenderer {
 
       // Create Graphics and draw
       const gfx = new Graphics();
-      const color = area.owner >= 0 ? PLAYER_COLORS[area.owner % PLAYER_COLORS.length] : 0x888888;
-      drawTerritoryPath(gfx, border, this._cellPos, color, BORDER_COLOR, BORDER_WIDTH);
+      const color = this._getPlayerColor(area.owner);
+      drawTerritoryPath(gfx, border, this._cellPos, color, this._borderColor, BORDER_WIDTH);
 
       this._territoryGfx[a] = gfx;
       // Insert behind highlights
@@ -188,8 +242,8 @@ export class HexGridRenderer {
     if (!gfx || !border) return;
 
     const area = state.areas[areaId];
-    const color = area.owner >= 0 ? PLAYER_COLORS[area.owner % PLAYER_COLORS.length] : 0x888888;
-    drawTerritoryPath(gfx, border, this._cellPos, color, BORDER_COLOR, BORDER_WIDTH);
+    const color = this._getPlayerColor(area.owner);
+    drawTerritoryPath(gfx, border, this._cellPos, color, this._borderColor, BORDER_WIDTH);
   }
 
   /**
@@ -219,7 +273,33 @@ export class HexGridRenderer {
     if (!border) return;
 
     gfx.visible = true;
-    drawTerritoryPath(gfx, border, this._cellPos, HIGHLIGHT_FILL, HIGHLIGHT_COLOR, BORDER_WIDTH);
+    drawTerritoryPath(
+      gfx,
+      border,
+      this._cellPos,
+      this._highlightFill,
+      this._highlightColor,
+      BORDER_WIDTH
+    );
+  }
+
+  /**
+   * Show a focus highlight on a territory (keyboard navigation).
+   * Uses a white dashed-style border distinct from selection highlights.
+   * @param {number} areaId
+   */
+  setFocusHighlight(areaId) {
+    const border = this._borders[areaId];
+    if (!border) return;
+    this._highlightFocus.visible = true;
+    drawTerritoryPath(this._highlightFocus, border, this._cellPos, 0x000000, 0xffffff, 3);
+    this._highlightFocus.alpha = 0.7;
+  }
+
+  /** Clear the keyboard focus highlight. */
+  clearFocusHighlight() {
+    this._highlightFocus.visible = false;
+    this._highlightFocus.clear();
   }
 
   /** Clear all selection highlights. */

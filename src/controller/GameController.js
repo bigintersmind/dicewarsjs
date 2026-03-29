@@ -316,7 +316,7 @@ export function createGameController(store, renderer, soundManager) {
       }
 
       // Play battle animation or brief delay
-      const speed = store.getState().aiSpeed || 1;
+      const speed = getEffectiveSpeed();
       if (renderer && renderer.battle && battleResult) {
         const atkOwner = prevState.areas[move.from].owner;
         const defOwner = prevState.areas[move.to].owner;
@@ -328,6 +328,18 @@ export function createGameController(store, renderer, soundManager) {
       // Sound effects (after animation)
       if (soundManager && battleResult) {
         soundManager.play(battleResult.success ? 'success' : 'fail');
+      }
+
+      // Visual effects for AI attacks
+      if (renderer && battleResult && !isReducedMotion()) {
+        if (battleResult.success) {
+          const atkColor = renderer.hexGrid._getPlayerColor(prevState.areas[move.from].owner);
+          renderer.playParticleEffect(move.to, atkColor);
+        }
+        const atkDice = prevState.areas[move.from]?.dice || 0;
+        const defDice = prevState.areas[move.to]?.dice || 0;
+        const totalDice = atkDice + defDice;
+        if (totalDice >= 10) renderer.screenShake(3, 200);
       }
 
       store.setState({
@@ -348,7 +360,7 @@ export function createGameController(store, renderer, soundManager) {
     if (!aiAborted && state && state.phase !== GAME_PHASES.GAME_OVER) {
       endTurn();
     } else if (state && state.phase === GAME_PHASES.GAME_OVER) {
-      store.setState({ gameState: state, screen: 'gameOver' });
+      await triggerGameOver(state);
     }
 
     aiRunning = false;
@@ -469,33 +481,80 @@ export function createGameController(store, renderer, soundManager) {
       soundManager.play(battleResult.success ? 'success' : 'fail');
     }
 
+    // Visual effects (non-blocking)
+    if (renderer && battleResult && !isReducedMotion()) {
+      // Particle burst on successful capture
+      if (battleResult.success) {
+        const winColor = renderer.hexGrid._getPlayerColor(prevState.areas[fromId].owner);
+        renderer.playParticleEffect(toId, winColor);
+      }
+
+      // Screen shake on large battles
+      const totalDice = (prevState.areas[fromId]?.dice || 0) + (prevState.areas[toId]?.dice || 0);
+      if (totalDice >= 10) renderer.screenShake(3, 200);
+    }
+
+    const isOver = nextState.phase === GAME_PHASES.GAME_OVER;
     store.setState({
       battleResult: null,
       animationPhase: 'idle',
       selectedFrom: null,
       selectedTo: null,
-      awaitingInput: nextState.phase === GAME_PHASES.GAME_OVER ? null : 'selectFrom',
+      awaitingInput: isOver ? null : 'selectFrom',
     });
 
     if (renderer) renderer.hexGrid.clearHighlights();
 
-    if (nextState.phase === GAME_PHASES.GAME_OVER) {
-      store.setState({ gameState: nextState, screen: 'gameOver' });
-      if (soundManager) soundManager.play('over');
+    if (isOver) await triggerGameOver(nextState);
+  }
+
+  /** Compute effective animation speed (aiSpeed * user preference). */
+  function getEffectiveSpeed() {
+    const s = store.getState();
+    const aiSpeed = s.aiSpeed || 1;
+    const prefSpeed = s.preferences?.animationSpeed || 1;
+    return aiSpeed * prefSpeed;
+  }
+
+  /** Check if reduced motion is active. */
+  function isReducedMotion() {
+    const prefs = store.getState().preferences;
+    if (!prefs) return false;
+    if (prefs.reducedMotion === 'on') return true;
+    if (prefs.reducedMotion === 'off') return false;
+    try {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      return false;
     }
+  }
+
+  /** Handle game-over transition with optional celebration. */
+  async function triggerGameOver(state) {
+    if (renderer && state.winner !== null && !isReducedMotion()) {
+      await renderer.playCelebration(state.winner, state);
+    }
+    store.setState({ gameState: state, screen: 'gameOver' });
+    if (soundManager) soundManager.play('over');
   }
 
   /** End the human player's turn (called from the UI END TURN button). */
   function endHumanTurn() {
     const storeState = store.getState();
     if (storeState.awaitingInput === null) return;
-    endTurn();
+    return endTurn();
   }
 
   /** Apply END_TURN action and advance to next player. */
-  function endTurn() {
+  async function endTurn() {
     const prevState = store.getState().gameState;
     if (!prevState) return;
+
+    // Snapshot dice counts before reinforcement
+    const diceBefore = [];
+    for (let a = 0; a < prevState.areas.length; a++) {
+      diceBefore[a] = prevState.areas[a]?.dice ?? 0;
+    }
 
     let nextState;
     try {
@@ -510,6 +569,15 @@ export function createGameController(store, renderer, soundManager) {
       return;
     }
 
+    // Compute reinforcement changes
+    const changes = [];
+    for (let a = 1; a < nextState.areas.length; a++) {
+      const newDice = nextState.areas[a]?.dice ?? 0;
+      if (newDice !== diceBefore[a]) {
+        changes.push({ areaId: a, oldDice: diceBefore[a], newDice });
+      }
+    }
+
     store.setState({
       gameState: nextState,
       selectedFrom: null,
@@ -518,13 +586,16 @@ export function createGameController(store, renderer, soundManager) {
       animationPhase: 'idle',
     });
 
-    if (renderer) {
+    // Animate reinforcements before updating renderer
+    if (renderer && changes.length > 0 && !isReducedMotion()) {
+      renderer.update(prevState, nextState);
+      await renderer.animateReinforcements(changes);
+    } else if (renderer) {
       renderer.update(prevState, nextState);
     }
 
     if (nextState.phase === GAME_PHASES.GAME_OVER) {
-      store.setState({ screen: 'gameOver' });
-      if (soundManager) soundManager.play('over');
+      await triggerGameOver(nextState);
       return;
     }
 

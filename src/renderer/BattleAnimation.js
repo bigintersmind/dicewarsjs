@@ -13,7 +13,7 @@
  */
 
 import { Container, Graphics, Text } from 'pixi.js';
-import { PLAYER_COLORS, BASE_WIDTH } from './constants.js';
+import { PLAYER_COLORS, COLORBLIND_PLAYER_COLORS, BASE_WIDTH } from './constants.js';
 
 const BG_ALPHA = 0.8;
 const BG_HEIGHT = 200;
@@ -38,6 +38,17 @@ export function createBattleAnimation(app) {
 
   /** @type {(() => void) | null} Resolve function for pending animation */
   let pendingResolve = null;
+  /** @type {boolean} Color-blind mode */
+  let colorBlindMode = false;
+
+  function getPlayerColor(index) {
+    const palette = colorBlindMode ? COLORBLIND_PLAYER_COLORS : PLAYER_COLORS;
+    return palette[index % palette.length];
+  }
+
+  function setColorBlindMode(enabled) {
+    colorBlindMode = enabled;
+  }
 
   /**
    * Play a battle animation and return a Promise that resolves when done.
@@ -82,16 +93,8 @@ export function createBattleAnimation(app) {
       const defValues = defRoll.values;
 
       // Create dice objects for both sides
-      const atkDice = createDiceSet(
-        atkValues,
-        PLAYER_COLORS[attackerPlayerIndex % PLAYER_COLORS.length],
-        -1
-      );
-      const defDice = createDiceSet(
-        defValues,
-        PLAYER_COLORS[defenderPlayerIndex % PLAYER_COLORS.length],
-        1
-      );
+      const atkDice = createDiceSet(atkValues, getPlayerColor(attackerPlayerIndex), -1);
+      const defDice = createDiceSet(defValues, getPlayerColor(defenderPlayerIndex), 1);
 
       for (const d of atkDice) container.addChild(d.gfx);
       for (const d of defDice) container.addChild(d.gfx);
@@ -161,7 +164,7 @@ export function createBattleAnimation(app) {
     container.destroy({ children: true });
   }
 
-  return { play, destroy, container };
+  return { play, destroy, container, setColorBlindMode };
 }
 
 /**

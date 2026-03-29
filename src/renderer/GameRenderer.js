@@ -1,28 +1,153 @@
-import { Application, Graphics } from 'pixi.js';
+/**
+ * Game Renderer
+ *
+ * Top-level PixiJS renderer that manages the Application, responsive scaling,
+ * and child renderers (hex grid, dice, battle animation).
+ *
+ * @module renderer/GameRenderer
+ */
 
-let app = null;
+import { Application, Container } from 'pixi.js';
+import { HexGridRenderer } from './HexGridRenderer.js';
+import { DiceRenderer } from './DiceRenderer.js';
+import { createBattleAnimation } from './BattleAnimation.js';
+import { BASE_WIDTH, BASE_HEIGHT, BG_COLOR } from './constants.js';
 
-export async function initRenderer(canvas) {
-  app = new Application();
-  await app.init({
-    canvas,
-    resizeTo: window,
-    backgroundColor: 0x1a1a2e,
-    antialias: true,
-    autoDensity: true,
-    resolution: window.devicePixelRatio || 1,
-  });
+export class GameRenderer {
+  constructor() {
+    /** @type {Application | null} */
+    this.app = null;
+    /** @type {Container} Scaled root container */
+    this.root = new Container();
+    /** @type {HexGridRenderer | null} */
+    this.hexGrid = null;
+    /** @type {DiceRenderer | null} */
+    this.dice = null;
+    /** @type {{ play, destroy } | null} */
+    this.battle = null;
+    /** @type {boolean} */
+    this.initialized = false;
+  }
 
-  // Proof of life: draw a colored rectangle in the center
-  const rect = new Graphics();
-  rect.rect(window.innerWidth / 2 - 100, window.innerHeight / 2 - 100, 200, 200);
-  rect.fill(0x16213e);
-  rect.stroke({ width: 2, color: 0xe94560 });
-  app.stage.addChild(rect);
+  /**
+   * Initialize the PixiJS application.
+   *
+   * @param {HTMLCanvasElement} canvas
+   * @returns {Promise<GameRenderer>}
+   */
+  async init(canvas) {
+    try {
+      this.app = new Application();
+      await this.app.init({
+        canvas,
+        resizeTo: window,
+        backgroundColor: BG_COLOR,
+        antialias: true,
+        autoDensity: true,
+        resolution: window.devicePixelRatio || 1,
+      });
 
-  return app;
-}
+      this.app.stage.addChild(this.root);
 
-export function getApp() {
-  return app;
+      // Create child renderers
+      this.hexGrid = new HexGridRenderer(this.root);
+      this.dice = new DiceRenderer(this.hexGrid.container);
+      this.battle = createBattleAnimation(this.app);
+
+      // Responsive scaling
+      this._onResize = () => this._resize();
+      this._resize();
+      window.addEventListener('resize', this._onResize);
+
+      this.initialized = true;
+      return this;
+    } catch (err) {
+      this.destroy();
+      throw err;
+    }
+  }
+
+  /** Recalculate scale to fit the game board in the window. */
+  _resize() {
+    if (!this.app) return;
+    const scale = Math.min(
+      this.app.screen.width / BASE_WIDTH,
+      this.app.screen.height / BASE_HEIGHT
+    );
+    this.root.scale.set(scale);
+    // Center the scaled root
+    this.root.x = (this.app.screen.width - BASE_WIDTH * scale) / 2;
+    this.root.y = (this.app.screen.height - BASE_HEIGHT * scale) / 2;
+  }
+
+  /**
+   * Draw a new game map.
+   * @param {import('../engine/types.js').GameState} state
+   */
+  drawMap(state) {
+    if (!this.initialized) return;
+    this.hexGrid.drawMap(state);
+    this.dice.drawAll(state);
+  }
+
+  /**
+   * Update rendering after a state change.
+   * @param {import('../engine/types.js').GameState} prevState
+   * @param {import('../engine/types.js').GameState} nextState
+   */
+  update(prevState, nextState) {
+    if (!this.initialized) return;
+    this.hexGrid.updateFromState(prevState, nextState);
+    this.dice.drawAll(nextState);
+  }
+
+  /**
+   * Convert a screen pixel position to a local position within the game map.
+   * Used for hit testing.
+   *
+   * @param {number} screenX
+   * @param {number} screenY
+   * @returns {{ x: number, y: number }}
+   */
+  screenToMap(screenX, screenY) {
+    if (!this.initialized) return { x: 0, y: 0 };
+
+    // Convert viewport coordinates to canvas-local coordinates
+    const rect = this.app.canvas.getBoundingClientRect();
+    const canvasX = screenX - rect.left;
+    const canvasY = screenY - rect.top;
+
+    // Account for root container position and scale
+    const scale = this.root.scale.x;
+    const localX = (canvasX - this.root.x) / scale - this.hexGrid.container.x;
+    const localY = (canvasY - this.root.y) / scale - this.hexGrid.container.y;
+    return { x: localX, y: localY };
+  }
+
+  /**
+   * Hit test: which territory was clicked?
+   * @param {number} screenX
+   * @param {number} screenY
+   * @returns {number} areaId (0 = no territory)
+   */
+  hitTest(screenX, screenY) {
+    if (!this.initialized) return 0;
+    const { x, y } = this.screenToMap(screenX, screenY);
+    return this.hexGrid.hitTest(x, y);
+  }
+
+  /** Get the PixiJS Application instance. */
+  getApp() {
+    return this.app;
+  }
+
+  /** Clean up. */
+  destroy() {
+    window.removeEventListener('resize', this._onResize);
+    if (this.battle) this.battle.destroy();
+    if (this.dice) this.dice.destroy();
+    if (this.hexGrid) this.hexGrid.destroy();
+    if (this.app) this.app.destroy(true);
+    this.initialized = false;
+  }
 }

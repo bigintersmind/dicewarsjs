@@ -84,8 +84,8 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 - **Build**: Vite (replaced Webpack)
 - **Tests**: Vitest (replaced Jest)
-- **Rendering**: PixiJS v8 (replacing CreateJS — in progress)
-- **UI**: Preact (replacing legacy DOM manipulation — in progress)
+- **Rendering**: PixiJS v8 (replaced CreateJS)
+- **UI**: Preact (replaced legacy DOM manipulation)
 - **Config**: `vite.config.js` contains both build and test configuration
 
 ### Architecture
@@ -96,11 +96,13 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 3. **Bridge Pattern** (DEPRECATED): `src/bridge/` is deprecated and will be removed. Do not add new bridge modules.
 
-4. **New scaffolding** (Phase 1): `src/renderer/` (PixiJS), `src/ui/` (Preact), `src/engine/`, `src/audio/`, `src/events/`, `src/store/` are scaffolded for Phase 2+.
+4. **Game Engine** (Phase 2): `src/engine/` contains the pure game engine — no DOM, no rendering. Includes StateManager, BattleResolver, MapGenerator, TurnManager, HexGrid, AIAdapter, and GameRunner.
+
+5. **Rendering & UI** (Phase 3): `src/renderer/` (PixiJS hex grid, dice, battle animation), `src/ui/` (Preact screens and HUD), `src/store/` (observable GameStore), `src/controller/` (GameController orchestrator), `src/audio/` (Web Audio SoundManager).
 
 ### Core Components
 
-- **Game Engine** (src/Game.js): Manages game state, player turns, territory ownership, and dice placement.
+- **Game Engine** (src/engine/): Pure game logic — `createGame`, `applyAction`, `getValidMoves`, `runAI`. No DOM dependencies. Runs in both browser and Node.js.
 
 - **AI System** (src/ai/): Contains different AI strategies:
 
@@ -109,17 +111,23 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
   - ai_example: Basic implementation for educational purposes
   - ai_adaptive: Adapts strategy based on game conditions
 
+- **GameController** (src/controller/GameController.js): Orchestrates the full game loop — title → mapPreview → playing → gameOver. Handles human input (two-phase click: select from, select to), AI turns with step-by-step animation, and turn advancement. Only module that calls engine functions.
+
+- **GameStore** (src/store/GameStore.js): Observable pub/sub store shared by renderer, controller, and UI. Shallow-merge `setState`, subscriber notification with error isolation.
+
+- **Renderer** (src/renderer/): PixiJS rendering layer — `GameRenderer` (top-level), `HexGridRenderer` (territory drawing with border tracing), `DiceRenderer` (isometric stacked dice), `BattleAnimation` (physics-based dice rolling).
+
+- **UI** (src/ui/): Preact components — `App` (screen router), `TitleScreen`, `MapPreview`, `GameHUD`, `GameOverlay`, `GameOverScreen`. Uses `useGameStore` hook for reactive updates.
+
+- **SoundManager** (src/audio/SoundManager.js): Web Audio API sound system replacing legacy CreateJS SoundJS. Lazy AudioContext creation, on-demand loading, volume control.
+
 - **Map Generation** (src/mechanics/mapGenerator.js): Creates the hexagonal grid and territories.
 
 - **Battle Resolution** (src/mechanics/battleResolution.js): Handles attack resolution and dice distribution.
 
-- **State Management** (src/state/): Contains immutable data structures for game state.
-
 - **Models** (src/models/): Data structures for game entities (AreaData, PlayerData, Battle, HistoryData, JoinData).
 
 - **Enhanced Modules** (src/enhanced/, src/models/enhanced/, src/mechanics/enhanced/): Improved variants of core components with additional features like adjacency graphs, territory graphs, and disjoint sets.
-
-- **UI** (src/ui/): UI components including player status display and title screen.
 
 - **Adapters** (src/adapters/): Adapter classes for interfacing with legacy components (e.g., MCAdapter).
 
@@ -184,17 +192,4 @@ When making changes:
 1. Update inline code comments for clarity
 2. Update relevant docs in the docs/ directory
 3. Update this CLAUDE.md file if workflow changes
-4. Update AGENTS.md to maintain parity between agent guidance files
-5. Keep README.md synchronized with new features
-
-## Keeping Agent Files Synchronized
-
-This file (CLAUDE.md) and AGENTS.md should be kept in sync to ensure all AI assistants have the same understanding of:
-
-- Project architecture
-- Development workflows
-- Best practices
-- Testing requirements
-- Documentation standards
-
-When updating either file, consider whether the change should be reflected in both.
+4. Keep README.md synchronized with new features

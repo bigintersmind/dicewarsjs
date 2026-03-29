@@ -1,7 +1,7 @@
 # DiceWarsJS Modernization Roadmap
 
 > **Last Updated:** March 2026
-> **Status:** Planning — replaces all prior migration documents
+> **Status:** Phase 3 complete — Phases 1–3 implemented, Phase 4 next
 > **Developed by:** Claude Opus 4.6 in Claude Code
 
 ---
@@ -243,9 +243,12 @@ Keep npm — it's already in use, everyone has it, no migration needed.
 
 ---
 
-## 6. Phase 1: Foundation
+## 6. Phase 1: Foundation ✅ COMPLETE
 
 **Goal:** Set up the new build system, project structure, and development workflow. The game doesn't need to be playable yet — this phase creates the skeleton.
+
+> **Completed in:** commit `141e269` — migrated build to Vite/Vitest, scaffolded PixiJS/Preact.
+> Subsequent fix: `fd36d4d` addressed PR review findings.
 
 ### Tasks
 
@@ -343,9 +346,12 @@ src/
 
 ---
 
-## 7. Phase 2: Core Game Engine
+## 7. Phase 2: Core Game Engine ✅ COMPLETE
 
 **Goal:** Extract the proven game algorithms into a pure, renderer-independent game engine. No globals, no DOM access, no CreateJS.
+
+> **Completed in:** commit `63a8c3f` — pure game engine in `src/engine/` with StateManager,
+> BattleResolver, MapGenerator, TurnManager, HexGrid, AIAdapter, GameRunner, and full test suite.
 
 ### Tasks
 
@@ -421,9 +427,15 @@ src/
 
 ---
 
-## 8. Phase 3: Rendering & UI
+## 8. Phase 3: Rendering & UI ✅ COMPLETE
 
 **Goal:** Build the visual layer on PixiJS and Preact, achieving feature parity with the current game.
+
+> **Completed in:** commit `b191c1d` — PixiJS hex grid renderer, battle animation, Preact UI
+> (title screen, map preview, HUD, game over), GameStore, GameController, SoundManager.
+> Subsequent review fixes addressed: race condition in click handling, hit test offset bug,
+> AI load fallback, error handling around createGame, resource leak in destroy(), and added
+> 26 GameController tests. 685 tests passing across 71 test files.
 
 ### Tasks
 

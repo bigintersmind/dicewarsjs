@@ -1,36 +1,65 @@
-export function App() {
+/**
+ * Root Application Component
+ *
+ * Routes between screens based on GameStore state.
+ *
+ * @module ui/App
+ */
+
+import { useGameStore } from './hooks/useGameStore.js';
+import { ErrorBoundary } from './ErrorBoundary.jsx';
+import { TitleScreen } from './TitleScreen.jsx';
+import { GameHUD } from './GameHUD.jsx';
+import { MapPreview } from './MapPreview.jsx';
+import { GameOverlay } from './GameOverlay.jsx';
+import { GameOverScreen } from './GameOverScreen.jsx';
+
+/**
+ * @param {Object} props
+ * @param {Object} props.store - GameStore instance
+ * @param {Object} props.controller - GameController instance
+ */
+export function App({ store, controller }) {
+  const screen = useGameStore(store, s => s.screen);
+  const error = useGameStore(store, s => s.error);
+
+  if (screen === 'title') {
+    return (
+      <ErrorBoundary>
+        <TitleScreen error={error} onStart={config => controller.startNewGame(config)} />
+      </ErrorBoundary>
+    );
+  }
+
+  if (screen === 'mapPreview') {
+    return (
+      <ErrorBoundary>
+        <MapPreview
+          onAccept={() => controller.acceptMap()}
+          onReject={() => controller.rejectMap()}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  if (screen === 'gameOver') {
+    return (
+      <ErrorBoundary>
+        <div style={{ height: '100%', position: 'relative' }}>
+          <GameHUD store={store} />
+          <GameOverScreen store={store} onTitle={() => controller.goToTitle()} />
+        </div>
+      </ErrorBoundary>
+    );
+  }
+
+  // screen === 'playing'
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100%',
-        pointerEvents: 'auto',
-      }}
-    >
-      <h1
-        style={{
-          fontFamily: 'Anton, sans-serif',
-          fontSize: '4rem',
-          color: '#e94560',
-          textShadow: '2px 2px 8px rgba(0, 0, 0, 0.5)',
-          letterSpacing: '0.1em',
-        }}
-      >
-        DICEWARS
-      </h1>
-      <p
-        style={{
-          fontFamily: 'Roboto, sans-serif',
-          fontSize: '1.2rem',
-          color: '#a0a0b0',
-          marginTop: '1rem',
-        }}
-      >
-        Modernization in progress...
-      </p>
-    </div>
+    <ErrorBoundary>
+      <div style={{ height: '100%', position: 'relative' }}>
+        <GameHUD store={store} />
+        <GameOverlay store={store} onEndTurn={() => controller.endHumanTurn()} />
+      </div>
+    </ErrorBoundary>
   );
 }

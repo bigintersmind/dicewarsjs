@@ -74,6 +74,12 @@ export default defineConfig({
           functions: 70,
           lines: 70,
         },
+        'src/arena/**/*.js': {
+          statements: 70,
+          branches: 50,
+          functions: 70,
+          lines: 70,
+        },
       },
     },
   },

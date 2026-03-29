@@ -13,6 +13,8 @@ import { GameHUD } from './GameHUD.jsx';
 import { MapPreview } from './MapPreview.jsx';
 import { GameOverlay } from './GameOverlay.jsx';
 import { GameOverScreen } from './GameOverScreen.jsx';
+import { ArenaScreen } from './ArenaScreen.jsx';
+import { TournamentScreen } from './TournamentScreen.jsx';
 
 /**
  * @param {Object} props
@@ -26,7 +28,28 @@ export function App({ store, controller }) {
   if (screen === 'title') {
     return (
       <ErrorBoundary>
-        <TitleScreen error={error} onStart={config => controller.startNewGame(config)} />
+        <TitleScreen
+          error={error}
+          onStart={config => controller.startNewGame(config)}
+          onArena={() => controller.goToArena()}
+          onTournament={() => controller.goToTournament()}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  if (screen === 'arena') {
+    return (
+      <ErrorBoundary>
+        <ArenaScreen onBack={() => controller.goToTitle()} />
+      </ErrorBoundary>
+    );
+  }
+
+  if (screen === 'tournament') {
+    return (
+      <ErrorBoundary>
+        <TournamentScreen onBack={() => controller.goToTitle()} />
       </ErrorBoundary>
     );
   }

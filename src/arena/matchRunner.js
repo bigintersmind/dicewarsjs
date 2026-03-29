@@ -1,0 +1,215 @@
+/**
+ * Match Runner
+ *
+ * Runs a single game (match) between bots using the new Bot SDK interface.
+ * Uses the engine's createGame/applyAction directly with bot-aware move loop.
+ *
+ * @module arena/matchRunner
+ */
+
+import { createGame } from '../engine/GameRunner.js';
+import { applyAction, getValidMoves } from '../engine/StateManager.js';
+import { ACTION_TYPES, GAME_PHASES } from '../engine/constants.js';
+import { createBotState } from './botState.js';
+import { validateMove } from './botValidator.js';
+import { runBotDirect } from './botRunner.js';
+
+/** Maximum moves a single bot can make per turn */
+const MAX_MOVES_PER_TURN = 100;
+
+/** Maximum turns before declaring a stalemate */
+const DEFAULT_MAX_TURNS = 500;
+
+/**
+ * @typedef {Object} MatchBotConfig
+ * @property {string}   name - Bot display name
+ * @property {Function} fn   - Bot function: (BotState) → { from, to } | null
+ */
+
+/**
+ * @typedef {Object} MatchBotStat
+ * @property {string} name           - Bot name
+ * @property {number} playerIndex    - Player index in the game
+ * @property {number} finalTerritories - Territories at game end
+ * @property {number} finalDice      - Total dice at game end
+ * @property {number} placement      - 1-based finishing position
+ * @property {number} attacksMade    - Total attacks attempted
+ * @property {number} attacksWon     - Total successful attacks
+ */
+
+/**
+ * @typedef {Object} MatchResult
+ * @property {number|null}   winner      - Winning player index (null if stalemate)
+ * @property {string|null}   winnerName  - Winning bot's name (null if stalemate)
+ * @property {number}        turnCount   - Total turns played
+ * @property {number[]}      placements  - Player indices ordered by placement
+ * @property {MatchBotStat[]} botStats   - Per-bot statistics
+ * @property {Object}        config      - Game config used (for replay)
+ */
+
+/**
+ * Run a single bot's turn: repeatedly call the bot and apply attacks,
+ * then apply END_TURN.
+ *
+ * @param {import('../engine/types.js').GameState} state
+ * @param {Function} botFn - Bot function
+ * @param {string}   botName - For logging
+ * @param {Object}   stats - Mutable stats accumulator { attacks, wins }
+ * @returns {import('../engine/types.js').GameState}
+ */
+function runBotTurn(state, botFn, botName, stats) {
+  let currentState = state;
+  const playerId = currentState.turnOrder[currentState.currentPlayerIndex];
+
+  for (let i = 0; i < MAX_MOVES_PER_TURN; i++) {
+    if (currentState.phase === GAME_PHASES.GAME_OVER) return currentState;
+
+    const botState = createBotState(currentState, playerId);
+    const { move, error } = runBotDirect(botFn, botState);
+
+    if (error) break;
+    if (move === null) break;
+
+    const validation = validateMove(move, botState);
+    if (!validation.valid) break;
+
+    // Double-check against engine's valid moves
+    const validMoves = getValidMoves(currentState);
+    const isEngineValid = validMoves.some(m => m.from === move.from && m.to === move.to);
+    if (!isEngineValid) break;
+
+    currentState = applyAction(currentState, {
+      type: ACTION_TYPES.ATTACK,
+      from: move.from,
+      to: move.to,
+    });
+
+    stats.attacks++;
+    // Check if the attack was successful (territory changed owner)
+    if (currentState.areas[move.to].owner === playerId) {
+      stats.wins++;
+    }
+  }
+
+  if (currentState.phase !== GAME_PHASES.GAME_OVER) {
+    currentState = applyAction(currentState, { type: ACTION_TYPES.END_TURN });
+  }
+
+  return currentState;
+}
+
+/**
+ * Run a single match (complete game) between bots.
+ *
+ * @param {Object} config
+ * @param {MatchBotConfig[]} config.bots - Bot configurations (length = player count)
+ * @param {number}  [config.seed]        - RNG seed (random if omitted)
+ * @param {number}  [config.maxTurns=500] - Max turns before stalemate
+ * @param {Function} [config.onTurn]     - Callback after each turn: (turnNumber, state)
+ * @returns {MatchResult}
+ */
+export function runMatch(config) {
+  const { bots, seed, maxTurns = DEFAULT_MAX_TURNS, onTurn } = config;
+
+  const gameState = createGame({
+    seed,
+    playerCount: bots.length,
+  });
+
+  /*
+   * Map player indices to bot functions.
+   * turnOrder determines which player goes first, but bots[i] maps to player i.
+   */
+  const botFnByPlayer = bots.map(b => b.fn);
+  const botNameByPlayer = bots.map(b => b.name);
+
+  // Per-player attack stats
+  const attackStats = bots.map(() => ({ attacks: 0, wins: 0 }));
+
+  // Track elimination order for placement calculation
+  const eliminationOrder = [];
+
+  let state = gameState;
+  let turnCount = 0;
+
+  while (state.phase !== GAME_PHASES.GAME_OVER && turnCount < maxTurns) {
+    const currentPlayerId = state.turnOrder[state.currentPlayerIndex];
+
+    // Skip eliminated players (engine should handle this, but be safe)
+    if (state.players[currentPlayerId].eliminated) {
+      state = applyAction(state, { type: ACTION_TYPES.END_TURN });
+      continue;
+    }
+
+    const prevEliminated = state.players.filter(p => p.eliminated).map(p => p.id);
+
+    state = runBotTurn(
+      state,
+      botFnByPlayer[currentPlayerId],
+      botNameByPlayer[currentPlayerId],
+      attackStats[currentPlayerId]
+    );
+
+    // Track newly eliminated players
+    for (const p of state.players) {
+      if (p.eliminated && !prevEliminated.includes(p.id) && !eliminationOrder.includes(p.id)) {
+        eliminationOrder.push(p.id);
+      }
+    }
+
+    turnCount++;
+    if (onTurn) onTurn(turnCount, state);
+  }
+
+  // Calculate placements
+  const placements = calculatePlacements(state, eliminationOrder);
+
+  // Build per-bot stats
+  const botStats = bots.map((bot, playerIndex) => ({
+    name: bot.name,
+    playerIndex,
+    finalTerritories: state.players[playerIndex].territoryCount,
+    finalDice: state.players[playerIndex].diceCount,
+    placement: placements.indexOf(playerIndex) + 1,
+    attacksMade: attackStats[playerIndex].attacks,
+    attacksWon: attackStats[playerIndex].wins,
+  }));
+
+  return {
+    winner: state.winner,
+    winnerName: state.winner !== null ? botNameByPlayer[state.winner] : null,
+    turnCount,
+    placements,
+    botStats,
+    config: { seed: gameState.config.seed, playerCount: bots.length },
+  };
+}
+
+/**
+ * Calculate placement order: winner first, then by elimination order (last eliminated = better).
+ *
+ * @param {import('../engine/types.js').GameState} state
+ * @param {number[]} eliminationOrder - Player IDs in order of elimination
+ * @returns {number[]} Player indices ordered by placement (0 = winner)
+ */
+function calculatePlacements(state, eliminationOrder) {
+  const placements = [];
+
+  // Winner first
+  if (state.winner !== null) {
+    placements.push(state.winner);
+  }
+
+  // Surviving non-winner players (sorted by territory count descending)
+  const survivors = state.players
+    .filter(p => !p.eliminated && p.id !== state.winner)
+    .sort((a, b) => b.territoryCount - a.territoryCount || b.diceCount - a.diceCount)
+    .map(p => p.id);
+  placements.push(...survivors);
+
+  // Eliminated players in reverse elimination order (last eliminated = better)
+  const eliminated = [...eliminationOrder].reverse();
+  placements.push(...eliminated);
+
+  return placements;
+}

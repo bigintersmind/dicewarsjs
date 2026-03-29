@@ -1,7 +1,7 @@
 # DiceWarsJS Modernization Roadmap
 
 > **Last Updated:** March 2026
-> **Status:** Phase 3 complete — Phases 1–3 implemented, Phase 4 next
+> **Status:** Phase 4 complete — Bot SDK, Arena, Replays, Tournaments implemented
 > **Developed by:** Claude Opus 4.6 in Claude Code
 
 ---

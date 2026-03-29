@@ -8,7 +8,7 @@
  * @module store/GameStore
  */
 
-/** @typedef {'title' | 'mapPreview' | 'playing' | 'gameOver'} Screen */
+/** @typedef {'title' | 'mapPreview' | 'playing' | 'gameOver' | 'arena' | 'replay' | 'tournament'} Screen */
 /** @typedef {'idle' | 'battle'} AnimationPhase */
 /** @typedef {'selectFrom' | 'selectTo' | null} AwaitingInput */
 

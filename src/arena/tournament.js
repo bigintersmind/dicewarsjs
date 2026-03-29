@@ -1,0 +1,318 @@
+/**
+ * Tournament System
+ *
+ * Round-robin and single-elimination tournament formats.
+ * Orchestrates multiple arena matches and aggregates standings.
+ *
+ * @module arena/tournament
+ */
+
+import { runMatch } from './matchRunner.js';
+import { updateEloRatings, DEFAULT_RATING } from './elo.js';
+
+/**
+ * @typedef {Object} TournamentBotConfig
+ * @property {string}   name - Bot display name
+ * @property {Function} fn   - Bot function
+ */
+
+/**
+ * @typedef {Object} TournamentStanding
+ * @property {string} name        - Bot name
+ * @property {number} wins        - Total match wins
+ * @property {number} losses      - Total match losses
+ * @property {number} gamesPlayed - Total games
+ * @property {number} elo         - ELO rating
+ * @property {number} points      - Tournament points (3 per win, 1 per draw)
+ */
+
+/**
+ * @typedef {Object} TournamentMatch
+ * @property {string[]} botNames     - Names of participating bots
+ * @property {number[]} playerIndices - Indices into the bots array
+ * @property {import('./matchRunner.js').MatchResult} result
+ */
+
+/**
+ * @typedef {Object} TournamentResult
+ * @property {'round-robin'|'single-elimination'} type
+ * @property {TournamentStanding[]} standings - Ordered by points/ELO
+ * @property {TournamentMatch[][]}  rounds    - Matches grouped by round
+ * @property {number}               totalGames
+ * @property {string|null}          champion  - Winner name
+ */
+
+/**
+ * Run a round-robin tournament.
+ * Every combination of playersPerGame bots plays gamesPerPairing games.
+ *
+ * @param {Object} config
+ * @param {TournamentBotConfig[]} config.bots
+ * @param {number} [config.gamesPerPairing=3]  - Games per matchup
+ * @param {number} [config.playersPerGame]      - Players per game (default: all bots)
+ * @param {number} [config.baseSeed=1]
+ * @param {number} [config.maxTurns=500]
+ * @param {Function} [config.onMatchComplete] - (roundIndex, matchIndex, result)
+ * @returns {TournamentResult}
+ */
+export function runRoundRobin(config) {
+  const {
+    bots,
+    gamesPerPairing = 3,
+    playersPerGame = bots.length,
+    baseSeed = 1,
+    maxTurns = 500,
+    onMatchComplete,
+  } = config;
+
+  const ratings = {};
+  const stats = {};
+  for (const bot of bots) {
+    ratings[bot.name] = DEFAULT_RATING;
+    stats[bot.name] = { wins: 0, losses: 0, gamesPlayed: 0, points: 0 };
+  }
+
+  const pairings = generatePairings(bots, playersPerGame);
+  const rounds = [];
+  let seedCounter = baseSeed;
+  let totalGames = 0;
+
+  for (let roundIdx = 0; roundIdx < pairings.length; roundIdx++) {
+    const pairing = pairings[roundIdx];
+    const roundMatches = [];
+
+    for (let gameIdx = 0; gameIdx < gamesPerPairing; gameIdx++) {
+      const matchBots = pairing.map(idx => ({
+        name: bots[idx].name,
+        fn: bots[idx].fn,
+      }));
+
+      const result = runMatch({
+        bots: matchBots,
+        seed: seedCounter++,
+        maxTurns,
+      });
+
+      totalGames++;
+
+      // Update stats
+      for (const botStat of result.botStats) {
+        const s = stats[botStat.name];
+        s.gamesPlayed++;
+        if (result.winner === botStat.playerIndex) {
+          s.wins++;
+          s.points += 3;
+        } else {
+          s.losses++;
+        }
+      }
+
+      // Update ELO
+      const eloPlayers = result.placements.map(playerIdx => {
+        const botStat = result.botStats.find(bs => bs.playerIndex === playerIdx);
+        return { name: botStat.name, elo: ratings[botStat.name] };
+      });
+      const updated = updateEloRatings(eloPlayers);
+      for (const r of updated) {
+        ratings[r.name] = r.elo;
+      }
+
+      roundMatches.push({
+        botNames: matchBots.map(b => b.name),
+        playerIndices: pairing,
+        result,
+      });
+
+      if (onMatchComplete) {
+        onMatchComplete(roundIdx, gameIdx, result);
+      }
+    }
+
+    rounds.push(roundMatches);
+  }
+
+  const standings = bots
+    .map(bot => ({
+      name: bot.name,
+      wins: stats[bot.name].wins,
+      losses: stats[bot.name].losses,
+      gamesPlayed: stats[bot.name].gamesPlayed,
+      elo: ratings[bot.name],
+      points: stats[bot.name].points,
+    }))
+    .sort((a, b) => b.points - a.points || b.elo - a.elo);
+
+  return {
+    type: 'round-robin',
+    standings,
+    rounds,
+    totalGames,
+    champion: standings.length > 0 ? standings[0].name : null,
+  };
+}
+
+/**
+ * Run a single-elimination tournament.
+ * Bots are paired in brackets; the winner of each series advances.
+ *
+ * @param {Object} config
+ * @param {TournamentBotConfig[]} config.bots
+ * @param {number} [config.gamesPerRound=3]  - Games per matchup (best-of)
+ * @param {number} [config.baseSeed=1]
+ * @param {number} [config.maxTurns=500]
+ * @param {Function} [config.onMatchComplete]
+ * @returns {TournamentResult}
+ */
+export function runSingleElimination(config) {
+  const { bots, gamesPerRound = 3, baseSeed = 1, maxTurns = 500, onMatchComplete } = config;
+
+  const ratings = {};
+  const stats = {};
+  for (const bot of bots) {
+    ratings[bot.name] = DEFAULT_RATING;
+    stats[bot.name] = { wins: 0, losses: 0, gamesPlayed: 0, points: 0 };
+  }
+
+  // Pad to power of 2 if needed
+  let bracket = [...bots];
+  while (bracket.length > 1 && (bracket.length & (bracket.length - 1)) !== 0) {
+    bracket.push(null); // bye
+  }
+
+  const rounds = [];
+  let seedCounter = baseSeed;
+  let totalGames = 0;
+
+  while (bracket.length > 1) {
+    const roundMatches = [];
+    const nextBracket = [];
+
+    for (let i = 0; i < bracket.length; i += 2) {
+      const botA = bracket[i];
+      const botB = bracket[i + 1];
+
+      // Handle byes
+      if (!botB) {
+        nextBracket.push(botA);
+        continue;
+      }
+      if (!botA) {
+        nextBracket.push(botB);
+        continue;
+      }
+
+      // Play best-of series
+      let winsA = 0;
+      let winsB = 0;
+
+      for (let g = 0; g < gamesPerRound; g++) {
+        const matchBots = [
+          { name: botA.name, fn: botA.fn },
+          { name: botB.name, fn: botB.fn },
+        ];
+
+        const result = runMatch({
+          bots: matchBots,
+          seed: seedCounter++,
+          maxTurns,
+        });
+
+        totalGames++;
+
+        // Update stats
+        for (const bs of result.botStats) {
+          const s = stats[bs.name];
+          s.gamesPlayed++;
+          if (result.winner === bs.playerIndex) {
+            s.wins++;
+            s.points += 3;
+          } else {
+            s.losses++;
+          }
+        }
+
+        // Update ELO
+        const eloPlayers = result.placements.map(playerIdx => {
+          const bs = result.botStats.find(b => b.playerIndex === playerIdx);
+          return { name: bs.name, elo: ratings[bs.name] };
+        });
+        const updated = updateEloRatings(eloPlayers);
+        for (const r of updated) {
+          ratings[r.name] = r.elo;
+        }
+
+        if (result.winner === 0) winsA++;
+        else if (result.winner === 1) winsB++;
+
+        roundMatches.push({
+          botNames: [botA.name, botB.name],
+          playerIndices: [bots.indexOf(botA), bots.indexOf(botB)],
+          result,
+        });
+
+        if (onMatchComplete) {
+          onMatchComplete(rounds.length, g, result);
+        }
+      }
+
+      nextBracket.push(winsA >= winsB ? botA : botB);
+    }
+
+    rounds.push(roundMatches);
+    bracket = nextBracket;
+  }
+
+  const standings = bots
+    .map(bot => ({
+      name: bot.name,
+      wins: stats[bot.name].wins,
+      losses: stats[bot.name].losses,
+      gamesPlayed: stats[bot.name].gamesPlayed,
+      elo: ratings[bot.name],
+      points: stats[bot.name].points,
+    }))
+    .sort((a, b) => b.points - a.points || b.elo - a.elo);
+
+  const champion = bracket.length === 1 && bracket[0] ? bracket[0].name : null;
+
+  return {
+    type: 'single-elimination',
+    standings,
+    rounds,
+    totalGames,
+    champion,
+  };
+}
+
+/**
+ * Generate all unique pairings of `size` bots from the pool.
+ * For 2-player pairings from [A, B, C, D]: AB, AC, AD, BC, BD, CD.
+ *
+ * @param {TournamentBotConfig[]} bots
+ * @param {number} size - Players per game
+ * @returns {number[][]} Array of bot-index arrays
+ */
+function generatePairings(bots, size) {
+  if (size >= bots.length) {
+    // All bots in one game
+    return [bots.map((_, i) => i)];
+  }
+
+  const result = [];
+  const indices = Array.from({ length: bots.length }, (_, i) => i);
+
+  function combine(start, combo) {
+    if (combo.length === size) {
+      result.push([...combo]);
+      return;
+    }
+    for (let i = start; i < indices.length; i++) {
+      combo.push(indices[i]);
+      combine(i + 1, combo);
+      combo.pop();
+    }
+  }
+
+  combine(0, []);
+  return result;
+}

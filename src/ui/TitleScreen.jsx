@@ -100,8 +100,10 @@ const STYLE = {
  * @param {Object} props
  * @param {string | null} [props.error] - Error message to display
  * @param {(config: { playerCount: number, spectator: boolean }) => void} props.onStart
+ * @param {() => void} [props.onArena] - Navigate to arena screen
+ * @param {() => void} [props.onTournament] - Navigate to tournament screen
  */
-export function TitleScreen({ error, onStart }) {
+export function TitleScreen({ error, onStart, onArena, onTournament }) {
   const [playerCount, setPlayerCount] = useState(7);
 
   const handleStart = () => {
@@ -140,6 +142,16 @@ export function TitleScreen({ error, onStart }) {
         <button style={STYLE.aiBtn} onClick={handleAIvsAI}>
           AI vs AI
         </button>
+        {onArena && (
+          <button style={STYLE.aiBtn} onClick={onArena}>
+            ARENA
+          </button>
+        )}
+        {onTournament && (
+          <button style={STYLE.aiBtn} onClick={onTournament}>
+            TOURNAMENT
+          </button>
+        )}
       </div>
 
       <p style={STYLE.copyright}>Copyright (C) 2001 GAMEDESIGN</p>

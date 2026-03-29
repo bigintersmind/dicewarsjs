@@ -194,6 +194,16 @@ export function createGameController(store, renderer, soundManager) {
     });
   }
 
+  function goToArena() {
+    aiAborted = true;
+    store.setState({ screen: 'arena' });
+  }
+
+  function goToTournament() {
+    aiAborted = true;
+    store.setState({ screen: 'tournament' });
+  }
+
   /**
    * Start the current player's turn.
    * If AI, runs the AI turn automatically.
@@ -521,6 +531,8 @@ export function createGameController(store, renderer, soundManager) {
     acceptMap,
     rejectMap,
     goToTitle,
+    goToArena,
+    goToTournament,
     handleTerritoryClick,
     endHumanTurn,
   };

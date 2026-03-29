@@ -13,23 +13,18 @@
 
 import { runArena } from '../src/arena/arenaRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
+import { getArg } from './lib/cli-utils.mjs';
 
 // --- Parse CLI args ---
 
 const args = process.argv.slice(2);
 
-function getArg(name, defaultValue) {
-  const idx = args.indexOf(`--${name}`);
-  if (idx === -1 || idx + 1 >= args.length) return defaultValue;
-  return args[idx + 1];
-}
-
-const gameCount = parseInt(getArg('games', '100'), 10);
+const gameCount = parseInt(getArg(args, 'games', '100'), 10);
 if (!Number.isFinite(gameCount) || gameCount < 1) {
   console.error('Invalid --games value. Must be a positive integer.');
   process.exit(1);
 }
-const botFilter = getArg('bots', null);
+const botFilter = getArg(args, 'bots', null);
 
 // --- Select bots ---
 

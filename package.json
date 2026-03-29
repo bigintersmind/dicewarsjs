@@ -26,7 +26,10 @@
     "prepare": "husky install",
     "test:regression": "vitest run tests/regression",
     "perf:check": "node scripts/check-bundle-size.js",
-    "arena": "node scripts/arena.mjs"
+    "arena": "node scripts/arena.mjs",
+    "new-bot": "node scripts/new-bot.mjs",
+    "validate-bot": "node scripts/validate-bot.mjs",
+    "benchmark-bot": "node scripts/benchmark-bot.mjs"
   },
   "keywords": [
     "game",

@@ -20,4 +20,5 @@ export {
   getReplayLength,
 } from './replayFormat.js';
 export { runRoundRobin, runSingleElimination } from './tournament.js';
+export { compileCustomBot } from './customBotCompiler.js';
 // types.js is JSDoc-only — no runtime exports

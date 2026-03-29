@@ -3,7 +3,7 @@ import preact from '@preact/preset-vite';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [preact()],
+  plugins: [preact({ devToolsEnabled: false })],
 
   resolve: {
     alias: {

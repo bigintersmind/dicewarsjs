@@ -221,6 +221,34 @@ describe('runMatch', () => {
     ).toThrow(/unique/i);
   });
 
+  it('works with a new Function-compiled custom bot', () => {
+    // eslint-disable-next-line no-new-func
+    const customFn = new Function(
+      'state',
+      `for (const area of state.myAreas) {
+        if (area.dice <= 1) continue;
+        const enemy = area.neighbors.find(id => {
+          const target = state.allAreas.find(a => a.id === id);
+          return target && target.owner !== state.myPlayer;
+        });
+        if (enemy !== undefined) return { from: area.id, to: enemy };
+      }
+      return null;`
+    );
+
+    const result = runMatch({
+      bots: [
+        { name: 'custom', fn: customFn },
+        { name: 'example', fn: exampleBot },
+      ],
+      seed: 42,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.botStats.length).toBe(2);
+    expect(result.botStats.some(s => s.name === 'custom')).toBe(true);
+  });
+
   it('botStats include errors and invalidMoves counts', () => {
     const crashBot = () => {
       throw new Error('crash');

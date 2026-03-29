@@ -253,6 +253,25 @@ describe('GameController', () => {
       expect(state.gameState).toBeNull();
       expect(state.awaitingInput).toBeNull();
       expect(state.animationPhase).toBe('idle');
+      expect(state.currentReplay).toBeNull();
+    });
+  });
+
+  describe('goToReplay', () => {
+    it('transitions to replay screen with replay data', () => {
+      const fakeReplay = { version: 1, config: {}, actions: [], metadata: {} };
+      controller.goToReplay(fakeReplay);
+      const state = store.getState();
+      expect(state.screen).toBe('replay');
+      expect(state.currentReplay).toBe(fakeReplay);
+    });
+
+    it('clears currentReplay when returning to title', () => {
+      const fakeReplay = { version: 1, config: {}, actions: [], metadata: {} };
+      controller.goToReplay(fakeReplay);
+      controller.goToTitle();
+      expect(store.getState().currentReplay).toBeNull();
+      expect(store.getState().screen).toBe('title');
     });
   });
 

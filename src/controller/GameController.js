@@ -191,6 +191,7 @@ export function createGameController(store, renderer, soundManager) {
       battleResult: null,
       animationPhase: 'idle',
       awaitingInput: null,
+      currentReplay: null,
     });
   }
 
@@ -202,6 +203,11 @@ export function createGameController(store, renderer, soundManager) {
   function goToTournament() {
     aiAborted = true;
     store.setState({ screen: 'tournament' });
+  }
+
+  function goToReplay(replay) {
+    aiAborted = true;
+    store.setState({ screen: 'replay', currentReplay: replay });
   }
 
   /**
@@ -533,6 +539,7 @@ export function createGameController(store, renderer, soundManager) {
     goToTitle,
     goToArena,
     goToTournament,
+    goToReplay,
     handleTerritoryClick,
     endHumanTurn,
   };

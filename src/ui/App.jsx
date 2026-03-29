@@ -15,6 +15,7 @@ import { GameOverlay } from './GameOverlay.jsx';
 import { GameOverScreen } from './GameOverScreen.jsx';
 import { ArenaScreen } from './ArenaScreen.jsx';
 import { TournamentScreen } from './TournamentScreen.jsx';
+import { ReplayViewer } from './ReplayViewer.jsx';
 
 /**
  * @param {Object} props
@@ -24,6 +25,7 @@ import { TournamentScreen } from './TournamentScreen.jsx';
 export function App({ store, controller }) {
   const screen = useGameStore(store, s => s.screen);
   const error = useGameStore(store, s => s.error);
+  const currentReplay = useGameStore(store, s => s.currentReplay);
 
   if (screen === 'title') {
     return (
@@ -41,7 +43,10 @@ export function App({ store, controller }) {
   if (screen === 'arena') {
     return (
       <ErrorBoundary>
-        <ArenaScreen onBack={() => controller.goToTitle()} />
+        <ArenaScreen
+          onBack={() => controller.goToTitle()}
+          onViewReplay={replay => controller.goToReplay(replay)}
+        />
       </ErrorBoundary>
     );
   }
@@ -49,7 +54,22 @@ export function App({ store, controller }) {
   if (screen === 'tournament') {
     return (
       <ErrorBoundary>
-        <TournamentScreen onBack={() => controller.goToTitle()} />
+        <TournamentScreen
+          onBack={() => controller.goToTitle()}
+          onViewReplay={replay => controller.goToReplay(replay)}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  if (screen === 'replay') {
+    if (!currentReplay) {
+      controller.goToTitle();
+      return null;
+    }
+    return (
+      <ErrorBoundary>
+        <ReplayViewer replay={currentReplay} onBack={() => controller.goToTitle()} />
       </ErrorBoundary>
     );
   }

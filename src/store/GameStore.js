@@ -8,7 +8,7 @@
  * @module store/GameStore
  */
 
-/** @typedef {'title' | 'mapPreview' | 'playing' | 'gameOver' | 'arena' | 'tournament'} Screen */
+/** @typedef {'title' | 'mapPreview' | 'playing' | 'gameOver' | 'arena' | 'tournament' | 'replay'} Screen */
 /** @typedef {'idle' | 'battle'} AnimationPhase */
 /** @typedef {'selectFrom' | 'selectTo' | null} AwaitingInput */
 
@@ -26,6 +26,7 @@
  * @property {boolean} soundEnabled
  * @property {string | null} error
  * @property {Object} config
+ * @property {Object | null} currentReplay
  */
 
 const DEFAULT_STATE = {
@@ -40,6 +41,7 @@ const DEFAULT_STATE = {
   aiSpeed: 1,
   soundEnabled: true,
   error: null,
+  currentReplay: null,
   config: {
     playerCount: 7,
     aiAssignments: [

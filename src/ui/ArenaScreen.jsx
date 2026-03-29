@@ -11,7 +11,9 @@ import { useState, useCallback } from 'preact/hooks';
 import { runMatch } from '../arena/matchRunner.js';
 import { updateEloRatings, DEFAULT_RATING } from '../arena/elo.js';
 import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
+import { createReplay } from '../arena/replayFormat.js';
 import { Leaderboard } from './Leaderboard.jsx';
+import { CustomBotInput } from './CustomBotInput.jsx';
 
 const GAME_COUNT_OPTIONS = [5, 10, 25, 50, 100];
 
@@ -160,13 +162,16 @@ const STYLE = {
 /**
  * @param {Object} props
  * @param {() => void} props.onBack - Navigate back to title screen
+ * @param {(replay: Object) => void} [props.onViewReplay] - Navigate to replay viewer
  */
-export function ArenaScreen({ onBack }) {
+export function ArenaScreen({ onBack, onViewReplay }) {
   const [selectedBots, setSelectedBots] = useState(new Set(BUILT_IN_BOTS.map(b => b.id)));
   const [gameCount, setGameCount] = useState(25);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
+  const [replays, setReplays] = useState([]);
+  const [customBots, setCustomBots] = useState([]);
   const [error, setError] = useState(null);
 
   const toggleBot = useCallback(id => {
@@ -181,6 +186,23 @@ export function ArenaScreen({ onBack }) {
     });
   }, []);
 
+  const handleCustomBotReady = useCallback(bot => {
+    setCustomBots(prev => {
+      const filtered = prev.filter(b => b.name !== bot.name);
+      return [...filtered, bot];
+    });
+    setSelectedBots(prev => new Set([...prev, `custom:${bot.name}`]));
+  }, []);
+
+  const removeCustomBot = useCallback(name => {
+    setCustomBots(prev => prev.filter(b => b.name !== name));
+    setSelectedBots(prev => {
+      const next = new Set(prev);
+      next.delete(`custom:${name}`);
+      return next;
+    });
+  }, []);
+
   const canRun = selectedBots.size >= 2 && !running;
 
   const handleRun = useCallback(() => {
@@ -189,12 +211,17 @@ export function ArenaScreen({ onBack }) {
     setRunning(true);
     setProgress(0);
     setResult(null);
+    setReplays([]);
     setError(null);
 
-    const bots = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
+    const builtIn = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
       name: b.name,
       fn: b.fn,
     }));
+    const custom = customBots
+      .filter(b => selectedBots.has(`custom:${b.name}`))
+      .map(b => ({ name: b.name, fn: b.fn }));
+    const bots = [...builtIn, ...custom];
 
     // Per-bot accumulators
     const ratings = {};
@@ -264,6 +291,14 @@ export function ArenaScreen({ onBack }) {
         matches.push(matchResult);
         totalTurns += matchResult.turnCount;
 
+        try {
+          const botNames = bots.map(b => b.name);
+          const replay = createReplay(matchResult, botNames);
+          setReplays(prev => [...prev.slice(-9), replay]);
+        } catch (err) {
+          console.warn(`[Arena] Replay creation failed for match ${i}:`, err.message);
+        }
+
         for (const stat of matchResult.botStats) {
           const a = accum[stat.name];
           a.gamesPlayed++;
@@ -296,7 +331,7 @@ export function ArenaScreen({ onBack }) {
 
     // Defer first game to let "RUNNING..." state paint
     setTimeout(() => runNextGame(0), 50);
-  }, [canRun, selectedBots, gameCount]);
+  }, [canRun, selectedBots, gameCount, customBots]);
 
   return (
     <div style={STYLE.container}>
@@ -319,7 +354,35 @@ export function ArenaScreen({ onBack }) {
               {bot.name}
             </button>
           ))}
+          {customBots.map(bot => (
+            <button
+              key={`custom:${bot.name}`}
+              style={{
+                ...STYLE.botBtn,
+                ...(selectedBots.has(`custom:${bot.name}`) ? STYLE.botBtnActive : {}),
+              }}
+              onClick={() => toggleBot(`custom:${bot.name}`)}
+            >
+              {bot.name}{' '}
+              <span
+                onClick={e => {
+                  e.stopPropagation();
+                  removeCustomBot(bot.name);
+                }}
+                style={{ cursor: 'pointer', marginLeft: '0.3rem', opacity: 0.6 }}
+              >
+                x
+              </span>
+            </button>
+          ))}
         </div>
+      </div>
+
+      <div style={STYLE.section}>
+        <CustomBotInput
+          onBotReady={handleCustomBotReady}
+          existingNames={BUILT_IN_BOTS.map(b => b.name)}
+        />
       </div>
 
       <div style={STYLE.section}>
@@ -370,6 +433,16 @@ export function ArenaScreen({ onBack }) {
             turns/game
           </div>
           <Leaderboard bots={result.bots} />
+          {replays.length > 0 && onViewReplay && (
+            <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+              <button
+                style={STYLE.backBtn}
+                onClick={() => onViewReplay(replays[replays.length - 1])}
+              >
+                VIEW LAST REPLAY
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

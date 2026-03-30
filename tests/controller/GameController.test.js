@@ -107,14 +107,25 @@ function createMockRenderer() {
     hexGrid: {
       clearHighlights: vi.fn(),
       setHighlight: vi.fn(),
+      _getPlayerColor: vi.fn(() => 0xffffff),
     },
+    getPlayerColor: vi.fn(() => 0xffffff),
     battle: {
       play: vi.fn(async () => {}),
       destroy: vi.fn(),
     },
     dice: { destroy: vi.fn() },
     destroy: vi.fn(),
+    playParticleEffect: vi.fn(),
+    screenShake: vi.fn(() => Promise.resolve()),
+    animateReinforcements: vi.fn(() => Promise.resolve()),
+    playCelebration: vi.fn(() => Promise.resolve()),
   };
+}
+
+/** Flush all pending microtasks (Promise callbacks). */
+function flushPromises() {
+  return vi.advanceTimersByTimeAsync(0);
 }
 
 function createMockSoundManager() {
@@ -407,8 +418,9 @@ describe('GameController', () => {
       // awaitingInput should be null immediately (before animation completes)
       expect(store.getState().awaitingInput).toBeNull();
 
-      // Let animation finish
+      // Let animation and async effects finish
       await vi.runAllTimersAsync();
+      await flushPromises();
 
       // After animation, it should be back to selectFrom
       expect(store.getState().awaitingInput).toBe('selectFrom');
@@ -609,9 +621,17 @@ describe('GameController', () => {
       await controller.startNewGame({ playerCount: 2, spectator: false });
       controller.acceptMap();
 
-      // End human turn, which triggers AI turn for player 1
+      /*
+       * End human turn, which triggers AI turn for player 1.
+       * endTurn is async; the chain is:
+       * endTurn → setTimeout(startTurn) → runAITurn → endTurn → gameOver
+       * Flush multiple rounds of timers + microtasks.
+       */
       controller.endHumanTurn();
-      await vi.runAllTimersAsync();
+      for (let i = 0; i < 5; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
 
       /*
        * With the fix, AI should have made 2 valid ATTACK moves (moves 3 and 6).
@@ -663,7 +683,14 @@ describe('GameController', () => {
       controller.handleTerritoryClick(1); // select from
       controller.handleTerritoryClick(2); // attack — triggers game over
 
-      await vi.runAllTimersAsync();
+      /*
+       * executeAttack is async (fire-and-forget from handleTerritoryClick).
+       * Flush multiple rounds: timers and microtasks interleave.
+       */
+      for (let i = 0; i < 3; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
 
       expect(store.getState().screen).toBe('gameOver');
       expect(soundManager.play).toHaveBeenCalledWith('over');
@@ -683,8 +710,7 @@ describe('GameController', () => {
         return state;
       });
 
-      controller.endHumanTurn();
-      await vi.runAllTimersAsync();
+      await controller.endHumanTurn();
 
       expect(store.getState().screen).toBe('gameOver');
       expect(soundManager.play).toHaveBeenCalledWith('over');
@@ -776,6 +802,264 @@ describe('GameController', () => {
       await controller.startNewGame({ playerCount: 2, spectator: false });
 
       expect(store.getState().error).toBeNull();
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Visual effects and reduced motion
+   * -----------------------------------------------------------------------
+   */
+
+  describe('visual effects and reduced motion', () => {
+    it('calls playCelebration on game over when reduced motion is off', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      store.setState({ preferences: { reducedMotion: 'off', animationSpeed: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'ATTACK') {
+          return {
+            ...state,
+            phase: 'gameOver',
+            winner: 0,
+            history: [
+              ...state.history,
+              {
+                type: 'ATTACK',
+                from: action.from,
+                to: action.to,
+                result: {
+                  success: true,
+                  attackerRoll: { values: [6], total: 6 },
+                  defenderRoll: { values: [1], total: 1 },
+                },
+              },
+            ],
+          };
+        }
+        return state;
+      });
+
+      controller.handleTerritoryClick(1);
+      controller.handleTerritoryClick(2);
+
+      for (let i = 0; i < 3; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
+
+      expect(renderer.playCelebration).toHaveBeenCalledWith(0, expect.any(Object));
+      expect(store.getState().screen).toBe('gameOver');
+    });
+
+    it('skips playCelebration when reduced motion is on', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      store.setState({ preferences: { reducedMotion: 'on', animationSpeed: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'ATTACK') {
+          return {
+            ...state,
+            phase: 'gameOver',
+            winner: 0,
+            history: [
+              ...state.history,
+              {
+                type: 'ATTACK',
+                from: action.from,
+                to: action.to,
+                result: {
+                  success: true,
+                  attackerRoll: { values: [6], total: 6 },
+                  defenderRoll: { values: [1], total: 1 },
+                },
+              },
+            ],
+          };
+        }
+        return state;
+      });
+
+      controller.handleTerritoryClick(1);
+      controller.handleTerritoryClick(2);
+
+      for (let i = 0; i < 3; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
+
+      expect(renderer.playCelebration).not.toHaveBeenCalled();
+      expect(store.getState().screen).toBe('gameOver');
+    });
+
+    it('calls playParticleEffect on successful human attack', async () => {
+      store.setState({ preferences: { reducedMotion: 'off', animationSpeed: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      // Default applyAction mock returns success for ATTACK
+      controller.handleTerritoryClick(1);
+      controller.handleTerritoryClick(2);
+
+      for (let i = 0; i < 3; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
+
+      expect(renderer.playParticleEffect).toHaveBeenCalled();
+    });
+
+    it('calls screenShake when total dice >= 10', async () => {
+      store.setState({ preferences: { reducedMotion: 'off', animationSpeed: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      // Give areas high dice so totalDice >= 10
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: {
+            ...gs.areas,
+            1: { ...gs.areas[1], dice: 6 },
+            2: { ...gs.areas[2], dice: 5 },
+          },
+        },
+      });
+
+      controller.handleTerritoryClick(1);
+      controller.handleTerritoryClick(2);
+
+      for (let i = 0; i < 3; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
+
+      expect(renderer.screenShake).toHaveBeenCalled();
+    });
+
+    it('skips visual effects when reduced motion is on', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      store.setState({ preferences: { reducedMotion: 'on', animationSpeed: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: {
+            ...gs.areas,
+            1: { ...gs.areas[1], dice: 6 },
+            2: { ...gs.areas[2], dice: 5 },
+          },
+        },
+      });
+
+      controller.handleTerritoryClick(1);
+      controller.handleTerritoryClick(2);
+
+      for (let i = 0; i < 3; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
+
+      expect(renderer.playParticleEffect).not.toHaveBeenCalled();
+      expect(renderer.screenShake).not.toHaveBeenCalled();
+    });
+
+    it('calls animateReinforcements when reinforcements happen', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      store.setState({ preferences: { reducedMotion: 'off', animationSpeed: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      /*
+       * Mock END_TURN to add dice to area 1 (reinforcement).
+       * Use an array for areas so .length works in the reinforcement diff loop.
+       */
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          const prevAreas = state.areas;
+          const newAreas = [
+            null,
+            { ...prevAreas[1], dice: 5 }, // was 3, now 5
+            prevAreas[2],
+            prevAreas[3],
+          ];
+          return {
+            ...state,
+            currentPlayerIndex: 1,
+            areas: newAreas,
+            history: [...state.history, { type: 'END_TURN' }],
+          };
+        }
+        return state;
+      });
+
+      /*
+       * Also ensure the current game state uses an array for areas
+       * so the diceBefore snapshot loop works
+       */
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: [null, gs.areas[1], gs.areas[2], gs.areas[3]],
+        },
+      });
+
+      await controller.endHumanTurn();
+
+      expect(renderer.animateReinforcements).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ areaId: 1, oldDice: 3, newDice: 5 })])
+      );
+    });
+
+    it('skips animateReinforcements when reduced motion is on', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      store.setState({ preferences: { reducedMotion: 'on', animationSpeed: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          const prevAreas = state.areas;
+          const newAreas = [null, { ...prevAreas[1], dice: 5 }, prevAreas[2], prevAreas[3]];
+          return {
+            ...state,
+            currentPlayerIndex: 1,
+            areas: newAreas,
+            history: [...state.history, { type: 'END_TURN' }],
+          };
+        }
+        return state;
+      });
+
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: [null, gs.areas[1], gs.areas[2], gs.areas[3]],
+        },
+      });
+
+      await controller.endHumanTurn();
+
+      expect(renderer.animateReinforcements).not.toHaveBeenCalled();
+      // But renderer.update should still be called
+      expect(renderer.update).toHaveBeenCalled();
     });
   });
 });

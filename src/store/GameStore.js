@@ -42,6 +42,13 @@ const DEFAULT_STATE = {
   soundEnabled: true,
   error: null,
   currentReplay: null,
+  focusedAreaId: null,
+  preferences: {
+    theme: 'dark',
+    colorBlindMode: false,
+    animationSpeed: 1,
+    reducedMotion: 'system',
+  },
   config: {
     playerCount: 7,
     aiAssignments: [

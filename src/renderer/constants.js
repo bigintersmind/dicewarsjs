@@ -30,6 +30,33 @@ export const PLAYER_COLORS_CSS = [
   '#ff5858',
 ];
 
+/**
+ * Color-blind safe player palette (Wong palette).
+ * Designed to be distinguishable by users with color vision deficiencies.
+ */
+export const COLORBLIND_PLAYER_COLORS = [
+  0x0072b2, // Blue
+  0xe69f00, // Orange
+  0x009e73, // Teal
+  0xf0e442, // Yellow
+  0xcc79a7, // Pink
+  0x56b4e9, // Sky blue
+  0xd55e00, // Vermillion
+  0x000000, // Black
+];
+
+/** Color-blind safe palette as CSS hex strings. */
+export const COLORBLIND_PLAYER_COLORS_CSS = [
+  '#0072b2',
+  '#e69f00',
+  '#009e73',
+  '#f0e442',
+  '#cc79a7',
+  '#56b4e9',
+  '#d55e00',
+  '#000000',
+];
+
 /** Territory border color. */
 export const BORDER_COLOR = 0x222244;
 

@@ -7,6 +7,8 @@
  */
 
 import { useState } from 'preact/hooks';
+import { useGameStore } from './hooks/useGameStore.js';
+import { getTheme } from '../renderer/themes.js';
 
 const STYLE = {
   container: {
@@ -103,8 +105,10 @@ const STYLE = {
  * @param {() => void} [props.onArena] - Navigate to arena screen
  * @param {() => void} [props.onTournament] - Navigate to tournament screen
  */
-export function TitleScreen({ error, onStart, onArena, onTournament }) {
+export function TitleScreen({ store, error, onStart, onArena, onTournament }) {
   const [playerCount, setPlayerCount] = useState(7);
+  const themeName = useGameStore(store, s => s.preferences?.theme) || 'dark';
+  const theme = getTheme(themeName);
 
   const handleStart = () => {
     onStart({ playerCount, spectator: false });
@@ -115,10 +119,21 @@ export function TitleScreen({ error, onStart, onArena, onTournament }) {
   };
 
   return (
-    <div style={STYLE.container}>
-      <h1 style={STYLE.title}>DICE WARS</h1>
+    <div style={{ ...STYLE.container, color: theme.uiText }}>
+      <h1 style={{ ...STYLE.title, color: theme.uiAccent }}>DICE WARS</h1>
 
-      {error && <div style={STYLE.errorBanner}>{error}</div>}
+      {error && (
+        <div
+          style={{
+            ...STYLE.errorBanner,
+            color: theme.uiAccent,
+            borderColor: theme.uiAccent,
+            background: `${theme.uiAccent}22`,
+          }}
+        >
+          {error}
+        </div>
+      )}
 
       <div style={STYLE.playerRow}>
         {[2, 3, 4, 5, 6, 7, 8].map(n => (
@@ -126,7 +141,8 @@ export function TitleScreen({ error, onStart, onArena, onTournament }) {
             key={n}
             style={{
               ...STYLE.playerBtn,
-              ...(n === playerCount ? STYLE.playerBtnActive : {}),
+              color: n === playerCount ? theme.uiAccent : theme.uiTextMuted,
+              borderColor: n === playerCount ? theme.uiAccent : theme.uiBorder,
             }}
             onClick={() => setPlayerCount(n)}
           >
@@ -136,25 +152,34 @@ export function TitleScreen({ error, onStart, onArena, onTournament }) {
       </div>
 
       <div style={STYLE.buttonRow}>
-        <button style={STYLE.startBtn} onClick={handleStart}>
+        <button style={{ ...STYLE.startBtn, background: theme.uiAccent }} onClick={handleStart}>
           START
         </button>
-        <button style={STYLE.aiBtn} onClick={handleAIvsAI}>
+        <button
+          style={{ ...STYLE.aiBtn, borderColor: theme.uiAccent, color: theme.uiAccent }}
+          onClick={handleAIvsAI}
+        >
           AI vs AI
         </button>
         {onArena && (
-          <button style={STYLE.aiBtn} onClick={onArena}>
+          <button
+            style={{ ...STYLE.aiBtn, borderColor: theme.uiAccent, color: theme.uiAccent }}
+            onClick={onArena}
+          >
             ARENA
           </button>
         )}
         {onTournament && (
-          <button style={STYLE.aiBtn} onClick={onTournament}>
+          <button
+            style={{ ...STYLE.aiBtn, borderColor: theme.uiAccent, color: theme.uiAccent }}
+            onClick={onTournament}
+          >
             TOURNAMENT
           </button>
         )}
       </div>
 
-      <p style={STYLE.copyright}>Copyright (C) 2001 GAMEDESIGN</p>
+      <p style={{ ...STYLE.copyright, color: theme.uiTextMuted }}>Copyright (C) 2001 GAMEDESIGN</p>
     </div>
   );
 }

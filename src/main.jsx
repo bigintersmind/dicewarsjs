@@ -10,10 +10,20 @@ import { GameRenderer } from './renderer/GameRenderer.js';
 import { createGameStore } from './store/GameStore.js';
 import { createGameController } from './controller/GameController.js';
 import { createSoundManager } from './audio/SoundManager.js';
+import { createPreferencesManager } from './store/PreferencesManager.js';
+import { createKeyboardController } from './controller/KeyboardController.js';
 
 async function main() {
   // Create the shared store
-  const store = createGameStore();
+  const preferencesManager = createPreferencesManager();
+  const store = createGameStore({
+    preferences: preferencesManager.getAll(),
+  });
+
+  // Sync preferences → store
+  preferencesManager.subscribe(prefs => {
+    store.setState({ preferences: { ...prefs } });
+  });
 
   // Initialize sound manager (loadAll deferred to first user interaction)
   const soundManager = createSoundManager({ volume: 0.5 });
@@ -33,8 +43,21 @@ async function main() {
     }
   }
 
+  // Sync preferences → renderer (theme and color-blind mode)
+  if (gameRenderer) {
+    gameRenderer.setTheme(preferencesManager.get('theme'));
+    gameRenderer.setColorBlindMode(preferencesManager.get('colorBlindMode'));
+
+    preferencesManager.subscribe(prefs => {
+      gameRenderer.setTheme(prefs.theme);
+      gameRenderer.setColorBlindMode(prefs.colorBlindMode);
+      // Sync body background for the HTML body element
+      document.body.style.background = prefs.theme === 'light' ? '#e8e8f0' : '#1a1a2e';
+    });
+  }
+
   // Create the game controller
-  const controller = createGameController(store, gameRenderer, soundManager);
+  const controller = createGameController(store, gameRenderer, soundManager, preferencesManager);
 
   // Wire canvas clicks to the controller
   if (canvas) {
@@ -47,10 +70,16 @@ async function main() {
     });
   }
 
+  // Enable keyboard navigation
+  createKeyboardController(store, controller, gameRenderer);
+
   // Mount Preact UI
   const appRoot = document.getElementById('app');
   if (appRoot) {
-    render(<App store={store} controller={controller} />, appRoot);
+    render(
+      <App store={store} controller={controller} preferencesManager={preferencesManager} />,
+      appRoot
+    );
   }
 }
 

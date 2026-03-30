@@ -2,8 +2,7 @@
  * Reinforcement Animation
  *
  * Animates dice count changes when reinforcements are distributed
- * at the end of a turn. Briefly flashes territory borders gold and
- * pulses dice counts.
+ * at the end of a turn. Briefly flashes territory borders gold.
  *
  * @module renderer/ReinforcementAnimation
  */
@@ -38,32 +37,38 @@ export function animateReinforcements(changes, hexGrid, ticker) {
 
   return new Promise(resolve => {
     function tick(frame) {
-      elapsed += frame.deltaMS;
+      try {
+        elapsed += frame.deltaMS;
 
-      for (let i = 0; i < changes.length; i++) {
-        const fs = flashStates[i];
-        if (fs.done) continue;
+        for (let i = 0; i < changes.length; i++) {
+          const fs = flashStates[i];
+          if (fs.done) continue;
 
-        if (elapsed >= fs.startTime && !fs.flashing) {
-          fs.flashing = true;
-          // Flash the border gold
-          const gfx = hexGrid._territoryGfx[changes[i].areaId];
-          if (gfx) {
-            const border = hexGrid._borders[changes[i].areaId];
-            if (border) {
-              flashTerritoryBorder(gfx, border, hexGrid._cellPos, FLASH_COLOR);
+          if (elapsed >= fs.startTime && !fs.flashing) {
+            fs.flashing = true;
+            // Flash the border gold
+            const gfx = hexGrid._territoryGfx[changes[i].areaId];
+            if (gfx) {
+              const border = hexGrid._borders[changes[i].areaId];
+              if (border) {
+                flashTerritoryBorder(gfx, border, hexGrid._cellPos, FLASH_COLOR);
+              }
             }
+          }
+
+          if (elapsed >= fs.startTime + FLASH_DURATION_MS && !fs.done) {
+            fs.done = true;
+            // Restore normal appearance
+            hexGrid.redrawTerritory(changes[i].areaId, hexGrid._lastState);
           }
         }
 
-        if (elapsed >= fs.startTime + FLASH_DURATION_MS && !fs.done) {
-          fs.done = true;
-          // Restore normal appearance
-          hexGrid.redrawTerritory(changes[i].areaId, hexGrid._lastState);
+        if (elapsed >= totalDuration) {
+          ticker.remove(tick);
+          resolve();
         }
-      }
-
-      if (elapsed >= totalDuration) {
+      } catch (err) {
+        console.error('[ReinforcementAnimation] Animation tick error:', err);
         ticker.remove(tick);
         resolve();
       }
@@ -102,9 +107,13 @@ function flashTerritoryBorder(gfx, border, cellPos, color) {
 
   // Auto-cleanup after a short delay
   setTimeout(() => {
-    if (flashGfx.parent) {
-      flashGfx.parent.removeChild(flashGfx);
+    try {
+      if (flashGfx.parent) {
+        flashGfx.parent.removeChild(flashGfx);
+      }
+      flashGfx.destroy();
+    } catch (err) {
+      console.error('[ReinforcementAnimation] Flash cleanup error:', err);
     }
-    flashGfx.destroy();
   }, FLASH_DURATION_MS + 50);
 }

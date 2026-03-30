@@ -51,7 +51,14 @@ export function useAnnouncer(store) {
       setAnnouncement(`Player ${currentPlayerId + 1} is thinking.`);
       return;
     }
-  }, [screen, awaitingInput, gameState?.currentPlayerIndex, humanPlayerIndex]);
+  }, [
+    screen,
+    awaitingInput,
+    gameState?.currentPlayerIndex,
+    humanPlayerIndex,
+    gameState?.winner,
+    gameState?.phase,
+  ]);
 
   useEffect(() => {
     if (!battleResult) return;

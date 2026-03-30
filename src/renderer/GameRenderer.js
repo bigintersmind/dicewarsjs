@@ -207,13 +207,22 @@ export class GameRenderer {
 
     return new Promise(resolve => {
       const tick = frame => {
-        elapsed += frame.deltaMS;
-        const t = Math.min(elapsed / duration, 1);
-        const decay = 1 - t;
-        root.x = origin.x + (Math.random() - 0.5) * 2 * intensity * decay;
-        root.y = origin.y + (Math.random() - 0.5) * 2 * intensity * decay;
+        try {
+          elapsed += frame.deltaMS;
+          const t = Math.min(elapsed / duration, 1);
+          const decay = 1 - t;
+          root.x = origin.x + (Math.random() - 0.5) * 2 * intensity * decay;
+          root.y = origin.y + (Math.random() - 0.5) * 2 * intensity * decay;
 
-        if (t >= 1) {
+          if (t >= 1) {
+            root.x = origin.x;
+            root.y = origin.y;
+            ticker.remove(tick);
+            this._shaking = false;
+            resolve();
+          }
+        } catch (err) {
+          console.error('[GameRenderer] Screen shake tick error:', err);
           root.x = origin.x;
           root.y = origin.y;
           ticker.remove(tick);

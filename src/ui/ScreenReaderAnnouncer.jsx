@@ -17,7 +17,7 @@ export function ScreenReaderAnnouncer({ store }) {
   const announcement = useAnnouncer(store);
 
   return (
-    <div aria-live="assertive" aria-atomic="true" class="sr-only" role="status">
+    <div aria-live="polite" aria-atomic="true" class="sr-only" role="log">
       {announcement}
     </div>
   );

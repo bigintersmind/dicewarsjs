@@ -37,8 +37,8 @@ export function createPreferencesManager() {
         }
       }
     }
-  } catch {
-    // localStorage unavailable or corrupt — use defaults
+  } catch (err) {
+    console.warn('[PreferencesManager] Failed to load preferences:', err);
   }
 
   // Track system reduced-motion preference
@@ -49,8 +49,8 @@ export function createPreferencesManager() {
     motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     systemReducedMotion = motionQuery.matches;
     motionQuery.addEventListener('change', handleMotionChange);
-  } catch {
-    // matchMedia unavailable (SSR, tests)
+  } catch (err) {
+    console.warn('[PreferencesManager] Cannot detect system motion preference:', err);
   }
 
   function handleMotionChange(e) {
@@ -61,8 +61,8 @@ export function createPreferencesManager() {
   function save() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-    } catch {
-      // localStorage full or unavailable
+    } catch (err) {
+      console.warn('[PreferencesManager] Failed to save preferences:', err);
     }
   }
 

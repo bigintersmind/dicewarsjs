@@ -50,23 +50,37 @@ export function createBurstEffect(container, x, y, color, ticker) {
 
   return new Promise(resolve => {
     function tick(frame) {
-      elapsed += frame.deltaMS;
-      const t = Math.min(elapsed / LIFETIME_MS, 1);
+      try {
+        elapsed += frame.deltaMS;
+        const t = Math.min(elapsed / LIFETIME_MS, 1);
 
-      for (const p of particles) {
-        p.gfx.x += p.vx;
-        p.gfx.y += p.vy;
-        p.gfx.alpha = 1 - t;
-        // Decelerate
-        p.vx *= 0.96;
-        p.vy *= 0.96;
-      }
+        for (const p of particles) {
+          p.gfx.x += p.vx;
+          p.gfx.y += p.vy;
+          p.gfx.alpha = 1 - t;
+          // Decelerate
+          p.vx *= 0.96;
+          p.vy *= 0.96;
+        }
 
-      if (t >= 1) {
+        if (t >= 1) {
+          ticker.remove(tick);
+          for (const p of particles) {
+            container.removeChild(p.gfx);
+            p.gfx.destroy();
+          }
+          resolve();
+        }
+      } catch (err) {
+        console.error('[ParticleEffect] Animation tick error:', err);
         ticker.remove(tick);
         for (const p of particles) {
-          container.removeChild(p.gfx);
-          p.gfx.destroy();
+          try {
+            container.removeChild(p.gfx);
+            p.gfx.destroy();
+          } catch {
+            /* already destroyed */
+          }
         }
         resolve();
       }

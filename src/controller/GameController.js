@@ -332,14 +332,18 @@ export function createGameController(store, renderer, soundManager) {
 
       // Visual effects for AI attacks
       if (renderer && battleResult && !isReducedMotion()) {
-        if (battleResult.success) {
-          const atkColor = renderer.hexGrid._getPlayerColor(prevState.areas[move.from].owner);
-          renderer.playParticleEffect(move.to, atkColor);
+        try {
+          if (battleResult.success) {
+            const atkColor = renderer.hexGrid._getPlayerColor(prevState.areas[move.from].owner);
+            renderer.playParticleEffect(move.to, atkColor);
+          }
+          const atkDice = prevState.areas[move.from]?.dice || 0;
+          const defDice = prevState.areas[move.to]?.dice || 0;
+          const totalDice = atkDice + defDice;
+          if (totalDice >= 10) renderer.screenShake(3, 200);
+        } catch (err) {
+          console.error('[GameController] AI visual effects failed:', err);
         }
-        const atkDice = prevState.areas[move.from]?.dice || 0;
-        const defDice = prevState.areas[move.to]?.dice || 0;
-        const totalDice = atkDice + defDice;
-        if (totalDice >= 10) renderer.screenShake(3, 200);
       }
 
       store.setState({
@@ -358,7 +362,7 @@ export function createGameController(store, renderer, soundManager) {
     }
 
     if (!aiAborted && state && state.phase !== GAME_PHASES.GAME_OVER) {
-      endTurn();
+      await endTurn();
     } else if (state && state.phase === GAME_PHASES.GAME_OVER) {
       await triggerGameOver(state);
     }
@@ -483,15 +487,19 @@ export function createGameController(store, renderer, soundManager) {
 
     // Visual effects (non-blocking)
     if (renderer && battleResult && !isReducedMotion()) {
-      // Particle burst on successful capture
-      if (battleResult.success) {
-        const winColor = renderer.hexGrid._getPlayerColor(prevState.areas[fromId].owner);
-        renderer.playParticleEffect(toId, winColor);
-      }
+      try {
+        // Particle burst on successful capture
+        if (battleResult.success) {
+          const winColor = renderer.hexGrid._getPlayerColor(prevState.areas[fromId].owner);
+          renderer.playParticleEffect(toId, winColor);
+        }
 
-      // Screen shake on large battles
-      const totalDice = (prevState.areas[fromId]?.dice || 0) + (prevState.areas[toId]?.dice || 0);
-      if (totalDice >= 10) renderer.screenShake(3, 200);
+        // Screen shake on large battles
+        const totalDice = (prevState.areas[fromId]?.dice || 0) + (prevState.areas[toId]?.dice || 0);
+        if (totalDice >= 10) renderer.screenShake(3, 200);
+      } catch (err) {
+        console.error('[GameController] Visual effects failed:', err);
+      }
     }
 
     const isOver = nextState.phase === GAME_PHASES.GAME_OVER;
@@ -524,7 +532,8 @@ export function createGameController(store, renderer, soundManager) {
     if (prefs.reducedMotion === 'off') return false;
     try {
       return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    } catch {
+    } catch (err) {
+      console.warn('[GameController] Cannot detect system reduced-motion preference:', err);
       return false;
     }
   }
@@ -532,7 +541,11 @@ export function createGameController(store, renderer, soundManager) {
   /** Handle game-over transition with optional celebration. */
   async function triggerGameOver(state) {
     if (renderer && state.winner !== null && !isReducedMotion()) {
-      await renderer.playCelebration(state.winner, state);
+      try {
+        await renderer.playCelebration(state.winner, state);
+      } catch (err) {
+        console.error('[GameController] Celebration animation failed:', err);
+      }
     }
     store.setState({ gameState: state, screen: 'gameOver' });
     if (soundManager) soundManager.play('over');
@@ -589,7 +602,11 @@ export function createGameController(store, renderer, soundManager) {
     // Animate reinforcements before updating renderer
     if (renderer && changes.length > 0 && !isReducedMotion()) {
       renderer.update(prevState, nextState);
-      await renderer.animateReinforcements(changes);
+      try {
+        await renderer.animateReinforcements(changes);
+      } catch (err) {
+        console.error('[GameController] Reinforcement animation failed:', err);
+      }
     } else if (renderer) {
       renderer.update(prevState, nextState);
     }

@@ -94,23 +94,29 @@ export function tween(target, to, options, ticker) {
 
   const promise = new Promise(resolve => {
     tickFn = tick => {
-      if (cancelled) {
-        ticker.remove(tickFn);
-        resolve();
-        return;
-      }
+      try {
+        if (cancelled) {
+          ticker.remove(tickFn);
+          resolve();
+          return;
+        }
 
-      elapsed += tick.deltaMS;
-      const rawT = Math.min(elapsed / duration, 1);
-      const t = easing(rawT);
+        elapsed += tick.deltaMS;
+        const rawT = Math.min(elapsed / duration, 1);
+        const t = easing(rawT);
 
-      for (const key of Object.keys(to)) {
-        target[key] = from[key] + (to[key] - from[key]) * t;
-      }
+        for (const key of Object.keys(to)) {
+          target[key] = from[key] + (to[key] - from[key]) * t;
+        }
 
-      if (onUpdate) onUpdate(rawT);
+        if (onUpdate) onUpdate(rawT);
 
-      if (rawT >= 1) {
+        if (rawT >= 1) {
+          ticker.remove(tickFn);
+          resolve();
+        }
+      } catch (err) {
+        console.error('[Tween] Animation tick error:', err);
         ticker.remove(tickFn);
         resolve();
       }

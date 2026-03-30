@@ -3,8 +3,7 @@
  *
  * Orchestrates a celebration animation when a player wins:
  * - Particle burst from the screen center
- * - Winner territories pulse with a golden glow
- * - Non-winner territories fade to grayscale
+ * - Non-winner territories fade to low opacity
  *
  * @module renderer/CelebrationEffect
  */
@@ -43,20 +42,26 @@ export async function playCelebration(winnerId, state, renderer) {
 
   await new Promise(resolve => {
     function tick(frame) {
-      elapsed += frame.deltaMS;
-      const t = Math.min(elapsed / CELEBRATION_DURATION_MS, 1);
+      try {
+        elapsed += frame.deltaMS;
+        const t = Math.min(elapsed / CELEBRATION_DURATION_MS, 1);
 
-      for (let a = 1; a < areas.length; a++) {
-        const gfx = renderer.hexGrid._territoryGfx[a];
-        if (!gfx || !areas[a]) continue;
+        for (let a = 1; a < areas.length; a++) {
+          const gfx = renderer.hexGrid._territoryGfx[a];
+          if (!gfx || !areas[a]) continue;
 
-        if (areas[a].owner !== winnerId) {
-          // Fade out losers
-          gfx.alpha = 1 - t * (1 - FADE_ALPHA);
+          if (areas[a].owner !== winnerId) {
+            // Fade out losers
+            gfx.alpha = 1 - t * (1 - FADE_ALPHA);
+          }
         }
-      }
 
-      if (t >= 1) {
+        if (t >= 1) {
+          ticker.remove(tick);
+          resolve();
+        }
+      } catch (err) {
+        console.error('[CelebrationEffect] Animation tick error:', err);
         ticker.remove(tick);
         resolve();
       }

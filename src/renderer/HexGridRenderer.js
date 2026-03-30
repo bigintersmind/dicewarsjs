@@ -302,8 +302,9 @@ export class HexGridRenderer {
     this._highlightFocus.clear();
   }
 
-  /** Clear all selection highlights. */
+  /** Clear all selection highlights (including keyboard focus). */
   clearHighlights() {
+    this.clearFocusHighlight();
     this._highlightFrom.visible = false;
     this._highlightFrom.clear();
     this._highlightTo.visible = false;

@@ -70,7 +70,7 @@ export function createKeyboardController(store, controller, renderer) {
     const area = gameState.areas[focused];
     if (!area || !area.neighborAreaIds) return;
 
-    // Map arrow key to angle (degrees, standard math orientation)
+    // Map arrow key to angle (degrees, screen-space: 0=right, 90=down)
     const angles = {
       ArrowRight: 0,
       ArrowDown: 90,

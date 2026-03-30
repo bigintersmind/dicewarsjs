@@ -206,6 +206,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
     store.setState({ screen: 'tournament' });
   }
 
+  function goToOnlineLeaderboard() {
+    aiAborted = true;
+    store.setState({ screen: 'onlineLeaderboard' });
+  }
+
   function goToReplay(replay) {
     aiAborted = true;
     store.setState({ screen: 'replay', currentReplay: replay });
@@ -631,6 +636,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     goToTitle,
     goToArena,
     goToTournament,
+    goToOnlineLeaderboard,
     goToReplay,
     handleTerritoryClick,
     endHumanTurn,

@@ -148,7 +148,19 @@ See the [`bots/`](../bots/) directory for complete examples at different complex
 
 ## Submitting Your Bot
 
-Two ways to share your bot with the community:
+### Community Arena (recommended)
 
-1. **Issue**: Open an issue using the [Bot Submission](https://github.com/bigintersmind/dicewarsjs/issues/new?template=bot_submission.md) template
-2. **Pull Request**: Add your bot file to the `bots/` directory and open a PR
+Submit your bot to the online arena where it competes in daily automated tournaments with ELO rankings:
+
+1. Fork the repo and create a directory: `community-bots/<your-github-username>/`
+2. Add your bot file (e.g., `my-bot.js`) — same bare function body format as the examples in `bots/`
+3. Add a `my-bot.meta.json` with `name`, `author`, and `description` fields
+4. Register it in `community-bots/registry.json` (see [CONTRIBUTING.md](../CONTRIBUTING.md) for the full format)
+5. Open a PR — CI validates your bot automatically
+
+Your bot will be included in the daily tournament once merged. Check the live leaderboard on the [game site](https://bigintersmind.github.io/dicewarsjs/).
+
+### Other ways
+
+- **Issue**: Open an issue using the [Bot Submission](https://github.com/bigintersmind/dicewarsjs/issues/new?template=bot_submission.md) template
+- **Pull Request**: Add your bot file to the `bots/` directory and open a PR

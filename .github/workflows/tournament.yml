@@ -1,0 +1,53 @@
+name: Online Tournament
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # Daily at 06:00 UTC
+  push:
+    branches: [master]
+    paths:
+      - 'community-bots/**'
+      - 'src/arena/**'
+      - 'src/engine/**'
+  workflow_dispatch: {} # Manual trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tournament
+  cancel-in-progress: false
+
+jobs:
+  tournament:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tournament
+        run: node --max-old-space-size=512 scripts/run-online-tournament.mjs --games 100
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/data/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update tournament results [skip ci]"
+            for i in 1 2 3; do
+              git pull --rebase origin master && git push && break
+              echo "Push attempt $i failed, retrying..."
+              sleep 5
+            done
+          fi

@@ -40,10 +40,18 @@ import { updateEloRatings, DEFAULT_RATING } from './elo.js';
  * @param {number} [config.baseSeed=1]       - Base seed (each game uses baseSeed + gameIndex)
  * @param {number} [config.maxTurns=500]     - Max turns per game
  * @param {Function} [config.onGameComplete] - Callback: (gameIndex, matchResult) after each game
+ * @param {Object<string, number>} [config.initialRatings] - Starting ELO ratings by bot name
  * @returns {ArenaResult}
  */
 export function runArena(config) {
-  const { bots, gameCount = 100, baseSeed = 1, maxTurns = 500, onGameComplete } = config;
+  const {
+    bots,
+    gameCount = 100,
+    baseSeed = 1,
+    maxTurns = 500,
+    onGameComplete,
+    initialRatings,
+  } = config;
 
   const names = new Set(bots.map(b => b.name));
   if (names.size !== bots.length) {
@@ -52,10 +60,10 @@ export function runArena(config) {
 
   const matches = [];
 
-  // Initialize ELO ratings
+  // Initialize ELO ratings (use provided initial ratings if available)
   const ratings = {};
   for (const bot of bots) {
-    ratings[bot.name] = DEFAULT_RATING;
+    ratings[bot.name] = initialRatings?.[bot.name] ?? DEFAULT_RATING;
   }
 
   // Per-bot accumulators

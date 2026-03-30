@@ -25,9 +25,10 @@ import { DEFAULT_CONFIG } from '../utils/config.js';
  * @param {Object} store - GameStore instance from createGameStore()
  * @param {import('../renderer/GameRenderer.js').GameRenderer | null} renderer
  * @param {Object | null} soundManager - Optional sound manager
+ * @param {Object | null} [preferencesManager] - Optional PreferencesManager for reduced-motion
  * @returns {Object} GameController public API
  */
-export function createGameController(store, renderer, soundManager) {
+export function createGameController(store, renderer, soundManager, preferencesManager) {
   /** @type {(Function | null)[]} AI functions per player index (null = human) */
   let aiFunctions = [];
   /** @type {boolean} True while an AI turn is running */
@@ -334,7 +335,7 @@ export function createGameController(store, renderer, soundManager) {
       if (renderer && battleResult && !isReducedMotion()) {
         try {
           if (battleResult.success) {
-            const atkColor = renderer.hexGrid._getPlayerColor(prevState.areas[move.from].owner);
+            const atkColor = renderer.getPlayerColor(prevState.areas[move.from].owner);
             renderer.playParticleEffect(move.to, atkColor);
           }
           const atkDice = prevState.areas[move.from]?.dice || 0;
@@ -490,7 +491,7 @@ export function createGameController(store, renderer, soundManager) {
       try {
         // Particle burst on successful capture
         if (battleResult.success) {
-          const winColor = renderer.hexGrid._getPlayerColor(prevState.areas[fromId].owner);
+          const winColor = renderer.getPlayerColor(prevState.areas[fromId].owner);
           renderer.playParticleEffect(toId, winColor);
         }
 
@@ -526,14 +527,15 @@ export function createGameController(store, renderer, soundManager) {
 
   /** Check if reduced motion is active. */
   function isReducedMotion() {
+    if (preferencesManager) return preferencesManager.effectiveReducedMotion();
+    // Fallback when no preferencesManager is provided (e.g. in tests)
     const prefs = store.getState().preferences;
     if (!prefs) return false;
     if (prefs.reducedMotion === 'on') return true;
     if (prefs.reducedMotion === 'off') return false;
     try {
       return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    } catch (err) {
-      console.warn('[GameController] Cannot detect system reduced-motion preference:', err);
+    } catch {
       return false;
     }
   }
@@ -555,7 +557,9 @@ export function createGameController(store, renderer, soundManager) {
   function endHumanTurn() {
     const storeState = store.getState();
     if (storeState.awaitingInput === null) return;
-    return endTurn();
+    endTurn().catch(err => {
+      console.error('[GameController] End turn failed:', err);
+    });
   }
 
   /** Apply END_TURN action and advance to next player. */
@@ -599,7 +603,7 @@ export function createGameController(store, renderer, soundManager) {
       animationPhase: 'idle',
     });
 
-    // Animate reinforcements before updating renderer
+    // Update renderer, then animate reinforcements on top
     if (renderer && changes.length > 0 && !isReducedMotion()) {
       renderer.update(prevState, nextState);
       try {

@@ -57,7 +57,7 @@ async function main() {
   }
 
   // Create the game controller
-  const controller = createGameController(store, gameRenderer, soundManager);
+  const controller = createGameController(store, gameRenderer, soundManager, preferencesManager);
 
   // Wire canvas clicks to the controller
   if (canvas) {

@@ -78,8 +78,8 @@ export function createBurstEffect(container, x, y, color, ticker) {
           try {
             container.removeChild(p.gfx);
             p.gfx.destroy();
-          } catch {
-            /* already destroyed */
+          } catch (cleanupErr) {
+            console.warn('[ParticleEffect] Particle cleanup failed:', cleanupErr);
           }
         }
         resolve();

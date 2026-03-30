@@ -16,6 +16,13 @@ const DEFAULTS = {
   reducedMotion: 'system', // 'system' | 'on' | 'off'
 };
 
+const VALIDATORS = {
+  theme: v => typeof v === 'string' && ['dark', 'light'].includes(v),
+  colorBlindMode: v => typeof v === 'boolean',
+  animationSpeed: v => typeof v === 'number' && v > 0 && v <= 10,
+  reducedMotion: v => typeof v === 'string' && ['system', 'on', 'off'].includes(v),
+};
+
 /**
  * Create a preferences manager.
  *
@@ -30,9 +37,9 @@ export function createPreferencesManager() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      // Only merge known keys to avoid stale/invalid data
+      // Only merge known keys with valid values to avoid stale/invalid data
       for (const key of Object.keys(DEFAULTS)) {
-        if (key in parsed) {
+        if (key in parsed && (!VALIDATORS[key] || VALIDATORS[key](parsed[key]))) {
           prefs[key] = parsed[key];
         }
       }
@@ -81,7 +88,14 @@ export function createPreferencesManager() {
   }
 
   function set(key, value) {
-    if (!(key in DEFAULTS)) return;
+    if (!(key in DEFAULTS)) {
+      console.warn(`[PreferencesManager] Unknown preference key: "${key}"`);
+      return;
+    }
+    if (VALIDATORS[key] && !VALIDATORS[key](value)) {
+      console.warn(`[PreferencesManager] Invalid value for "${key}":`, value);
+      return;
+    }
     if (prefs[key] === value) return;
     prefs = { ...prefs, [key]: value };
     save();

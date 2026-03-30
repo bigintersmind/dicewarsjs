@@ -285,7 +285,7 @@ export class HexGridRenderer {
 
   /**
    * Show a focus highlight on a territory (keyboard navigation).
-   * Uses a white dashed-style border distinct from selection highlights.
+   * Uses a thin white semi-transparent border distinct from selection highlights.
    * @param {number} areaId
    */
   setFocusHighlight(areaId) {

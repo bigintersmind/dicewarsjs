@@ -109,6 +109,7 @@ function createMockRenderer() {
       setHighlight: vi.fn(),
       _getPlayerColor: vi.fn(() => 0xffffff),
     },
+    getPlayerColor: vi.fn(() => 0xffffff),
     battle: {
       play: vi.fn(async () => {}),
       destroy: vi.fn(),

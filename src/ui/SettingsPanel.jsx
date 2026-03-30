@@ -7,7 +7,7 @@
  * @module ui/SettingsPanel
  */
 
-import { useState, useCallback } from 'preact/hooks';
+import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 
 const SPEED_OPTIONS = [
@@ -110,7 +110,14 @@ const STYLE = {
  */
 export function SettingsPanel({ store, preferencesManager }) {
   const [open, setOpen] = useState(false);
-  const prefs = useGameStore(store, s => s.preferences);
+  const wrapperRef = useRef(null);
+  const rawPrefs = useGameStore(store, s => s.preferences);
+  const prefs = rawPrefs || {
+    theme: 'dark',
+    colorBlindMode: false,
+    animationSpeed: 1,
+    reducedMotion: 'system',
+  };
 
   const setPref = useCallback(
     (key, value) => {
@@ -118,6 +125,25 @@ export function SettingsPanel({ store, preferencesManager }) {
     },
     [preferencesManager]
   );
+
+  // Close on Escape or click outside
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(e) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    function handleClickOutside(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('keydown', handleKey);
+    document.addEventListener('pointerdown', handleClickOutside);
+    return () => {
+      document.removeEventListener('keydown', handleKey);
+      document.removeEventListener('pointerdown', handleClickOutside);
+    };
+  }, [open]);
 
   const theme = prefs.theme || 'dark';
   const isDark = theme === 'dark';
@@ -129,7 +155,7 @@ export function SettingsPanel({ store, preferencesManager }) {
   const borderColor = isDark ? '#555555' : '#999999';
 
   return (
-    <div style={STYLE.wrapper}>
+    <div style={STYLE.wrapper} ref={wrapperRef}>
       <button
         style={{
           ...STYLE.gearBtn,

@@ -31,8 +31,8 @@ export class GameRenderer {
     this.battle = null;
     /** @type {boolean} */
     this.initialized = false;
-    /** @type {string} Current theme name */
-    this._theme = 'dark';
+    /** @type {string | null} Current theme name (null until first setTheme call) */
+    this._theme = null;
     /** @type {boolean} Color-blind mode */
     this._colorBlindMode = false;
     /** @type {{ x: number, y: number }} Saved root position for screen shake */
@@ -88,8 +88,14 @@ export class GameRenderer {
     );
     this.root.scale.set(scale);
     // Center the scaled root
-    this.root.x = (this.app.screen.width - BASE_WIDTH * scale) / 2;
-    this.root.y = (this.app.screen.height - BASE_HEIGHT * scale) / 2;
+    const newX = (this.app.screen.width - BASE_WIDTH * scale) / 2;
+    const newY = (this.app.screen.height - BASE_HEIGHT * scale) / 2;
+    if (this._shaking) {
+      this._rootOrigin.x = newX;
+      this._rootOrigin.y = newY;
+    }
+    this.root.x = newX;
+    this.root.y = newY;
   }
 
   /**
@@ -267,6 +273,16 @@ export class GameRenderer {
    */
   playCelebration(winnerId, state) {
     return playCelebration(winnerId, state, this);
+  }
+
+  /**
+   * Get the player color for a given owner index, respecting color-blind mode.
+   * @param {number} owner
+   * @returns {number}
+   */
+  getPlayerColor(owner) {
+    if (this.hexGrid) return this.hexGrid._getPlayerColor(owner);
+    return 0xffffff;
   }
 
   /** Get the PixiJS Application instance. */

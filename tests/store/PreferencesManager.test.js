@@ -26,10 +26,52 @@ describe('PreferencesManager', () => {
       pm.destroy();
     });
 
-    it('ignores unknown keys', () => {
+    it('warns and ignores unknown keys', () => {
       const pm = createPreferencesManager();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       pm.set('unknownKey', 'value');
       expect(pm.get('unknownKey')).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown preference key'));
+      warnSpy.mockRestore();
+      pm.destroy();
+    });
+
+    it('warns and rejects invalid value types', () => {
+      const pm = createPreferencesManager();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      pm.set('animationSpeed', 'banana');
+      expect(pm.get('animationSpeed')).toBe(1); // unchanged default
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid value'), 'banana');
+      warnSpy.mockRestore();
+      pm.destroy();
+    });
+
+    it('rejects out-of-range animationSpeed values', () => {
+      const pm = createPreferencesManager();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      pm.set('animationSpeed', -1);
+      expect(pm.get('animationSpeed')).toBe(1);
+      pm.set('animationSpeed', 0);
+      expect(pm.get('animationSpeed')).toBe(1);
+      warnSpy.mockRestore();
+      pm.destroy();
+    });
+
+    it('rejects invalid reducedMotion values', () => {
+      const pm = createPreferencesManager();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      pm.set('reducedMotion', 'invalid');
+      expect(pm.get('reducedMotion')).toBe('system');
+      warnSpy.mockRestore();
+      pm.destroy();
+    });
+
+    it('rejects invalid theme values', () => {
+      const pm = createPreferencesManager();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      pm.set('theme', 123);
+      expect(pm.get('theme')).toBe('dark');
+      warnSpy.mockRestore();
       pm.destroy();
     });
 
@@ -58,6 +100,19 @@ describe('PreferencesManager', () => {
       expect(pm.get('theme')).toBe('light');
       expect(pm.get('animationSpeed')).toBe(2);
       // Non-stored keys use defaults
+      expect(pm.get('colorBlindMode')).toBe(false);
+      pm.destroy();
+    });
+
+    it('rejects invalid values from localStorage', () => {
+      localStorage.setItem(
+        'dicewars_prefs',
+        JSON.stringify({ theme: 'neon', animationSpeed: 'fast', colorBlindMode: 'yes' })
+      );
+      const pm = createPreferencesManager();
+      // All invalid values should be ignored; defaults used
+      expect(pm.get('theme')).toBe('dark');
+      expect(pm.get('animationSpeed')).toBe(1);
       expect(pm.get('colorBlindMode')).toBe(false);
       pm.destroy();
     });

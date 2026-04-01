@@ -39,8 +39,10 @@ export class GameRenderer {
     this._rootOrigin = { x: 0, y: 0 };
     /** @type {boolean} Whether a screen shake is active */
     this._shaking = false;
-    /** @type {boolean} Whether a pre-init warning has been logged */
-    this._warnedPreInit = false;
+    /** @type {boolean} Whether a drawMap pre-init warning has been logged */
+    this._warnedDrawMap = false;
+    /** @type {boolean} Whether an update pre-init warning has been logged */
+    this._warnedUpdate = false;
   }
 
   /**
@@ -106,9 +108,9 @@ export class GameRenderer {
    */
   drawMap(state) {
     if (!this.initialized) {
-      if (!this._warnedPreInit) {
+      if (!this._warnedDrawMap) {
         console.warn('[GameRenderer] drawMap called before initialization');
-        this._warnedPreInit = true;
+        this._warnedDrawMap = true;
       }
       return;
     }
@@ -123,9 +125,9 @@ export class GameRenderer {
    */
   update(prevState, nextState) {
     if (!this.initialized) {
-      if (!this._warnedPreInit) {
+      if (!this._warnedUpdate) {
         console.warn('[GameRenderer] update called before initialization');
-        this._warnedPreInit = true;
+        this._warnedUpdate = true;
       }
       return;
     }

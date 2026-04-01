@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { runArena } from '../src/arena/arenaRunner.js';
+import { DEFAULT_RATING } from '../src/arena/elo.js';
 import { createReplay } from '../src/arena/replayFormat.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
 import { compileSandboxedBot } from './lib/bot-sandbox.mjs';
@@ -112,7 +113,7 @@ if (bots.length < 2) {
 
 console.log(`\n${colors.bold}Running tournament: ${gameCount} games with ${bots.length} bots${colors.reset}\n`);
 
-// Date-based seed: reproducible within the same day, varies across runs
+// Date-based seed: reproducible within the same day, varies between days
 const today = new Date();
 const dateSeed = today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
 
@@ -177,7 +178,7 @@ const leaderboard = {
   totalGamesPlayed: previousLeaderboard.totalGamesPlayed + result.totalGames,
   bots: result.bots.map(bot => {
     const prev = previousLeaderboard.bots.find(b => b.name === bot.name);
-    const previousElo = prev ? prev.elo : 1200;
+    const previousElo = prev ? prev.elo : DEFAULT_RATING;
     return {
       name: bot.name,
       author: getAuthor(bot.name, registry),

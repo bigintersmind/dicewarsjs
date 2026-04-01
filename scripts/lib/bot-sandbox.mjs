@@ -61,7 +61,7 @@ const SANDBOX_GLOBALS = {
 export function compileSandboxedBot(source, name, timeout = 1000) {
   const wrappedSource = `(function(state) {\n${source}\n})`;
 
-  // Use null prototype to block prototype chain escapes
+  // Use null prototype to reduce (not eliminate) prototype chain escapes — see module-level NOTE
   const context = vm.createContext(Object.assign(Object.create(null), SANDBOX_GLOBALS));
   const script = new vm.Script(wrappedSource, { filename: `${name}.js` });
 
@@ -76,13 +76,14 @@ export function compileSandboxedBot(source, name, timeout = 1000) {
     throw new Error(`Bot "${name}" did not compile to a function`);
   }
 
+  // Pre-compile the call script once (avoids re-compilation on every bot invocation)
+  const callScript = new vm.Script('__botFn__(state)', {
+    filename: `${name}-call.js`,
+  });
+
   // Return a wrapper that enforces timeout on each call
   return function sandboxedBot(state) {
-    // Inject state into the sandbox context for this call
     context.state = state;
-    const callScript = new vm.Script('__botFn__(state)', {
-      filename: `${name}-call.js`,
-    });
     context.__botFn__ = botFn;
 
     try {
@@ -94,8 +95,7 @@ export function compileSandboxedBot(source, name, timeout = 1000) {
       }
       throw new Error(`Bot "${name}" runtime error: ${err.message}`, { cause: err });
     } finally {
-      // Clean up injected references to prevent bot code from caching sandbox internals
-
+      // Clean up injected references to prevent state leakage between bot calls
       delete context.state;
       delete context.__botFn__;
     }

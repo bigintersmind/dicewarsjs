@@ -99,10 +99,6 @@ const STYLE = {
     textAlign: 'center',
     marginTop: '2rem',
   },
-  trend: {
-    fontSize: '0.75rem',
-    marginLeft: '0.3rem',
-  },
 };
 
 /**
@@ -117,6 +113,7 @@ export function OnlineLeaderboardScreen({ onBack, onViewReplay }) {
   const [loadingReplay, setLoadingReplay] = useState(null);
 
   const fetchLeaderboard = () => {
+    setData(null);
     setError(null);
     fetch('data/leaderboard.json')
       .then(res => {

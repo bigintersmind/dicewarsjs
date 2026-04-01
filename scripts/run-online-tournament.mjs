@@ -73,9 +73,9 @@ let registry = [];
 if (fs.existsSync(REGISTRY_PATH)) {
   try {
     registry = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf-8'));
-  } catch {
-    console.warn(`${colors.yellow}Warning: Could not parse community bot registry.${colors.reset}`);
-    registry = [];
+  } catch (err) {
+    console.error(`${colors.red}Error: Could not parse community bot registry: ${err.message}${colors.reset}`);
+    process.exit(1);
   }
 
   const activeBots = Array.isArray(registry) ? registry.filter(e => e.active !== false) : [];
@@ -130,6 +130,11 @@ const result = runArena({
 });
 
 console.log('');
+
+if (result.aborted) {
+  console.error(`${colors.red}Tournament aborted due to excessive failures (${result.failedGames} failed).${colors.reset}`);
+  process.exit(1);
+}
 
 // --- Select notable replays ---
 

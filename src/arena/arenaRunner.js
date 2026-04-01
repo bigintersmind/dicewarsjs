@@ -82,6 +82,7 @@ export function runArena(config) {
   let totalTurns = 0;
 
   let failedGames = 0;
+  let aborted = false;
 
   for (let i = 0; i < gameCount; i++) {
     let result;
@@ -102,6 +103,7 @@ export function runArena(config) {
         console.warn(
           `[Arena] Aborting: ${failedGames}/${gamesAttempted} games failed (>50% failure rate)`
         );
+        aborted = true;
         break;
       }
       continue;
@@ -157,6 +159,7 @@ export function runArena(config) {
     bots: botStats,
     totalGames: matches.length,
     failedGames,
+    aborted,
     avgTurns: matches.length > 0 ? +(totalTurns / matches.length).toFixed(1) : 0,
     matches,
   };

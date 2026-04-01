@@ -21,7 +21,7 @@ describe('PreferencesManager', () => {
   describe('get/set', () => {
     it('gets and sets individual preferences', () => {
       const pm = createPreferencesManager();
-      pm.set('theme', 'light');
+      expect(pm.set('theme', 'light')).toBe(true);
       expect(pm.get('theme')).toBe('light');
       pm.destroy();
     });
@@ -29,7 +29,7 @@ describe('PreferencesManager', () => {
     it('warns and ignores unknown keys', () => {
       const pm = createPreferencesManager();
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      pm.set('unknownKey', 'value');
+      expect(pm.set('unknownKey', 'value')).toBe(false);
       expect(pm.get('unknownKey')).toBeUndefined();
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown preference key'));
       warnSpy.mockRestore();
@@ -39,7 +39,7 @@ describe('PreferencesManager', () => {
     it('warns and rejects invalid value types', () => {
       const pm = createPreferencesManager();
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      pm.set('animationSpeed', 'banana');
+      expect(pm.set('animationSpeed', 'banana')).toBe(false);
       expect(pm.get('animationSpeed')).toBe(1); // unchanged default
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid value'), 'banana');
       warnSpy.mockRestore();
@@ -79,7 +79,7 @@ describe('PreferencesManager', () => {
       const pm = createPreferencesManager();
       const listener = vi.fn();
       pm.subscribe(listener);
-      pm.set('theme', 'dark'); // same as default
+      expect(pm.set('theme', 'dark')).toBe(true); // returns true even for no-op
       expect(listener).not.toHaveBeenCalled();
       pm.destroy();
     });

@@ -17,6 +17,9 @@ import { runBotDirect } from './botRunner.js';
 /** Maximum moves a single bot can make per turn */
 const MAX_MOVES_PER_TURN = 100;
 
+/** Maximum consecutive invalid moves before ending a bot's turn */
+const MAX_CONSECUTIVE_INVALID = 3;
+
 /** Maximum turns before declaring a stalemate */
 const DEFAULT_MAX_TURNS = 500;
 
@@ -63,6 +66,7 @@ const DEFAULT_MAX_TURNS = 500;
 function runBotTurn(state, botFn, botName, stats) {
   let currentState = state;
   const playerId = currentState.turnOrder[currentState.currentPlayerIndex];
+  let consecutiveInvalid = 0;
 
   for (let i = 0; i < MAX_MOVES_PER_TURN; i++) {
     if (currentState.phase === GAME_PHASES.GAME_OVER) return currentState;
@@ -79,14 +83,18 @@ function runBotTurn(state, botFn, botName, stats) {
     const validation = validateMove(move, botState);
     if (!validation.valid) {
       stats.invalidMoves = (stats.invalidMoves || 0) + 1;
-      break;
+      consecutiveInvalid++;
+      if (consecutiveInvalid >= MAX_CONSECUTIVE_INVALID) break;
+      continue;
     }
 
     const validMoves = getValidMoves(currentState);
     const isEngineValid = validMoves.some(m => m.from === move.from && m.to === move.to);
     if (!isEngineValid) {
       stats.invalidMoves = (stats.invalidMoves || 0) + 1;
-      break;
+      consecutiveInvalid++;
+      if (consecutiveInvalid >= MAX_CONSECUTIVE_INVALID) break;
+      continue;
     }
 
     try {
@@ -101,6 +109,7 @@ function runBotTurn(state, botFn, botName, stats) {
       break;
     }
 
+    consecutiveInvalid = 0;
     stats.attacks++;
     if (currentState.areas[move.to].owner === playerId) {
       stats.wins++;
@@ -108,7 +117,16 @@ function runBotTurn(state, botFn, botName, stats) {
   }
 
   if (currentState.phase !== GAME_PHASES.GAME_OVER) {
-    currentState = applyAction(currentState, { type: ACTION_TYPES.END_TURN });
+    try {
+      currentState = applyAction(currentState, { type: ACTION_TYPES.END_TURN });
+    } catch (err) {
+      console.error(
+        `[Match] END_TURN failed for "${botName}" — game state unrecoverable:`,
+        err.message
+      );
+      stats.errors = (stats.errors || 0) + 1;
+      throw err;
+    }
   }
 
   return currentState;
@@ -158,7 +176,15 @@ export function runMatch(config) {
 
     // Skip eliminated players (engine should handle this, but be safe)
     if (state.players[currentPlayerId].eliminated) {
-      state = applyAction(state, { type: ACTION_TYPES.END_TURN });
+      try {
+        state = applyAction(state, { type: ACTION_TYPES.END_TURN });
+      } catch (err) {
+        console.error(
+          `[Match] END_TURN failed for eliminated player ${currentPlayerId}:`,
+          err.message
+        );
+        throw err;
+      }
       continue;
     }
 

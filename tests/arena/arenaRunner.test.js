@@ -181,4 +181,51 @@ describe('runArena', () => {
       })
     ).toThrow(/unique/i);
   });
+
+  it('aborts early when failure rate exceeds 50% after 5+ games', async () => {
+    // Dynamically mock runMatch to always throw
+    const { runArena: runArenaWithMock } = await import('../../src/arena/arenaRunner.js');
+    const matchRunner = await import('../../src/arena/matchRunner.js');
+
+    vi.spyOn(matchRunner, 'runMatch').mockImplementation(() => {
+      throw new Error('Simulated engine failure');
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = runArenaWithMock({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: exampleBot },
+      ],
+      gameCount: 20,
+      baseSeed: 1,
+    });
+
+    // Should have aborted before running all 20 games
+    expect(result.totalGames).toBe(0);
+    expect(result.failedGames).toBeGreaterThanOrEqual(5);
+    expect(result.failedGames).toBeLessThan(20);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Aborting'));
+
+    matchRunner.runMatch.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('does not abort before minimum games attempted', () => {
+    const result = runArena({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: exampleBot },
+      ],
+      gameCount: 3,
+      baseSeed: 1,
+    });
+
+    // With valid bots and only 3 games, should complete all
+    expect(result.totalGames).toBe(3);
+    expect(result.failedGames).toBe(0);
+  });
 });

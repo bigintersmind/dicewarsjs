@@ -41,6 +41,11 @@ async function main() {
         error: 'Graphics failed to initialize. Your browser may not support WebGL.',
       });
     }
+  } else {
+    console.error('[DiceWars] Canvas element #pixi-canvas not found in DOM');
+    store.setState({
+      error: 'Game canvas not found. Please refresh the page.',
+    });
   }
 
   // Sync preferences → renderer (theme and color-blind mode)
@@ -70,7 +75,7 @@ async function main() {
     });
   }
 
-  // Enable keyboard navigation
+  // Enable keyboard navigation (return value has destroy() for cleanup, not needed in SPA)
   createKeyboardController(store, controller, gameRenderer);
 
   // Mount Preact UI

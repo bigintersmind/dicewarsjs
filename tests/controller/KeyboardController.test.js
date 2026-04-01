@@ -177,15 +177,18 @@ describe('KeyboardController', () => {
       expect(store.getState().focusedAreaId).toBe(3);
     });
 
-    it('does nothing when renderer has no cellPos', () => {
+    it('warns and does nothing when renderer has no cellPos', () => {
       kbc.destroy();
       const noRenderer = { hexGrid: { setFocusHighlight: vi.fn(), _cellPos: null } };
       kbc = createKeyboardController(store, mockController, noRenderer);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       store.setState({ focusedAreaId: 1 });
       fireKey('ArrowRight');
       // Should stay on 1 since cellPos is null
       expect(store.getState().focusedAreaId).toBe(1);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('cellPos'));
+      warnSpy.mockRestore();
     });
   });
 

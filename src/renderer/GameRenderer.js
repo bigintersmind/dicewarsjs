@@ -39,6 +39,8 @@ export class GameRenderer {
     this._rootOrigin = { x: 0, y: 0 };
     /** @type {boolean} Whether a screen shake is active */
     this._shaking = false;
+    /** @type {boolean} Whether a pre-init warning has been logged */
+    this._warnedPreInit = false;
   }
 
   /**
@@ -103,7 +105,13 @@ export class GameRenderer {
    * @param {import('../engine/types.js').GameState} state
    */
   drawMap(state) {
-    if (!this.initialized) return;
+    if (!this.initialized) {
+      if (!this._warnedPreInit) {
+        console.warn('[GameRenderer] drawMap called before initialization');
+        this._warnedPreInit = true;
+      }
+      return;
+    }
     this.hexGrid.drawMap(state);
     this.dice.drawAll(state);
   }
@@ -114,7 +122,13 @@ export class GameRenderer {
    * @param {import('../engine/types.js').GameState} nextState
    */
   update(prevState, nextState) {
-    if (!this.initialized) return;
+    if (!this.initialized) {
+      if (!this._warnedPreInit) {
+        console.warn('[GameRenderer] update called before initialization');
+        this._warnedPreInit = true;
+      }
+      return;
+    }
     this.hexGrid.updateFromState(prevState, nextState);
     this.dice.drawAll(nextState);
   }

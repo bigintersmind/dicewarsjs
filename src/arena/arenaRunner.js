@@ -95,6 +95,15 @@ export function runArena(config) {
       console.error(`[Arena] Match ${i} failed (seed ${baseSeed + i}):`, err.message);
       failedGames++;
       if (onGameComplete) onGameComplete(i, null);
+
+      // Abort if failure rate exceeds 50% after at least 5 attempts
+      const gamesAttempted = i + 1;
+      if (gamesAttempted >= 5 && failedGames / gamesAttempted > 0.5) {
+        console.warn(
+          `[Arena] Aborting: ${failedGames}/${gamesAttempted} games failed (>50% failure rate)`
+        );
+        break;
+      }
       continue;
     }
 

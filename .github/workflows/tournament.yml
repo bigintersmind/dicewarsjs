@@ -45,9 +45,14 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "chore: update tournament results [skip ci]"
+            push_ok=false
             for i in 1 2 3; do
-              git pull --rebase origin master && git push && break
+              git pull --rebase origin master && git push && push_ok=true && break
               echo "Push attempt $i failed, retrying..."
               sleep 5
             done
+            if [ "$push_ok" != "true" ]; then
+              echo "ERROR: All push attempts failed"
+              exit 1
+            fi
           fi

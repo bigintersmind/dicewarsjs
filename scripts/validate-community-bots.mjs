@@ -69,8 +69,15 @@ for (const entry of activeBots) {
     continue;
   }
 
-  // Check bot source file exists
+  // Guard against path traversal (e.g. "../../.env")
   const botPath = path.join(COMMUNITY_DIR, entry.file);
+  if (!path.resolve(botPath).startsWith(COMMUNITY_DIR + path.sep)) {
+    fail(`Path traversal detected: ${entry.file}`);
+    failures++;
+    continue;
+  }
+
+  // Check bot source file exists
   if (!fs.existsSync(botPath)) {
     fail(`Bot file not found: ${entry.file}`);
     failures++;

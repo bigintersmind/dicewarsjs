@@ -1,7 +1,7 @@
 name: Validate Community Bots
 
 on:
-  pull_request:
+  pull_request_target:
     paths:
       - 'community-bots/**'
 
@@ -13,8 +13,18 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout base
         uses: actions/checkout@v4
+
+      - name: Checkout PR community-bots only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr-bots
+          sparse-checkout: community-bots
+
+      - name: Overlay PR bot files
+        run: cp -r pr-bots/community-bots/* community-bots/
 
       - name: Setup Node
         uses: actions/setup-node@v4

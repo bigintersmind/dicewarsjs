@@ -82,6 +82,11 @@ if (fs.existsSync(REGISTRY_PATH)) {
 
   for (const entry of activeBots) {
     const botPath = path.join(COMMUNITY_DIR, entry.file);
+    // Guard against path traversal (e.g. "../../.env")
+    if (!path.resolve(botPath).startsWith(COMMUNITY_DIR + path.sep)) {
+      console.warn(`${colors.yellow}Skipping ${entry.name}: path traversal detected (${entry.file})${colors.reset}`);
+      continue;
+    }
     if (!fs.existsSync(botPath)) {
       console.warn(`${colors.yellow}Skipping ${entry.name}: file not found (${entry.file})${colors.reset}`);
       continue;

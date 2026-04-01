@@ -104,8 +104,9 @@ const STYLE = {
  * @param {(config: { playerCount: number, spectator: boolean }) => void} props.onStart
  * @param {() => void} [props.onArena] - Navigate to arena screen
  * @param {() => void} [props.onTournament] - Navigate to tournament screen
+ * @param {() => void} [props.onLeaderboard] - Navigate to online leaderboard screen
  */
-export function TitleScreen({ store, error, onStart, onArena, onTournament }) {
+export function TitleScreen({ store, error, onStart, onArena, onTournament, onLeaderboard }) {
   const [playerCount, setPlayerCount] = useState(7);
   const themeName = useGameStore(store, s => s.preferences?.theme) || 'dark';
   const theme = getTheme(themeName);
@@ -175,6 +176,14 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament }) {
             onClick={onTournament}
           >
             TOURNAMENT
+          </button>
+        )}
+        {onLeaderboard && (
+          <button
+            style={{ ...STYLE.aiBtn, borderColor: theme.uiAccent, color: theme.uiAccent }}
+            onClick={onLeaderboard}
+          >
+            LEADERBOARD
           </button>
         )}
       </div>

@@ -68,10 +68,40 @@ Use [conventional commits](https://www.conventionalcommits.org/):
 
 The easiest way to contribute is to write a bot! See the [Bot Guide](docs/BOT_GUIDE.md) for the full SDK reference and the [bots/](bots/) directory for examples at different complexity levels.
 
-To submit a bot:
+### Submit a Bot to the Online Arena
 
-1. Open an issue using the **Bot Submission** template
-2. Or create a PR adding your bot to the `bots/` directory
+Community bots compete in daily automated tournaments with a persistent ELO leaderboard. To submit yours:
+
+1. **Fork** the repository and create a branch
+2. **Create your bot directory**: `community-bots/<your-github-username>/`
+3. **Add your bot file** (e.g., `my-bot.js`) — a bare function body that receives `state` and returns `{ from, to }` or `null`. Same format as the bots in `bots/`.
+4. **Add a metadata file** (e.g., `my-bot.meta.json`):
+   ```json
+   {
+     "name": "My Bot",
+     "author": "<your-github-username>",
+     "description": "Brief description of your bot's strategy"
+   }
+   ```
+5. **Register your bot** in `community-bots/registry.json`:
+   ```json
+   {
+     "id": "<your-github-username>/my-bot",
+     "name": "My Bot",
+     "author": "<your-github-username>",
+     "file": "<your-github-username>/my-bot.js",
+     "description": "Brief description of your bot's strategy",
+     "submittedAt": "2026-01-01T00:00:00Z",
+     "active": true
+   }
+   ```
+6. **Open a PR** — CI will automatically validate your bot (syntax, compilation, test match)
+
+You can also test locally before submitting:
+
+```bash
+npm run validate-bot -- community-bots/<your-username>/my-bot.js --test
+```
 
 ## Project Structure
 

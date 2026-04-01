@@ -206,6 +206,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
     store.setState({ screen: 'tournament' });
   }
 
+  function goToOnlineLeaderboard() {
+    aiAborted = true;
+    store.setState({ screen: 'onlineLeaderboard' });
+  }
+
   function goToReplay(replay) {
     aiAborted = true;
     store.setState({ screen: 'replay', currentReplay: replay });
@@ -333,17 +338,21 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
       // Visual effects for AI attacks
       if (renderer && battleResult && !isReducedMotion()) {
-        try {
-          if (battleResult.success) {
+        if (battleResult.success) {
+          try {
             const atkColor = renderer.getPlayerColor(prevState.areas[move.from].owner);
             renderer.playParticleEffect(move.to, atkColor);
+          } catch (err) {
+            console.error('[GameController] AI particle effect failed:', err);
           }
+        }
+        try {
           const atkDice = prevState.areas[move.from]?.dice || 0;
           const defDice = prevState.areas[move.to]?.dice || 0;
           const totalDice = atkDice + defDice;
           if (totalDice >= 10) renderer.screenShake(3, 200);
         } catch (err) {
-          console.error('[GameController] AI visual effects failed:', err);
+          console.error('[GameController] AI screen shake failed:', err);
         }
       }
 
@@ -488,18 +497,19 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     // Visual effects (non-blocking)
     if (renderer && battleResult && !isReducedMotion()) {
-      try {
-        // Particle burst on successful capture
-        if (battleResult.success) {
+      if (battleResult.success) {
+        try {
           const winColor = renderer.getPlayerColor(prevState.areas[fromId].owner);
           renderer.playParticleEffect(toId, winColor);
+        } catch (err) {
+          console.error('[GameController] Particle effect failed:', err);
         }
-
-        // Screen shake on large battles
+      }
+      try {
         const totalDice = (prevState.areas[fromId]?.dice || 0) + (prevState.areas[toId]?.dice || 0);
         if (totalDice >= 10) renderer.screenShake(3, 200);
       } catch (err) {
-        console.error('[GameController] Visual effects failed:', err);
+        console.error('[GameController] Screen shake failed:', err);
       }
     }
 
@@ -536,6 +546,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     try {
       return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     } catch {
+      // matchMedia unavailable in SSR, test environments, or older browsers
       return false;
     }
   }
@@ -631,6 +642,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     goToTitle,
     goToArena,
     goToTournament,
+    goToOnlineLeaderboard,
     goToReplay,
     handleTerritoryClick,
     endHumanTurn,

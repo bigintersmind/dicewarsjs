@@ -90,16 +90,17 @@ export function createPreferencesManager() {
   function set(key, value) {
     if (!(key in DEFAULTS)) {
       console.warn(`[PreferencesManager] Unknown preference key: "${key}"`);
-      return;
+      return false;
     }
     if (VALIDATORS[key] && !VALIDATORS[key](value)) {
       console.warn(`[PreferencesManager] Invalid value for "${key}":`, value);
-      return;
+      return false;
     }
-    if (prefs[key] === value) return;
+    if (prefs[key] === value) return true;
     prefs = { ...prefs, [key]: value };
     save();
     notify();
+    return true;
   }
 
   function getAll() {

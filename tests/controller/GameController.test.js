@@ -977,6 +977,82 @@ describe('GameController', () => {
       expect(renderer.screenShake).not.toHaveBeenCalled();
     });
 
+    it('continues to screen shake when particle effect throws', async () => {
+      store.setState({ preferences: { reducedMotion: 'off', animationSpeed: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      // Give areas high dice so totalDice >= 10
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: {
+            ...gs.areas,
+            1: { ...gs.areas[1], dice: 6 },
+            2: { ...gs.areas[2], dice: 5 },
+          },
+        },
+      });
+
+      renderer.playParticleEffect.mockImplementation(() => {
+        throw new Error('Particle effect broken');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      controller.handleTerritoryClick(1);
+      controller.handleTerritoryClick(2);
+
+      for (let i = 0; i < 3; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
+
+      expect(renderer.screenShake).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Particle'), expect.any(Error));
+      errorSpy.mockRestore();
+    });
+
+    it('still calls particle effect when screenShake throws', async () => {
+      store.setState({ preferences: { reducedMotion: 'off', animationSpeed: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: {
+            ...gs.areas,
+            1: { ...gs.areas[1], dice: 6 },
+            2: { ...gs.areas[2], dice: 5 },
+          },
+        },
+      });
+
+      renderer.screenShake.mockImplementation(() => {
+        throw new Error('Screen shake broken');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      controller.handleTerritoryClick(1);
+      controller.handleTerritoryClick(2);
+
+      for (let i = 0; i < 3; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
+
+      expect(renderer.playParticleEffect).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Screen shake'),
+        expect.any(Error)
+      );
+      errorSpy.mockRestore();
+    });
+
     it('calls animateReinforcements when reinforcements happen', async () => {
       const { applyAction } = await import('../../src/engine/index.js');
       store.setState({ preferences: { reducedMotion: 'off', animationSpeed: 1 } });

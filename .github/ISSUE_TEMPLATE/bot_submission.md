@@ -6,6 +6,10 @@ labels: bot-submission
 assignees: ''
 ---
 
+> **Preferred method:** Submit your bot via Pull Request to `community-bots/` for automatic validation and inclusion in the daily arena tournament. See [CONTRIBUTING.md](../../CONTRIBUTING.md#submit-a-bot-to-the-online-arena) for step-by-step instructions.
+>
+> Use this issue template if you'd like to discuss your bot before submitting a PR.
+
 ## Bot Name
 
 Your bot's name.

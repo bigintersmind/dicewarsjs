@@ -17,6 +17,8 @@
  * @returns {{ destroy: () => void }}
  */
 export function createKeyboardController(store, controller, renderer) {
+  let warnedNoCellPos = false;
+
   function handleKeyDown(e) {
     const state = store.getState();
     if (state.screen !== 'playing') return;
@@ -81,7 +83,13 @@ export function createKeyboardController(store, controller, renderer) {
 
     // Find the neighbor closest to the desired direction
     const cellPos = renderer?.hexGrid?._cellPos;
-    if (!cellPos) return;
+    if (!cellPos) {
+      if (!warnedNoCellPos) {
+        console.warn('[KeyboardController] Cannot navigate: renderer cellPos not available');
+        warnedNoCellPos = true;
+      }
+      return;
+    }
 
     const focusCenter = getCellCenter(area.centerCell, cellPos);
     let bestNeighbor = null;

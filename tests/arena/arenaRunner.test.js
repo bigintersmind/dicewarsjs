@@ -181,4 +181,97 @@ describe('runArena', () => {
       })
     ).toThrow(/unique/i);
   });
+
+  it('aborts early when failure rate exceeds 50% after 5+ games', async () => {
+    // Dynamically mock runMatch to always throw
+    const { runArena: runArenaWithMock } = await import('../../src/arena/arenaRunner.js');
+    const matchRunner = await import('../../src/arena/matchRunner.js');
+
+    vi.spyOn(matchRunner, 'runMatch').mockImplementation(() => {
+      throw new Error('Simulated engine failure');
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = runArenaWithMock({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: exampleBot },
+      ],
+      gameCount: 20,
+      baseSeed: 1,
+    });
+
+    // Should have aborted before running all 20 games
+    expect(result.totalGames).toBe(0);
+    expect(result.aborted).toBe(true);
+    expect(result.failedGames).toBeGreaterThanOrEqual(5);
+    expect(result.failedGames).toBeLessThan(20);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Aborting'));
+
+    matchRunner.runMatch.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('does not abort before minimum games attempted', () => {
+    const result = runArena({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: exampleBot },
+      ],
+      gameCount: 3,
+      baseSeed: 1,
+    });
+
+    // With valid bots and only 3 games, should complete all
+    expect(result.totalGames).toBe(3);
+    expect(result.failedGames).toBe(0);
+    expect(result.aborted).toBe(false);
+  });
+
+  it('uses initialRatings when provided', () => {
+    const result = runArena({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: defaultBot },
+      ],
+      gameCount: 2,
+      baseSeed: 1,
+      initialRatings: { a: 1500, b: 900 },
+    });
+
+    // ELO should have shifted from seeded values, not from default 1200
+    const botA = result.bots.find(b => b.name === 'a');
+    const botB = result.bots.find(b => b.name === 'b');
+    /*
+     * With only 2 games, ELO won't shift far from initial values
+     * Both should differ from 1200 (the default) since they started at 1500/900
+     */
+    expect(botA.elo).not.toBe(1200);
+    expect(botB.elo).not.toBe(1200);
+  });
+
+  it('falls back to DEFAULT_RATING for bots missing from initialRatings', () => {
+    const result = runArena({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: defaultBot },
+      ],
+      gameCount: 1,
+      baseSeed: 1,
+      initialRatings: { a: 1500 }, // 'b' not specified — should get 1200
+    });
+
+    const botA = result.bots.find(b => b.name === 'a');
+    const botB = result.bots.find(b => b.name === 'b');
+    expect(typeof botA.elo).toBe('number');
+    expect(typeof botB.elo).toBe('number');
+    /*
+     * After 1 game, both will have shifted, but the combined ELO should be
+     * conserved around the initial sum (1500 + 1200 = 2700)
+     */
+    expect(botA.elo + botB.elo).toBeCloseTo(2700, -1);
+  });
 });

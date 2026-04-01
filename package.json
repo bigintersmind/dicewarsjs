@@ -29,7 +29,9 @@
     "arena": "node scripts/arena.mjs",
     "new-bot": "node scripts/new-bot.mjs",
     "validate-bot": "node scripts/validate-bot.mjs",
-    "benchmark-bot": "node scripts/benchmark-bot.mjs"
+    "benchmark-bot": "node scripts/benchmark-bot.mjs",
+    "validate-community-bots": "node scripts/validate-community-bots.mjs",
+    "tournament": "node scripts/run-online-tournament.mjs"
   },
   "keywords": [
     "game",

@@ -15,6 +15,7 @@ import { GameOverlay } from './GameOverlay.jsx';
 import { GameOverScreen } from './GameOverScreen.jsx';
 import { ArenaScreen } from './ArenaScreen.jsx';
 import { TournamentScreen } from './TournamentScreen.jsx';
+import { OnlineLeaderboardScreen } from './OnlineLeaderboardScreen.jsx';
 import { ReplayViewer } from './ReplayViewer.jsx';
 import { SettingsPanel } from './SettingsPanel.jsx';
 import { ScreenReaderAnnouncer } from './ScreenReaderAnnouncer.jsx';
@@ -45,6 +46,7 @@ export function App({ store, controller, preferencesManager }) {
           onStart={config => controller.startNewGame(config)}
           onArena={() => controller.goToArena()}
           onTournament={() => controller.goToTournament()}
+          onLeaderboard={() => controller.goToOnlineLeaderboard()}
         />
       </ErrorBoundary>
     );
@@ -67,6 +69,18 @@ export function App({ store, controller, preferencesManager }) {
       <ErrorBoundary>
         {settings}
         <TournamentScreen
+          onBack={() => controller.goToTitle()}
+          onViewReplay={replay => controller.goToReplay(replay)}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  if (screen === 'onlineLeaderboard') {
+    return (
+      <ErrorBoundary>
+        {settings}
+        <OnlineLeaderboardScreen
           onBack={() => controller.goToTitle()}
           onViewReplay={replay => controller.goToReplay(replay)}
         />

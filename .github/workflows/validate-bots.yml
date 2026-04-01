@@ -1,0 +1,56 @@
+name: Validate Community Bots
+
+on:
+  pull_request_target:
+    paths:
+      - 'community-bots/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base
+        uses: actions/checkout@v4
+
+      - name: Checkout PR community-bots only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr-bots
+          sparse-checkout: community-bots
+
+      - name: Overlay PR bot files
+        run: cp -r pr-bots/community-bots/* community-bots/
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate community bots
+        id: validate
+        run: node scripts/validate-community-bots.mjs 2>&1 | tee validation-output.txt
+
+      - name: Comment validation results on PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('validation-output.txt', 'utf-8');
+            const status = '${{ steps.validate.outcome }}';
+            const icon = status === 'success' ? ':white_check_mark:' : ':x:';
+            const body = `## ${icon} Bot Validation ${status === 'success' ? 'Passed' : 'Failed'}\n\n\`\`\`\n${output}\n\`\`\``;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });

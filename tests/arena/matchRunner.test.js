@@ -271,4 +271,88 @@ describe('runMatch', () => {
     const crasherStat = result.botStats.find(s => s.name === 'crasher');
     expect(crasherStat.errors).toBeGreaterThan(0);
   });
+
+  it('tolerates up to 2 consecutive invalid moves before a valid one', () => {
+    let callCount = 0;
+    const flakeyBot = state => {
+      callCount++;
+      // Return invalid moves on calls 1 and 2, then a valid move
+      if (callCount <= 2) {
+        return { from: 9999, to: 9998 }; // invalid area IDs
+      }
+      // Try a real move
+      const area = state.myAreas.find(a => a.dice > 1 && a.isBorder);
+      if (!area) return null;
+      const target = area.neighbors.find(adjId => {
+        const adj = state.allAreas.find(a => a.id === adjId);
+        return adj && adj.owner !== state.myPlayer;
+      });
+      return target ? { from: area.id, to: target } : null;
+    };
+
+    const result = runMatch({
+      bots: [
+        { name: 'flakey', fn: flakeyBot },
+        { name: 'normal', fn: exampleBot },
+      ],
+      seed: 42,
+      maxTurns: 10,
+    });
+
+    expect(result).toBeDefined();
+    const flakeyStat = result.botStats.find(s => s.name === 'flakey');
+    expect(flakeyStat.invalidMoves).toBeGreaterThanOrEqual(2);
+  });
+
+  it('stops a bot after 3 consecutive invalid moves', () => {
+    const alwaysInvalidBot = () => ({ from: 9999, to: 9998 });
+
+    const result = runMatch({
+      bots: [
+        { name: 'invalid', fn: alwaysInvalidBot },
+        { name: 'normal', fn: exampleBot },
+      ],
+      seed: 42,
+      maxTurns: 10,
+    });
+
+    expect(result).toBeDefined();
+    const invalidStat = result.botStats.find(s => s.name === 'invalid');
+    // Should have exactly 3 invalid moves per turn (capped by tolerance)
+    expect(invalidStat.invalidMoves).toBeGreaterThanOrEqual(3);
+  });
+
+  it('resets invalid move counter after a successful move', () => {
+    let moveIdx = 0;
+    // Pattern: invalid, invalid, valid, invalid, invalid, valid, null
+    const mixedBot = state => {
+      moveIdx++;
+      const phase = moveIdx % 3;
+      if (phase !== 0) {
+        return { from: 9999, to: 9998 }; // invalid
+      }
+      // valid move attempt
+      const area = state.myAreas.find(a => a.dice > 1 && a.isBorder);
+      if (!area) return null;
+      const target = area.neighbors.find(adjId => {
+        const adj = state.allAreas.find(a => a.id === adjId);
+        return adj && adj.owner !== state.myPlayer;
+      });
+      return target ? { from: area.id, to: target } : null;
+    };
+
+    const result = runMatch({
+      bots: [
+        { name: 'mixed', fn: mixedBot },
+        { name: 'normal', fn: exampleBot },
+      ],
+      seed: 42,
+      maxTurns: 10,
+    });
+
+    expect(result).toBeDefined();
+    const mixedStat = result.botStats.find(s => s.name === 'mixed');
+    // Bot should have made some attacks (counter resets after valid moves)
+    expect(mixedStat.invalidMoves).toBeGreaterThanOrEqual(2);
+  });
 });

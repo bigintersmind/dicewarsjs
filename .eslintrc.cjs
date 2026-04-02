@@ -122,19 +122,21 @@ module.exports = {
     // Config files
     '.prettierrc.cjs',
 
-    // Community bots (separate linting rules)
+    // Community bots (excluded from project linting)
     'bots/',
 
     // Source files excluded temporarily (will be improved gradually)
     'src/Game.js',
     'src/utils/config.js',
-    '**/PlayerData.js',
+    '**/PlayerData.js', // Private field syntax not supported by current ESLint config
 
     // Test files with parsing issues
     'tests/Game/Game.test.js',
     'tests/bridge/integration.test.js',
     'tests/models/enhanced/PlayerData.test.js',
     'tests/state/ImmutableState.test.js',
+
+    // Test setup (mock globals, not linted)
     'tests/setup.js',
 
     // GitHub Actions (managed by Prettier)

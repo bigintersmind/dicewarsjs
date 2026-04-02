@@ -80,7 +80,7 @@ async function main() {
    * Update this list when adding new screens that need the canvas.
    */
   if (canvas) {
-    const gameScreens = ['playing', 'gameOver', 'mapPreview'];
+    const gameScreens = ['playing', 'gameOver', 'mapPreview', 'replay'];
     store.subscribe((state, prev) => {
       const shouldShow = gameScreens.includes(state.screen);
       canvas.style.display = shouldShow ? 'block' : 'none';

@@ -17,6 +17,7 @@ import {
 } from '../engine/index.js';
 import { runAI } from '../engine/AIAdapter.js';
 import { getAIImplementation } from '../ai/aiConfig.js';
+import { createReplayFromState } from '../arena/replayFormat.js';
 import { DEFAULT_CONFIG } from '../utils/config.js';
 
 /**
@@ -76,6 +77,27 @@ export function createGameController(store, renderer, soundManager, preferencesM
       }
     }
     return fns;
+  }
+
+  /**
+   * Build a Replay object from the current game state.
+   * Returns null if the state lacks config (e.g. in unit-test mocks).
+   * @param {Object} state - Engine GameState
+   * @returns {import('../arena/replayFormat.js').Replay | null}
+   */
+  function buildGameReplay(state) {
+    if (!state || !state.config) return null;
+    const humanIdx = store.getState().humanPlayerIndex;
+    const playerCount = state.config.playerCount;
+    const bots = [];
+    for (let i = 0; i < playerCount; i++) {
+      bots.push(i === humanIdx ? 'You' : `AI ${i + 1}`);
+    }
+    return createReplayFromState(state, {
+      bots,
+      winner: state.winner,
+      turnCount: state.turnNumber,
+    });
   }
 
   /**
@@ -193,6 +215,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       animationPhase: 'idle',
       awaitingInput: null,
       currentReplay: null,
+      humanEliminated: false,
     });
   }
 
@@ -365,6 +388,18 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
       if (renderer) {
         renderer.hexGrid.clearHighlights();
+      }
+
+      // Check if human has been eliminated (but game continues)
+      const humanIdx = store.getState().humanPlayerIndex;
+      if (
+        humanIdx !== null &&
+        state.players[humanIdx]?.eliminated === true &&
+        state.phase !== GAME_PHASES.GAME_OVER
+      ) {
+        await triggerGameOver(state);
+        aiRunning = false;
+        return;
       }
 
       // Check if game is over
@@ -553,6 +588,13 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
   /** Handle game-over transition with optional celebration. */
   async function triggerGameOver(state) {
+    const replay = buildGameReplay(state);
+    const humanIdx = store.getState().humanPlayerIndex;
+    const humanEliminated =
+      humanIdx !== null &&
+      state.players[humanIdx]?.eliminated === true &&
+      state.phase !== GAME_PHASES.GAME_OVER;
+
     if (renderer && state.winner !== null && !isReducedMotion()) {
       try {
         await renderer.playCelebration(state.winner, state);
@@ -560,8 +602,55 @@ export function createGameController(store, renderer, soundManager, preferencesM
         console.error('[GameController] Celebration animation failed:', err);
       }
     }
-    store.setState({ gameState: state, screen: 'gameOver' });
+    store.setState({
+      gameState: state,
+      screen: 'gameOver',
+      currentReplay: replay,
+      humanEliminated,
+    });
     if (soundManager) soundManager.play('over');
+  }
+
+  /** Navigate to replay viewer for the current game's replay. */
+  function viewGameReplay() {
+    const { currentReplay } = store.getState();
+    if (currentReplay) {
+      store.setState({ screen: 'replay' });
+    }
+  }
+
+  /** Resume the game with all-AI players (spectate mode). */
+  async function startSpectate() {
+    const { gameState } = store.getState();
+    if (!gameState || gameState.phase === GAME_PHASES.GAME_OVER) return;
+
+    // Ensure every player slot has an AI function
+    for (let i = 0; i < aiFunctions.length; i++) {
+      if (!aiFunctions[i]) {
+        try {
+          aiFunctions[i] = await getAIImplementation('ai_default');
+        } catch (err) {
+          console.error(`[GameController] Failed to load fallback AI for player ${i}:`, err);
+          return;
+        }
+      }
+    }
+
+    store.setState({
+      screen: 'playing',
+      humanPlayerIndex: null,
+      humanEliminated: false,
+      awaitingInput: null,
+    });
+
+    startTurn();
+  }
+
+  /** Render replay state on the PixiJS canvas. */
+  function updateReplayBoard(state) {
+    if (renderer && state) {
+      renderer.drawMap(state);
+    }
   }
 
   /** End the human player's turn (called from the UI END TURN button). */
@@ -646,6 +735,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
     goToReplay,
     handleTerritoryClick,
     endHumanTurn,
+    viewGameReplay,
+    startSpectate,
+    updateReplayBoard,
   };
 }
 

@@ -748,8 +748,8 @@ dicewarsjs/
 ├── vite.config.js                # Build configuration
 ├── vitest.config.js              # Test configuration
 ├── package.json
-├── .eslintrc.js
-├── .prettierrc.js
+├── .eslintrc.cjs
+├── .prettierrc.cjs
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml                # Lint, test, build

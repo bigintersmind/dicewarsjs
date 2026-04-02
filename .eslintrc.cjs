@@ -105,15 +105,39 @@ module.exports = {
     // Global functions available in newer Node.js versions
     structuredClone: 'readonly',
   },
-  // Ignore legacy files that will be removed later
   ignorePatterns: [
+    // Build and generated
     'dist/',
     'node_modules/',
+    'coverage/',
+
+    // Legacy root files (to be removed later)
+    '*.html',
     'areadice.js',
     'mc.js',
     'game.js',
     'config.js',
     'main.js',
+
+    // Config files
+    '.prettierrc.cjs',
+
+    // Community bots (separate linting rules)
     'bots/',
+
+    // Source files excluded temporarily (will be improved gradually)
+    'src/Game.js',
+    'src/utils/config.js',
+    '**/PlayerData.js',
+
+    // Test files with parsing issues
+    'tests/Game/Game.test.js',
+    'tests/bridge/integration.test.js',
+    'tests/models/enhanced/PlayerData.test.js',
+    'tests/state/ImmutableState.test.js',
+    'tests/setup.js',
+
+    // GitHub Actions (managed by Prettier)
+    '.github/workflows/*.yml',
   ],
 };

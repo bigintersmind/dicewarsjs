@@ -86,14 +86,13 @@ export class GameRenderer {
   /** Recalculate scale to fit the game board in the window. */
   _resize() {
     if (!this.app) return;
-    const scale = Math.min(
-      this.app.screen.width / BASE_WIDTH,
-      this.app.screen.height / BASE_HEIGHT
-    );
+    const hudHeight = 50; // Reserve space for HUD bar at bottom
+    const availableHeight = this.app.screen.height - hudHeight;
+    const scale = Math.min(this.app.screen.width / BASE_WIDTH, availableHeight / BASE_HEIGHT);
     this.root.scale.set(scale);
-    // Center the scaled root
+    // Center the scaled root within available area (above HUD)
     const newX = (this.app.screen.width - BASE_WIDTH * scale) / 2;
-    const newY = (this.app.screen.height - BASE_HEIGHT * scale) / 2;
+    const newY = (availableHeight - BASE_HEIGHT * scale) / 2;
     if (this._shaking) {
       this._rootOrigin.x = newX;
       this._rootOrigin.y = newY;

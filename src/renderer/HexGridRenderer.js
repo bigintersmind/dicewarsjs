@@ -59,7 +59,15 @@ export function computeCellPositions(width, height) {
  * @param {number} strokeColor - Stroke color (hex int)
  * @param {number} strokeWidth - Stroke width in pixels
  */
-function drawTerritoryPath(gfx, border, cellPos, fillColor, strokeColor, strokeWidth) {
+function drawTerritoryPath(
+  gfx,
+  border,
+  cellPos,
+  fillColor,
+  strokeColor,
+  strokeWidth,
+  fillAlpha = 1
+) {
   if (border.length < 2) return;
 
   gfx.clear();
@@ -83,7 +91,7 @@ function drawTerritoryPath(gfx, border, cellPos, fillColor, strokeColor, strokeW
   }
 
   gfx.poly(points, true);
-  gfx.fill(fillColor);
+  gfx.fill({ color: fillColor, alpha: fillAlpha });
   gfx.stroke({ width: strokeWidth, color: strokeColor, join: 'round', cap: 'round' });
 }
 
@@ -279,7 +287,8 @@ export class HexGridRenderer {
       this._cellPos,
       this._highlightFill,
       this._highlightColor,
-      BORDER_WIDTH
+      BORDER_WIDTH,
+      0.3
     );
   }
 

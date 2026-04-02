@@ -16,7 +16,8 @@ const STYLE = {
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    height: '100%',
+    minHeight: '100%',
+    overflowY: 'auto',
     pointerEvents: 'auto',
     userSelect: 'none',
   },
@@ -54,6 +55,8 @@ const STYLE = {
     display: 'flex',
     gap: '1rem',
     marginTop: '1rem',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
   startBtn: {
     fontFamily: 'Anton, sans-serif',

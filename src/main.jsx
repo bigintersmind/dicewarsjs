@@ -75,6 +75,19 @@ async function main() {
     });
   }
 
+  // Hide canvas on non-game screens
+  if (canvas) {
+    store.subscribe(state => {
+      const gameScreens = ['playing', 'gameOver', 'mapPreview'];
+      const shouldShow = gameScreens.includes(state.screen);
+      canvas.style.display = shouldShow ? 'block' : 'none';
+      // PixiJS loses dimensions when canvas is hidden; trigger resize when it reappears
+      if (shouldShow) {
+        window.dispatchEvent(new Event('resize'));
+      }
+    });
+  }
+
   // Enable keyboard navigation (return value has destroy() for cleanup, not needed in SPA)
   createKeyboardController(store, controller, gameRenderer);
 

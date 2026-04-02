@@ -4,6 +4,10 @@
  * Step-through replay viewer with play/pause, speed control, and URL sharing.
  * Reconstructs game state from a compact replay using the engine.
  *
+ * Supports two layout modes:
+ * - Default: full-screen centered layout (for screens without a canvas)
+ * - Overlay: compact bottom bar over the PixiJS canvas
+ *
  * @module ui/ReplayViewer
  */
 
@@ -14,6 +18,7 @@ import { replayGame } from '../engine/GameRunner.js';
 const SPEEDS = [1, 2, 4, 8];
 
 const STYLE = {
+  /* ---- full-screen (default) layout ---- */
   container: {
     display: 'flex',
     flexDirection: 'column',
@@ -119,6 +124,47 @@ const STYLE = {
     color: '#e94560',
     marginLeft: '0.5rem',
   },
+
+  /* ---- overlay layout ---- */
+  overlayContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    background: 'rgba(0, 0, 0, 0.75)',
+    padding: '0.6rem 1rem 0.8rem',
+    pointerEvents: 'auto',
+    userSelect: 'none',
+    gap: '0.4rem',
+  },
+  overlayInfo: {
+    fontFamily: 'Roboto, sans-serif',
+    fontSize: '0.75rem',
+    color: '#aaa',
+    textAlign: 'center',
+  },
+  overlayControls: {
+    display: 'flex',
+    gap: '0.4rem',
+    alignItems: 'center',
+  },
+  overlaySlider: {
+    width: '220px',
+    accentColor: '#e94560',
+  },
+  overlayBackBtn: {
+    fontFamily: 'Anton, sans-serif',
+    fontSize: '0.85rem',
+    padding: '0.2rem 1rem',
+    background: 'transparent',
+    border: '2px solid #e94560',
+    color: '#e94560',
+    cursor: 'pointer',
+    borderRadius: '4px',
+  },
 };
 
 /**
@@ -126,8 +172,9 @@ const STYLE = {
  * @param {import('../arena/replayFormat.js').Replay} props.replay - Replay data
  * @param {Function} [props.onStateChange] - Called with game state on each step
  * @param {() => void} props.onBack - Navigate back
+ * @param {boolean} [props.overlay] - Use compact bottom-bar layout over canvas
  */
-export function ReplayViewer({ replay, onStateChange, onBack }) {
+export function ReplayViewer({ replay, onStateChange, onBack, overlay = false }) {
   const totalActions = getReplayLength(replay);
   const [actionIndex, setActionIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -256,6 +303,75 @@ export function ReplayViewer({ replay, onStateChange, onBack }) {
 
   const { metadata } = replay;
 
+  if (overlay) {
+    return (
+      <div style={STYLE.overlayContainer}>
+        {replayError && <div style={STYLE.errorBanner}>Replay error: {replayError}</div>}
+
+        <div style={STYLE.overlayInfo}>
+          {metadata.bots.join(' vs ')} — {metadata.turnCount} turns
+          {metadata.winner !== null &&
+            ` — Winner: ${metadata.bots[metadata.winner] || `Player ${metadata.winner}`}`}
+        </div>
+
+        <div style={STYLE.overlayControls}>
+          <button style={STYLE.btn} onClick={handleReset}>
+            &#x23EE;
+          </button>
+          <button style={STYLE.btn} onClick={handleStepBack}>
+            &#x23EA;
+          </button>
+          <button
+            style={{ ...STYLE.btn, ...(playing ? STYLE.btnActive : {}) }}
+            onClick={handlePlayPause}
+          >
+            {playing ? '\u23F8' : '\u25B6'}
+          </button>
+          <button style={STYLE.btn} onClick={handleStepForward}>
+            &#x23E9;
+          </button>
+
+          <input
+            type="range"
+            min="0"
+            max={totalActions}
+            value={actionIndex}
+            onInput={handleSlider}
+            style={STYLE.overlaySlider}
+          />
+
+          <span style={STYLE.counter}>
+            {actionIndex} / {totalActions}
+          </span>
+
+          {SPEEDS.map(s => (
+            <button
+              key={s}
+              style={{
+                ...STYLE.speedBtn,
+                ...(s === speed ? STYLE.speedBtnActive : {}),
+              }}
+              onClick={() => setSpeed(s)}
+            >
+              {s}x
+            </button>
+          ))}
+
+          <button style={STYLE.shareBtn} onClick={handleShare}>
+            Share
+          </button>
+          {copied && <span style={STYLE.copied}>Copied!</span>}
+          {shareError && <span style={STYLE.copied}>{shareError}</span>}
+        </div>
+
+        <button style={STYLE.overlayBackBtn} onClick={onBack}>
+          BACK
+        </button>
+      </div>
+    );
+  }
+
+  // Default full-screen layout
   return (
     <div style={STYLE.container}>
       <h2 style={STYLE.title}>REPLAY</h2>

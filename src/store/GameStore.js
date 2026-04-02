@@ -22,6 +22,7 @@
  * @property {AnimationPhase} animationPhase
  * @property {AwaitingInput} awaitingInput
  * @property {number | null} humanPlayerIndex
+ * @property {boolean} humanEliminated
  * @property {number} aiSpeed
  * @property {boolean} soundEnabled
  * @property {string | null} error
@@ -38,10 +39,12 @@ const DEFAULT_STATE = {
   animationPhase: 'idle',
   awaitingInput: null,
   humanPlayerIndex: 0,
+  humanEliminated: false,
   aiSpeed: 1,
   soundEnabled: true,
   error: null,
   currentReplay: null,
+  replayOrigin: null,
   focusedAreaId: null,
   preferences: {
     theme: 'dark',

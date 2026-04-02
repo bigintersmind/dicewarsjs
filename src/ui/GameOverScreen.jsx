@@ -1,7 +1,7 @@
 /**
  * Game Over Screen
  *
- * Overlay showing the winner with a TITLE button.
+ * Overlay showing the winner with TITLE, HISTORY, and SPECTATE buttons.
  *
  * @module ui/GameOverScreen
  */
@@ -37,6 +37,12 @@ const STYLE = {
     fontSize: '1.5rem',
     marginBottom: '2rem',
   },
+  buttonRow: {
+    display: 'flex',
+    gap: '1rem',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
   btn: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.3rem',
@@ -54,10 +60,14 @@ const STYLE = {
  * @param {Object} props
  * @param {Object} props.store - GameStore instance
  * @param {() => void} props.onTitle
+ * @param {() => void} [props.onHistory]
+ * @param {() => void} [props.onSpectate]
  */
-export function GameOverScreen({ store, onTitle }) {
+export function GameOverScreen({ store, onTitle, onHistory, onSpectate }) {
   const gameState = useGameStore(store, s => s.gameState);
   const prefs = useGameStore(store, s => s.preferences);
+  const humanPlayerIndex = useGameStore(store, s => s.humanPlayerIndex);
+  const humanEliminated = useGameStore(store, s => s.humanEliminated);
   if (!gameState) return null;
 
   const theme = getTheme(prefs?.theme);
@@ -65,18 +75,46 @@ export function GameOverScreen({ store, onTitle }) {
   const winner = gameState.winner;
   const winnerColor = winner !== null ? colorPalette[winner % colorPalette.length] : theme.uiText;
 
+  // Determine heading and subtitle
+  const isHumanWinner = winner !== null && winner === humanPlayerIndex;
+  const heading = isHumanWinner ? 'Y O U\u00A0\u00A0W I N !' : 'G A M E\u00A0\u00A0O V E R';
+
+  let subtitle = null;
+  if (isHumanWinner) {
+    subtitle = null; // heading says it all
+  } else if (humanEliminated) {
+    subtitle = 'You were eliminated!';
+  } else if (winner !== null) {
+    subtitle = `Player ${winner + 1} wins!`;
+  }
+
+  const btnStyle = { ...STYLE.btn, borderColor: theme.uiAccent, color: theme.uiAccent };
+
   return (
     <div style={{ ...STYLE.overlay, background: theme.uiOverlayBg }}>
-      <h1 style={{ ...STYLE.title, color: theme.uiText }}>G A M E&nbsp;&nbsp;O V E R</h1>
-      {winner !== null && (
-        <p style={{ ...STYLE.winner, color: winnerColor }}>Player {winner + 1} wins!</p>
+      <h1 style={{ ...STYLE.title, color: isHumanWinner ? winnerColor : theme.uiText }}>
+        {heading}
+      </h1>
+      {subtitle && (
+        <p style={{ ...STYLE.winner, color: humanEliminated ? theme.uiText : winnerColor }}>
+          {subtitle}
+        </p>
       )}
-      <button
-        style={{ ...STYLE.btn, borderColor: theme.uiAccent, color: theme.uiAccent }}
-        onClick={onTitle}
-      >
-        TITLE
-      </button>
+      <div style={STYLE.buttonRow}>
+        <button style={btnStyle} onClick={onTitle}>
+          TITLE
+        </button>
+        {onHistory && (
+          <button style={btnStyle} onClick={onHistory}>
+            HISTORY
+          </button>
+        )}
+        {onSpectate && humanEliminated && (
+          <button style={btnStyle} onClick={onSpectate}>
+            SPECTATE
+          </button>
+        )}
+      </div>
     </div>
   );
 }

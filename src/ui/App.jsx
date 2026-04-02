@@ -96,7 +96,12 @@ export function App({ store, controller, preferencesManager }) {
     return (
       <ErrorBoundary>
         {settings}
-        <ReplayViewer replay={currentReplay} onBack={() => controller.goToTitle()} />
+        <ReplayViewer
+          replay={currentReplay}
+          onStateChange={state => controller.updateReplayBoard(state)}
+          onBack={() => controller.goBackFromReplay()}
+          overlay={true}
+        />
       </ErrorBoundary>
     );
   }
@@ -120,7 +125,12 @@ export function App({ store, controller, preferencesManager }) {
         {announcer}
         <div style={{ height: '100%', position: 'relative' }}>
           <GameHUD store={store} />
-          <GameOverScreen store={store} onTitle={() => controller.goToTitle()} />
+          <GameOverScreen
+            store={store}
+            onTitle={() => controller.goToTitle()}
+            onHistory={currentReplay ? () => controller.viewGameReplay() : undefined}
+            onSpectate={() => controller.startSpectate()}
+          />
         </div>
       </ErrorBoundary>
     );

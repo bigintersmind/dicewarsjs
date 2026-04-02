@@ -26,7 +26,15 @@ async function main() {
   });
 
   // Initialize sound manager (loadAll deferred to first user interaction)
-  const soundManager = createSoundManager({ volume: 0.5 });
+  const soundManager = createSoundManager({
+    volume: 0.5,
+    enabled: !preferencesManager.get('muted'),
+  });
+
+  // Sync muted preference → sound manager
+  preferencesManager.subscribe(prefs => {
+    soundManager.setEnabled(!prefs.muted);
+  });
 
   // Initialize PixiJS renderer
   let gameRenderer = null;

@@ -160,8 +160,8 @@ export function createSoundManager(options = {}) {
    * @param {boolean} on
    */
   function setEnabled(on) {
-    enabled = on;
-    if (!on) stopAll();
+    enabled = Boolean(on);
+    if (!enabled) stopAll();
   }
 
   /** @returns {boolean} */

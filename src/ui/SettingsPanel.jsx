@@ -9,6 +9,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
+import { DEFAULTS as PREF_DEFAULTS } from '../store/PreferencesManager.js';
 
 const SPEED_OPTIONS = [
   { value: 0.5, label: '0.5x' },
@@ -112,12 +113,7 @@ export function SettingsPanel({ store, preferencesManager }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef(null);
   const rawPrefs = useGameStore(store, s => s.preferences);
-  const prefs = rawPrefs || {
-    theme: 'dark',
-    colorBlindMode: false,
-    animationSpeed: 1,
-    reducedMotion: 'system',
-  };
+  const prefs = rawPrefs || PREF_DEFAULTS;
 
   const setPref = useCallback(
     (key, value) => {
@@ -226,6 +222,26 @@ export function SettingsPanel({ store, preferencesManager }) {
                 style={{
                   ...STYLE.toggleKnob,
                   left: prefs.colorBlindMode ? '18px' : '2px',
+                }}
+              />
+            </button>
+          </div>
+
+          {/* Mute sounds */}
+          <div style={STYLE.row}>
+            <span style={STYLE.label}>Mute sounds</span>
+            <button
+              style={{
+                ...STYLE.toggle,
+                background: prefs.muted ? accent : '#555',
+              }}
+              onClick={() => setPref('muted', !prefs.muted)}
+              aria-label={`${prefs.muted ? 'Unmute' : 'Mute'} sounds`}
+            >
+              <div
+                style={{
+                  ...STYLE.toggleKnob,
+                  left: prefs.muted ? '18px' : '2px',
                 }}
               />
             </button>

@@ -13,6 +13,7 @@ describe('PreferencesManager', () => {
         colorBlindMode: false,
         animationSpeed: 1,
         reducedMotion: 'system',
+        muted: false,
       });
       pm.destroy();
     });
@@ -26,10 +27,18 @@ describe('PreferencesManager', () => {
       pm.destroy();
     });
 
-    it('warns and ignores unknown keys', () => {
+    it('warns and ignores unknown keys on set', () => {
       const pm = createPreferencesManager();
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       expect(pm.set('unknownKey', 'value')).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown preference key'));
+      warnSpy.mockRestore();
+      pm.destroy();
+    });
+
+    it('warns and returns undefined for unknown keys on get', () => {
+      const pm = createPreferencesManager();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       expect(pm.get('unknownKey')).toBeUndefined();
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown preference key'));
       warnSpy.mockRestore();
@@ -53,6 +62,15 @@ describe('PreferencesManager', () => {
       expect(pm.get('animationSpeed')).toBe(1);
       pm.set('animationSpeed', 0);
       expect(pm.get('animationSpeed')).toBe(1);
+      warnSpy.mockRestore();
+      pm.destroy();
+    });
+
+    it('rejects invalid muted values', () => {
+      const pm = createPreferencesManager();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      pm.set('muted', 'yes');
+      expect(pm.get('muted')).toBe(false);
       warnSpy.mockRestore();
       pm.destroy();
     });
@@ -125,6 +143,7 @@ describe('PreferencesManager', () => {
         colorBlindMode: false,
         animationSpeed: 1,
         reducedMotion: 'system',
+        muted: false,
       });
       pm.destroy();
     });
@@ -197,6 +216,25 @@ describe('PreferencesManager', () => {
       pm.destroy();
       pm.set('theme', 'light');
       expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('muted preference integration', () => {
+    it('syncs muted preference to a sound manager via subscriber', () => {
+      const pm = createPreferencesManager();
+      const mockSoundManager = { setEnabled: vi.fn() };
+
+      pm.subscribe(prefs => {
+        mockSoundManager.setEnabled(!prefs.muted);
+      });
+
+      pm.set('muted', true);
+      expect(mockSoundManager.setEnabled).toHaveBeenCalledWith(false);
+
+      pm.set('muted', false);
+      expect(mockSoundManager.setEnabled).toHaveBeenCalledWith(true);
+
+      pm.destroy();
     });
   });
 });

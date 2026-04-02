@@ -9,11 +9,12 @@
 
 const STORAGE_KEY = 'dicewars_prefs';
 
-const DEFAULTS = {
+export const DEFAULTS = {
   theme: 'dark',
   colorBlindMode: false,
   animationSpeed: 1,
   reducedMotion: 'system', // 'system' | 'on' | 'off'
+  muted: false,
 };
 
 const VALIDATORS = {
@@ -21,6 +22,7 @@ const VALIDATORS = {
   colorBlindMode: v => typeof v === 'boolean',
   animationSpeed: v => typeof v === 'number' && v > 0 && v <= 10,
   reducedMotion: v => typeof v === 'string' && ['system', 'on', 'off'].includes(v),
+  muted: v => typeof v === 'boolean',
 };
 
 /**
@@ -84,6 +86,10 @@ export function createPreferencesManager() {
   }
 
   function get(key) {
+    if (!(key in DEFAULTS)) {
+      console.warn(`[PreferencesManager] Unknown preference key: "${key}"`);
+      return undefined;
+    }
     return prefs[key];
   }
 

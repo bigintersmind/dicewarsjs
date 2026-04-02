@@ -58,6 +58,7 @@ export function computeCellPositions(width, height) {
  * @param {number} fillColor   - Fill color (hex int)
  * @param {number} strokeColor - Stroke color (hex int)
  * @param {number} strokeWidth - Stroke width in pixels
+ * @param {number} [fillAlpha=1] - Fill opacity (0-1), used for semi-transparent highlight overlays
  */
 function drawTerritoryPath(
   gfx,

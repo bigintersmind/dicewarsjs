@@ -11,7 +11,7 @@ import { Application, Container } from 'pixi.js';
 import { HexGridRenderer } from './HexGridRenderer.js';
 import { DiceRenderer } from './DiceRenderer.js';
 import { createBattleAnimation } from './BattleAnimation.js';
-import { BASE_WIDTH, BASE_HEIGHT, BG_COLOR } from './constants.js';
+import { BASE_WIDTH, BASE_HEIGHT, BG_COLOR, HUD_BAR_HEIGHT } from './constants.js';
 import { getTheme } from './themes.js';
 import { createBurstEffect } from './ParticleEffect.js';
 import { animateReinforcements } from './ReinforcementAnimation.js';
@@ -86,8 +86,7 @@ export class GameRenderer {
   /** Recalculate scale to fit the game board in the window. */
   _resize() {
     if (!this.app) return;
-    const hudHeight = 50; // Reserve space for HUD bar at bottom
-    const availableHeight = this.app.screen.height - hudHeight;
+    const availableHeight = Math.max(this.app.screen.height - HUD_BAR_HEIGHT, 1);
     const scale = Math.min(this.app.screen.width / BASE_WIDTH, availableHeight / BASE_HEIGHT);
     this.root.scale.set(scale);
     // Center the scaled root within available area (above HUD)

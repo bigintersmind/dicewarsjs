@@ -73,6 +73,9 @@ export const HIGHLIGHT_FILL = 0x000000;
 export const BASE_WIDTH = 840;
 export const BASE_HEIGHT = 840;
 
+/** Height reserved for the HUD bar at the bottom of the viewport. Keep in sync with GameHUD.jsx. */
+export const HUD_BAR_HEIGHT = 50;
+
 /** Hex cell pixel dimensions (before scaling). */
 export const CELL_WIDTH = 27;
 export const CELL_HEIGHT = 18;

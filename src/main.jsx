@@ -75,14 +75,17 @@ async function main() {
     });
   }
 
-  // Hide canvas on non-game screens
+  /*
+   * Only show PixiJS canvas on screens that render the game board.
+   * Update this list when adding new screens that need the canvas.
+   */
   if (canvas) {
-    store.subscribe(state => {
-      const gameScreens = ['playing', 'gameOver', 'mapPreview'];
+    const gameScreens = ['playing', 'gameOver', 'mapPreview'];
+    store.subscribe((state, prev) => {
       const shouldShow = gameScreens.includes(state.screen);
       canvas.style.display = shouldShow ? 'block' : 'none';
-      // PixiJS loses dimensions when canvas is hidden; trigger resize when it reappears
-      if (shouldShow) {
+      // Canvas reports 0 dimensions while display:none; force PixiJS to recalculate on transition
+      if (shouldShow && !gameScreens.includes(prev.screen)) {
         window.dispatchEvent(new Event('resize'));
       }
     });

@@ -44,6 +44,7 @@ const DEFAULT_STATE = {
   soundEnabled: true,
   error: null,
   currentReplay: null,
+  replayOrigin: null,
   focusedAreaId: null,
   preferences: {
     theme: 'dark',

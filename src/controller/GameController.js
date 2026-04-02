@@ -87,17 +87,22 @@ export function createGameController(store, renderer, soundManager, preferencesM
    */
   function buildGameReplay(state) {
     if (!state || !state.config) return null;
-    const humanIdx = store.getState().humanPlayerIndex;
-    const playerCount = state.config.playerCount;
-    const bots = [];
-    for (let i = 0; i < playerCount; i++) {
-      bots.push(i === humanIdx ? 'You' : `AI ${i + 1}`);
+    try {
+      const humanIdx = store.getState().humanPlayerIndex;
+      const playerCount = state.config.playerCount;
+      const bots = [];
+      for (let i = 0; i < playerCount; i++) {
+        bots.push(i === humanIdx ? 'You' : `AI ${i + 1}`);
+      }
+      return createReplayFromState(state, {
+        bots,
+        winner: state.winner,
+        turnCount: state.turnNumber,
+      });
+    } catch (err) {
+      console.error('[GameController] Failed to build game replay:', err);
+      return null;
     }
-    return createReplayFromState(state, {
-      bots,
-      winner: state.winner,
-      turnCount: state.turnNumber,
-    });
   }
 
   /**
@@ -150,6 +155,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         battleResult: null,
         animationPhase: 'idle',
         awaitingInput: null,
+        humanEliminated: false,
       });
 
       // Draw the map in the renderer
@@ -215,6 +221,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       animationPhase: 'idle',
       awaitingInput: null,
       currentReplay: null,
+      replayOrigin: null,
       humanEliminated: false,
     });
   }
@@ -586,14 +593,20 @@ export function createGameController(store, renderer, soundManager, preferencesM
     }
   }
 
-  /** Handle game-over transition with optional celebration. */
+  /**
+   * Handle game-over transition: determine if the human was eliminated
+   * (vs. the game actually ending), build a replay for completed games,
+   * optionally play a celebration, then show the gameOver screen.
+   */
   async function triggerGameOver(state) {
-    const replay = buildGameReplay(state);
     const humanIdx = store.getState().humanPlayerIndex;
     const humanEliminated =
       humanIdx !== null &&
       state.players[humanIdx]?.eliminated === true &&
       state.phase !== GAME_PHASES.GAME_OVER;
+
+    // Only build replay for completed games (not partial on human elimination)
+    const replay = state.phase === GAME_PHASES.GAME_OVER ? buildGameReplay(state) : null;
 
     if (renderer && state.winner !== null && !isReducedMotion()) {
       try {
@@ -615,12 +628,28 @@ export function createGameController(store, renderer, soundManager, preferencesM
   function viewGameReplay() {
     const { currentReplay } = store.getState();
     if (currentReplay) {
-      store.setState({ screen: 'replay' });
+      store.setState({ screen: 'replay', replayOrigin: 'gameOver' });
     }
   }
 
-  /** Resume the game with all-AI players (spectate mode). */
+  /** Return from replay viewer to the screen that opened it. */
+  function goBackFromReplay() {
+    const { replayOrigin } = store.getState();
+    if (replayOrigin === 'gameOver') {
+      store.setState({ screen: 'gameOver', replayOrigin: null });
+    } else {
+      goToTitle();
+    }
+  }
+
+  /**
+   * Switch to spectate mode after human elimination: assign AI to
+   * the human slot and return to the playing screen so the remaining
+   * AI players finish the game.
+   */
   async function startSpectate() {
+    aiAborted = true; // stop any running AI loop
+
     const { gameState } = store.getState();
     if (!gameState || gameState.phase === GAME_PHASES.GAME_OVER) return;
 
@@ -631,6 +660,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
           aiFunctions[i] = await getAIImplementation('ai_default');
         } catch (err) {
           console.error(`[GameController] Failed to load fallback AI for player ${i}:`, err);
+          store.setState({ error: 'Could not start spectate mode: AI failed to load.' });
           return;
         }
       }
@@ -641,15 +671,21 @@ export function createGameController(store, renderer, soundManager, preferencesM
       humanPlayerIndex: null,
       humanEliminated: false,
       awaitingInput: null,
+      error: null,
     });
 
     startTurn();
   }
 
-  /** Render replay state on the PixiJS canvas. */
+  /** Redraw the PixiJS canvas to reflect a given game state (used by the replay viewer). */
   function updateReplayBoard(state) {
     if (renderer && state) {
-      renderer.drawMap(state);
+      try {
+        renderer.drawMap(state);
+      } catch (err) {
+        console.error('[GameController] Failed to render replay board:', err);
+        throw new Error('Failed to render the game board for this replay step.');
+      }
     }
   }
 
@@ -736,6 +772,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     handleTerritoryClick,
     endHumanTurn,
     viewGameReplay,
+    goBackFromReplay,
     startSpectate,
     updateReplayBoard,
   };

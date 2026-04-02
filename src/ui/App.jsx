@@ -99,7 +99,7 @@ export function App({ store, controller, preferencesManager }) {
         <ReplayViewer
           replay={currentReplay}
           onStateChange={state => controller.updateReplayBoard(state)}
-          onBack={() => controller.goToTitle()}
+          onBack={() => controller.goBackFromReplay()}
           overlay={true}
         />
       </ErrorBoundary>
@@ -128,7 +128,7 @@ export function App({ store, controller, preferencesManager }) {
           <GameOverScreen
             store={store}
             onTitle={() => controller.goToTitle()}
-            onHistory={() => controller.viewGameReplay()}
+            onHistory={currentReplay ? () => controller.viewGameReplay() : undefined}
             onSpectate={() => controller.startSpectate()}
           />
         </div>

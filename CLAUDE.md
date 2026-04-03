@@ -174,7 +174,7 @@ When working with AI strategies:
 
 ## Gotchas
 
-- **ESLint ignores legacy root files**: The .eslintrc.js explicitly excludes `areadice.js`, `mc.js`, `game.js`, `config.js`, and `main.js` from linting.
+- **ESLint ignores legacy root files**: The .eslintrc.cjs explicitly excludes `areadice.js`, `mc.js`, `game.js`, `config.js`, and `main.js` from linting.
 - **Path aliases**: `@utils`, `@ai`, `@models`, `@mechanics`, `@state` are configured in `vite.config.js` for both builds and tests. Source files use relative imports; aliases are available but prefer relative paths in new code.
 - **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` and `.jsx` files.
 - **Bridge files excluded from coverage**: `vite.config.js` excludes `src/bridge/` from coverage thresholds. The bridge is deprecated and will be removed.

@@ -746,10 +746,9 @@ Final directory layout after modernization:
 dicewarsjs/
 ├── index.html                    # Single page entry point
 ├── vite.config.js                # Build configuration
-├── vitest.config.js              # Test configuration
 ├── package.json
-├── .eslintrc.js
-├── .prettierrc.js
+├── .eslintrc.cjs
+├── .prettierrc.cjs
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml                # Lint, test, build
@@ -823,7 +822,7 @@ dicewarsjs/
 │   ├── GAME_RULES.md             # Official game rules
 │   └── ARCHITECTURE.md           # Codebase architecture
 ├── scripts/                      # Build/dev scripts
-│   └── check-bundle-size.js
+│   └── check-bundle-size.cjs
 ├── legacy/                       # Archived legacy code (reference only)
 │   ├── game.js
 │   ├── main.js

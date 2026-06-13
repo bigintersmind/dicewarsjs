@@ -11,6 +11,7 @@ export const load_ai_default = async () => (await import('./ai_default.js')).ai_
 export const load_ai_defensive = async () => (await import('./ai_defensive.js')).ai_defensive;
 export const load_ai_example = async () => (await import('./ai_example.js')).ai_example;
 export const load_ai_adaptive = async () => (await import('./ai_adaptive.js')).ai_adaptive;
+export const load_ai_claude = async () => (await import('./ai_claude.js')).ai_claude;
 
 /**
  * AI Strategy Registry
@@ -61,6 +62,16 @@ export const AI_STRATEGIES = {
     description: 'Adapts strategy based on game conditions',
     difficulty: 4,
     loader: load_ai_adaptive,
+    implementation: null,
+  },
+
+  // Expected-value AI using exact dice odds and connectivity economics
+  ai_claude: {
+    id: 'ai_claude',
+    name: 'Claude AI',
+    description: 'Scores every attack by exact expected value of income and risk',
+    difficulty: 5,
+    loader: load_ai_claude,
     implementation: null,
   },
 };

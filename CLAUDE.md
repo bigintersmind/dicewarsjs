@@ -113,6 +113,7 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
   - ai_defensive: Prioritizes protecting vulnerable territories
   - ai_example: Basic implementation for educational purposes
   - ai_adaptive: Adapts strategy based on game conditions
+  - ai_claude: Expected-value strategy using exact dice odds and connectivity economics (strongest in arena benchmarks)
 
 - **GameController** (src/controller/GameController.js): Orchestrates the full game loop — title → mapPreview → playing → gameOver. Handles human input (two-phase click: select from, select to), AI turns with step-by-step animation, and turn advancement. Only module that calls engine functions.
 

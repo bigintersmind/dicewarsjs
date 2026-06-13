@@ -60,8 +60,11 @@ npm run perf:check
 # Auto-fix lint warnings
 npm run fix-warnings
 
-# Run bot arena (CLI)
+# Run bot arena (CLI) — single deterministic ELO ranking
 npm run arena
+
+# Multi-seed arena sweep — mean win%/ELO with 95% confidence intervals
+npm run arena:sweep
 ```
 
 ## Code Quality Requirements

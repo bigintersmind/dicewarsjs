@@ -28,6 +28,7 @@
     "test:regression": "vitest run tests/regression",
     "perf:check": "node scripts/check-bundle-size.cjs",
     "arena": "node scripts/arena.mjs",
+    "arena:sweep": "node scripts/arena-sweep.mjs",
     "new-bot": "node scripts/new-bot.mjs",
     "validate-bot": "node scripts/validate-bot.mjs",
     "benchmark-bot": "node scripts/benchmark-bot.mjs",

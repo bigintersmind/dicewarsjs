@@ -14,6 +14,7 @@
 
 import { Container, Graphics, Text } from 'pixi.js';
 import { PLAYER_COLORS, COLORBLIND_PLAYER_COLORS, BASE_WIDTH } from './constants.js';
+import { getPipPositions } from './dicePips.js';
 
 const BG_ALPHA = 0.8;
 const BG_HEIGHT = 200;
@@ -258,50 +259,11 @@ function drawDieFace(gfx, color, value) {
   gfx.stroke({ width: 1.5, color: 0x222244 });
 
   // Pip positions for values 1-6
-  const pips = getPipPositions(value);
+  const pips = getPipPositions(value, DIE_SIZE * 0.25);
   for (const [px, py] of pips) {
     gfx.circle(px, py, 2.5);
     gfx.fill(0xffffff);
   }
-}
-
-/** Get pip positions for a die value (1-6). */
-function getPipPositions(value) {
-  const s = DIE_SIZE * 0.25;
-  const positions = {
-    1: [[0, 0]],
-    2: [
-      [-s, -s],
-      [s, s],
-    ],
-    3: [
-      [-s, -s],
-      [0, 0],
-      [s, s],
-    ],
-    4: [
-      [-s, -s],
-      [s, -s],
-      [-s, s],
-      [s, s],
-    ],
-    5: [
-      [-s, -s],
-      [s, -s],
-      [0, 0],
-      [-s, s],
-      [s, s],
-    ],
-    6: [
-      [-s, -s],
-      [s, -s],
-      [-s, 0],
-      [s, 0],
-      [-s, s],
-      [s, s],
-    ],
-  };
-  return positions[value] || positions[1];
 }
 
 /** Create the total text display. */

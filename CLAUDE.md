@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Important Project Status Update:** The project is following a new modernization roadmap (see `docs/MODERNIZATION_ROADMAP.md`) that replaces the old bridge-based ES6 migration. The bridge pattern is deprecated and will be removed. Refer to the roadmap for all architectural goals and migration strategies.
+**Important Project Status Update:** The project is following a new modernization roadmap (see `docs/MODERNIZATION_ROADMAP.md`) that replaces the old bridge-based ES6 migration. The bridge pattern (`src/bridge/`) is deprecated and will be removed — **do not add to or extend it**; build new functionality per the roadmap. Refer to the roadmap for all architectural goals and migration strategies.
 
 ## Build and Development Commands
 
@@ -65,6 +65,21 @@ npm run arena
 
 # Multi-seed arena sweep — mean win%/ELO with 95% confidence intervals
 npm run arena:sweep
+
+# Scaffold a new bot from a template
+npm run new-bot
+
+# Validate a bot file (syntax, compilation, runtime)
+npm run validate-bot
+
+# Benchmark a single bot (timing, win rate, ELO, placement)
+npm run benchmark-bot
+
+# Validate all community-bots/registry.json entries
+npm run validate-community-bots
+
+# Run full online tournament (built-in + community bots), persist ELO/leaderboard
+npm run tournament
 ```
 
 ## Code Quality Requirements
@@ -100,7 +115,7 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 2. **Legacy Code** (reference only): Root directory files (game.js, main.js, areadice.js, mc.js) are preserved for reference but not loaded by the Vite build. `index.legacy.html` preserves the old entry point.
 
-3. **Bridge Pattern** (DEPRECATED): `src/bridge/` is deprecated and will be removed. Do not add new bridge modules.
+3. **Bridge Pattern** (DEPRECATED): `src/bridge/` is a legacy↔modern shim retained only until removal (see status note above).
 
 4. **Game Engine** (Phase 2): `src/engine/` contains the pure game engine — no DOM, no rendering. Includes StateManager, BattleResolver, MapGenerator, TurnManager, HexGrid, AIAdapter, and GameRunner.
 
@@ -117,6 +132,8 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
   - ai_example: Basic implementation for educational purposes
   - ai_adaptive: Adapts strategy based on game conditions
   - ai_claude: Expected-value strategy using exact dice odds and connectivity economics (strongest in arena benchmarks)
+
+- **Bot Arena** (src/arena/): Headless bot-vs-bot tournament system — ELO ratings (elo.js), match/tournament runners, custom-bot compilation & validation, replay format. Powers `npm run arena`, the in-game Arena screen, and the CLI bot tooling. See docs/BOT_GUIDE.md for authoring a bot (a function: state → { from, to } | null).
 
 - **GameController** (src/controller/GameController.js): Orchestrates the full game loop — title → mapPreview → playing → gameOver. Handles human input (two-phase click: select from, select to), AI turns with step-by-step animation, and turn advancement. Only module that calls engine functions.
 
@@ -142,13 +159,11 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 ### Important Design Patterns
 
-1. **Bridge Pattern** (DEPRECATED): Previously used for transitioning between legacy and modern code. The bridge is deprecated per `docs/MODERNIZATION_ROADMAP.md` — do not extend it. New functionality should follow the modernization roadmap's architecture.
+1. **Immutable Data**: The state directory implements immutable data patterns for the game state.
 
-2. **Immutable Data**: The state directory implements immutable data patterns for the game state.
+2. **Factory Functions**: Used throughout the codebase to create game objects.
 
-3. **Factory Functions**: Used throughout the codebase to create game objects.
-
-4. **Error Hierarchy**: Custom error classes (GameError, BattleError, TerritoryError, etc.) provide structured error handling.
+3. **Error Hierarchy**: Custom error classes (GameError, BattleError, TerritoryError, etc.) provide structured error handling.
 
 ### AI Implementation Notes
 
@@ -162,7 +177,7 @@ When working with AI strategies:
 ### Testing Approach
 
 1. Unit tests for individual components (AI strategies, map generation, battle resolution).
-2. Integration tests for the bridge components (bridge is deprecated but tests remain while code exists).
+2. Integration tests for the bridge components (retained while the bridge code exists).
 3. Performance tests for comparing AI strategies.
 4. Test utilities and mocks are located in the tests/mocks/ directory.
 5. Regression tests are in tests/regression/ and benchmarks in tests/benchmarks/.
@@ -181,18 +196,23 @@ When working with AI strategies:
 - **ESLint ignores legacy root files**: The .eslintrc.cjs explicitly excludes `areadice.js`, `mc.js`, `game.js`, `config.js`, and `main.js` from linting.
 - **Path aliases**: `@utils`, `@ai`, `@models`, `@mechanics`, `@state` are configured in `vite.config.js` for both builds and tests. Source files use relative imports; aliases are available but prefer relative paths in new code.
 - **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` and `.jsx` files.
-- **Bridge files excluded from coverage**: `vite.config.js` excludes `src/bridge/` from coverage thresholds. The bridge is deprecated and will be removed.
+- **Bridge files excluded from coverage**: `vite.config.js` excludes `src/bridge/` from coverage thresholds (deprecated code; see status note at top).
 - **Vitest globals**: Tests use `globals: true` in vitest config, so `describe`, `it`, `expect`, `vi`, `beforeEach`, `afterEach` are available without imports. Use `import { vi } from 'vitest'` only if needed for explicit typing.
 
 ## Common Pitfalls to Avoid
 
 1. Don't modify legacy files unless specifically required
 2. Always run tests before suggesting code is complete
-3. Do not extend the bridge pattern — it is deprecated. Follow `docs/MODERNIZATION_ROADMAP.md` for new functionality
-4. Ensure error events are properly emitted for error tracking
-5. Keep AI functions pure and deterministic for testing
+3. Ensure error events are properly emitted for error tracking
+4. Keep AI functions pure and deterministic for testing
 
 ## Documentation Updates
+
+### Key Documentation
+
+- `docs/MODERNIZATION_ROADMAP.md` — architectural north star (supersedes the bridge pattern)
+- `docs/BOT_GUIDE.md` — how to write a bot
+- `docs/ARCHITECTURE.md`, `docs/GAME_RULES.md`, `docs/TESTING.md`, `docs/CODE_STYLE.md` — system design, rules, testing approach, conventions
 
 When making changes:
 

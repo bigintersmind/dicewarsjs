@@ -60,10 +60,12 @@ async function main() {
   if (gameRenderer) {
     gameRenderer.setTheme(preferencesManager.get('theme'));
     gameRenderer.setColorBlindMode(preferencesManager.get('colorBlindMode'));
+    gameRenderer.setDiceDisplayMode(preferencesManager.get('diceDisplayMode'));
 
     preferencesManager.subscribe(prefs => {
       gameRenderer.setTheme(prefs.theme);
       gameRenderer.setColorBlindMode(prefs.colorBlindMode);
+      gameRenderer.setDiceDisplayMode(prefs.diceDisplayMode);
       // Sync body background for the HTML body element
       document.body.style.background = prefs.theme === 'light' ? '#e8e8f0' : '#1a1a2e';
     });

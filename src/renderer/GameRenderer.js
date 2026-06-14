@@ -35,6 +35,8 @@ export class GameRenderer {
     this._theme = null;
     /** @type {boolean} Color-blind mode */
     this._colorBlindMode = false;
+    /** @type {'dice' | 'number'} How dice counts are shown */
+    this._diceDisplayMode = 'dice';
     /** @type {{ x: number, y: number }} Saved root position for screen shake */
     this._rootOrigin = { x: 0, y: 0 };
     /** @type {boolean} Whether a screen shake is active */
@@ -204,6 +206,23 @@ export class GameRenderer {
     // Repaint if we have state
     if (this.hexGrid && this.hexGrid._lastState) {
       this.hexGrid.redrawAll();
+      this.dice.drawAll(this.hexGrid._lastState);
+    }
+  }
+
+  /**
+   * Set how dice counts are displayed: stacked dice or a single count badge.
+   * @param {'dice' | 'number'} mode
+   */
+  setDiceDisplayMode(mode) {
+    if (this._diceDisplayMode === mode) return;
+    this._diceDisplayMode = mode;
+    if (!this.initialized) return;
+
+    if (this.dice) this.dice.setDiceDisplayMode(mode);
+
+    // Repaint if we have state
+    if (this.hexGrid && this.hexGrid._lastState) {
       this.dice.drawAll(this.hexGrid._lastState);
     }
   }

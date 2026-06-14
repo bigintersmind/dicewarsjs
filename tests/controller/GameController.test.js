@@ -84,11 +84,15 @@ vi.mock('../../src/ai/aiConfig.js', () => ({
 }));
 
 vi.mock('../../src/utils/config.js', () => ({
-  DEFAULT_CONFIG: {
-    mapWidth: 28,
-    mapHeight: 32,
-    territoriesCount: 32,
-  },
+  // Mirror the real preset table so assertions on dimensions are meaningful.
+  resolveMapSize: vi.fn(size => {
+    const presets = {
+      small: { mapWidth: 20, mapHeight: 24, maxAreas: 20 },
+      medium: { mapWidth: 28, mapHeight: 32, maxAreas: 32 },
+      large: { mapWidth: 36, mapHeight: 40, maxAreas: 48 },
+    };
+    return presets[size] ?? presets.medium;
+  }),
 }));
 
 /*
@@ -245,6 +249,74 @@ describe('GameController', () => {
 
       await controller.rejectMap();
       expect(store.getState().screen).toBe('title');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * map size selection
+   * -----------------------------------------------------------------------
+   */
+
+  describe('map size selection', () => {
+    it('passes the resolved default (medium) dimensions to createGame', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(createGame).toHaveBeenCalledWith(
+        expect.objectContaining({ mapWidth: 28, mapHeight: 32, maxAreas: 32 })
+      );
+    });
+
+    it('resolves the chosen preset to engine dimensions (large)', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false, mapSize: 'large' });
+
+      expect(createGame).toHaveBeenCalledWith(
+        expect.objectContaining({ playerCount: 2, mapWidth: 36, mapHeight: 40, maxAreas: 48 })
+      );
+    });
+
+    it('persists the chosen map size into store config', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false, mapSize: 'small' });
+
+      expect(store.getState().config.mapSize).toBe('small');
+    });
+
+    it('rejectMap regenerates at the size the player chose', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false, mapSize: 'small' });
+      createGame.mockClear();
+
+      await controller.rejectMap();
+
+      expect(createGame).toHaveBeenCalledWith(
+        expect.objectContaining({ mapWidth: 20, mapHeight: 24, maxAreas: 20 })
+      );
+    });
+
+    it('falls back to the store map size when the caller omits it', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+      store.setState({ config: { ...store.getState().config, mapSize: 'large' } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(createGame).toHaveBeenCalledWith(
+        expect.objectContaining({ mapWidth: 36, mapHeight: 40, maxAreas: 48 })
+      );
+    });
+
+    it('threads map size in spectator (AI vs AI) mode', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: true, mapSize: 'large' });
+
+      expect(createGame).toHaveBeenCalledWith(
+        expect.objectContaining({ mapWidth: 36, mapHeight: 40, maxAreas: 48 })
+      );
     });
   });
 

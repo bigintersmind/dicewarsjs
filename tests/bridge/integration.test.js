@@ -43,7 +43,14 @@ describe('Bridge Module Integration', () => {
     test('exposes AI functions to global scope', async () => {
       // Import the bridge module to trigger the code
       await import('../../src/bridge/ai.js');
-      await Promise.resolve();
+
+      // ai.js installs placeholders synchronously, then swaps in the real
+      // implementations from a fire-and-forget async IIFE (dynamic imports).
+      // A single microtask tick isn't enough under a busy event loop (CI),
+      // so wait for the replacement to actually land instead of racing it.
+      await vi.waitFor(() => {
+        expect(window.ai_default?.isPlaceholder).toBeFalsy();
+      });
 
       // Load ES6 implementations for comparison
       const ai_default = await getAIImplementation('ai_default');

@@ -122,8 +122,9 @@ module.exports = {
     // Config files
     '.prettierrc.cjs',
 
-    // Community bots (excluded from project linting)
+    // Bot files are bare function bodies (top-level return), not ES modules — skip them
     'bots/',
+    'community-bots/',
 
     // Source files excluded temporarily (will be improved gradually)
     'src/Game.js',

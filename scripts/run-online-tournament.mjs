@@ -151,14 +151,16 @@ if (result.aborted) {
 
 // --- Select notable replays ---
 
-// Pick the longest games (likely the most competitive matches)
+// Pick the longest *decisive* games — a game that someone actually won is a far
+// better showcase than a stalemate that ran out the turn cap. Among decisive
+// games, longer ones tend to be the most competitive, back-and-forth matches.
 const replayMatches = result.matches
-  .filter(m => m.finalState && m.turnCount > 5)
+  .filter(m => m.finalState && m.winner !== null && m.turnCount > 5)
   .map(m => {
     const botNames = m.botStats.map(s => s.name);
     return { match: m, botNames, turnCount: m.turnCount };
   })
-  .sort((a, b) => b.turnCount - a.turnCount) // longest games are most interesting
+  .sort((a, b) => b.turnCount - a.turnCount) // longest decisive games are most interesting
   .slice(0, MAX_REPLAYS);
 
 // Clear old replays

@@ -1,1 +1,51 @@
-[]
+[
+  {
+    "date": "2026-06-14",
+    "gamesPlayed": 100,
+    "failedGames": 0,
+    "botCount": 8,
+    "champion": "Defensive",
+    "standings": [
+      {
+        "name": "Defensive",
+        "elo": 1305,
+        "wins": 23
+      },
+      {
+        "name": "Connector",
+        "elo": 1248,
+        "wins": 12
+      },
+      {
+        "name": "Adaptive",
+        "elo": 1234,
+        "wins": 9
+      },
+      {
+        "name": "Example",
+        "elo": 1233,
+        "wins": 8
+      },
+      {
+        "name": "Claude",
+        "elo": 1228,
+        "wins": 22
+      },
+      {
+        "name": "Giant Slayer",
+        "elo": 1143,
+        "wins": 5
+      },
+      {
+        "name": "Default",
+        "elo": 1134,
+        "wins": 5
+      },
+      {
+        "name": "Blitz",
+        "elo": 1076,
+        "wins": 5
+      }
+    ]
+  }
+]

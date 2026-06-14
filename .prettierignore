@@ -7,16 +7,12 @@ node_modules/
 # Coverage directory
 coverage/
 
-# Legacy files (to be removed later)
-areadice.js
-mc.js
-game.js
-config.js
-main.js
-
 # Configuration files
 package.json
 package-lock.json
+
+# Source file excluded from tooling (also ignored in .eslintrc.cjs)
+src/utils/config.js
 
 # Generated files
 *.min.js

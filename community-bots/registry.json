@@ -1,1 +1,29 @@
-[]
+[
+  {
+    "id": "bigintersmind/connector",
+    "name": "Connector",
+    "author": "bigintersmind",
+    "file": "bigintersmind/connector.js",
+    "description": "Grows its largest connected group to maximize reinforcements, taking only favorable dice odds.",
+    "submittedAt": "2026-06-13T00:00:00Z",
+    "active": true
+  },
+  {
+    "id": "bigintersmind/blitz",
+    "name": "Blitz",
+    "author": "bigintersmind",
+    "file": "bigintersmind/blitz.js",
+    "description": "Hyper-aggressive expander that grabs every favorable capture and takes even odds for tempo.",
+    "submittedAt": "2026-06-13T00:00:00Z",
+    "active": true
+  },
+  {
+    "id": "bigintersmind/giant-slayer",
+    "name": "Giant Slayer",
+    "author": "bigintersmind",
+    "file": "bigintersmind/giant-slayer.js",
+    "description": "Focuses favorable attacks on the strongest opponent to stop any player from running away.",
+    "submittedAt": "2026-06-13T00:00:00Z",
+    "active": true
+  }
+]

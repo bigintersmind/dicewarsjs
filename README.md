@@ -75,7 +75,6 @@ npm run preview         # Preview production build
 npm test                # Run all tests
 npm run test:watch      # Tests in watch mode
 npm run test:coverage   # Coverage report
-npm run test:regression # Regression tests
 npm run test:benchmark  # AI benchmark tests
 
 npm run lint            # Check linting

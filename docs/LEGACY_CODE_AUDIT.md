@@ -1,5 +1,7 @@
 # Legacy Code Audit Report
 
+> **Historical / superseded (June 2026).** The legacy JavaScript files audited here (`game.js`, `main.js`, `areadice.js`, `mc.js`, `config.js`, and the `MCAdapter` pattern) have since been **deleted** in the modern-only sweep. This document is retained only as a record of the original migration analysis.
+
 This document provides a comprehensive analysis of the legacy JavaScript files in the DiceWarsJS project to determine migration boundaries and develop an effective modernization strategy.
 
 ## Executive Summary

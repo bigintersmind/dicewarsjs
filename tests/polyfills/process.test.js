@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Tests for the process.js polyfill
  *

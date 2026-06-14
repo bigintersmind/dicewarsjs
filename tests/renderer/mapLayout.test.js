@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Map fit-to-canvas layout tests.
  *

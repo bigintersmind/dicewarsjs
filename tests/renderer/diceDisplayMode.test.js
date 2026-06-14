@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Dice-display-mode live-apply seam tests.
  *

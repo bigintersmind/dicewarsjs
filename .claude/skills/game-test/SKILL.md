@@ -11,9 +11,7 @@ Run tests intelligently based on what was changed:
    - Files in `src/mechanics/` → run `npx jest tests/mechanics/`
    - Files in `src/models/` → run `npx jest tests/models/`
    - Files in `src/state/` → run `npx jest tests/state/`
-   - Files in `src/enhanced/` → run `npx jest tests/mechanics/enhanced/ tests/models/enhanced/`
    - Files in `src/ui/` → run `npm test` (no dedicated UI test suite exists yet)
-   - Files in `src/bridge/` → run `npx jest tests/bridge/`
    - For other `src/` files or if multiple areas changed → run `npm test`
 3. If no changed files are detected, ask the user which tests to run
 4. Always report coverage delta if tests pass by comparing with `npx jest --coverage` output

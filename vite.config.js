@@ -2,7 +2,13 @@ import { defineConfig } from 'vite';
 import preact from '@preact/preset-vite';
 import path from 'path';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  /*
+   * GitHub Pages serves this project at https://ivanlay.com/dicewarsjs/, so the
+   * production build must emit subpath-relative asset URLs. Dev/test stay at '/'.
+   */
+  base: command === 'build' ? '/dicewarsjs/' : '/',
+
   plugins: [preact({ devToolsEnabled: false })],
 
   resolve: {
@@ -84,4 +90,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

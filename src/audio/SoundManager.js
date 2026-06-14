@@ -8,15 +8,20 @@
  * @module audio/SoundManager
  */
 
+/*
+ * Prefix with Vite's base URL so sounds resolve under the deploy subpath
+ * (e.g. /dicewarsjs/sound/...). BASE_URL always ends with a slash.
+ */
+const BASE = import.meta.env.BASE_URL;
 const SOUND_PATHS = {
-  button: '/sound/button.wav',
-  clear: '/sound/clear.wav',
-  click: '/sound/click.wav',
-  dice: '/sound/dice.wav',
-  fail: '/sound/fail.wav',
-  myturn: '/sound/myturn.wav',
-  over: '/sound/over.wav',
-  success: '/sound/success.wav',
+  button: `${BASE}sound/button.wav`,
+  clear: `${BASE}sound/clear.wav`,
+  click: `${BASE}sound/click.wav`,
+  dice: `${BASE}sound/dice.wav`,
+  fail: `${BASE}sound/fail.wav`,
+  myturn: `${BASE}sound/myturn.wav`,
+  over: `${BASE}sound/over.wav`,
+  success: `${BASE}sound/success.wav`,
 };
 
 /**

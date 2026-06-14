@@ -51,9 +51,11 @@ config.aiAssignments = [
 To add a new AI strategy:
 
 1. Create your AI implementation file (e.g., `src/ai/ai_myCustom.js`)
-2. Add it to the `AI_STRATEGIES` registry in `aiConfig.js`:
+2. Add a dynamic loader and registry entry in `aiConfig.js`:
 
 ```javascript
+export const load_ai_myCustom = async () => (await import('./ai_myCustom.js')).ai_myCustom;
+
 export const AI_STRATEGIES = {
   // Existing strategies...
 
@@ -63,7 +65,8 @@ export const AI_STRATEGIES = {
     name: 'My Custom AI',
     description: 'Description of your strategy approach',
     difficulty: 3, // Rating from 1-5
-    implementation: ai_myCustom,
+    loader: load_ai_myCustom,
+    implementation: null,
   },
 };
 ```

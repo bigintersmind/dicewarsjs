@@ -12,7 +12,7 @@ Built on the original [Dice Wars](https://www.gamedesign.jp/games/dicewars/) by 
 - **Configurable map size** — pick Small (20×24), Medium (28×32, default) or Large (36×40) before each game
 - **Bot SDK** — write a bot in a single function and compete in the arena
 - **Arena mode** — run tournaments with ELO ratings and match replays
-- **4 built-in AI strategies** — from random to adaptive
+- **6 built-in AI strategies** — from random to exact-odds EV search
 - **PixiJS rendering** — WebGL-accelerated hex grid with dice animations
 - **Mobile-friendly** — responsive design with touch support
 
@@ -95,7 +95,7 @@ src/
 ├── renderer/     PixiJS rendering (hex grid, dice, animations)
 ├── ui/           Preact components (screens, HUD, overlays)
 ├── arena/        Bot SDK (validation, execution, tournaments, ELO, replays)
-├── ai/           4 AI strategies (example, default, defensive, adaptive)
+├── ai/           6 AI strategies (example, default, defensive, adaptive, Claude, Codex)
 ├── store/        Observable GameStore (pub/sub shared state)
 ├── controller/   GameController (game loop orchestrator)
 ├── audio/        Web Audio sound manager
@@ -114,6 +114,8 @@ See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.
 | **Default** (`ai_default.js`)     | Original game's balanced AI                   |
 | **Defensive** (`ai_defensive.js`) | Prioritizes protecting vulnerable territories |
 | **Adaptive** (`ai_adaptive.js`)   | Adjusts strategy based on game state          |
+| **Claude** (`ai_claude.js`)       | Exact expected value using odds and income    |
+| **Codex** (`ai_codex.js`)         | Claude EV baseline with expectimax overrides  |
 
 ## Documentation
 

@@ -25,20 +25,20 @@ This document describes how the codebase is organized and how data flows through
 
 ## Directory Guide
 
-| Directory         | Purpose                                                                                                                                             |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/engine/`     | Pure game logic: state management, map generation, battle resolution, turn management. No DOM dependencies — runs in Node.js and browser.           |
-| `src/renderer/`   | PixiJS rendering: hex grid drawing, dice sprites, battle animations. Reads from GameStore, never mutates game state.                                |
-| `src/ui/`         | Preact components: title screen, game HUD, arena screen, tournament screen, replay viewer, leaderboard.                                             |
-| `src/store/`      | Observable GameStore with pub/sub. Shared by controller, renderer, and UI.                                                                          |
-| `src/controller/` | GameController orchestrates the game loop (title -> map preview -> playing -> game over), handles human input, and drives AI turns.                 |
-| `src/arena/`      | Bot SDK: bot validation, sandboxed execution, match running, ELO ratings, tournament formats, replay serialization.                                 |
-| `src/ai/`         | Four AI strategies (example, default, defensive, adaptive) using the legacy game object interface. Adapted for the arena via `legacyBotAdapter.js`. |
-| `src/audio/`      | Web Audio API sound manager with lazy loading.                                                                                                      |
-| `src/mechanics/`  | Shared game mechanics: event system, error handling, map generation utilities.                                                                      |
-| `src/models/`     | Data structures (AreaData, PlayerData, Battle, etc.) used across the game engine and AI.                                                            |
-| `src/utils/`      | Configuration, debug tools, and helper functions.                                                                                                   |
-| `src/state/`      | Orphaned immutable state patterns — never integrated.                                                                                               |
+| Directory         | Purpose                                                                                                                                                                |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/engine/`     | Pure game logic: state management, map generation, battle resolution, turn management. No DOM dependencies — runs in Node.js and browser.                              |
+| `src/renderer/`   | PixiJS rendering: hex grid drawing, dice sprites, battle animations. Reads from GameStore, never mutates game state.                                                   |
+| `src/ui/`         | Preact components: title screen, game HUD, arena screen, tournament screen, replay viewer, leaderboard.                                                                |
+| `src/store/`      | Observable GameStore with pub/sub. Shared by controller, renderer, and UI.                                                                                             |
+| `src/controller/` | GameController orchestrates the game loop (title -> map preview -> playing -> game over), handles human input, and drives AI turns.                                    |
+| `src/arena/`      | Bot SDK: bot validation, sandboxed execution, match running, ELO ratings, tournament formats, replay serialization.                                                    |
+| `src/ai/`         | Built-in AI strategies (example, default, defensive, adaptive, Claude, Codex) using the legacy game object interface. Adapted for the arena via `legacyBotAdapter.js`. |
+| `src/audio/`      | Web Audio API sound manager with lazy loading.                                                                                                                         |
+| `src/mechanics/`  | Shared game mechanics: event system, error handling, map generation utilities.                                                                                         |
+| `src/models/`     | Data structures (AreaData, PlayerData, Battle, etc.) used across the game engine and AI.                                                                               |
+| `src/utils/`      | Configuration, debug tools, and helper functions.                                                                                                                      |
+| `src/state/`      | Orphaned immutable state patterns — never integrated.                                                                                                                  |
 
 ## Data Flow: Playing a Game
 

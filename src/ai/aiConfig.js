@@ -12,6 +12,7 @@ export const load_ai_defensive = async () => (await import('./ai_defensive.js'))
 export const load_ai_example = async () => (await import('./ai_example.js')).ai_example;
 export const load_ai_adaptive = async () => (await import('./ai_adaptive.js')).ai_adaptive;
 export const load_ai_claude = async () => (await import('./ai_claude.js')).ai_claude;
+export const load_ai_codex = async () => (await import('./ai_codex.js')).ai_codex;
 
 /**
  * AI Strategy Registry
@@ -74,6 +75,16 @@ export const AI_STRATEGIES = {
     loader: load_ai_claude,
     implementation: null,
   },
+
+  // Shallow expectimax AI using exact dice odds and board-value search
+  ai_codex: {
+    id: 'ai_codex',
+    name: 'Codex AI',
+    description: 'Uses exact dice odds with shallow expectimax board evaluation',
+    difficulty: 5,
+    loader: load_ai_codex,
+    implementation: null,
+  },
 };
 
 /**
@@ -117,8 +128,8 @@ export const DEFAULT_AI_ASSIGNMENTS = [
   'ai_adaptive', // Player 3
   'ai_default', // Player 4
   'ai_default', // Player 5
-  'ai_default', // Player 6
-  'ai_default', // Player 7
+  'ai_claude', // Player 6
+  'ai_codex', // Player 7
 ];
 
 /**

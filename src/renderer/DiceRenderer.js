@@ -9,7 +9,7 @@
  * @module renderer/DiceRenderer
  */
 
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Text } from 'pixi.js';
 import {
   PLAYER_COLORS,
   COLORBLIND_PLAYER_COLORS,
@@ -34,6 +34,12 @@ const BACK_COLUMN_Y = -DICE_SIZE * 0.35;
 /** Container offset from the center cell's top-left corner. */
 const DICE_OFFSET_X = 4;
 const DICE_OFFSET_Y = 12;
+
+/** Count-badge geometry for number-only display mode (before map scaling). */
+const BADGE_CENTER_X = DICE_SIZE * 0.9;
+const BADGE_CENTER_Y = -DICE_SIZE * 0.55;
+const BADGE_RADIUS = DICE_SIZE * 0.95;
+const BADGE_FONT_SIZE = Math.round(DICE_SIZE * 1.25);
 
 /**
  * Darken a color by a factor (0-1).
@@ -175,6 +181,8 @@ export class DiceRenderer {
     this._diceContainers = [];
     /** @type {boolean} Color-blind mode */
     this._colorBlindMode = false;
+    /** @type {'dice' | 'number'} How dice counts are shown */
+    this._displayMode = 'dice';
   }
 
   /**
@@ -183,6 +191,14 @@ export class DiceRenderer {
    */
   setColorBlindMode(enabled) {
     this._colorBlindMode = enabled;
+  }
+
+  /**
+   * Set how dice counts are shown: stacked dice or a single count badge.
+   * @param {'dice' | 'number'} mode
+   */
+  setDiceDisplayMode(mode) {
+    this._displayMode = mode === 'number' ? 'number' : 'dice';
   }
 
   /**
@@ -233,8 +249,10 @@ export class DiceRenderer {
       return this._cellPos.y[centerA] - this._cellPos.y[centerB];
     });
 
-    // Remove all existing dice containers from parent
-    this.container.removeChildren();
+    // Remove and dispose existing dice containers (Graphics + Text) to avoid GPU leaks
+    for (const child of this.container.removeChildren()) {
+      child.destroy({ children: true });
+    }
 
     for (const areaId of sortedAreas) {
       const area = areas[areaId];
@@ -255,6 +273,23 @@ export class DiceRenderer {
     diceContainer.x = this._cellPos.x[centerCell] + DICE_OFFSET_X;
     diceContainer.y = this._cellPos.y[centerCell] + DICE_OFFSET_Y;
 
+    if (this._displayMode === 'number') {
+      this._drawCountBadge(diceContainer, area);
+    } else {
+      this._drawDiceStack(diceContainer, areaId, area);
+    }
+
+    this._diceContainers[areaId] = diceContainer;
+    this.container.addChild(diceContainer);
+  }
+
+  /**
+   * Draw the classic stacked-dice representation into an area container.
+   * @param {Container} container
+   * @param {number} areaId
+   * @param {import('../engine/types.js').Area} area
+   */
+  _drawDiceStack(container, areaId, area) {
     const color = dieBaseColor(this._getPlayerColor(area.owner));
     const pipColor = this._getPipColor(area.owner);
     const gfx = new Graphics();
@@ -283,10 +318,44 @@ export class DiceRenderer {
       drawDie(gfx, 0, y, color, pipColor, dieValue(i));
     }
 
-    diceContainer.addChild(gfx);
+    container.addChild(gfx);
+  }
 
-    this._diceContainers[areaId] = diceContainer;
-    this.container.addChild(diceContainer);
+  /**
+   * Draw a compact owner-colored badge showing the dice count, used when the
+   * display mode is 'number'. Reuses the dice palette and dark outline so the
+   * owner stays identifiable at a glance.
+   * @param {Container} container
+   * @param {import('../engine/types.js').Area} area
+   */
+  _drawCountBadge(container, area) {
+    const fillColor = dieBaseColor(this._getPlayerColor(area.owner));
+    const gfx = new Graphics();
+
+    // Drop shadow, matching the dice look
+    gfx.ellipse(BADGE_CENTER_X, DICE_SIZE * 0.3, DICE_SIZE * 1.05, DICE_SIZE * 0.38);
+    gfx.fill({ color: 0x000000, alpha: 0.3 });
+
+    // Owner-colored chip with the same dark outline as the dice
+    gfx.circle(BADGE_CENTER_X, BADGE_CENTER_Y, BADGE_RADIUS);
+    gfx.fill(fillColor);
+    gfx.stroke({ width: 1.5, color: BORDER_COLOR, join: 'round' });
+    container.addChild(gfx);
+
+    // White, dark-outlined numeral reads on every owner color
+    const label = new Text({
+      text: String(area.dice),
+      style: {
+        fontFamily: 'Anton, sans-serif',
+        fontSize: BADGE_FONT_SIZE,
+        fill: 0xffffff,
+        stroke: { color: BORDER_COLOR, width: 3 },
+      },
+      x: BADGE_CENTER_X,
+      y: BADGE_CENTER_Y,
+      anchor: { x: 0.5, y: 0.5 },
+    });
+    container.addChild(label);
   }
 
   /** Clean up. */

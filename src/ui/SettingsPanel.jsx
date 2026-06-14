@@ -24,6 +24,11 @@ const MOTION_OPTIONS = [
   { value: 'off', label: 'Off' },
 ];
 
+const DICE_DISPLAY_OPTIONS = [
+  { value: 'dice', label: 'Dice' },
+  { value: 'number', label: 'Number' },
+];
+
 const STYLE = {
   wrapper: {
     position: 'fixed',
@@ -225,6 +230,30 @@ export function SettingsPanel({ store, preferencesManager }) {
                 }}
               />
             </button>
+          </div>
+
+          {/* Dice display */}
+          <div style={STYLE.row}>
+            <span style={STYLE.label}>Dice display</span>
+            <div style={STYLE.btnGroup}>
+              {DICE_DISPLAY_OPTIONS.map(opt => {
+                const active = (prefs.diceDisplayMode || 'dice') === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    style={{
+                      ...STYLE.optionBtn,
+                      background: active ? accent : 'transparent',
+                      color: active ? '#fff' : textColor,
+                      borderColor: active ? accent : borderColor,
+                    }}
+                    onClick={() => setPref('diceDisplayMode', opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Mute sounds */}

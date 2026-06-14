@@ -12,6 +12,7 @@ const STORAGE_KEY = 'dicewars_prefs';
 export const DEFAULTS = {
   theme: 'dark',
   colorBlindMode: false,
+  diceDisplayMode: 'dice', // 'dice' | 'number'
   animationSpeed: 1,
   reducedMotion: 'system', // 'system' | 'on' | 'off'
   muted: false,
@@ -20,6 +21,7 @@ export const DEFAULTS = {
 const VALIDATORS = {
   theme: v => typeof v === 'string' && ['dark', 'light'].includes(v),
   colorBlindMode: v => typeof v === 'boolean',
+  diceDisplayMode: v => typeof v === 'string' && ['dice', 'number'].includes(v),
   animationSpeed: v => typeof v === 'number' && v > 0 && v <= 10,
   reducedMotion: v => typeof v === 'string' && ['system', 'on', 'off'].includes(v),
   muted: v => typeof v === 'boolean',

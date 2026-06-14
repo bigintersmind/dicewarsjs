@@ -17,6 +17,7 @@ function createMockPreferencesManager(initial = {}) {
   const prefs = {
     theme: 'dark',
     colorBlindMode: false,
+    diceDisplayMode: 'dice',
     animationSpeed: 1,
     reducedMotion: 'system',
     ...initial,
@@ -37,6 +38,7 @@ function renderPanel(storeOverrides = {}, prefsOverrides = {}) {
     preferences: {
       theme: 'dark',
       colorBlindMode: false,
+      diceDisplayMode: 'dice',
       animationSpeed: 1,
       reducedMotion: 'system',
       ...prefsOverrides,
@@ -145,6 +147,26 @@ describe('SettingsPanel', () => {
     act(() => cbBtn.click());
 
     expect(pm.set).toHaveBeenCalledWith('colorBlindMode', true);
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Dice display mode
+   * -----------------------------------------------------------------------
+   */
+
+  it('calls setPref to switch dice display to number', () => {
+    const { pm } = renderPanel();
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const numberBtn = buttons.find(b => b.textContent === 'Number');
+    expect(numberBtn).toBeTruthy();
+
+    act(() => numberBtn.click());
+
+    expect(pm.set).toHaveBeenCalledWith('diceDisplayMode', 'number');
   });
 
   /*

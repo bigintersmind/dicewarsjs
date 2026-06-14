@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { createPreferencesManager } from '../../src/store/PreferencesManager.js';
 
 describe('PreferencesManager', () => {

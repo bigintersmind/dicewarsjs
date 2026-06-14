@@ -173,6 +173,15 @@ When working with AI strategies:
 4. Benchmarks are in tests/benchmarks/.
 5. Error handling should be tested thoroughly, including edge cases.
 
+### Running tests safely (resource limits)
+
+The full suite forks many workers; running several copies at once can exhaust RAM and freeze the machine. Two guardrails are in place: each run is capped at 50% of cores (`maxWorkers` in `vite.config.js`), and `npm test` / `npm run test:coverage` go through a machine-wide lock (`scripts/test-lock.sh`) so only one run executes at a time — concurrent callers queue rather than pile up.
+
+**Subagents must not each run the full suite.** When work is delegated across multiple subagents, do not have each one call `npm test`. Instead:
+
+- Prefer the `game-test` skill, or run only the relevant tests with `npx vitest run <path-or-pattern>` for the area you changed.
+- Let the **main agent** run the full `npm test` once, at the end, to validate. The lock makes accidental overlap safe but it serializes (slow); avoiding redundant full runs is still the goal.
+
 ## Best Practices
 
 1. **Code Style**: Follow existing code patterns and conventions
@@ -186,6 +195,7 @@ When working with AI strategies:
 - **Path aliases**: `@utils`, `@ai`, `@models`, `@mechanics`, `@state` are configured in `vite.config.js` for both builds and tests. Source files use relative imports; aliases are available but prefer relative paths in new code.
 - **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` and `.jsx` files.
 - **Vitest globals**: Tests use `globals: true` in vitest config, so `describe`, `it`, `expect`, `vi`, `beforeEach`, `afterEach` are available without imports. Use `import { vi } from 'vitest'` only if needed for explicit typing.
+- **Test environment is `node` by default**: To keep memory down, the suite runs under the lightweight Node environment, not jsdom. A test that touches `document`, `window`, `localStorage`, canvas, or renders a Preact component must declare `// @vitest-environment jsdom` as the first line of the file, or it will fail with `X is not defined`.
 
 ## Common Pitfalls to Avoid
 

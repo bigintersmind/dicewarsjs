@@ -40,10 +40,27 @@ export default defineConfig(({ command }) => ({
   },
 
   test: {
-    environment: 'jsdom',
+    /*
+     * jsdom boots a full DOM in every worker (~150-400MB each), but most of the
+     * suite is pure engine/AI/model logic that never touches the DOM. Default to
+     * the lightweight Node environment; the ~18 browser-facing suites opt back
+     * into jsdom with a `// @vitest-environment jsdom` docblock at the top of the
+     * file. This slashes per-run memory and speeds the suite up. New DOM tests
+     * (touching document/window/localStorage) must add that docblock.
+     */
+    environment: 'node',
     setupFiles: ['./tests/setup.js'],
     include: ['tests/**/*.test.{js,cjs}', 'src/**/*.test.js', 'tests/benchmarks/*.benchmark.js'],
     globals: true,
+    /*
+     * Cap forked workers so a single run can't grab every core, and so several
+     * concurrent runs (e.g. parallel Claude Code subagents) can't multiply their
+     * jsdom workers into an out-of-memory crash. '50%' = 4 workers on 8 cores.
+     * Pair this with the machine-wide lock in `npm test` (scripts/test-lock.sh),
+     * which keeps separate runs from overlapping in the first place.
+     */
+    maxWorkers: '50%',
+    minWorkers: 1,
 
     coverage: {
       provider: 'v8',

@@ -92,9 +92,7 @@ export function loadBot(filePath) {
  */
 export function resolveBot(identifier) {
   // Check built-in names first (case-insensitive)
-  const builtin = BUILT_IN_BOTS.find(
-    b => b.name.toLowerCase() === identifier.toLowerCase()
-  );
+  const builtin = BUILT_IN_BOTS.find(b => b.name.toLowerCase() === identifier.toLowerCase());
   if (builtin) {
     return { name: builtin.name, fn: builtin.fn, source: 'builtin' };
   }

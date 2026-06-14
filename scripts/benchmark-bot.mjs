@@ -81,9 +81,10 @@ let targetName = targetBot.name;
 let opponents;
 
 if (targetBot.source === 'builtin') {
-  opponents = BUILT_IN_BOTS
-    .filter(b => b.name !== targetBot.name)
-    .map(b => ({ name: b.name, fn: b.fn }));
+  opponents = BUILT_IN_BOTS.filter(b => b.name !== targetBot.name).map(b => ({
+    name: b.name,
+    fn: b.fn,
+  }));
 } else {
   if (BUILT_IN_BOTS.some(b => b.name === targetName)) {
     targetName = `${targetName} (custom)`;
@@ -105,7 +106,7 @@ try {
     bots,
     gameCount,
     baseSeed: 1,
-    onGameComplete: (i) => {
+    onGameComplete: i => {
       if ((i + 1) % 10 === 0 || i + 1 === gameCount) {
         process.stdout.write(`\rGames: ${i + 1}/${gameCount}`);
       }
@@ -144,7 +145,9 @@ if (errorCount > 0) {
 console.log();
 console.log('  Performance');
 console.log(`    ELO:            ${targetStats.elo}`);
-console.log(`    Wins:           ${targetStats.wins}/${targetStats.gamesPlayed} (${targetStats.gamesPlayed > 0 ? ((targetStats.wins / targetStats.gamesPlayed) * 100).toFixed(1) : '0.0'}%)`);
+console.log(
+  `    Wins:           ${targetStats.wins}/${targetStats.gamesPlayed} (${targetStats.gamesPlayed > 0 ? ((targetStats.wins / targetStats.gamesPlayed) * 100).toFixed(1) : '0.0'}%)`
+);
 console.log(`    Avg Placement:  ${targetStats.avgPlacement}`);
 console.log(`    Attack Win Rate: ${(targetStats.attackWinRate * 100).toFixed(1)}%`);
 

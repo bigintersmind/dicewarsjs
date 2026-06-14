@@ -54,7 +54,9 @@ if (fs.existsSync(LEADERBOARD_PATH)) {
       previousLeaderboard = parsed;
     }
   } catch (err) {
-    console.error(`${colors.red}Error: Could not parse previous leaderboard: ${err.message}${colors.reset}`);
+    console.error(
+      `${colors.red}Error: Could not parse previous leaderboard: ${err.message}${colors.reset}`
+    );
     console.error('Run with a valid leaderboard.json or delete it to start fresh.');
     process.exit(1);
   }
@@ -75,7 +77,9 @@ if (fs.existsSync(REGISTRY_PATH)) {
   try {
     registry = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf-8'));
   } catch (err) {
-    console.error(`${colors.red}Error: Could not parse community bot registry: ${err.message}${colors.reset}`);
+    console.error(
+      `${colors.red}Error: Could not parse community bot registry: ${err.message}${colors.reset}`
+    );
     process.exit(1);
   }
 
@@ -85,11 +89,15 @@ if (fs.existsSync(REGISTRY_PATH)) {
     const botPath = path.join(COMMUNITY_DIR, entry.file);
     // Guard against path traversal (e.g. "../../.env")
     if (!path.resolve(botPath).startsWith(COMMUNITY_DIR + path.sep)) {
-      console.warn(`${colors.yellow}Skipping ${entry.name}: path traversal detected (${entry.file})${colors.reset}`);
+      console.warn(
+        `${colors.yellow}Skipping ${entry.name}: path traversal detected (${entry.file})${colors.reset}`
+      );
       continue;
     }
     if (!fs.existsSync(botPath)) {
-      console.warn(`${colors.yellow}Skipping ${entry.name}: file not found (${entry.file})${colors.reset}`);
+      console.warn(
+        `${colors.yellow}Skipping ${entry.name}: file not found (${entry.file})${colors.reset}`
+      );
       continue;
     }
 
@@ -111,7 +119,9 @@ if (bots.length < 2) {
 
 // --- Run tournament ---
 
-console.log(`\n${colors.bold}Running tournament: ${gameCount} games with ${bots.length} bots${colors.reset}\n`);
+console.log(
+  `\n${colors.bold}Running tournament: ${gameCount} games with ${bots.length} bots${colors.reset}\n`
+);
 
 // Date-based seed: reproducible within the same day, varies between days
 const today = new Date();
@@ -133,7 +143,9 @@ const result = runArena({
 console.log('');
 
 if (result.aborted) {
-  console.error(`${colors.red}Tournament aborted due to excessive failures (${result.failedGames} failed).${colors.reset}`);
+  console.error(
+    `${colors.red}Tournament aborted due to excessive failures (${result.failedGames} failed).${colors.reset}`
+  );
   process.exit(1);
 }
 
@@ -201,7 +213,9 @@ if (fs.existsSync(HISTORY_PATH)) {
   try {
     history = JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf-8'));
   } catch (err) {
-    console.warn(`${colors.yellow}Warning: Could not parse tournament history (${err.message}), starting fresh.${colors.reset}`);
+    console.warn(
+      `${colors.yellow}Warning: Could not parse tournament history (${err.message}), starting fresh.${colors.reset}`
+    );
     history = [];
   }
 }

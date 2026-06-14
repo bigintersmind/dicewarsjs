@@ -49,9 +49,7 @@ if (activeBots.length === 0) {
   process.exit(0);
 }
 
-console.log(
-  `\n${colors.bold}Validating ${activeBots.length} community bot(s)...${colors.reset}\n`
-);
+console.log(`\n${colors.bold}Validating ${activeBots.length} community bot(s)...${colors.reset}\n`);
 
 // --- Validate each bot ---
 
@@ -133,5 +131,7 @@ if (failures > 0) {
   console.log(`${colors.red}${colors.bold}${failures} failure(s)${colors.reset}`);
   process.exit(1);
 } else {
-  console.log(`${colors.green}${colors.bold}All community bots validated successfully.${colors.reset}`);
+  console.log(
+    `${colors.green}${colors.bold}All community bots validated successfully.${colors.reset}`
+  );
 }

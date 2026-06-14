@@ -51,7 +51,9 @@ if (bots.length < 2) {
 
 // --- Run arena ---
 
-console.log(`Running ${gameCount} games with ${bots.length} bots: ${bots.map(b => b.name).join(', ')}`);
+console.log(
+  `Running ${gameCount} games with ${bots.length} bots: ${bots.map(b => b.name).join(', ')}`
+);
 console.log();
 
 const startTime = Date.now();
@@ -62,7 +64,7 @@ try {
     bots: bots.map(b => ({ name: b.name, fn: b.fn })),
     gameCount,
     baseSeed: 1,
-    onGameComplete: (i) => {
+    onGameComplete: i => {
       if ((i + 1) % 10 === 0 || i + 1 === gameCount) {
         process.stdout.write(`\rGames: ${i + 1}/${gameCount}`);
       }

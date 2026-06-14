@@ -11,6 +11,8 @@ src/
 │   ├── ai_defensive.js    # Defensive AI strategy
 │   ├── ai_example.js      # Simple example AI for learning
 │   ├── ai_adaptive.js     # Adaptive AI that changes strategy based on game state
+│   ├── ai_claude.js       # Exact expected-value AI
+│   ├── ai_codex.js        # Claude EV baseline with expectimax overrides
 │   ├── aiConfig.js        # Centralized AI configuration and registry
 │   └── index.js           # Exports all AI strategies and configuration
 ├── models/                # Data structures and models
@@ -60,6 +62,8 @@ Modular AI implementations with centralized configuration:
 - `ai_defensive`: Conservative strategy focused on territory protection
 - `ai_example`: Simple example for learning how to create custom AIs
 - `ai_adaptive`: Adaptive strategy that changes based on game conditions
+- `ai_claude`: Exact expected-value strategy using dice odds and connectivity economics
+- `ai_codex`: Claude EV baseline with high-confidence shallow expectimax overrides
 
 The AI system is managed through a centralized configuration in `aiConfig.js` that provides:
 
@@ -84,8 +88,7 @@ To create a custom AI:
 1. Create a new file in the `ai/` directory (e.g., `ai_custom.js`)
 2. Export a function that takes a `game` parameter
 3. Implement your AI logic to select attacks
-4. Add your new AI to the `index.js` export list
-5. Add your AI to the registry in `aiConfig.js` for centralized management
+4. Add a dynamic loader and registry entry in `aiConfig.js`
 
 Example:
 

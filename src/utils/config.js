@@ -27,8 +27,8 @@ export const DEFAULT_CONFIG = {
     'ai_adaptive',       // Player 3
     'ai_default',        // Player 4
     'ai_default',        // Player 5
-    'ai_default',        // Player 6
-    'ai_default'         // Player 7
+    'ai_claude',         // Player 6
+    'ai_codex'           // Player 7
   ],
 
   // Spectator mode settings

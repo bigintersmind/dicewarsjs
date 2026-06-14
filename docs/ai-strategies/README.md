@@ -38,6 +38,7 @@ More sophisticated approaches to improve AI performance:
 - [Choke Point Control](./advanced/choke-point-control.md) - Identifying and controlling strategically valuable territories
 - [Reinforcement Optimization](./advanced/reinforcement-optimization.md) - Maximizing the value of reinforcement dice
 - [Expected-Value AI](./advanced/expected-value-ai.md) - Scoring every move by expected income/risk, plus how to benchmark bots with confidence intervals
+- [Codex Expectimax AI](./advanced/codex-expectimax-ai.md) - Using a proven EV baseline with high-confidence shallow-search overrides
 
 ## Strategy Combinations
 

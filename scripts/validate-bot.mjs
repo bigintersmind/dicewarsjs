@@ -11,7 +11,15 @@
  */
 
 import path from 'node:path';
-import { getPositionalArg, hasFlag, loadBotSource, colors, pass, fail, warn } from './lib/cli-utils.mjs';
+import {
+  getPositionalArg,
+  hasFlag,
+  loadBotSource,
+  colors,
+  pass,
+  fail,
+  warn,
+} from './lib/cli-utils.mjs';
 import { validateBotSource } from '../src/arena/botValidator.js';
 import { compileCustomBot } from '../src/arena/customBotCompiler.js';
 import { runMatch } from '../src/arena/matchRunner.js';
@@ -87,7 +95,9 @@ if (runTest) {
     if (errors === 0 && invalidMoves === 0) {
       pass(`Test match (placed ${placement}${ordinal(placement)}, 0 errors, 0 invalid moves)`);
     } else {
-      warn(`Test match: ${errors} error(s), ${invalidMoves} invalid move(s), placed ${placement}${ordinal(placement)}`);
+      warn(
+        `Test match: ${errors} error(s), ${invalidMoves} invalid move(s), placed ${placement}${ordinal(placement)}`
+      );
       warnings++;
     }
   } catch (err) {
@@ -99,10 +109,14 @@ if (runTest) {
 // Summary
 console.log();
 if (failures > 0) {
-  console.log(`Result: ${colors.red}FAIL${colors.reset} (${failures} error${failures > 1 ? 's' : ''})`);
+  console.log(
+    `Result: ${colors.red}FAIL${colors.reset} (${failures} error${failures > 1 ? 's' : ''})`
+  );
   process.exit(1);
 } else if (warnings > 0) {
-  console.log(`Result: ${colors.green}PASS${colors.reset} (${warnings} warning${warnings > 1 ? 's' : ''})`);
+  console.log(
+    `Result: ${colors.green}PASS${colors.reset} (${warnings} warning${warnings > 1 ? 's' : ''})`
+  );
 } else {
   console.log(`Result: ${colors.green}PASS${colors.reset}`);
 }

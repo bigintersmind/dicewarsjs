@@ -44,7 +44,9 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('validation-output.txt', 'utf-8');
+            const output = fs.existsSync('validation-output.txt')
+              ? fs.readFileSync('validation-output.txt', 'utf-8')
+              : '(no validation output — an earlier step failed before validation ran; see the workflow logs)';
             const status = '${{ steps.validate.outcome }}';
             const icon = status === 'success' ? ':white_check_mark:' : ':x:';
             const body = `## ${icon} Bot Validation ${status === 'success' ? 'Passed' : 'Failed'}\n\n\`\`\`\n${output}\n\`\`\``;

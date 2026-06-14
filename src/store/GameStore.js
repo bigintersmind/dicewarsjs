@@ -61,7 +61,7 @@ const DEFAULT_STATE = {
       'ai_adaptive',
       'ai_default',
       'ai_default',
-      'ai_default',
+      'ai_claude',
       'ai_claude',
     ],
   },

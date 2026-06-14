@@ -26,17 +26,15 @@ src/
 │   ├── render.js          # UI rendering utilities
 │   ├── sound.js           # Sound management
 │   └── index.js           # Exports all utilities
-├── Game.js                # Core game logic
-├── index.html             # Main HTML file
-├── main.js                # Game initialization and UI
+├── main.jsx               # Application entry point (PixiJS + Preact bootstrap)
 └── README.md              # This documentation file
 ```
 
 ## Module Overview
 
-### Game.js
+### Game Engine
 
-The core game logic module that manages:
+The core game logic lives in `src/engine/` (pure, no DOM) and manages:
 
 - Map generation and territory layout
 - Game state management

@@ -74,10 +74,6 @@ export const AI_STRATEGIES = {
 config.aiAssignments[3] = 'ai_myCustom'; // Assign to player 3
 ```
 
-## Bridge Compatibility
-
-The bridge module (`src/bridge/ai.js`) exposes the configuration system to legacy code, ensuring everything works consistently in both ES6 modules and global scope code.
-
 ## Legacy Support
 
 For backward compatibility, the configuration system still supports the old `aiTypes` format, but will log a warning recommending upgrade to `aiAssignments`.

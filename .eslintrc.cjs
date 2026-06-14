@@ -111,14 +111,6 @@ module.exports = {
     'node_modules/',
     'coverage/',
 
-    // Legacy root files (to be removed later)
-    '*.html',
-    'areadice.js',
-    'mc.js',
-    'game.js',
-    'config.js',
-    'main.js',
-
     // Config files
     '.prettierrc.cjs',
 
@@ -127,13 +119,10 @@ module.exports = {
     'community-bots/',
 
     // Source files excluded temporarily (will be improved gradually)
-    'src/Game.js',
     'src/utils/config.js',
     '**/PlayerData.js', // Private field syntax not supported by current ESLint config
 
     // Test files with parsing issues
-    'tests/Game/Game.test.js',
-    'tests/bridge/integration.test.js',
     'tests/models/enhanced/PlayerData.test.js',
     'tests/state/ImmutableState.test.js',
 

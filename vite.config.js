@@ -48,7 +48,6 @@ export default defineConfig(({ command }) => ({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{js,jsx}'],
-      exclude: ['src/bridge/**/*.js'],
       reportsDirectory: 'coverage',
       reporter: ['text', 'lcov', 'html'],
       thresholds: {

@@ -36,12 +36,9 @@ This document describes how the codebase is organized and how data flows through
 | `src/ai/`         | Four AI strategies (example, default, defensive, adaptive) using the legacy game object interface. Adapted for the arena via `legacyBotAdapter.js`. |
 | `src/audio/`      | Web Audio API sound manager with lazy loading.                                                                                                      |
 | `src/mechanics/`  | Shared game mechanics: event system, error handling, map generation utilities.                                                                      |
-| `src/models/`     | Data structures (AreaData, PlayerData, Battle, etc.) used by legacy code paths.                                                                     |
+| `src/models/`     | Data structures (AreaData, PlayerData, Battle, etc.) used across the game engine and AI.                                                            |
 | `src/utils/`      | Configuration, debug tools, and helper functions.                                                                                                   |
-| `src/bridge/`     | **Deprecated.** Legacy async/sync bridge — will be removed.                                                                                         |
 | `src/state/`      | Orphaned immutable state patterns — never integrated.                                                                                               |
-| `src/adapters/`   | Legacy adapter for CreateJS MovieClip.                                                                                                              |
-| `src/enhanced/`   | Experimental Map-based data structures — unused.                                                                                                    |
 
 ## Data Flow: Playing a Game
 

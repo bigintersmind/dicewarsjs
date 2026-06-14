@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Important Project Status Update:** The project is following a new modernization roadmap (see `docs/MODERNIZATION_ROADMAP.md`) that replaces the old bridge-based ES6 migration. The bridge pattern (`src/bridge/`) is deprecated and will be removed — **do not add to or extend it**; build new functionality per the roadmap. Refer to the roadmap for all architectural goals and migration strategies.
+**Important Project Status Update:** The project has completed its modernization (see `docs/MODERNIZATION_ROADMAP.md`). The legacy CreateJS code and the deprecated legacy↔modern bridge have been removed — the repo is now **modern-only** (Vite + PixiJS + Preact, running on a pure `src/engine/`). Build new functionality per the roadmap.
 
 ## Build and Development Commands
 
@@ -47,9 +47,6 @@ npm run format
 
 # Check formatting without writing
 npm run format:check
-
-# Run regression tests
-npm run test:regression
 
 # Run Vitest benchmark tests
 npm run test:benchmark
@@ -111,15 +108,11 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 ### Architecture
 
-1. **Modern ES6 Modules**: All active code in the `src/` directory uses ES6 imports/exports with relative paths.
+1. **Modern ES6 Modules**: All active code in the `src/` directory uses ES6 imports/exports with relative paths. The entry point is `src/main.jsx` (loaded by the root `index.html`).
 
-2. **Legacy Code** (reference only): Root directory files (game.js, main.js, areadice.js, mc.js) are preserved for reference but not loaded by the Vite build. `index.legacy.html` preserves the old entry point.
+2. **Game Engine**: `src/engine/` contains the pure game engine — no DOM, no rendering. Includes StateManager, BattleResolver, MapGenerator, TurnManager, HexGrid, AIAdapter, and GameRunner.
 
-3. **Bridge Pattern** (DEPRECATED): `src/bridge/` is a legacy↔modern shim retained only until removal (see status note above).
-
-4. **Game Engine** (Phase 2): `src/engine/` contains the pure game engine — no DOM, no rendering. Includes StateManager, BattleResolver, MapGenerator, TurnManager, HexGrid, AIAdapter, and GameRunner.
-
-5. **Rendering & UI** (Phase 3): `src/renderer/` (PixiJS hex grid, dice, battle animation), `src/ui/` (Preact screens and HUD), `src/store/` (observable GameStore), `src/controller/` (GameController orchestrator), `src/audio/` (Web Audio SoundManager).
+3. **Rendering & UI**: `src/renderer/` (PixiJS hex grid, dice, battle animation), `src/ui/` (Preact screens and HUD), `src/store/` (observable GameStore), `src/controller/` (GameController orchestrator), `src/audio/` (Web Audio SoundManager).
 
 ### Core Components
 
@@ -151,9 +144,7 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 - **Models** (src/models/): Data structures for game entities (AreaData, PlayerData, Battle, HistoryData, JoinData).
 
-- **Enhanced Modules** (src/enhanced/, src/models/enhanced/, src/mechanics/enhanced/): Improved variants of core components with additional features like adjacency graphs, territory graphs, and disjoint sets.
-
-- **Adapters** (src/adapters/): Adapter classes for interfacing with legacy components (e.g., MCAdapter).
+- **Enhanced Modules** (src/models/enhanced/, src/mechanics/enhanced/): Improved variants of core components with additional features like adjacency graphs, territory graphs, and disjoint sets.
 
 - **Error Handling** (src/mechanics/errors/): Custom error classes for different error types.
 
@@ -177,11 +168,10 @@ When working with AI strategies:
 ### Testing Approach
 
 1. Unit tests for individual components (AI strategies, map generation, battle resolution).
-2. Integration tests for the bridge components (retained while the bridge code exists).
-3. Performance tests for comparing AI strategies.
-4. Test utilities and mocks are located in the tests/mocks/ directory.
-5. Regression tests are in tests/regression/ and benchmarks in tests/benchmarks/.
-6. Error handling should be tested thoroughly, including edge cases.
+2. Performance tests for comparing AI strategies.
+3. Test utilities and mocks are located in the tests/mocks/ directory.
+4. Benchmarks are in tests/benchmarks/.
+5. Error handling should be tested thoroughly, including edge cases.
 
 ## Best Practices
 
@@ -193,24 +183,21 @@ When working with AI strategies:
 
 ## Gotchas
 
-- **ESLint ignores legacy root files**: The .eslintrc.cjs explicitly excludes `areadice.js`, `mc.js`, `game.js`, `config.js`, and `main.js` from linting.
 - **Path aliases**: `@utils`, `@ai`, `@models`, `@mechanics`, `@state` are configured in `vite.config.js` for both builds and tests. Source files use relative imports; aliases are available but prefer relative paths in new code.
 - **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` and `.jsx` files.
-- **Bridge files excluded from coverage**: `vite.config.js` excludes `src/bridge/` from coverage thresholds (deprecated code; see status note at top).
 - **Vitest globals**: Tests use `globals: true` in vitest config, so `describe`, `it`, `expect`, `vi`, `beforeEach`, `afterEach` are available without imports. Use `import { vi } from 'vitest'` only if needed for explicit typing.
 
 ## Common Pitfalls to Avoid
 
-1. Don't modify legacy files unless specifically required
-2. Always run tests before suggesting code is complete
-3. Ensure error events are properly emitted for error tracking
-4. Keep AI functions pure and deterministic for testing
+1. Always run tests before suggesting code is complete
+2. Ensure error events are properly emitted for error tracking
+3. Keep AI functions pure and deterministic for testing
 
 ## Documentation Updates
 
 ### Key Documentation
 
-- `docs/MODERNIZATION_ROADMAP.md` — architectural north star (supersedes the bridge pattern)
+- `docs/MODERNIZATION_ROADMAP.md` — architectural north star
 - `docs/BOT_GUIDE.md` — how to write a bot
 - `docs/ARCHITECTURE.md`, `docs/GAME_RULES.md`, `docs/TESTING.md`, `docs/CODE_STYLE.md` — system design, rules, testing approach, conventions
 

@@ -1,7 +1,7 @@
 # DiceWarsJS Modernization Roadmap
 
-> **Last Updated:** March 2026
-> **Status:** Phase 4 complete — Bot SDK, Arena, Replays, Tournaments implemented
+> **Last Updated:** June 2026
+> **Status:** Modernization complete — the legacy CreateJS code and the legacy↔modern bridge (`src/bridge/`, root `game.js`/`main.js`/`mc.js`/`areadice.js`/`config.js`, `src/adapters/`, `src/enhanced/Game.js`, and the legacy HTML entry points) have been deleted. The repo is now modern-only. Sections below that describe the bridge/legacy stack and plan its removal are retained as historical record.
 > **Developed by:** Claude Opus 4.6 in Claude Code
 
 ---

@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "A JavaScript implementation of the Dice Wars game",
   "type": "module",
-  "main": "src/index.js",
   "homepage": "https://bigintersmind.github.io/dicewarsjs/",
   "repository": {
     "type": "git",
@@ -25,7 +24,6 @@
     "format:check": "prettier --check .",
     "fix-warnings": "node scripts/fix-lint-warnings.cjs",
     "prepare": "husky install",
-    "test:regression": "vitest run tests/regression",
     "perf:check": "node scripts/check-bundle-size.cjs",
     "arena": "node scripts/arena.mjs",
     "arena:sweep": "node scripts/arena-sweep.mjs",

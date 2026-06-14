@@ -55,6 +55,39 @@ export const DEFAULT_CONFIG = {
 };
 
 /**
+ * Map-size presets surfaced in the title-screen UI.
+ *
+ * Each key resolves to concrete engine dimensions: a `mapWidth × mapHeight`
+ * hex grid plus `maxAreas` (the territory-count ceiling passed to the engine's
+ * createGame/generateMap). Sizes are chosen so that cells-per-territory stays
+ * comfortably above the engine's MIN_TERRITORY_SIZE (6) and `maxAreas` always
+ * exceeds the 8-player maximum, so every preset is guaranteed to generate a
+ * playable map for any supported player count (no RangeError from pruning).
+ *
+ * `medium` intentionally mirrors DEFAULT_CONFIG (28×32, 32 territories) so the
+ * default selection reproduces today's exact behaviour.
+ */
+export const MAP_SIZE_PRESETS = {
+  small: { mapWidth: 20, mapHeight: 24, maxAreas: 20 },
+  medium: { mapWidth: 28, mapHeight: 32, maxAreas: 32 },
+  large: { mapWidth: 36, mapHeight: 40, maxAreas: 48 },
+};
+
+/** Default map-size preset key. */
+export const DEFAULT_MAP_SIZE = 'medium';
+
+/**
+ * Resolve a map-size preset key to concrete engine dimensions.
+ * Unknown/invalid keys fall back to the default (medium) preset.
+ *
+ * @param {string} size - Preset key ('small' | 'medium' | 'large')
+ * @returns {{ mapWidth: number, mapHeight: number, maxAreas: number }}
+ */
+export function resolveMapSize(size) {
+  return MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
+}
+
+/**
  * Current active configuration
  */
 let activeConfig = { ...DEFAULT_CONFIG };

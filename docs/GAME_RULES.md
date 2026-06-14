@@ -5,6 +5,7 @@ DiceWarsJS is a turn-based territory conquest game played on a hexagonal grid. P
 ## Setup
 
 - The board is a hexagonal grid divided into **territories** (default: up to 32)
+- **Map size** is chosen on the title screen before each game — Small (20×24, up to 20 territories), Medium (28×32, up to 32 — the default), or Large (36×40, up to 48). This is a per-game choice and resets to Medium on reload.
 - Each territory is assigned to a random player
 - Each territory starts with a random number of dice (1-8)
 - There are **7 players** by default (configurable from 2-8)
@@ -49,14 +50,15 @@ If no player has been eliminated after 500 turns (the default limit, configurabl
 
 ## Key Numbers
 
-| Constant                | Value         |
-| ----------------------- | ------------- |
-| Max dice per territory  | 8             |
-| Max reinforcement stock | 64            |
-| Default player count    | 7             |
-| Default max territories | 32            |
-| Default grid size       | 28 x 32 cells |
-| Stalemate turn limit    | 500           |
+| Constant                | Value                                    |
+| ----------------------- | ---------------------------------------- |
+| Max dice per territory  | 8                                        |
+| Max reinforcement stock | 64                                       |
+| Default player count    | 7                                        |
+| Default max territories | 32                                       |
+| Default grid size       | 28 x 32 cells (Medium)                   |
+| Map size presets        | Small 20×24 / Medium 28×32 / Large 36×40 |
+| Stalemate turn limit    | 500                                      |
 
 ## Strategy Tips
 

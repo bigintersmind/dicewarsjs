@@ -151,10 +151,15 @@ export class GameRenderer {
     const canvasX = screenX - rect.left;
     const canvasY = screenY - rect.top;
 
-    // Account for root container position and scale
+    /*
+     * Invert two transforms: the root container's responsive scale, then the
+     * map container's fit-to-canvas scale (see HexGridRenderer.computeMapLayout).
+     * Returns unscaled grid-local coordinates for hit testing.
+     */
     const scale = this.root.scale.x;
-    const localX = (canvasX - this.root.x) / scale - this.hexGrid.container.x;
-    const localY = (canvasY - this.root.y) / scale - this.hexGrid.container.y;
+    const mapScale = this.hexGrid.container.scale.x || 1;
+    const localX = ((canvasX - this.root.x) / scale - this.hexGrid.container.x) / mapScale;
+    const localY = ((canvasY - this.root.y) / scale - this.hexGrid.container.y) / mapScale;
     return { x: localX, y: localY };
   }
 

@@ -18,7 +18,7 @@ import {
 import { runAI } from '../engine/AIAdapter.js';
 import { getAIImplementation } from '../ai/aiConfig.js';
 import { createReplayFromState } from '../arena/replayFormat.js';
-import { DEFAULT_CONFIG } from '../utils/config.js';
+import { resolveMapSize } from '../utils/config.js';
 
 /**
  * Create a game controller.
@@ -108,7 +108,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
   /**
    * Start a new game from the title screen.
    *
-   * @param {{ playerCount: number, spectator: boolean }} config
+   * @param {{ playerCount: number, spectator: boolean, mapSize?: string }} config
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
@@ -128,10 +128,18 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     const playerCount = config.playerCount;
     const spectator = config.spectator;
+    /*
+     * Map size is a per-game choice from the title screen. Fall back to the
+     * store's current value if the caller omits it.
+     */
+    const mapSize = config.mapSize ?? store.getState().config.mapSize;
 
-    // Update store config
+    /*
+     * Update store config. Persist mapSize so a later rejectMap() regenerates
+     * at the same size the player chose.
+     */
     store.setState({
-      config: { ...store.getState().config, playerCount },
+      config: { ...store.getState().config, playerCount, mapSize },
       humanPlayerIndex: spectator ? null : 0,
     });
 
@@ -142,9 +150,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       // Create game via engine
       const gameState = createGame({
         playerCount,
-        mapWidth: DEFAULT_CONFIG.mapWidth,
-        mapHeight: DEFAULT_CONFIG.mapHeight,
-        maxAreas: DEFAULT_CONFIG.territoriesCount,
+        ...resolveMapSize(mapSize),
       });
 
       store.setState({
@@ -184,14 +190,13 @@ export function createGameController(store, renderer, soundManager, preferencesM
   async function rejectMap() {
     const storeState = store.getState();
     const playerCount = storeState.config.playerCount;
+    const mapSize = storeState.config.mapSize;
 
     let gameState;
     try {
       gameState = createGame({
         playerCount,
-        mapWidth: DEFAULT_CONFIG.mapWidth,
-        mapHeight: DEFAULT_CONFIG.mapHeight,
-        maxAreas: DEFAULT_CONFIG.territoriesCount,
+        ...resolveMapSize(mapSize),
       });
     } catch (err) {
       console.error('Failed to regenerate map:', err);

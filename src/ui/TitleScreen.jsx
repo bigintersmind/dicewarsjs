@@ -9,6 +9,18 @@
 import { useState } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 import { getTheme } from '../renderer/themes.js';
+import { DEFAULT_MAP_SIZE } from '../utils/config.js';
+
+/**
+ * Map-size options shown on the title screen. `value` keys must match
+ * MAP_SIZE_PRESETS in src/utils/config.js (the controller resolves them to
+ * concrete grid dimensions at game-creation time).
+ */
+const MAP_SIZE_OPTIONS = [
+  { value: 'small', label: 'Small' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'large', label: 'Large' },
+];
 
 const STYLE = {
   container: {
@@ -30,6 +42,20 @@ const STYLE = {
     marginBottom: '2rem',
   },
   playerRow: {
+    display: 'flex',
+    gap: '0.8rem',
+    marginBottom: '1.2rem',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
+  sectionLabel: {
+    fontFamily: 'Roboto, sans-serif',
+    fontSize: '0.75rem',
+    letterSpacing: '0.12em',
+    textTransform: 'uppercase',
+    marginBottom: '0.5rem',
+  },
+  sizeRow: {
     display: 'flex',
     gap: '0.8rem',
     marginBottom: '2rem',
@@ -104,22 +130,23 @@ const STYLE = {
 /**
  * @param {Object} props
  * @param {string | null} [props.error] - Error message to display
- * @param {(config: { playerCount: number, spectator: boolean }) => void} props.onStart
+ * @param {(config: { playerCount: number, spectator: boolean, mapSize: string }) => void} props.onStart
  * @param {() => void} [props.onArena] - Navigate to arena screen
  * @param {() => void} [props.onTournament] - Navigate to tournament screen
  * @param {() => void} [props.onLeaderboard] - Navigate to online leaderboard screen
  */
 export function TitleScreen({ store, error, onStart, onArena, onTournament, onLeaderboard }) {
   const [playerCount, setPlayerCount] = useState(7);
+  const [mapSize, setMapSize] = useState(DEFAULT_MAP_SIZE);
   const themeName = useGameStore(store, s => s.preferences?.theme) || 'dark';
   const theme = getTheme(themeName);
 
   const handleStart = () => {
-    onStart({ playerCount, spectator: false });
+    onStart({ playerCount, spectator: false, mapSize });
   };
 
   const handleAIvsAI = () => {
-    onStart({ playerCount, spectator: true });
+    onStart({ playerCount, spectator: true, mapSize });
   };
 
   return (
@@ -139,10 +166,14 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
         </div>
       )}
 
+      <span style={{ ...STYLE.sectionLabel, color: theme.uiTextMuted }}>Players</span>
       <div style={STYLE.playerRow}>
         {[2, 3, 4, 5, 6, 7, 8].map(n => (
           <button
             key={n}
+            type="button"
+            aria-label={`Play with ${n} players`}
+            aria-pressed={n === playerCount}
             style={{
               ...STYLE.playerBtn,
               color: n === playerCount ? theme.uiAccent : theme.uiTextMuted,
@@ -151,6 +182,26 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
             onClick={() => setPlayerCount(n)}
           >
             {n} players
+          </button>
+        ))}
+      </div>
+
+      <span style={{ ...STYLE.sectionLabel, color: theme.uiTextMuted }}>Map size</span>
+      <div style={STYLE.sizeRow}>
+        {MAP_SIZE_OPTIONS.map(opt => (
+          <button
+            key={opt.value}
+            type="button"
+            aria-label={`${opt.label} map`}
+            aria-pressed={opt.value === mapSize}
+            style={{
+              ...STYLE.playerBtn,
+              color: opt.value === mapSize ? theme.uiAccent : theme.uiTextMuted,
+              borderColor: opt.value === mapSize ? theme.uiAccent : theme.uiBorder,
+            }}
+            onClick={() => setMapSize(opt.value)}
+          >
+            {opt.label}
           </button>
         ))}
       </div>

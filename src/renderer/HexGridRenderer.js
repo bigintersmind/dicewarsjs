@@ -22,8 +22,36 @@ import {
   HEX_VERTEX_X,
   HEX_VERTEX_Y,
   BASE_WIDTH,
+  BASE_HEIGHT,
+  HUD_BAR_HEIGHT,
   MAP_TOP_MARGIN,
 } from './constants.js';
+
+/**
+ * Compute the scale and top-left position that centers a grid of the given cell
+ * dimensions inside the fixed base canvas (BASE_WIDTH × BASE_HEIGHT).
+ *
+ * Grids that would overflow the canvas (e.g. the Large preset, 36×40 → 972px
+ * wide vs. BASE_WIDTH 840) are scaled down uniformly so they never clip; grids
+ * that already fit (Small, Medium) return scale === 1, reproducing the original
+ * layout exactly. Pure function — exported for unit testing.
+ *
+ * @param {number} gridWidth  - Grid width in cells
+ * @param {number} gridHeight - Grid height in cells
+ * @returns {{ scale: number, x: number, y: number }}
+ */
+export function computeMapLayout(gridWidth, gridHeight) {
+  const mapPixelWidth = gridWidth * CELL_WIDTH;
+  const mapPixelHeight = gridHeight * CELL_HEIGHT;
+  // Odd rows are shifted half a cell right, so the real content is wider.
+  const contentWidth = mapPixelWidth + CELL_WIDTH / 2;
+  const availHeight = BASE_HEIGHT - MAP_TOP_MARGIN - HUD_BAR_HEIGHT;
+  const scale = Math.min(1, BASE_WIDTH / contentWidth, availHeight / mapPixelHeight);
+  // Center horizontally (matching the original offset when scale === 1).
+  const x = (BASE_WIDTH - mapPixelWidth * scale) / 2 - (CELL_WIDTH / 4) * scale;
+  const y = MAP_TOP_MARGIN;
+  return { scale, x, y };
+}
 
 /**
  * Precompute pixel positions for every cell in the grid.
@@ -228,10 +256,15 @@ export class HexGridRenderer {
       this.container.addChildAt(gfx, 0);
     }
 
-    // Position the map container to center it
-    const mapPixelWidth = grid.width * CELL_WIDTH;
-    this.container.x = BASE_WIDTH / 2 - mapPixelWidth / 2 - CELL_WIDTH / 4;
-    this.container.y = MAP_TOP_MARGIN;
+    /*
+     * Scale + position the container so any preset size fits the base canvas.
+     * Dice live inside this same container, so they scale/move with it. The
+     * matching inverse lives in GameRenderer.screenToMap (divide by this scale).
+     */
+    const layout = computeMapLayout(grid.width, grid.height);
+    this.container.scale.set(layout.scale);
+    this.container.x = layout.x;
+    this.container.y = layout.y;
 
     // Ensure highlights are on top
     this.container.setChildIndex(this._highlightFrom, this.container.children.length - 1);

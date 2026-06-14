@@ -1,3 +1,20 @@
+// jsdom doesn't implement canvas 2d. PixiJS probes `canvas.getContext('2d')`
+// at import time (canvas blend-mode feature detection), which otherwise logs a
+// noisy "Not implemented" error whenever a test imports a renderer module.
+// A minimal context stub satisfies that probe (and any future renderer test).
+if (typeof HTMLCanvasElement !== 'undefined' && !HTMLCanvasElement.prototype.getContext.__stubbed) {
+  HTMLCanvasElement.prototype.getContext = function getContext() {
+    return {
+      fillStyle: '',
+      globalCompositeOperation: '',
+      fillRect: () => {},
+      drawImage: () => {},
+      getImageData: () => ({ data: [0, 0, 0, 0] }),
+    };
+  };
+  HTMLCanvasElement.prototype.getContext.__stubbed = true;
+}
+
 // Mock CreateJS
 const cjs = {
   Graphics: class Graphics {

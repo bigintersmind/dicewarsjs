@@ -24,6 +24,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Admin-scoped PAT so the results push bypasses the branch ruleset
+          # (default GITHUB_TOKEN is github-actions[bot], which isn't an admin).
+          token: ${{ secrets.TOURNAMENT_PAT }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -44,7 +48,11 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore: update tournament results [skip ci]"
+            # No [skip ci]: this push to master must trigger Deploy so the
+            # live site rebuilds with the fresh leaderboard. CI is skipped for
+            # data-only commits via paths-ignore in ci.yml; tournament.yml does
+            # not watch public/data/**, so this won't re-trigger itself.
+            git commit -m "chore: update tournament results"
             push_ok=false
             for i in 1 2 3; do
               git pull --rebase origin master && git push && push_ok=true && break

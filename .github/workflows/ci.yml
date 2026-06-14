@@ -3,6 +3,10 @@ name: CI
 on:
   push:
     branches: [master]
+    # The daily tournament pushes generated data to master; no need to re-run
+    # the full suite for those data-only commits (Deploy still fires).
+    paths-ignore:
+      - 'public/data/**'
   pull_request:
     branches: [master]
 

@@ -253,5 +253,59 @@
         "wins": 3
       }
     ]
+  },
+  {
+    "date": "2026-06-16",
+    "gamesPlayed": 100,
+    "failedGames": 0,
+    "botCount": 9,
+    "champion": "Default",
+    "standings": [
+      {
+        "name": "Default",
+        "elo": 1299,
+        "wins": 4
+      },
+      {
+        "name": "Claude",
+        "elo": 1249,
+        "wins": 20
+      },
+      {
+        "name": "Codex",
+        "elo": 1246,
+        "wins": 5
+      },
+      {
+        "name": "Defensive",
+        "elo": 1238,
+        "wins": 22
+      },
+      {
+        "name": "Connector",
+        "elo": 1225,
+        "wins": 12
+      },
+      {
+        "name": "Example",
+        "elo": 1193,
+        "wins": 2
+      },
+      {
+        "name": "Giant Slayer",
+        "elo": 1183,
+        "wins": 0
+      },
+      {
+        "name": "Adaptive",
+        "elo": 1156,
+        "wins": 4
+      },
+      {
+        "name": "Blitz",
+        "elo": 1032,
+        "wins": 5
+      }
+    ]
   }
 ]

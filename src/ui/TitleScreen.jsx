@@ -11,6 +11,13 @@ import { useState } from 'preact/hooks';
 import { DEFAULT_MAP_SIZE } from '../utils/config.js';
 import { getAllAIStrategies } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
+import { useGameStore } from './hooks/useGameStore.js';
+import {
+  PLAYER_COLORS_CSS,
+  COLORBLIND_PLAYER_COLORS_CSS,
+  PLAYER_COLOR_NAMES,
+  COLORBLIND_PLAYER_COLOR_NAMES,
+} from '../renderer/constants.js';
 
 /**
  * Map-size options shown on the title screen. `value` keys must match
@@ -164,10 +171,22 @@ const STYLE = {
     justifyContent: 'space-between',
     gap: '0.8rem',
   },
+  slotIdentity: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+  },
+  swatch: {
+    width: '14px',
+    height: '14px',
+    borderRadius: '3px',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    flexShrink: 0,
+  },
   slotLabel: {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.9rem',
-    color: 'var(--ui-text-muted)',
+    color: 'var(--ui-text)',
   },
   humanTag: {
     fontFamily: 'Roboto, sans-serif',
@@ -197,12 +216,19 @@ const STYLE = {
  * @param {() => void} [props.onLeaderboard] - Navigate to online leaderboard screen
  */
 export function TitleScreen({ store, error, onStart, onArena, onTournament, onLeaderboard }) {
+  const prefs = useGameStore(store, s => s.preferences);
+  const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
+  const colorNames = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLOR_NAMES : PLAYER_COLOR_NAMES;
+
   const [playerCount, setPlayerCount] = useState(7);
   const [mapSize, setMapSize] = useState(DEFAULT_MAP_SIZE);
   const [showCustomize, setShowCustomize] = useState(false);
-  // Per-slot AI strategy IDs (index = player slot). Seeded from store defaults.
+  /*
+   * Per-slot AI strategy IDs (index = player slot). Seeded from store defaults.
+   * `store` is required (the useGameStore call above already depends on it).
+   */
   const [assignments, setAssignments] = useState(() =>
-    (store?.getState().config.aiAssignments ?? []).slice()
+    (store.getState().config.aiAssignments ?? []).slice()
   );
 
   const handleAssign = (slot, aiId) => {
@@ -287,38 +313,46 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
 
       {showCustomize && (
         <div style={STYLE.customizePanel}>
-          {Array.from({ length: playerCount }, (_, i) => (
-            <div key={i} style={STYLE.slotRow}>
-              <span style={STYLE.slotLabel}>Player {i + 1}</span>
-              {i === 0 ? (
-                <span style={STYLE.humanTag}>You (human)</span>
-              ) : (
-                <select
-                  aria-label={`Bot for player ${i + 1}`}
-                  style={STYLE.select}
-                  value={assignments[i] || 'ai_default'}
-                  onChange={e => handleAssign(i, e.target.value)}
-                >
-                  <optgroup label="Built-in">
-                    {AI_OPTIONS.map(ai => (
-                      <option key={ai.id} value={ai.id}>
-                        {ai.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                  {COMMUNITY_OPTIONS.length > 0 && (
-                    <optgroup label="Community">
-                      {COMMUNITY_OPTIONS.map(bot => (
-                        <option key={bot.id} value={`community:${bot.id}`}>
-                          {bot.name}
+          {Array.from({ length: playerCount }, (_, i) => {
+            const colorName = colorNames[i % colorNames.length];
+            return (
+              <div key={i} style={STYLE.slotRow}>
+                <span style={STYLE.slotIdentity}>
+                  <span
+                    style={{ ...STYLE.swatch, background: colorPalette[i % colorPalette.length] }}
+                  />
+                  <span style={STYLE.slotLabel}>{colorName}</span>
+                </span>
+                {i === 0 ? (
+                  <span style={STYLE.humanTag}>You (human)</span>
+                ) : (
+                  <select
+                    aria-label={`Bot for ${colorName} player`}
+                    style={STYLE.select}
+                    value={assignments[i] || 'ai_default'}
+                    onChange={e => handleAssign(i, e.target.value)}
+                  >
+                    <optgroup label="Built-in">
+                      {AI_OPTIONS.map(ai => (
+                        <option key={ai.id} value={ai.id}>
+                          {ai.name}
                         </option>
                       ))}
                     </optgroup>
-                  )}
-                </select>
-              )}
-            </div>
-          ))}
+                    {COMMUNITY_OPTIONS.length > 0 && (
+                      <optgroup label="Community">
+                        {COMMUNITY_OPTIONS.map(bot => (
+                          <option key={bot.id} value={`community:${bot.id}`}>
+                            {bot.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

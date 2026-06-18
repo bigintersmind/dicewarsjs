@@ -10,19 +10,23 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { TitleScreen } from '../../src/ui/TitleScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
-import { PLAYER_COLOR_NAMES } from '../../src/renderer/constants.js';
+import {
+  PLAYER_COLOR_NAMES,
+  PLAYER_COLORS_CSS,
+  COLORBLIND_PLAYER_COLOR_NAMES,
+  COLORBLIND_PLAYER_COLORS_CSS,
+} from '../../src/renderer/constants.js';
 
 let container;
 
 function renderTitle(props = {}) {
-  const store = createGameStore();
-  const onStart = vi.fn();
+  const { store = createGameStore(), onStart = vi.fn(), ...rest } = props;
 
   container = document.createElement('div');
   document.body.appendChild(container);
 
   act(() => {
-    render(h(TitleScreen, { store, onStart, ...props }), container);
+    render(h(TitleScreen, { store, onStart, ...rest }), container);
   });
 
   return { store, onStart };
@@ -36,10 +40,31 @@ const aiBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent === 'AI vs AI');
 const customizeBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent.includes('Customize players'));
-// Slots are labelled by player color now; `n` stays the 1-indexed player number.
+/*
+ * Slots are labelled by player color now; `n` stays the 1-indexed player number.
+ * Assumes the default palette — color-blind-mode tests query by name directly.
+ */
 const slotSelect = n => {
   const colorName = PLAYER_COLOR_NAMES[(n - 1) % PLAYER_COLOR_NAMES.length];
   return container.querySelector(`select[aria-label="Bot for ${colorName} player"]`);
+};
+
+/*
+ * The slot swatch is a bare <span> with no test hook; identify it by its
+ * fixed 14×14 inline dimensions (see STYLE.swatch in TitleScreen.jsx).
+ */
+const slotSwatches = () =>
+  [...container.querySelectorAll('span')].filter(
+    s => s.style.width === '14px' && s.style.height === '14px'
+  );
+
+/*
+ * jsdom's CSSOM normalizes a hex `background` to the `rgb(r, g, b)` form, so
+ * compare swatch fills against the converted palette value.
+ */
+const cssHexToRgb = hex => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
 };
 
 /** Set a native <select> value and fire the change event Preact listens for. */
@@ -128,6 +153,19 @@ describe('TitleScreen', () => {
       expect(container.textContent).toContain('You (human)');
     });
 
+    it('labels each slot with its in-game color name and a swatch', () => {
+      renderTitle();
+      act(() => customizeBtn().click());
+      // Default palette names for the first slots (human slot 0 + AI slots).
+      expect(container.textContent).toContain('Lavender'); // slot 0
+      expect(container.textContent).toContain('Lime'); // slot 1
+      expect(container.textContent).toContain('Green'); // slot 2
+      // One swatch per visible slot (7 players → 7 swatches).
+      expect(slotSwatches()).toHaveLength(7);
+      // Swatch fill matches the in-game player palette, by slot index.
+      expect(slotSwatches()[0].style.background).toBe(cssHexToRgb(PLAYER_COLORS_CSS[0]));
+    });
+
     it('resizes the slot list when the player count changes', () => {
       renderTitle();
       act(() => customizeBtn().click());
@@ -190,5 +228,51 @@ describe('TitleScreen', () => {
       const { aiAssignments } = onStart.mock.calls[0][0];
       expect(aiAssignments[1]).toBe('community:bigintersmind/connector');
     });
+  });
+
+  describe('color-blind mode', () => {
+    const cbStore = () => createGameStore({ preferences: { colorBlindMode: true } });
+
+    it('labels slots with the Wong palette names when color-blind mode is on', () => {
+      renderTitle({ store: cbStore() });
+      act(() => customizeBtn().click());
+      // index 0 → 'Blue' (Wong) instead of 'Lavender' (default).
+      expect(container.textContent).toContain('Blue');
+      expect(container.textContent).not.toContain('Lavender');
+    });
+
+    it('keys the slot dropdown aria-label off the color-blind color name', () => {
+      renderTitle({ store: cbStore() });
+      act(() => customizeBtn().click());
+      // index 2 → 'Teal' (Wong) instead of 'Green' (default).
+      expect(container.querySelector('select[aria-label="Bot for Teal player"]')).toBeTruthy();
+      expect(container.querySelector('select[aria-label="Bot for Green player"]')).toBeNull();
+    });
+
+    it('paints the swatches from the Wong palette in color-blind mode', () => {
+      renderTitle({ store: cbStore() });
+      act(() => customizeBtn().click());
+      expect(slotSwatches()[0].style.background).toBe(cssHexToRgb(COLORBLIND_PLAYER_COLORS_CSS[0]));
+    });
+
+    it('updates slot labels reactively when color-blind mode is toggled', () => {
+      const { store } = renderTitle();
+      act(() => customizeBtn().click());
+      // Default palette initially: slot 2 is 'Green'.
+      expect(container.querySelector('select[aria-label="Bot for Green player"]')).toBeTruthy();
+      // Flip the preference; the panel re-renders from the store subscription.
+      act(() =>
+        store.setState({ preferences: { ...store.getState().preferences, colorBlindMode: true } })
+      );
+      expect(container.querySelector('select[aria-label="Bot for Teal player"]')).toBeTruthy();
+      expect(container.querySelector('select[aria-label="Bot for Green player"]')).toBeNull();
+    });
+  });
+});
+
+describe('player color palettes', () => {
+  it('keeps the color-name arrays index-aligned with their palettes', () => {
+    expect(PLAYER_COLOR_NAMES).toHaveLength(PLAYER_COLORS_CSS.length);
+    expect(COLORBLIND_PLAYER_COLOR_NAMES).toHaveLength(COLORBLIND_PLAYER_COLORS_CSS.length);
   });
 });

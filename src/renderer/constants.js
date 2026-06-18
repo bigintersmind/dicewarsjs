@@ -8,7 +8,7 @@
 
 /** Player color palette (indexed 0-7), matching the legacy game exactly. */
 export const PLAYER_COLORS = [
-  0xb37ffe, // 0: Purple
+  0xb37ffe, // 0: Lavender (light purple)
   0xb3ff01, // 1: Lime green
   0x009302, // 2: Dark green
   0xff7ffe, // 3: Magenta/pink
@@ -32,10 +32,10 @@ export const PLAYER_COLORS_CSS = [
 
 /** Human-readable names for each player color, indexed like PLAYER_COLORS. */
 export const PLAYER_COLOR_NAMES = [
-  'Purple',
+  'Lavender',
   'Lime',
   'Green',
-  'Pink',
+  'Magenta',
   'Orange',
   'Cyan',
   'Yellow',
@@ -63,7 +63,7 @@ export const COLORBLIND_PLAYER_COLORS = [
  * dark dice.
  */
 export const PLAYER_PIP_COLORS = [
-  0xffffff, // 0: Purple → white
+  0xffffff, // 0: Lavender → white
   0x000000, // 1: Lime green → black
   0xffffff, // 2: Dark green → white
   0xffffff, // 3: Magenta/pink → white

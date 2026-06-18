@@ -223,9 +223,12 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
   const [playerCount, setPlayerCount] = useState(7);
   const [mapSize, setMapSize] = useState(DEFAULT_MAP_SIZE);
   const [showCustomize, setShowCustomize] = useState(false);
-  // Per-slot AI strategy IDs (index = player slot). Seeded from store defaults.
+  /*
+   * Per-slot AI strategy IDs (index = player slot). Seeded from store defaults.
+   * `store` is required (the useGameStore call above already depends on it).
+   */
   const [assignments, setAssignments] = useState(() =>
-    (store?.getState().config.aiAssignments ?? []).slice()
+    (store.getState().config.aiAssignments ?? []).slice()
   );
 
   const handleAssign = (slot, aiId) => {

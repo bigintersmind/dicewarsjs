@@ -92,13 +92,6 @@ module.exports = {
     // Allow func-names in test files
     'func-names': ['off'],
   },
-  settings: {
-    'import/resolver': {
-      node: {
-        extensions: ['.js', '.jsx'],
-      },
-    },
-  },
   globals: {
     // CreateJS library globals
     createjs: 'readonly',

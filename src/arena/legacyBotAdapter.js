@@ -7,9 +7,6 @@
  * @module arena/legacyBotAdapter
  */
 
-// eslint-disable-next-line no-unused-vars -- used in JSDoc
-import './types.js';
-
 /**
  * Build a legacy mutable game view from a BotState.
  *

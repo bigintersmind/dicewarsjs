@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import preact from '@preact/preset-vite';
-import path from 'path';
 
 export default defineConfig(({ command }) => ({
   /*
@@ -10,14 +9,6 @@ export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/dicewarsjs/' : '/',
 
   plugins: [preact({ devToolsEnabled: false })],
-
-  resolve: {
-    alias: {
-      '@utils': path.resolve(import.meta.dirname, 'src/utils'),
-      '@ai': path.resolve(import.meta.dirname, 'src/ai'),
-      '@engine': path.resolve(import.meta.dirname, 'src/engine'),
-    },
-  },
 
   server: {
     port: 3000,

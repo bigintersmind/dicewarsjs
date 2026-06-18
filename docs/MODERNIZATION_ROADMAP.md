@@ -1,7 +1,7 @@
 # DiceWarsJS Modernization Roadmap
 
 > **Last Updated:** June 2026
-> **Status:** Modernization complete — the legacy CreateJS code and the legacy↔modern bridge (`src/bridge/`, root `game.js`/`main.js`/`mc.js`/`areadice.js`/`config.js`, `src/adapters/`, `src/enhanced/Game.js`, and the legacy HTML entry points) have been deleted. The repo is now modern-only. Sections below that describe the bridge/legacy stack and plan its removal are retained as historical record.
+> **Status:** Modernization complete — the legacy CreateJS code and the legacy↔modern bridge (`src/bridge/`, root `game.js`/`main.js`/`mc.js`/`areadice.js`/`config.js`, `src/adapters/`, `src/enhanced/Game.js`, and the legacy HTML entry points) have been deleted. The repo is now modern-only. A follow-up June 2026 simplification pass additionally removed the orphaned pre-engine subtrees (`src/mechanics/`, `src/models/`, `src/state/`) and the dead CreateJS-era `src/utils/` layer — the live game now runs entirely on `src/engine/`. Sections below that describe the bridge/legacy stack, those subtrees, or plan their removal are retained as historical record.
 > **Developed by:** Claude Opus 4.6 in Claude Code
 
 ---

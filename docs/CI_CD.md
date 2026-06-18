@@ -68,6 +68,6 @@ Planned improvements to the CI pipeline include:
 
 - Adding code coverage reporting
 - Performance regression monitoring
-- Bundle size monitoring via `npm run perf:check`
+- Bundle size monitoring
 - Deployment automation
 - Release packaging

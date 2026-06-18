@@ -4,7 +4,7 @@ This document provides additional details about the centralized AI configuration
 
 ## Overview
 
-The AI configuration system has been centralized in `src/ai/aiConfig.js` to provide consistent AI management across both legacy and modern ES6 code. This approach makes the code more maintainable and simplifies adding new AI strategies in the future.
+The AI configuration system is centralized in `src/ai/aiConfig.js` to provide consistent AI management across the game and the bot arena. This approach makes the code more maintainable and simplifies adding new AI strategies.
 
 ## Key Components
 
@@ -24,27 +24,20 @@ The AI configuration system has been centralized in `src/ai/aiConfig.js` to prov
 3. **Default Assignments**
    - `DEFAULT_AI_ASSIGNMENTS` - Default mapping of player indices to AI strategy IDs
 
-## Configuration System
+## Assigning AIs to Players
 
-The configuration system uses `aiAssignments` instead of the previous `aiTypes`:
+AI strategies are assigned per player with an `aiAssignments` array — one strategy ID per player index, with `null` marking a human player:
 
 ```javascript
-// Old approach
-config.aiTypes = [
-  null, // Player 0 (human)
-  'ai_defensive', // Player 1
-  'ai_defensive', // Player 2
-  // ...
-];
-
-// New approach
-config.aiAssignments = [
+const aiAssignments = [
   null, // Player 0 (human)
   'ai_defensive', // Player 1
   'ai_defensive', // Player 2
   // ...
 ];
 ```
+
+`createAIFunctionMapping(aiAssignments)` resolves these IDs to the actual AI functions the engine runs.
 
 ## Adding New AI Strategies
 
@@ -71,15 +64,11 @@ export const AI_STRATEGIES = {
 };
 ```
 
-3. Assign it to players in the configuration:
+3. Assign it to players in the `aiAssignments` array:
 
 ```javascript
-config.aiAssignments[3] = 'ai_myCustom'; // Assign to player 3
+aiAssignments[3] = 'ai_myCustom'; // Assign to player 3
 ```
-
-## Legacy Support
-
-For backward compatibility, the configuration system still supports the old `aiTypes` format, but will log a warning recommending upgrade to `aiAssignments`.
 
 ## Testing
 
@@ -88,12 +77,11 @@ When testing AI functionality, you can use:
 ```javascript
 import { createAIFunctionMapping } from '../ai/index.js';
 
-// Create AI assignments based on string identifiers
+// Map strategy IDs to AI functions — async, since strategies load on demand
 const aiAssignments = ['ai_default', 'ai_defensive', null, 'ai_adaptive'];
-const aiFunctions = createAIFunctionMapping(aiAssignments);
+const aiFunctions = await createAIFunctionMapping(aiAssignments);
 
-// Apply to game
-game.ai = aiFunctions;
+// aiFunctions[i] is the AI for player i (null = human)
 ```
 
 ## Performance

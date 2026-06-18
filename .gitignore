@@ -50,6 +50,10 @@ logs/
 coverage/
 .nyc_output/
 test-results/
+benchmark-results/
+
+# MCP tool scratch output
+.playwright-mcp/
 
 # Temporary files
 *.tmp

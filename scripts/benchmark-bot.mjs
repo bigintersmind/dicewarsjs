@@ -75,8 +75,10 @@ function timedBot(state) {
 
 // --- Build bots array ---
 
-// When benchmarking a built-in, replace it with the timed version
-// When benchmarking a file bot, add it alongside all built-ins (rename on collision)
+/*
+ * When benchmarking a built-in, replace it with the timed version
+ * When benchmarking a file bot, add it alongside all built-ins (rename on collision)
+ */
 let targetName = targetBot.name;
 let opponents;
 
@@ -166,9 +168,9 @@ const allRows = [header, ...rows];
 const widths = header.map((_, col) => Math.max(...allRows.map(row => row[col].length)));
 
 function formatRow(row) {
-  return '    ' + row.map((cell, i) => cell.padStart(widths[i])).join('  ');
+  return `    ${row.map((cell, i) => cell.padStart(widths[i])).join('  ')}`;
 }
 
 console.log(formatRow(header));
-console.log('    ' + widths.map(w => '-'.repeat(w)).join('  '));
+console.log(`    ${widths.map(w => '-'.repeat(w)).join('  ')}`);
 rows.forEach(row => console.log(formatRow(row)));

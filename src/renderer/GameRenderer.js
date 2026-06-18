@@ -36,7 +36,7 @@ export class GameRenderer {
     /** @type {boolean} Color-blind mode */
     this._colorBlindMode = false;
     /** @type {'dice' | 'number'} How dice counts are shown */
-    this._diceDisplayMode = 'dice';
+    this._diceDisplayMode = 'number';
     /** @type {{ x: number, y: number }} Saved root position for screen shake */
     this._rootOrigin = { x: 0, y: 0 };
     /** @type {boolean} Whether a screen shake is active */
@@ -70,6 +70,13 @@ export class GameRenderer {
       // Create child renderers
       this.hexGrid = new HexGridRenderer(this.root);
       this.dice = new DiceRenderer(this.hexGrid.container);
+      /*
+       * Seed the freshly-created dice renderer with the current mode. `_diceDisplayMode`
+       * is the single source of truth; without this, a later setDiceDisplayMode() call
+       * with the same value short-circuits on the equality guard and the child keeps its
+       * own constructor default — leaving the two out of sync.
+       */
+      this.dice.setDiceDisplayMode(this._diceDisplayMode);
       this.battle = createBattleAnimation(this.app);
 
       // Responsive scaling

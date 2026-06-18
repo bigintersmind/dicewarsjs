@@ -84,6 +84,21 @@ vi.mock('../../src/ai/aiConfig.js', () => ({
   }),
 }));
 
+vi.mock('../../src/arena/communityBots.js', () => ({
+  getCommunityBotList: vi.fn(() => []),
+  loadCommunityBot: vi.fn(() => vi.fn(() => null)), // compiled modern bot stub
+}));
+
+vi.mock('../../src/arena/modernBotAdapter.js', () => ({
+  // Mirror the real adapter's shape: tag __modernBot and set the function name.
+  adaptModernBot: vi.fn((fn, name) => {
+    const wrapped = () => fn();
+    wrapped.__modernBot = true;
+    Object.defineProperty(wrapped, 'name', { value: name });
+    return wrapped;
+  }),
+}));
+
 vi.mock('../../src/utils/config.js', () => ({
   // Mirror the real preset table so assertions on dimensions are meaningful.
   resolveMapSize: vi.fn(size => {
@@ -218,6 +233,47 @@ describe('GameController', () => {
       await controller.startNewGame({ playerCount: 2, spectator: false });
 
       expect(store.getState().config.aiAssignments).toEqual(before);
+    });
+
+    it('resolves a community: assignment through the loader + modern adapter', async () => {
+      const { loadCommunityBot } = await import('../../src/arena/communityBots.js');
+      const { adaptModernBot } = await import('../../src/arena/modernBotAdapter.js');
+
+      await controller.startNewGame({
+        playerCount: 3,
+        spectator: false,
+        aiAssignments: [null, 'community:bigintersmind/connector', 'ai_default'],
+      });
+
+      // The `community:` prefix is stripped before lookup, then reverse-adapted.
+      expect(loadCommunityBot).toHaveBeenCalledWith('bigintersmind/connector');
+      expect(adaptModernBot).toHaveBeenCalledWith(
+        expect.any(Function),
+        'community:bigintersmind/connector'
+      );
+    });
+
+    it('falls back to ai_default and surfaces a notice when a community bot fails to load', async () => {
+      const { loadCommunityBot } = await import('../../src/arena/communityBots.js');
+      const { getAIImplementation } = await import('../../src/ai/aiConfig.js');
+      loadCommunityBot.mockImplementationOnce(() => {
+        throw new Error('compile failed');
+      });
+
+      await controller.startNewGame({
+        playerCount: 3,
+        spectator: false,
+        aiAssignments: [null, 'community:broken/bot', 'ai_default'],
+      });
+
+      // The game still starts (fallback succeeded), not a crash back to title.
+      expect(store.getState().screen).toBe('mapPreview');
+      expect(getAIImplementation).toHaveBeenCalledWith('ai_default');
+
+      // The player's discarded choice is surfaced, not silently swapped.
+      const warnings = store.getState().aiLoadWarnings;
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('broken/bot');
     });
 
     it('resets to title screen on createGame failure', async () => {

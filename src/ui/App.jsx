@@ -111,6 +111,7 @@ export function App({ store, controller, preferencesManager }) {
       <ErrorBoundary>
         {settings}
         <MapPreview
+          store={store}
           onAccept={() => controller.acceptMap()}
           onReject={() => controller.rejectMap()}
         />

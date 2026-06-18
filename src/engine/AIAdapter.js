@@ -95,13 +95,58 @@ export function createLegacyGameView(state) {
 
 /**
  * Run a single AI decision step.
- * Creates a legacy view, calls the AI, extracts the chosen move.
+ *
+ * Two calling conventions are supported:
+ * - Legacy AIs (the built-in strategies): called with a mutable legacy game
+ *   view; they set `area_from`/`area_to` and return 0 to end their turn.
+ * - Modern bots (arena/community bots wrapped by `adaptModernBot`, marked with
+ *   `__modernBot`): called with the engine state directly and return
+ *   `{ from, to } | null`. `runAI` passes the raw state to the wrapper, and the
+ *   wrapper (from `adaptModernBot`) sanitizes it into a BotState before invoking
+ *   the real bot — so the untrusted bot code only ever sees the sanitized
+ *   BotState, never raw engine state. A `__modernBot` function MUST come from
+ *   `adaptModernBot`; that is what makes a throw here an adapter bug, not a
+ *   bot bug (the wrapper already swallows the bot's own throws).
  *
  * @param {import('./types.js').GameState} state
- * @param {Function} aiFunction - Legacy AI function (game → void|0)
+ * @param {Function} aiFunction - Legacy AI function (game → void|0) or a modern
+ *   bot tagged `__modernBot` (state → { from, to } | null)
  * @returns {{ from: number, to: number } | null} Move or null to end turn
  */
 export function runAI(state, aiFunction) {
+  // Modern bots take the engine state directly and return a move.
+  if (aiFunction && aiFunction.__modernBot) {
+    let move;
+    try {
+      move = aiFunction(state);
+    } catch (err) {
+      const playerId = state.turnOrder[state.currentPlayerIndex];
+      /*
+       * The adapter already catches the bot's own throws; reaching here means
+       * the adapter/sanitization layer failed — surface it as an adapter bug.
+       */
+      throw new Error(`Modern bot adapter error for player ${playerId}: ${err.message}`, {
+        cause: err,
+      });
+    }
+    if (move && typeof move.from === 'number' && typeof move.to === 'number') {
+      if (move.from > 0 && move.to > 0) return { from: move.from, to: move.to };
+      /*
+       * { from: 0, to: 0 } is a conventional "no move" sentinel (area 0 is
+       * unused). Any other non-positive/NaN pair is a bot bug, so warn rather
+       * than silently ending the turn — consistent with the legacy path below.
+       */
+      if (!(move.from === 0 && move.to === 0)) {
+        const playerId = state.turnOrder[state.currentPlayerIndex];
+        console.warn(
+          `Modern bot for player ${playerId} returned an out-of-range move ` +
+            `(from=${move.from}, to=${move.to}). Treating as end turn.`
+        );
+      }
+    }
+    return null;
+  }
+
   const view = createLegacyGameView(state);
   let result;
   try {

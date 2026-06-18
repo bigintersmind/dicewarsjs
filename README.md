@@ -9,6 +9,7 @@ Built on the original [Dice Wars](https://www.gamedesign.jp/games/dicewars/) by 
 ## Features
 
 - **Play or spectate** — play against AI opponents or watch bots battle each other
+- **Choose your opponents** — pick a bot per slot before each game (Customize players), including the curated community bots — duplicates allowed
 - **Configurable map size** — pick Small (20×24), Medium (28×32, default) or Large (36×40) before each game
 - **Bot SDK** — write a bot in a single function and compete in the arena
 - **Arena mode** — run tournaments with ELO ratings and match replays

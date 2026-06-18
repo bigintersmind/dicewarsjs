@@ -160,6 +160,11 @@ Submit your bot to the online arena where it competes in daily automated tournam
 
 Your bot will be included in the daily tournament once merged. Check the live leaderboard on the [game site](https://bigintersmind.github.io/dicewarsjs/).
 
+Once merged, your bot is also **playable in-game**: on the title screen, expand
+**Customize players** and pick it from the **Community** group of any opponent
+slot (duplicates allowed). It runs through the exact same `BotState` it sees in
+the arena, so its in-game behavior matches its tournament behavior.
+
 ### Other ways
 
 - **Issue**: Open an issue using the [Bot Submission](https://github.com/bigintersmind/dicewarsjs/issues/new?template=bot_submission.md) template

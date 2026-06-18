@@ -162,5 +162,28 @@ describe('TitleScreen', () => {
       expect(spectator).toBe(true);
       expect(aiAssignments[1]).toBe('ai_lookahead');
     });
+
+    it('offers curated community bots in a "Community" optgroup', () => {
+      renderTitle();
+      act(() => customizeBtn().click());
+      const select = slotSelect(2);
+      const builtIn = select.querySelector('optgroup[label="Built-in"]');
+      const community = select.querySelector('optgroup[label="Community"]');
+      expect(builtIn).toBeTruthy();
+      expect(community).toBeTruthy();
+      const values = [...community.querySelectorAll('option')].map(o => o.value);
+      expect(values).toContain('community:bigintersmind/connector');
+      // Community option values are namespaced so the controller can route them.
+      expect(values.every(v => v.startsWith('community:'))).toBe(true);
+    });
+
+    it('threads a chosen community bot (namespaced id) into onStart', () => {
+      const { onStart } = renderTitle();
+      act(() => customizeBtn().click());
+      chooseBot(2, 'community:bigintersmind/connector');
+      act(() => startBtn().click());
+      const { aiAssignments } = onStart.mock.calls[0][0];
+      expect(aiAssignments[1]).toBe('community:bigintersmind/connector');
+    });
   });
 });

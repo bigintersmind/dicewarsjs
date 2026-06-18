@@ -26,6 +26,8 @@
  * @property {number} aiSpeed
  * @property {boolean} soundEnabled
  * @property {string | null} error
+ * @property {string[]} aiLoadWarnings - Per-slot notices when a chosen bot
+ *   failed to load and was replaced by the default AI (shown on map preview).
  * @property {Object} config
  * @property {Object | null} currentReplay
  */
@@ -43,6 +45,7 @@ const DEFAULT_STATE = {
   aiSpeed: 1,
   soundEnabled: true,
   error: null,
+  aiLoadWarnings: [],
   currentReplay: null,
   replayOrigin: null,
   focusedAreaId: null,

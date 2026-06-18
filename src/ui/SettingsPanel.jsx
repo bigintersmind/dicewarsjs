@@ -232,12 +232,12 @@ export function SettingsPanel({ store, preferencesManager }) {
             </button>
           </div>
 
-          {/* Dice display */}
+          {/* Dice style */}
           <div style={STYLE.row}>
-            <span style={STYLE.label}>Dice display</span>
+            <span style={STYLE.label}>Dice style</span>
             <div style={STYLE.btnGroup}>
               {DICE_DISPLAY_OPTIONS.map(opt => {
-                const active = (prefs.diceDisplayMode || 'dice') === opt.value;
+                const active = (prefs.diceDisplayMode || 'number') === opt.value;
                 return (
                   <button
                     key={opt.value}

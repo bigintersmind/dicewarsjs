@@ -49,7 +49,7 @@ const DEFAULT_STATE = {
   preferences: {
     theme: 'dark',
     colorBlindMode: false,
-    diceDisplayMode: 'dice',
+    diceDisplayMode: 'number',
     animationSpeed: 1,
     reducedMotion: 'system',
   },

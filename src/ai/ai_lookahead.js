@@ -57,6 +57,13 @@ const DOMINANCE_SHARE = 0.4;
 const BASE_THRESHOLD = 2.2;
 const PRESS_THRESHOLD = -0.45;
 const WEAK_THRESHOLD = 0.18;
+/*
+ * Dice-share cutoffs that select the posture above: at/above PRESS_DICE_SHARE
+ * the bot is dominant enough to press; below WEAK_DICE_SHARE (in a crowd) it is
+ * weak enough to claw back. Between them it holds the patient BASE bar.
+ */
+const PRESS_DICE_SHARE = 0.38;
+const WEAK_DICE_SHARE = 0.15;
 
 function createBoard(game) {
   const areaMax = game.AREA_MAX;
@@ -81,7 +88,8 @@ function createBoard(game) {
    * Size per-player arrays to the actual number of players this game. Games can
    * seat more than the usual 8 (e.g. a 9-bot tournament), and a fixed 8-slot
    * assumption would drop the extra player from the census and crash when that
-   * player takes a turn. MIN_PLAYER_SLOTS keeps the common case allocation-free.
+   * player takes a turn. MIN_PLAYER_SLOTS floors the size so the usual ≤8-player
+   * game keeps a fixed 8-slot array rather than a smaller per-game one.
    */
   const playerSlots = Math.max(MIN_PLAYER_SLOTS, maxOwner + 1, game.player?.length || 0);
   const stock = new Array(playerSlots).fill(0);
@@ -340,6 +348,13 @@ function findDominantPlayer(stats) {
 function attackThreshold(board, player) {
   const stats = computeStats(board);
   const me = stats[player];
+  /*
+   * Defensive: callers only reach here for a player with territories (see the
+   * early return in evaluateLookaheadTurn), but if that ever changes, fall back
+   * to the patient BASE bar rather than dereferencing an undefined census row.
+   */
+  if (!me) return BASE_THRESHOLD;
+
   const activeRivals = stats.filter(
     candidate => candidate.id !== player && candidate.territories > 0
   );
@@ -347,11 +362,11 @@ function attackThreshold(board, player) {
   const myShare = totalDice > 0 ? me.dice / totalDice : 0;
   const bestRivalDice = Math.max(0, ...activeRivals.map(candidate => candidate.dice));
 
-  if (myShare > 0.38 || (activeRivals.length === 1 && me.dice > bestRivalDice)) {
+  if (myShare > PRESS_DICE_SHARE || (activeRivals.length === 1 && me.dice > bestRivalDice)) {
     return PRESS_THRESHOLD;
   }
 
-  if (myShare < 0.15 && activeRivals.length > 1) {
+  if (myShare < WEAK_DICE_SHARE && activeRivals.length > 1) {
     return WEAK_THRESHOLD;
   }
 

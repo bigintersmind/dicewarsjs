@@ -158,6 +158,13 @@ describe('Lookahead AI', () => {
     expect(mockGame.area_to).toBe(2);
   });
 
+  /*
+   * The genuine one-ply-continuation guard: capturing area 2 is a dead end,
+   * but capturing area 3 sets up a follow-up onto area 4, and only the
+   * continuation search makes 1->3 win. Disabling CONTINUATION_DEPTH flips this
+   * test (verified), so it — not the multi-capture test below — is what catches
+   * a regression in the recursive search itself.
+   */
   test('values a capture that opens a profitable continuation attack', () => {
     territory(1, 1, 6);
     territory(2, 2, 1);
@@ -225,11 +232,13 @@ describe('Lookahead AI', () => {
   describe('search-driven move selection', () => {
     test('plays its highest-scoring searched move when one clears the threshold', () => {
       /*
-       * Dominant attacker (PRESS posture) with two clear captures: 1->3 takes an
-       * isolated single-die cell, while 2->4 captures a cell that opens a
-       * profitable follow-up on area 5. The one-ply continuation makes 2->4 the
-       * search's top move. Pin it concretely so a regression in the search (not
-       * just the threshold gate) is actually caught.
+       * Dominant attacker (PRESS posture) choosing among multiple captures:
+       * 2->4 (a larger cell that also borders area 5) outscores the isolated
+       * single-die capture 1->3 on immediate board value. Pinning the concrete
+       * {from:2,to:4} guards the move-selection/scoring path — a regression that
+       * mis-ranked the candidates would be caught here, not just the threshold
+       * gate. (This board wins on immediate value alone; the recursive
+       * continuation search is guarded separately by the dedicated test above.)
        */
       territory(1, 1, 8);
       territory(2, 1, 8);
@@ -434,6 +443,28 @@ describe('Lookahead AI', () => {
 
       expect(() => ai_lookahead(mockGame)).not.toThrow();
       // With player 8 correctly seen as the dominant leader, the AI focuses it.
+      expect(mockGame.area_from).toBe(1);
+      expect(mockGame.area_to).toBe(2);
+    });
+
+    test('sizes its tables to game.player.length even when no high-index player is on the board', () => {
+      /*
+       * The other two cases drive the array sizing via the highest board owner
+       * (maxOwner + 1). This one pins the third term of the Math.max: a seated
+       * 10th player that currently owns no territory (so maxOwner stays low) must
+       * still be sized in — and its stock read without an out-of-range access.
+       */
+      mockGame.player[8] = { stock: 0 };
+      mockGame.player[9] = { stock: 7 }; // high-index player's stock must be read safely
+      expect(mockGame.player).toHaveLength(10);
+
+      mockGame.jun = [0, 1];
+      mockGame.ban = 0; // get_pn() -> 0
+      territory(1, 0, 5); // only owners on the board are 0 and 2 -> maxOwner = 2
+      territory(2, 2, 1);
+      link(1, 2);
+
+      expect(() => ai_lookahead(mockGame)).not.toThrow();
       expect(mockGame.area_from).toBe(1);
       expect(mockGame.area_to).toBe(2);
     });

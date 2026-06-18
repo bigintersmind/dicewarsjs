@@ -32,9 +32,10 @@ clears a posture-dependent attack threshold; otherwise it ends its turn.
 The weights are tuned (via `scripts/arena-sweep.mjs`) to make the bot **patient**.
 An unconstrained one-ply searcher over-extends in a crowd — it grabs locally
 attractive captures that leave it exposed, then gets dismantled. Strong safety
-terms counteract that: a high border-threat weight, a high minimum-odds floor,
-and a steep base attack threshold mean Lookahead commits dice only to
-high-confidence, low-exposure captures and otherwise waits.
+terms counteract that: a high border-threat weight, a steep penalty on attacks
+below a minimum-odds floor (a soft discouragement, not a hard cutoff), and a
+steep base attack threshold mean Lookahead commits dice only to high-confidence,
+low-exposure captures and otherwise waits.
 
 The attack threshold follows a **U-shaped posture**: lowest when winning
 (press to close the game out, accepting even slightly negative moves), still low

@@ -22,6 +22,22 @@
     />
 
     <style>
+      /*
+       * Default (dark) theme variables for first paint, before main.jsx runs.
+       * applyThemeVars() overrides these on the document root at startup based
+       * on the saved preference. Keep in sync with THEMES.dark in
+       * src/renderer/themes.js.
+       */
+      :root {
+        --ui-bg: rgba(0, 0, 0, 0.5);
+        --ui-overlay-bg: rgba(0, 0, 0, 0.75);
+        --ui-text: #ffffff;
+        --ui-text-muted: #aaaaaa;
+        --ui-accent: #e94560;
+        --ui-accent-soft: rgba(233, 69, 96, 0.15);
+        --ui-border: #555555;
+        --ui-body-bg: #1a1a2e;
+      }
       * {
         margin: 0;
         padding: 0;
@@ -32,7 +48,7 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background: #1a1a2e;
+        background: var(--ui-body-bg);
       }
       #pixi-canvas {
         position: absolute;

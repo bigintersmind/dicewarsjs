@@ -18,8 +18,8 @@ const STYLE = {
   },
   th: {
     padding: '0.4rem 0.6rem',
-    borderBottom: '2px solid #444',
-    color: '#aaa',
+    borderBottom: '2px solid var(--ui-border)',
+    color: 'var(--ui-text-muted)',
     cursor: 'pointer',
     userSelect: 'none',
     textAlign: 'left',
@@ -29,12 +29,12 @@ const STYLE = {
     letterSpacing: '0.05em',
   },
   thActive: {
-    color: '#e94560',
+    color: 'var(--ui-accent)',
   },
   td: {
     padding: '0.35rem 0.6rem',
-    borderBottom: '1px solid #333',
-    color: '#ccc',
+    borderBottom: '1px solid var(--ui-border)',
+    color: 'var(--ui-text)',
   },
   colorDot: {
     display: 'inline-block',
@@ -46,7 +46,7 @@ const STYLE = {
   },
   rank: {
     fontWeight: 'bold',
-    color: '#e94560',
+    color: 'var(--ui-accent)',
   },
 };
 

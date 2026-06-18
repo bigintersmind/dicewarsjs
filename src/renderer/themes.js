@@ -19,7 +19,6 @@ export const THEMES = {
     uiTextMuted: '#aaaaaa',
     uiAccent: '#e94560',
     uiBorder: '#555555',
-    uiBtnBg: 'transparent',
     bodyBg: '#1a1a2e',
   },
   light: {
@@ -33,7 +32,6 @@ export const THEMES = {
     uiTextMuted: '#555566',
     uiAccent: '#c0283d',
     uiBorder: '#999999',
-    uiBtnBg: 'rgba(255, 255, 255, 0.5)',
     bodyBg: '#e8e8f0',
   },
 };

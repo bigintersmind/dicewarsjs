@@ -8,7 +8,6 @@
 
 import { useGameStore } from './hooks/useGameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
-import { getTheme } from '../renderer/themes.js';
 
 const STYLE = {
   overlay: {
@@ -21,13 +20,13 @@ const STYLE = {
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    background: 'rgba(0, 0, 0, 0.75)',
+    background: 'var(--ui-overlay-bg)',
     pointerEvents: 'auto',
   },
   title: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '3.5rem',
-    color: '#fff',
+    color: 'var(--ui-text)',
     letterSpacing: '0.3em',
     marginBottom: '1rem',
     textShadow: '2px 2px 8px rgba(0,0,0,0.6)',
@@ -48,8 +47,8 @@ const STYLE = {
     fontSize: '1.3rem',
     padding: '0.6rem 2rem',
     background: 'transparent',
-    border: '2px solid #e94560',
-    color: '#e94560',
+    border: '2px solid var(--ui-accent)',
+    color: 'var(--ui-accent)',
     cursor: 'pointer',
     borderRadius: '6px',
     letterSpacing: '0.05em',
@@ -70,10 +69,10 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate }) {
   const humanEliminated = useGameStore(store, s => s.humanEliminated);
   if (!gameState) return null;
 
-  const theme = getTheme(prefs?.theme);
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const winner = gameState.winner;
-  const winnerColor = winner !== null ? colorPalette[winner % colorPalette.length] : theme.uiText;
+  const winnerColor =
+    winner !== null ? colorPalette[winner % colorPalette.length] : 'var(--ui-text)';
 
   // Determine heading and subtitle
   const isHumanWinner = winner !== null && winner === humanPlayerIndex;
@@ -88,29 +87,27 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate }) {
     subtitle = `Player ${winner + 1} wins!`;
   }
 
-  const btnStyle = { ...STYLE.btn, borderColor: theme.uiAccent, color: theme.uiAccent };
-
   return (
-    <div style={{ ...STYLE.overlay, background: theme.uiOverlayBg }}>
-      <h1 style={{ ...STYLE.title, color: isHumanWinner ? winnerColor : theme.uiText }}>
+    <div style={STYLE.overlay}>
+      <h1 style={{ ...STYLE.title, color: isHumanWinner ? winnerColor : 'var(--ui-text)' }}>
         {heading}
       </h1>
       {subtitle && (
-        <p style={{ ...STYLE.winner, color: humanEliminated ? theme.uiText : winnerColor }}>
+        <p style={{ ...STYLE.winner, color: humanEliminated ? 'var(--ui-text)' : winnerColor }}>
           {subtitle}
         </p>
       )}
       <div style={STYLE.buttonRow}>
-        <button style={btnStyle} onClick={onTitle}>
+        <button style={STYLE.btn} onClick={onTitle}>
           TITLE
         </button>
         {onHistory && (
-          <button style={btnStyle} onClick={onHistory}>
+          <button style={STYLE.btn} onClick={onHistory}>
             HISTORY
           </button>
         )}
         {onSpectate && humanEliminated && (
-          <button style={btnStyle} onClick={onSpectate}>
+          <button style={STYLE.btn} onClick={onSpectate}>
             SPECTATE
           </button>
         )}

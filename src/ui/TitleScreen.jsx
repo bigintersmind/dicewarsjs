@@ -7,8 +7,6 @@
  */
 
 import { useState } from 'preact/hooks';
-import { useGameStore } from './hooks/useGameStore.js';
-import { getTheme } from '../renderer/themes.js';
 import { DEFAULT_MAP_SIZE } from '../utils/config.js';
 
 /**
@@ -32,11 +30,12 @@ const STYLE = {
     overflowY: 'auto',
     pointerEvents: 'auto',
     userSelect: 'none',
+    color: 'var(--ui-text)',
   },
   title: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '4rem',
-    color: '#e94560',
+    color: 'var(--ui-accent)',
     textShadow: '2px 2px 8px rgba(0, 0, 0, 0.5)',
     letterSpacing: '0.1em',
     marginBottom: '2rem',
@@ -54,6 +53,7 @@ const STYLE = {
     letterSpacing: '0.12em',
     textTransform: 'uppercase',
     marginBottom: '0.5rem',
+    color: 'var(--ui-text-muted)',
   },
   sizeRow: {
     display: 'flex',
@@ -67,15 +67,15 @@ const STYLE = {
     fontSize: '1.3rem',
     padding: '0.4rem 1rem',
     background: 'transparent',
-    border: '2px solid #555',
-    color: '#cccccc',
+    border: '2px solid var(--ui-border)',
+    color: 'var(--ui-text-muted)',
     cursor: 'pointer',
     borderRadius: '4px',
     transition: 'all 0.15s',
   },
   playerBtnActive: {
-    color: '#e94560',
-    borderColor: '#e94560',
+    color: 'var(--ui-accent)',
+    borderColor: 'var(--ui-accent)',
   },
   buttonRow: {
     display: 'flex',
@@ -88,7 +88,7 @@ const STYLE = {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.5rem',
     padding: '0.6rem 2.5rem',
-    background: '#e94560',
+    background: 'var(--ui-accent)',
     border: 'none',
     color: '#fff',
     cursor: 'pointer',
@@ -101,8 +101,8 @@ const STYLE = {
     fontSize: '1.2rem',
     padding: '0.6rem 1.5rem',
     background: 'transparent',
-    border: '2px solid #e94560',
-    color: '#e94560',
+    border: '2px solid var(--ui-accent)',
+    color: 'var(--ui-accent)',
     cursor: 'pointer',
     borderRadius: '6px',
     letterSpacing: '0.05em',
@@ -111,13 +111,13 @@ const STYLE = {
   copyright: {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.8rem',
-    color: '#aaaaaa',
+    color: 'var(--ui-text-muted)',
     marginTop: '3rem',
   },
   errorBanner: {
-    background: 'rgba(233, 69, 96, 0.15)',
-    border: '1px solid #e94560',
-    color: '#e94560',
+    background: 'var(--ui-accent-soft)',
+    border: '1px solid var(--ui-accent)',
+    color: 'var(--ui-accent)',
     padding: '0.6rem 1.2rem',
     borderRadius: '6px',
     marginBottom: '1.5rem',
@@ -135,11 +135,9 @@ const STYLE = {
  * @param {() => void} [props.onTournament] - Navigate to tournament screen
  * @param {() => void} [props.onLeaderboard] - Navigate to online leaderboard screen
  */
-export function TitleScreen({ store, error, onStart, onArena, onTournament, onLeaderboard }) {
+export function TitleScreen({ error, onStart, onArena, onTournament, onLeaderboard }) {
   const [playerCount, setPlayerCount] = useState(7);
   const [mapSize, setMapSize] = useState(DEFAULT_MAP_SIZE);
-  const themeName = useGameStore(store, s => s.preferences?.theme) || 'dark';
-  const theme = getTheme(themeName);
 
   const handleStart = () => {
     onStart({ playerCount, spectator: false, mapSize });
@@ -150,23 +148,12 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
   };
 
   return (
-    <div style={{ ...STYLE.container, color: theme.uiText }}>
-      <h1 style={{ ...STYLE.title, color: theme.uiAccent }}>DICE WARS</h1>
+    <div style={STYLE.container}>
+      <h1 style={STYLE.title}>DICE WARS</h1>
 
-      {error && (
-        <div
-          style={{
-            ...STYLE.errorBanner,
-            color: theme.uiAccent,
-            borderColor: theme.uiAccent,
-            background: `${theme.uiAccent}22`,
-          }}
-        >
-          {error}
-        </div>
-      )}
+      {error && <div style={STYLE.errorBanner}>{error}</div>}
 
-      <span style={{ ...STYLE.sectionLabel, color: theme.uiTextMuted }}>Players</span>
+      <span style={STYLE.sectionLabel}>Players</span>
       <div style={STYLE.playerRow}>
         {[2, 3, 4, 5, 6, 7, 8].map(n => (
           <button
@@ -176,8 +163,7 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
             aria-pressed={n === playerCount}
             style={{
               ...STYLE.playerBtn,
-              color: n === playerCount ? theme.uiAccent : theme.uiTextMuted,
-              borderColor: n === playerCount ? theme.uiAccent : theme.uiBorder,
+              ...(n === playerCount ? STYLE.playerBtnActive : {}),
             }}
             onClick={() => setPlayerCount(n)}
           >
@@ -186,7 +172,7 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
         ))}
       </div>
 
-      <span style={{ ...STYLE.sectionLabel, color: theme.uiTextMuted }}>Map size</span>
+      <span style={STYLE.sectionLabel}>Map size</span>
       <div style={STYLE.sizeRow}>
         {MAP_SIZE_OPTIONS.map(opt => (
           <button
@@ -196,8 +182,7 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
             aria-pressed={opt.value === mapSize}
             style={{
               ...STYLE.playerBtn,
-              color: opt.value === mapSize ? theme.uiAccent : theme.uiTextMuted,
-              borderColor: opt.value === mapSize ? theme.uiAccent : theme.uiBorder,
+              ...(opt.value === mapSize ? STYLE.playerBtnActive : {}),
             }}
             onClick={() => setMapSize(opt.value)}
           >
@@ -207,42 +192,30 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
       </div>
 
       <div style={STYLE.buttonRow}>
-        <button style={{ ...STYLE.startBtn, background: theme.uiAccent }} onClick={handleStart}>
+        <button style={STYLE.startBtn} onClick={handleStart}>
           START
         </button>
-        <button
-          style={{ ...STYLE.aiBtn, borderColor: theme.uiAccent, color: theme.uiAccent }}
-          onClick={handleAIvsAI}
-        >
+        <button style={STYLE.aiBtn} onClick={handleAIvsAI}>
           AI vs AI
         </button>
         {onArena && (
-          <button
-            style={{ ...STYLE.aiBtn, borderColor: theme.uiAccent, color: theme.uiAccent }}
-            onClick={onArena}
-          >
+          <button style={STYLE.aiBtn} onClick={onArena}>
             ARENA
           </button>
         )}
         {onTournament && (
-          <button
-            style={{ ...STYLE.aiBtn, borderColor: theme.uiAccent, color: theme.uiAccent }}
-            onClick={onTournament}
-          >
+          <button style={STYLE.aiBtn} onClick={onTournament}>
             TOURNAMENT
           </button>
         )}
         {onLeaderboard && (
-          <button
-            style={{ ...STYLE.aiBtn, borderColor: theme.uiAccent, color: theme.uiAccent }}
-            onClick={onLeaderboard}
-          >
+          <button style={STYLE.aiBtn} onClick={onLeaderboard}>
             LEADERBOARD
           </button>
         )}
       </div>
 
-      <p style={{ ...STYLE.copyright, color: theme.uiTextMuted }}>Copyright (C) 2001 GAMEDESIGN</p>
+      <p style={STYLE.copyright}>Copyright (C) 2001 GAMEDESIGN</p>
     </div>
   );
 }

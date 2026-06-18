@@ -8,7 +8,6 @@
 
 import { useGameStore } from './hooks/useGameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
-import { getTheme } from '../renderer/themes.js';
 
 const STYLE = {
   overlay: {
@@ -27,7 +26,7 @@ const STYLE = {
   message: {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '1rem',
-    color: '#fff',
+    color: 'var(--ui-text)',
     textShadow: '1px 1px 4px rgba(0,0,0,0.8)',
     marginBottom: '0.5rem',
     textAlign: 'center',
@@ -36,7 +35,7 @@ const STYLE = {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.3rem',
     padding: '0.5rem 2rem',
-    background: '#e94560',
+    background: 'var(--ui-accent)',
     border: 'none',
     color: '#fff',
     cursor: 'pointer',
@@ -47,7 +46,7 @@ const STYLE = {
   thinking: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.2rem',
-    color: '#aaa',
+    color: 'var(--ui-text-muted)',
     marginBottom: '0.5rem',
   },
 };
@@ -65,7 +64,6 @@ export function GameOverlay({ store, onEndTurn }) {
 
   if (!gameState) return null;
 
-  const theme = getTheme(prefs?.theme);
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const currentPlayerId = gameState.turnOrder[gameState.currentPlayerIndex];
   const isHumanTurn = currentPlayerId === humanPlayerIndex;
@@ -73,13 +71,13 @@ export function GameOverlay({ store, onEndTurn }) {
   return (
     <div style={STYLE.overlay}>
       {isHumanTurn && awaitingInput === 'selectFrom' && (
-        <p style={{ ...STYLE.message, color: theme.uiText }}>Click your territory to attack from</p>
+        <p style={STYLE.message}>Click your territory to attack from</p>
       )}
       {isHumanTurn && awaitingInput === 'selectTo' && (
-        <p style={{ ...STYLE.message, color: theme.uiText }}>Click a neighbor to attack</p>
+        <p style={STYLE.message}>Click a neighbor to attack</p>
       )}
       {!isHumanTurn && humanPlayerIndex !== null && (
-        <p style={{ ...STYLE.thinking, color: theme.uiTextMuted }}>
+        <p style={STYLE.thinking}>
           <span style={{ color: colorPalette[currentPlayerId % colorPalette.length] }}>
             Player {currentPlayerId + 1}
           </span>{' '}
@@ -87,7 +85,7 @@ export function GameOverlay({ store, onEndTurn }) {
         </p>
       )}
       {isHumanTurn && (
-        <button style={{ ...STYLE.endTurnBtn, background: theme.uiAccent }} onClick={onEndTurn}>
+        <button style={STYLE.endTurnBtn} onClick={onEndTurn}>
           END TURN
         </button>
       )}

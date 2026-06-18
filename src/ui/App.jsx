@@ -41,7 +41,6 @@ export function App({ store, controller, preferencesManager }) {
       <ErrorBoundary>
         {settings}
         <TitleScreen
-          store={store}
           error={error}
           onStart={config => controller.startNewGame(config)}
           onArena={() => controller.goToArena()}

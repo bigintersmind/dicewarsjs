@@ -95,13 +95,42 @@ export function createLegacyGameView(state) {
 
 /**
  * Run a single AI decision step.
- * Creates a legacy view, calls the AI, extracts the chosen move.
+ *
+ * Two calling conventions are supported:
+ * - Legacy AIs (the built-in strategies): called with a mutable legacy game
+ *   view; they set `area_from`/`area_to` and return 0 to end their turn.
+ * - Modern bots (arena/community bots wrapped by `adaptModernBot`, marked with
+ *   `__modernBot`): called with the engine state directly and return
+ *   `{ from, to } | null`. The wrapper sanitizes state into a BotState, so the
+ *   engine never hands raw state to untrusted bot code.
  *
  * @param {import('./types.js').GameState} state
- * @param {Function} aiFunction - Legacy AI function (game → void|0)
+ * @param {Function} aiFunction - Legacy AI function (game → void|0) or a modern
+ *   bot tagged `__modernBot` (state → { from, to } | null)
  * @returns {{ from: number, to: number } | null} Move or null to end turn
  */
 export function runAI(state, aiFunction) {
+  // Modern bots take the engine state directly and return a move.
+  if (aiFunction && aiFunction.__modernBot) {
+    let move;
+    try {
+      move = aiFunction(state);
+    } catch (err) {
+      const playerId = state.turnOrder[state.currentPlayerIndex];
+      /*
+       * The adapter already catches the bot's own throws; reaching here means
+       * the adapter/sanitization layer failed — surface it as an adapter bug.
+       */
+      throw new Error(`Modern bot adapter error for player ${playerId}: ${err.message}`, {
+        cause: err,
+      });
+    }
+    if (move && typeof move.from === 'number' && typeof move.to === 'number') {
+      if (move.from > 0 && move.to > 0) return { from: move.from, to: move.to };
+    }
+    return null;
+  }
+
   const view = createLegacyGameView(state);
   let result;
   try {

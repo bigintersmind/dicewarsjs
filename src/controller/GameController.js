@@ -18,7 +18,28 @@ import {
 import { runAI } from '../engine/AIAdapter.js';
 import { getAIImplementation } from '../ai/aiConfig.js';
 import { createReplayFromState } from '../arena/replayFormat.js';
+import { loadCommunityBot } from '../arena/communityBots.js';
+import { adaptModernBot } from '../arena/modernBotAdapter.js';
 import { resolveMapSize } from '../utils/config.js';
+
+/** Prefix marking a per-slot assignment id as a curated community bot. */
+const COMMUNITY_PREFIX = 'community:';
+
+/**
+ * Resolve a single per-slot assignment id to an engine-callable AI function.
+ * Community ids (prefixed `community:`) are compiled and reverse-adapted so the
+ * in-game loop can drive them; everything else is a built-in strategy id.
+ *
+ * @param {string} aiId
+ * @returns {Promise<Function>}
+ */
+async function resolveAIFunction(aiId) {
+  if (aiId.startsWith(COMMUNITY_PREFIX)) {
+    const communityId = aiId.slice(COMMUNITY_PREFIX.length);
+    return adaptModernBot(loadCommunityBot(communityId), aiId);
+  }
+  return getAIImplementation(aiId);
+}
 
 /**
  * Create a game controller.
@@ -60,7 +81,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         fns.push(null); // human
       } else {
         try {
-          fns.push(await getAIImplementation(aiId));
+          fns.push(await resolveAIFunction(aiId));
         } catch (err) {
           console.error(
             `Failed to load AI "${aiId}" for player ${i}, falling back to ai_default:`,

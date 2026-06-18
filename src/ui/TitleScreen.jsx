@@ -10,6 +10,7 @@
 import { useState } from 'preact/hooks';
 import { DEFAULT_MAP_SIZE } from '../utils/config.js';
 import { getAllAIStrategies } from '../ai/aiConfig.js';
+import { getCommunityBotList } from '../arena/communityBots.js';
 
 /**
  * Map-size options shown on the title screen. `value` keys must match
@@ -24,6 +25,13 @@ const MAP_SIZE_OPTIONS = [
 
 /** Built-in AI strategies offered in the per-slot bot picker. */
 const AI_OPTIONS = getAllAIStrategies();
+
+/*
+ * Curated community bots offered alongside the built-ins. Their option values
+ * are namespaced with `community:` so the controller can tell them apart from
+ * built-in `ai_*` ids and route them through the modern-bot adapter.
+ */
+const COMMUNITY_OPTIONS = getCommunityBotList();
 
 const STYLE = {
   container: {
@@ -291,11 +299,22 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
                   value={assignments[i] || 'ai_default'}
                   onChange={e => handleAssign(i, e.target.value)}
                 >
-                  {AI_OPTIONS.map(ai => (
-                    <option key={ai.id} value={ai.id}>
-                      {ai.name}
-                    </option>
-                  ))}
+                  <optgroup label="Built-in">
+                    {AI_OPTIONS.map(ai => (
+                      <option key={ai.id} value={ai.id}>
+                        {ai.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {COMMUNITY_OPTIONS.length > 0 && (
+                    <optgroup label="Community">
+                      {COMMUNITY_OPTIONS.map(bot => (
+                        <option key={bot.id} value={`community:${bot.id}`}>
+                          {bot.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               )}
             </div>

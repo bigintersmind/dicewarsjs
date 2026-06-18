@@ -150,6 +150,43 @@ describe('runAI', () => {
   });
 });
 
+describe('runAI modern-bot routing', () => {
+  it('calls a __modernBot function with engine state and returns its move', () => {
+    const state = createTestState();
+    let receivedState = null;
+    const modernBot = s => {
+      receivedState = s;
+      return { from: 4, to: 5 };
+    };
+    modernBot.__modernBot = true;
+
+    const move = runAI(state, modernBot);
+    // Modern bots receive the engine state directly (not a legacy view).
+    expect(receivedState).toBe(state);
+    expect(move).toEqual({ from: 4, to: 5 });
+  });
+
+  it('treats a null / non-positive modern move as end-of-turn', () => {
+    const state = createTestState();
+    const endTurn = () => null;
+    endTurn.__modernBot = true;
+    expect(runAI(state, endTurn)).toBeNull();
+
+    const zeroMove = () => ({ from: 0, to: 0 });
+    zeroMove.__modernBot = true;
+    expect(runAI(state, zeroMove)).toBeNull();
+  });
+
+  it('re-throws a modern adapter failure as an adapter error', () => {
+    const state = createTestState();
+    const broken = () => {
+      throw new Error('sanitize failed');
+    };
+    broken.__modernBot = true;
+    expect(() => runAI(state, broken)).toThrow('Modern bot adapter error');
+  });
+});
+
 describe('runFullAITurn', () => {
   it('completes a full turn and advances to next player', () => {
     const state = createTestState();

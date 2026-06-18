@@ -109,9 +109,6 @@ module.exports = {
     'bots/',
     'community-bots/',
 
-    // Source files excluded temporarily (will be improved gradually)
-    'src/utils/config.js',
-
     // Test setup (mock globals, not linted)
     'tests/setup.js',
 

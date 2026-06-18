@@ -1,7 +1,10 @@
 /**
  * Tests for Lookahead AI implementation
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { ai_lookahead, winProbability, evaluateLookaheadTurn } from '../../src/ai/ai_lookahead.js';
+import * as lookaheadModule from '../../src/ai/ai_lookahead.js';
 
 describe('Lookahead AI', () => {
   let mockGame;
@@ -221,7 +224,13 @@ describe('Lookahead AI', () => {
    */
   describe('search-driven move selection', () => {
     test('plays its highest-scoring searched move when one clears the threshold', () => {
-      // Dominant attacker (PRESS posture) with clear favorable captures.
+      /*
+       * Dominant attacker (PRESS posture) with two clear captures: 1->3 takes an
+       * isolated single-die cell, while 2->4 captures a cell that opens a
+       * profitable follow-up on area 5. The one-ply continuation makes 2->4 the
+       * search's top move. Pin it concretely so a regression in the search (not
+       * just the threshold gate) is actually caught.
+       */
       territory(1, 1, 8);
       territory(2, 1, 8);
       territory(3, 2, 1);
@@ -233,7 +242,7 @@ describe('Lookahead AI', () => {
 
       const decision = evaluateLookaheadTurn(mockGame);
 
-      expect(decision.bestMove).not.toBeNull();
+      expect(decision.bestMove).toEqual({ from: 2, to: 4 });
       expect(decision.bestScore).toBeGreaterThan(decision.threshold);
       // With no Claude fallback, the chosen move is simply the searched best.
       expect(decision.chosenMove).toEqual(decision.bestMove);
@@ -292,6 +301,33 @@ describe('Lookahead AI', () => {
       ai_lookahead(mockGame);
       expect(mockGame.area_from).toBe(decision.bestMove.from);
       expect(mockGame.area_to).toBe(decision.bestMove.to);
+    });
+  });
+
+  /*
+   * Standalone contract — the defining property of this bot is that it decides
+   * end to end and never imports, calls, or falls back to the Strategist bot
+   * (ai_strategist, formerly ai_claude); the predecessor's override gate is gone.
+   * The behavioral tests above would still pass if a Strategist fallback were
+   * silently reintroduced, so these guards pin the decoupling directly: nothing
+   * else fails if someone re-couples the two bots.
+   */
+  describe('standalone — no Strategist coupling', () => {
+    test('exports exactly its own public surface (no Strategist re-export)', () => {
+      expect(Object.keys(lookaheadModule).sort()).toEqual([
+        'ai_lookahead',
+        'evaluateLookaheadTurn',
+        'winProbability',
+      ]);
+    });
+
+    test('source imports only the shared dice-odds table, not the Strategist bot', () => {
+      const source = readFileSync(
+        fileURLToPath(new URL('../../src/ai/ai_lookahead.js', import.meta.url)),
+        'utf8'
+      );
+      expect(source).not.toMatch(/ai_strategist/);
+      expect(source).not.toMatch(/ai_claude/);
     });
   });
 

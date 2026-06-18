@@ -14,15 +14,20 @@
 
 import { getTheme } from '../renderer/themes.js';
 
-/** Map of CSS custom property name → theme palette key. */
-const VAR_MAP = {
+/**
+ * Map of CSS custom property name → theme palette key. Note that
+ * `--ui-accent-soft` is intentionally absent: it is derived from `uiAccent` at
+ * runtime (see below), not looked up from the palette.
+ *
+ * Exported so tests can iterate it and stay in lockstep with the live mapping.
+ */
+export const VAR_MAP = {
   '--ui-bg': 'uiBg',
   '--ui-overlay-bg': 'uiOverlayBg',
   '--ui-text': 'uiText',
   '--ui-text-muted': 'uiTextMuted',
   '--ui-accent': 'uiAccent',
   '--ui-border': 'uiBorder',
-  '--ui-btn-bg': 'uiBtnBg',
   '--ui-body-bg': 'bodyBg',
 };
 

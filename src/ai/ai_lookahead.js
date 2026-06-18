@@ -18,28 +18,52 @@ import { winProbability } from './diceOdds.js';
 
 export { winProbability };
 
-const PLAYER_SLOTS = 8;
+const MIN_PLAYER_SLOTS = 8;
 const CONTINUATION_DEPTH = 1;
 const EPSILON = 1e-9;
 
+/*
+ * Scoring weights, tuned against the multi-player free-for-all via the bot
+ * arena (see scripts/arena-sweep.mjs). The strong safety terms — a high border
+ * threat weight, a high low-odds floor, and a steep base attack threshold —
+ * make the bot patient: it only commits to high-confidence, low-exposure
+ * captures, which avoids the over-extension that sinks an unconstrained
+ * one-ply searcher in a crowd. Re-tune with the arena sweep if the engine,
+ * map generator, or opponent field changes.
+ */
 const TERRITORY_WEIGHT = 0.9;
 const DICE_WEIGHT = 0.18;
 const INCOME_WEIGHT = 1.55;
 const COHESION_WEIGHT = 0.55;
 const STOCK_WEIGHT = 0.05;
-const BORDER_THREAT_WEIGHT = 0.5;
+const BORDER_THREAT_WEIGHT = 4.5;
 const LEADER_WEIGHT = 0.58;
 const FIELD_WEIGHT = 0.08;
 const DUEL_LEADER_WEIGHT = 1.05;
 const ELIMINATION_BONUS = 5.5;
 const LEADER_FOCUS_BONUS = 0.55;
 const OFF_LEADER_PENALTY = 0.22;
-const LOW_ODDS_FLOOR = 0.55;
-const LOW_ODDS_PENALTY = 4.0;
+const LOW_ODDS_FLOOR = 0.76;
+const LOW_ODDS_PENALTY = 7.0;
 const DOMINANCE_SHARE = 0.4;
-const BASE_THRESHOLD = 0.04;
+/*
+ * Posture thresholds form a U: the bot is decisive at both extremes and
+ * patient in the middle. PRESS (winning) accepts even slightly-negative moves
+ * to close out; WEAK (losing badly) still takes near-even fights to claw back;
+ * BASE (a balanced game, the common case) is the steepest bar, so the bot only
+ * spends dice on clearly profitable captures rather than gambling a level game.
+ * Ordering: PRESS < WEAK < BASE.
+ */
+const BASE_THRESHOLD = 2.2;
 const PRESS_THRESHOLD = -0.45;
 const WEAK_THRESHOLD = 0.18;
+/*
+ * Dice-share cutoffs that select the posture above: at/above PRESS_DICE_SHARE
+ * the bot is dominant enough to press; below WEAK_DICE_SHARE (in a crowd) it is
+ * weak enough to claw back. Between them it holds the patient BASE bar.
+ */
+const PRESS_DICE_SHARE = 0.38;
+const WEAK_DICE_SHARE = 0.15;
 
 function createBoard(game) {
   const areaMax = game.AREA_MAX;
@@ -47,12 +71,8 @@ function createBoard(game) {
   const owner = new Array(areaMax).fill(-1);
   const dice = new Array(areaMax).fill(0);
   const join = new Array(areaMax);
-  const stock = new Array(PLAYER_SLOTS).fill(0);
 
-  for (let player = 0; player < PLAYER_SLOTS; player++) {
-    stock[player] = game.player?.[player]?.stock || 0;
-  }
-
+  let maxOwner = -1;
   for (let id = 0; id < areaMax; id++) {
     const area = game.adat[id];
     join[id] = area?.join || [];
@@ -60,7 +80,21 @@ function createBoard(game) {
       exists[id] = true;
       owner[id] = area.arm;
       dice[id] = area.dice;
+      if (area.arm > maxOwner) maxOwner = area.arm;
     }
+  }
+
+  /*
+   * Size per-player arrays to the actual number of players this game. Games can
+   * seat more than the usual 8 (e.g. a 9-bot tournament), and a fixed 8-slot
+   * assumption would drop the extra player from the census and crash when that
+   * player takes a turn. MIN_PLAYER_SLOTS floors the size so the usual ≤8-player
+   * game keeps a fixed 8-slot array rather than a smaller per-game one.
+   */
+  const playerSlots = Math.max(MIN_PLAYER_SLOTS, maxOwner + 1, game.player?.length || 0);
+  const stock = new Array(playerSlots).fill(0);
+  for (let player = 0; player < playerSlots; player++) {
+    stock[player] = game.player?.[player]?.stock || 0;
   }
 
   /*
@@ -80,7 +114,7 @@ function createBoard(game) {
     neighbors[id] = list;
   }
 
-  return { areaMax, exists, owner, dice, join, stock, neighbors };
+  return { areaMax, exists, owner, dice, join, stock, neighbors, playerSlots };
 }
 
 function cloneBoard(board) {
@@ -92,6 +126,7 @@ function cloneBoard(board) {
     join: board.join,
     stock: board.stock,
     neighbors: board.neighbors,
+    playerSlots: board.playerSlots,
   };
 }
 
@@ -184,7 +219,7 @@ function computeStats(board) {
   const cached = statsCache.get(board);
   if (cached) return cached;
 
-  const stats = Array.from({ length: PLAYER_SLOTS }, (_, id) => ({
+  const stats = Array.from({ length: board.playerSlots }, (_, id) => ({
     id,
     territories: 0,
     dice: 0,
@@ -195,7 +230,7 @@ function computeStats(board) {
   for (let area = 1; area < board.areaMax; area++) {
     if (!board.exists[area]) continue;
     const player = board.owner[area];
-    if (player < 0 || player >= PLAYER_SLOTS) continue;
+    if (player < 0 || player >= board.playerSlots) continue;
     stats[player].territories++;
     stats[player].dice += board.dice[area];
   }
@@ -313,6 +348,13 @@ function findDominantPlayer(stats) {
 function attackThreshold(board, player) {
   const stats = computeStats(board);
   const me = stats[player];
+  /*
+   * Defensive: callers only reach here for a player with territories (see the
+   * early return in evaluateLookaheadTurn), but if that ever changes, fall back
+   * to the patient BASE bar rather than dereferencing an undefined census row.
+   */
+  if (!me) return BASE_THRESHOLD;
+
   const activeRivals = stats.filter(
     candidate => candidate.id !== player && candidate.territories > 0
   );
@@ -320,11 +362,11 @@ function attackThreshold(board, player) {
   const myShare = totalDice > 0 ? me.dice / totalDice : 0;
   const bestRivalDice = Math.max(0, ...activeRivals.map(candidate => candidate.dice));
 
-  if (myShare > 0.38 || (activeRivals.length === 1 && me.dice > bestRivalDice)) {
+  if (myShare > PRESS_DICE_SHARE || (activeRivals.length === 1 && me.dice > bestRivalDice)) {
     return PRESS_THRESHOLD;
   }
 
-  if (myShare < 0.15 && activeRivals.length > 1) {
+  if (myShare < WEAK_DICE_SHARE && activeRivals.length > 1) {
     return WEAK_THRESHOLD;
   }
 

@@ -27,12 +27,27 @@ arena runs expensive.
 ## Move Selection
 
 Lookahead plays the single highest-scoring searched move, provided that move
-clears a posture-dependent attack threshold; otherwise it ends its turn. The
-threshold adapts to game state — it presses (accepting mildly negative-value
-attacks) when dominant or ahead in a two-player endgame, and demands clearly
-profitable fights when weak in a crowded game. A low-odds penalty discourages
-speculative attacks well below even money. Move selection is fully deterministic:
-ties break toward the lowest `(from, to)` area indices.
+clears a posture-dependent attack threshold; otherwise it ends its turn.
+
+The weights are tuned (via `scripts/arena-sweep.mjs`) to make the bot **patient**.
+An unconstrained one-ply searcher over-extends in a crowd — it grabs locally
+attractive captures that leave it exposed, then gets dismantled. Strong safety
+terms counteract that: a high border-threat weight, a steep penalty on attacks
+below a minimum-odds floor (a soft discouragement, not a hard cutoff), and a
+steep base attack threshold mean Lookahead commits dice only to high-confidence,
+low-exposure captures and otherwise waits.
+
+The attack threshold follows a **U-shaped posture**: lowest when winning
+(press to close the game out, accepting even slightly negative moves), still low
+when losing badly (take near-even fights to claw back), and highest in a
+balanced game — the common case — where the bot stays patient rather than
+gambling a level position. Move selection is fully deterministic: ties break
+toward the lowest `(from, to)` area indices.
+
+The per-player tables are sized to the actual number of players each turn, so
+the bot is correct in larger games such as the 9-bot online tournament (a fixed
+8-player assumption would drop a player from its census and crash on that
+player's turn).
 
 ## Relationship to Strategist
 

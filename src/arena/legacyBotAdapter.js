@@ -7,6 +7,8 @@
  * @module arena/legacyBotAdapter
  */
 
+import { playerSlotCount } from '../ai/playerCount.js';
+
 /**
  * Build a legacy mutable game view from a BotState.
  *
@@ -50,9 +52,15 @@ function createLegacyViewFromBotState(botState) {
     };
   }
 
-  // Build player[] in legacy shape (padded to 8)
-  const player = new Array(8);
-  for (let i = 0; i < 8; i++) {
+  /*
+   * Build player[] in legacy shape, one entry per real player. Games can seat
+   * more than 8 players, so size via playerSlotCount — the same board-aware
+   * sizing the AIs use through getPlayerCount — so player.length always covers
+   * every owner index. Floors at 8 for legacy AIs that still index up to 8.
+   */
+  const playerSlots = playerSlotCount(players.length, adat, AREA_MAX);
+  const player = new Array(playerSlots);
+  for (let i = 0; i < playerSlots; i++) {
     if (i < players.length) {
       const p = players[i];
       player[i] = {

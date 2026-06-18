@@ -6,9 +6,13 @@
  * 3. Identifies dominant players
  * 4. Makes random attacks from valid options
  */
+import { getPlayerCount } from './playerCount.js';
+
 export const ai_default = game => {
+  const pmax = getPlayerCount(game);
+
   // Initialize area and dice counts for all players
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < pmax; i++) {
     game.player[i].area_c = 0;
     game.player[i].dice_c = 0;
   }
@@ -43,7 +47,7 @@ export const ai_default = game => {
    */
   const rankPlayersByDiceCount = () => {
     // Create array of player indices with their dice counts
-    const playerRankings = Array.from({ length: 8 }, (_, i) => ({
+    const playerRankings = Array.from({ length: pmax }, (_, i) => ({
       playerIndex: i,
       diceCount: game.player[i].dice_c,
     }));

@@ -10,6 +10,8 @@
  * - Choke points and strategic territory value
  * - Attack risk and potential rewards
  */
+import { getPlayerCount } from './playerCount.js';
+
 export const ai_adaptive = game => {
   // Get current player number
   const pn = game.get_pn();
@@ -42,24 +44,25 @@ export const ai_adaptive = game => {
  * @returns {Object} Analysis of the current game state
  */
 const analyzeGameState = game => {
+  const pmax = getPlayerCount(game);
   const state = {
     playerStats: [],
     territories: {
       total: 0,
-      byPlayer: new Array(8).fill(0),
+      byPlayer: new Array(pmax).fill(0),
     },
     dice: {
       total: 0,
-      byPlayer: new Array(8).fill(0),
+      byPlayer: new Array(pmax).fill(0),
     },
-    borderTerritories: new Array(8).fill(0),
+    borderTerritories: new Array(pmax).fill(0),
     playerRankings: [],
     dominantPlayer: -1,
-    averageDicePerTerritory: new Array(8).fill(0),
+    averageDicePerTerritory: new Array(pmax).fill(0),
     gamePhase: 'early',
     remainingPlayers: 0,
     chokePoints: [],
-    playerThreatLevel: new Array(8).fill(0),
+    playerThreatLevel: new Array(pmax).fill(0),
   };
 
   // Get territories data
@@ -92,7 +95,7 @@ const analyzeGameState = game => {
   });
 
   // Calculate average dice per territory and count active players
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < pmax; i++) {
     if (state.territories.byPlayer[i] > 0) {
       state.averageDicePerTerritory[i] = state.dice.byPlayer[i] / state.territories.byPlayer[i];
       state.remainingPlayers++;
@@ -109,7 +112,7 @@ const analyzeGameState = game => {
   }
 
   // Rank players by dice count (index 0 = highest ranking player)
-  state.playerRankings = Array(8)
+  state.playerRankings = Array(pmax)
     .fill()
     .map((_, i) => i)
     .filter(i => state.territories.byPlayer[i] > 0) // Only include active players
@@ -644,7 +647,7 @@ const findWeakestPlayer = game => {
   const { player } = game;
 
   // Filter active players and find the one with minimum dice
-  return [...Array(8).keys()]
+  return [...Array(getPlayerCount(game)).keys()]
     .filter(i => player[i].area_c > 0)
     .reduce((weakest, i) => (player[i].dice_c < player[weakest]?.dice_c ? i : weakest), -1);
 };

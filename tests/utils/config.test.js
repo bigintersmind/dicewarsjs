@@ -52,9 +52,17 @@ describe('config — map size presets', () => {
     });
 
     test('falls back to the default preset for unknown or invalid keys', () => {
+      /*
+       * The fallback is dev-only-loud: it logs (so a missing preset surfaces in
+       * dev) but never throws. Spy keeps the expected warnings out of test output.
+       */
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       for (const bad of ['huge', '', undefined, null, 0, 'MEDIUM']) {
         expect(resolveMapSize(bad)).toEqual(MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE]);
       }
+      // import.meta.env.DEV is true under vitest, so the dev warning fires.
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
     });
   });
 });

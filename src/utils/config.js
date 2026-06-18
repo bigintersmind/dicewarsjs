@@ -33,11 +33,24 @@ export const DEFAULT_MAP_SIZE = 'medium';
 
 /**
  * Resolve a map-size preset key to concrete engine dimensions.
- * Unknown/invalid keys fall back to the default (medium) preset.
+ * Unknown/invalid keys fall back to the default (medium) preset — never throws,
+ * so a bad size token can't crash game creation. In dev builds the fallback is
+ * also logged, to surface a missing-preset mistake (see below).
  *
  * @param {string} size - Preset key ('small' | 'medium' | 'large')
  * @returns {{ mapWidth: number, mapHeight: number, maxAreas: number }}
  */
 export function resolveMapSize(size) {
-  return MAP_SIZE_PRESETS[size] ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
+  const preset = MAP_SIZE_PRESETS[size];
+  if (!preset && import.meta.env?.DEV) {
+    /*
+     * Dev-only signal. Selectable sizes (MAP_SIZE_OPTIONS in the title screen)
+     * must each have a matching preset key here; adding an option without its
+     * preset would otherwise silently ship a medium map with no indication.
+     * Guarded by `import.meta.env?.DEV` so production builds stay silent and the
+     * `?.` keeps it safe under plain Node (arena/CLI), where env is undefined.
+     */
+    console.warn(`resolveMapSize: unknown map size "${size}" — falling back to "${DEFAULT_MAP_SIZE}".`);
+  }
+  return preset ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
 }

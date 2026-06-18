@@ -1,5 +1,7 @@
 /**
- * Codex AI - shallow expectimax strategy for Dice Wars.
+ * Lookahead - standalone shallow-expectimax strategy for Dice Wars.
+ *
+ * Authored by GPT-5.5.
  *
  * The bot evaluates every legal attack with exact dice odds, then estimates
  * the expected board value after the win and loss branches. Board value is
@@ -8,11 +10,13 @@
  *
  * The search is intentionally shallow. The AI is called again after every
  * attack, so one-ply continuation is enough to value chain attacks without
- * making arena runs expensive.
+ * making arena runs expensive. Lookahead plays its own searched move directly;
+ * it shares only the exact dice-odds table with the other built-in bots.
  */
 
-import { ai_claude } from './ai_claude.js';
-import { winProbability as winOdds } from './diceOdds.js';
+import { winProbability } from './diceOdds.js';
+
+export { winProbability };
 
 const PLAYER_SLOTS = 8;
 const CONTINUATION_DEPTH = 1;
@@ -32,21 +36,10 @@ const LEADER_FOCUS_BONUS = 0.55;
 const OFF_LEADER_PENALTY = 0.22;
 const LOW_ODDS_FLOOR = 0.55;
 const LOW_ODDS_PENALTY = 4.0;
-const CODEX_OVERRIDE_MARGIN = 1.8;
 const DOMINANCE_SHARE = 0.4;
 const BASE_THRESHOLD = 0.04;
 const PRESS_THRESHOLD = -0.45;
 const WEAK_THRESHOLD = 0.18;
-
-/**
- * Exact probability that the attacker wins (ties favor the defender). This is
- * the shared odds function, re-exported under the name the test suite imports.
- *
- * @param {number} attackerDice - 1..8
- * @param {number} defenderDice - 1..8
- * @returns {number} Probability in [0, 1]
- */
-export const codexWinProbability = winOdds;
 
 function createBoard(game) {
   const areaMax = game.AREA_MAX;
@@ -178,7 +171,7 @@ function findLargestConnectedGroup(board, player) {
 
 /*
  * Per-board memoization. Each board object is created within exactly one
- * ai_codex call (createBoard for the root, cloneBoard for branches) and is
+ * ai_lookahead call (createBoard for the root, cloneBoard for branches) and is
  * never mutated after applyAttack finishes building it, so board identity is a
  * sound cache key: computeStats is a pure function of the board, and the AI's
  * own player is fixed for the lifetime of any given board object. Module-level
@@ -254,7 +247,7 @@ function captureThreat(board, areaId, defenderDice, owner) {
 
   forEachNeighbor(board, areaId, neighbor => {
     if (board.owner[neighbor] === owner || board.dice[neighbor] <= 1) return;
-    survival *= 1 - codexWinProbability(board.dice[neighbor], defenderDice);
+    survival *= 1 - winProbability(board.dice[neighbor], defenderDice);
   });
 
   return 1 - survival;
@@ -338,21 +331,21 @@ function attackThreshold(board, player) {
   return BASE_THRESHOLD;
 }
 
-function strategicAdjustment(board, player, to, winProbability) {
+function strategicAdjustment(board, player, to, winChance) {
   const stats = computeStats(board);
   const defender = board.owner[to];
   let adjustment = 0;
 
   if (stats[defender]?.territories === 1) {
-    adjustment += ELIMINATION_BONUS * winProbability;
+    adjustment += ELIMINATION_BONUS * winChance;
   }
 
   const dominantPlayer = findDominantPlayer(stats);
   if (dominantPlayer >= 0 && dominantPlayer !== player) {
     adjustment +=
       defender === dominantPlayer
-        ? LEADER_FOCUS_BONUS * winProbability
-        : -OFF_LEADER_PENALTY * winProbability;
+        ? LEADER_FOCUS_BONUS * winChance
+        : -OFF_LEADER_PENALTY * winChance;
   }
 
   return adjustment;
@@ -362,7 +355,7 @@ function expectedMoveGain(board, player, move, depth) {
   const { from, to } = move;
   const attackerDice = board.dice[from];
   const defenderDice = board.dice[to];
-  const winProbability = codexWinProbability(attackerDice, defenderDice);
+  const winChance = winProbability(attackerDice, defenderDice);
   const currentScore = evaluateBoard(board, player);
   const winBoard = applyAttack(board, from, to, player, true);
   const lossBoard = applyAttack(board, from, to, player, false);
@@ -373,10 +366,10 @@ function expectedMoveGain(board, player, move, depth) {
   const lossGain = evaluateBoard(lossBoard, player) - currentScore + lossContinuation;
 
   return (
-    winProbability * winGain +
-    (1 - winProbability) * lossGain +
-    strategicAdjustment(board, player, to, winProbability) -
-    Math.max(0, LOW_ODDS_FLOOR - winProbability) * LOW_ODDS_PENALTY
+    winChance * winGain +
+    (1 - winChance) * lossGain +
+    strategicAdjustment(board, player, to, winChance) -
+    Math.max(0, LOW_ODDS_FLOOR - winChance) * LOW_ODDS_PENALTY
   );
 }
 
@@ -399,44 +392,21 @@ function isBetterMove(score, move, bestScore, bestMove) {
   return move.to < bestMove.to;
 }
 
-function getClaudeMove(game) {
-  const previousFrom = game.area_from;
-  const previousTo = game.area_to;
-
-  game.area_from = 0;
-  game.area_to = 0;
-  const result = ai_claude(game);
-  const move =
-    result === 0 || game.area_from <= 0 || game.area_to <= 0
-      ? null
-      : { from: game.area_from, to: game.area_to };
-
-  game.area_from = previousFrom;
-  game.area_to = previousTo;
-
-  return move;
-}
-
-function findLegalMove(legalMoves, candidate) {
-  if (!candidate) return null;
-  return legalMoves.find(move => move.from === candidate.from && move.to === candidate.to) || null;
-}
-
 /**
- * Run the full Codex decision for the current turn without mutating the game's
- * chosen move. Returns the searched best move, the ai_claude default, their
- * scores, the active attack threshold, and the move Codex would play. Exported
- * so the override-gate and posture logic can be tested directly; `ai_codex`
- * itself is a thin wrapper that applies `chosenMove`.
+ * Run the full Lookahead decision for the current turn without mutating the
+ * game's chosen move. Returns the searched best move, its score, the active
+ * attack threshold, and the move Lookahead would play (the best move when it
+ * clears the threshold, otherwise null). Exported so the search and posture
+ * logic can be tested directly; `ai_lookahead` itself is a thin wrapper that
+ * applies `chosenMove`.
  *
  * @param {Object} game - Legacy mutable game view.
  * @returns {{
  *   player: number, bestMove: ?{from:number,to:number}, bestScore: number,
- *   claudeMove: ?{from:number,to:number}, claudeScore: number,
  *   threshold: number, chosenMove: ?{from:number,to:number}
  * }}
  */
-export const evaluateCodexTurn = game => {
+export const evaluateLookaheadTurn = game => {
   const player = game.get_pn();
   const board = createBoard(game);
 
@@ -444,8 +414,6 @@ export const evaluateCodexTurn = game => {
     player,
     bestMove: null,
     bestScore: -Infinity,
-    claudeMove: null,
-    claudeScore: -Infinity,
     threshold: BASE_THRESHOLD,
     chosenMove: null,
   };
@@ -455,45 +423,23 @@ export const evaluateCodexTurn = game => {
   const legalMoves = getLegalMoves(board, player);
   let bestMove = null;
   let bestScore = -Infinity;
-  const scoreByMove = new Map();
 
   for (const move of legalMoves) {
     const score = expectedMoveGain(board, player, move, CONTINUATION_DEPTH);
-    scoreByMove.set(move.from * board.areaMax + move.to, score);
     if (isBetterMove(score, move, bestScore, bestMove)) {
       bestScore = score;
       bestMove = move;
     }
   }
 
-  /*
-   * ai_claude's move is always one of the legal moves we just scored, so reuse
-   * that score instead of running a second full expectimax pass on it.
-   */
-  const claudeMove = findLegalMove(legalMoves, getClaudeMove(game));
-  let claudeScore = -Infinity;
-  if (claudeMove) {
-    const key = claudeMove.from * board.areaMax + claudeMove.to;
-    claudeScore = scoreByMove.has(key)
-      ? scoreByMove.get(key)
-      : expectedMoveGain(board, player, claudeMove, CONTINUATION_DEPTH);
-  }
-
   const threshold = attackThreshold(board, player);
-  let chosenMove = claudeMove;
-  if (
-    bestMove &&
-    bestScore > threshold &&
-    (!claudeMove || bestScore > claudeScore + CODEX_OVERRIDE_MARGIN)
-  ) {
-    chosenMove = bestMove;
-  }
+  const chosenMove = bestMove && bestScore > threshold ? bestMove : null;
 
-  return { player, bestMove, bestScore, claudeMove, claudeScore, threshold, chosenMove };
+  return { player, bestMove, bestScore, threshold, chosenMove };
 };
 
-export const ai_codex = game => {
-  const { chosenMove } = evaluateCodexTurn(game);
+export const ai_lookahead = game => {
+  const { chosenMove } = evaluateLookaheadTurn(game);
 
   if (!chosenMove) return 0;
 

@@ -11,8 +11,8 @@ export const load_ai_default = async () => (await import('./ai_default.js')).ai_
 export const load_ai_defensive = async () => (await import('./ai_defensive.js')).ai_defensive;
 export const load_ai_example = async () => (await import('./ai_example.js')).ai_example;
 export const load_ai_adaptive = async () => (await import('./ai_adaptive.js')).ai_adaptive;
-export const load_ai_claude = async () => (await import('./ai_claude.js')).ai_claude;
-export const load_ai_codex = async () => (await import('./ai_codex.js')).ai_codex;
+export const load_ai_strategist = async () => (await import('./ai_strategist.js')).ai_strategist;
+export const load_ai_lookahead = async () => (await import('./ai_lookahead.js')).ai_lookahead;
 
 /**
  * AI Strategy Registry
@@ -67,22 +67,22 @@ export const AI_STRATEGIES = {
   },
 
   // Expected-value AI using exact dice odds and connectivity economics
-  ai_claude: {
-    id: 'ai_claude',
-    name: 'Claude AI',
+  ai_strategist: {
+    id: 'ai_strategist',
+    name: 'Strategist AI',
     description: 'Scores every attack by exact expected value of income and risk',
     difficulty: 5,
-    loader: load_ai_claude,
+    loader: load_ai_strategist,
     implementation: null,
   },
 
   // Shallow expectimax AI using exact dice odds and board-value search
-  ai_codex: {
-    id: 'ai_codex',
-    name: 'Codex AI',
-    description: 'Uses exact dice odds with shallow expectimax board evaluation',
+  ai_lookahead: {
+    id: 'ai_lookahead',
+    name: 'Lookahead AI',
+    description: 'Searches win/loss branches with exact dice odds and board-value evaluation',
     difficulty: 5,
-    loader: load_ai_codex,
+    loader: load_ai_lookahead,
     implementation: null,
   },
 };
@@ -128,8 +128,8 @@ export const DEFAULT_AI_ASSIGNMENTS = [
   'ai_adaptive', // Player 3
   'ai_default', // Player 4
   'ai_default', // Player 5
-  'ai_claude', // Player 6
-  'ai_codex', // Player 7
+  'ai_strategist', // Player 6
+  'ai_lookahead', // Player 7
 ];
 
 /**

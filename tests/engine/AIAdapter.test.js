@@ -7,7 +7,7 @@ import { ai_example } from '../../src/ai/ai_example.js';
 import { ai_default } from '../../src/ai/ai_default.js';
 import { ai_defensive } from '../../src/ai/ai_defensive.js';
 import { ai_adaptive } from '../../src/ai/ai_adaptive.js';
-import { ai_codex } from '../../src/ai/ai_codex.js';
+import { ai_lookahead } from '../../src/ai/ai_lookahead.js';
 
 const DEFAULT_CONFIG = {
   mapWidth: 28,
@@ -219,7 +219,7 @@ describe('AI strategy compatibility', () => {
     { name: 'ai_default', fn: ai_default },
     { name: 'ai_defensive', fn: ai_defensive },
     { name: 'ai_adaptive', fn: ai_adaptive },
-    { name: 'ai_codex', fn: ai_codex },
+    { name: 'ai_lookahead', fn: ai_lookahead },
   ];
 
   for (const { name, fn } of strategies) {

@@ -27,7 +27,7 @@
         "wins": 8
       },
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1228,
         "wins": 22
       },
@@ -61,7 +61,7 @@
         "wins": 21
       },
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1252,
         "wins": 21
       },
@@ -115,7 +115,7 @@
         "wins": 17
       },
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1236,
         "wins": 16
       },
@@ -151,10 +151,10 @@
     "gamesPlayed": 100,
     "failedGames": 0,
     "botCount": 9,
-    "champion": "Codex",
+    "champion": "Lookahead",
     "standings": [
       {
-        "name": "Codex",
+        "name": "Lookahead",
         "elo": 1319,
         "wins": 9
       },
@@ -164,7 +164,7 @@
         "wins": 1
       },
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1288,
         "wins": 24
       },
@@ -213,12 +213,12 @@
         "wins": 4
       },
       {
-        "name": "Codex",
+        "name": "Lookahead",
         "elo": 1275,
         "wins": 3
       },
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1263,
         "wins": 22
       },
@@ -267,12 +267,12 @@
         "wins": 4
       },
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1249,
         "wins": 20
       },
       {
-        "name": "Codex",
+        "name": "Lookahead",
         "elo": 1246,
         "wins": 5
       },
@@ -313,10 +313,10 @@
     "gamesPlayed": 100,
     "failedGames": 0,
     "botCount": 9,
-    "champion": "Codex",
+    "champion": "Lookahead",
     "standings": [
       {
-        "name": "Codex",
+        "name": "Lookahead",
         "elo": 1290,
         "wins": 5
       },
@@ -326,7 +326,7 @@
         "wins": 0
       },
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1276,
         "wins": 23
       },
@@ -367,15 +367,15 @@
     "gamesPlayed": 100,
     "failedGames": 0,
     "botCount": 9,
-    "champion": "Claude",
+    "champion": "Strategist",
     "standings": [
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1309,
         "wins": 20
       },
       {
-        "name": "Codex",
+        "name": "Lookahead",
         "elo": 1288,
         "wins": 5
       },
@@ -429,12 +429,12 @@
         "wins": 1
       },
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1279,
         "wins": 21
       },
       {
-        "name": "Codex",
+        "name": "Lookahead",
         "elo": 1247,
         "wins": 5
       },
@@ -475,15 +475,15 @@
     "gamesPlayed": 100,
     "failedGames": 0,
     "botCount": 9,
-    "champion": "Claude",
+    "champion": "Strategist",
     "standings": [
       {
-        "name": "Claude",
+        "name": "Strategist",
         "elo": 1299,
         "wins": 26
       },
       {
-        "name": "Codex",
+        "name": "Lookahead",
         "elo": 1288,
         "wins": 5
       },

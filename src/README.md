@@ -37,8 +37,8 @@ Built-in strategies live in `src/ai/`, registered with metadata in `aiConfig.js`
 - `ai_defensive` — conservative, focused on protecting vulnerable territories
 - `ai_example` — minimal example for learning
 - `ai_adaptive` — adapts to game conditions
-- `ai_claude` — exact expected-value using dice odds and connectivity economics
-- `ai_codex` — Claude EV baseline with shallow expectimax overrides
+- `ai_strategist` — exact expected-value using dice odds and connectivity economics (authored by Claude Opus 4.8)
+- `ai_lookahead` — standalone shallow expectimax over win/loss branches (authored by GPT-5.5)
 
 ### Writing an AI
 

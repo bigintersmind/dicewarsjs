@@ -33,6 +33,7 @@
  * and tooling import winProbability from this strategy.
  */
 import { MAX_DICE, WIN_TABLE, winProbability } from './diceOdds.js';
+import { getPlayerCount } from './playerCount.js';
 
 export { winProbability };
 
@@ -60,8 +61,9 @@ export const ai_strategist = game => {
   };
 
   // --- Board census ---
-  const diceByPlayer = new Array(8).fill(0);
-  const areasByPlayer = new Array(8).fill(0);
+  const pmax = getPlayerCount(game);
+  const diceByPlayer = new Array(pmax).fill(0);
+  const areasByPlayer = new Array(pmax).fill(0);
   let totalDice = 0;
   for (let i = 1; i < AREA_MAX; i++) {
     if (!exists(i)) continue;
@@ -188,7 +190,7 @@ export const ai_strategist = game => {
 
   // --- Strategic posture ---
   let dominantPlayer = -1;
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < pmax; i++) {
     if (diceByPlayer[i] > totalDice * DOMINANCE_SHARE) {
       dominantPlayer = i;
       break;

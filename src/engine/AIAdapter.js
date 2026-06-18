@@ -42,9 +42,15 @@ export function createLegacyGameView(state) {
     };
   }
 
-  // Build player[] in legacy shape
-  const player = new Array(8);
-  for (let i = 0; i < 8; i++) {
+  /*
+   * Build player[] in legacy shape, one entry per real player. Games can have
+   * more than 8 players (the online tournament runs a 9-bot field), so size to
+   * the actual count; keep a floor of 8 because some legacy AIs still index up
+   * to 8 unconditionally. The extra slots above players.length are empty pads.
+   */
+  const playerSlots = Math.max(8, players.length);
+  const player = new Array(playerSlots);
+  for (let i = 0; i < playerSlots; i++) {
     if (i < players.length) {
       player[i] = {
         area_c: players[i].territoryCount,
@@ -54,7 +60,6 @@ export function createLegacyGameView(state) {
         stock: players[i].stock,
       };
     } else {
-      // Pad to 8 players (AIs hardcode loops to 8)
       player[i] = { area_c: 0, dice_c: 0, area_tc: 0, dice_jun: 0, stock: 0 };
     }
   }
@@ -78,8 +83,8 @@ export function createLegacyGameView(state) {
     },
   };
 
-  // Pad jun to 8 if needed
-  while (view.jun.length < 8) {
+  // Pad jun up to the player-slot count if the turn order is shorter.
+  while (view.jun.length < playerSlots) {
     view.jun.push(view.jun.length);
   }
 

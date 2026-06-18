@@ -6,12 +6,51 @@ import { ai_example } from '../../src/ai/ai_example.js';
 import { ai_default } from '../../src/ai/ai_default.js';
 import { ai_defensive } from '../../src/ai/ai_defensive.js';
 import { ai_adaptive } from '../../src/ai/ai_adaptive.js';
+import { ai_strategist } from '../../src/ai/ai_strategist.js';
+import { ai_lookahead } from '../../src/ai/ai_lookahead.js';
 
 function createTestBotState(seed = 42, playerCount = 4) {
   const state = createGame({ seed, playerCount });
   const playerId = state.turnOrder[state.currentPlayerIndex];
   return createBotState(state, playerId);
 }
+
+/*
+ * The online tournament runs a 9-bot field, so games can seat more than 8
+ * players. Legacy bots that assumed 8 player slots dropped the 9th player from
+ * their census and threw on its turn; adaptLegacyBot swallows the throw (logs
+ * "threw" and forfeits), so a crash shows up as a silent forfeit, not a test
+ * failure. These tests pin that every built-in bot runs cleanly as the
+ * highest-indexed player (index 8) in a 9-player game.
+ */
+describe('built-in bots in 9-player games (N-player robustness)', () => {
+  const BOTS = [
+    ['ai_example', ai_example],
+    ['ai_default', ai_default],
+    ['ai_defensive', ai_defensive],
+    ['ai_adaptive', ai_adaptive],
+    ['ai_strategist', ai_strategist],
+    ['ai_lookahead', ai_lookahead],
+  ];
+
+  for (const [name, fn] of BOTS) {
+    it(`${name} runs without throwing when seated at player index 8`, () => {
+      const state = createGame({ seed: 7, playerCount: 9 });
+      const botState = createBotState(state, 8); // the 9th player
+      const bot = adaptLegacyBot(fn, name);
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const move = bot(botState);
+      const threw = warnSpy.mock.calls.some(args => String(args[0]).includes('threw'));
+      warnSpy.mockRestore();
+
+      expect(threw).toBe(false);
+      if (move !== null) {
+        expect(validateMove(move, botState).valid).toBe(true);
+      }
+    });
+  }
+});
 
 describe('adaptLegacyBot', () => {
   it('returns a function', () => {

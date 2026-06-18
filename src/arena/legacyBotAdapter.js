@@ -50,9 +50,14 @@ function createLegacyViewFromBotState(botState) {
     };
   }
 
-  // Build player[] in legacy shape (padded to 8)
-  const player = new Array(8);
-  for (let i = 0; i < 8; i++) {
+  /*
+   * Build player[] in legacy shape, one entry per real player. Games can seat
+   * more than 8 players (the online tournament runs a 9-bot field), so size to
+   * the actual count; keep a floor of 8 for legacy AIs that still index up to 8.
+   */
+  const playerSlots = Math.max(8, players.length, totalPlayers);
+  const player = new Array(playerSlots);
+  for (let i = 0; i < playerSlots; i++) {
     if (i < players.length) {
       const p = players[i];
       player[i] = {

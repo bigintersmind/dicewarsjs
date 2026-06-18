@@ -100,7 +100,7 @@ src/
 ├── store/        Observable GameStore (pub/sub shared state)
 ├── controller/   GameController (game loop orchestrator)
 ├── audio/        Web Audio sound manager
-└── utils/        Game configuration (map size, player/AI assignments)
+└── utils/        Game configuration — map-size presets
 ```
 
 See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.

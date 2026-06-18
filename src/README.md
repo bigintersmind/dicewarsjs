@@ -14,7 +14,7 @@ src/
 ├── store/        # Observable GameStore (pub/sub shared state)
 ├── controller/   # GameController — game loop orchestrator
 ├── audio/        # Web Audio sound manager
-├── utils/        # Game configuration (config.js)
+├── utils/        # Game configuration — map-size presets
 ├── main.jsx      # Application entry point (PixiJS + Preact bootstrap)
 └── README.md     # This file
 ```

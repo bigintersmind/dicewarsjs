@@ -1,6 +1,6 @@
 /**
  * Exact Dice Wars battle odds — a single source of truth shared by the
- * expected-value AIs (ai_claude, ai_codex).
+ * expected-value AIs (ai_strategist, ai_lookahead).
  *
  * WIN_TABLE[a][d] = P(sum of `a` six-sided dice > sum of `d` six-sided dice),
  * with ties awarded to the defender. Computed once at module load via

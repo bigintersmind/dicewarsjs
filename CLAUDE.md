@@ -115,7 +115,8 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
   - ai_defensive: Prioritizes protecting vulnerable territories
   - ai_example: Basic implementation for educational purposes
   - ai_adaptive: Adapts strategy based on game conditions
-  - ai_claude: Expected-value strategy using exact dice odds and connectivity economics (strongest in arena benchmarks)
+  - ai_strategist: Expected-value strategy using exact dice odds and connectivity economics (strongest in arena benchmarks; authored by Claude Opus 4.8)
+  - ai_lookahead: Standalone shallow-expectimax search over win/loss branches with board-value evaluation (authored by GPT-5.5)
 
 - **Bot Arena** (src/arena/): Headless bot-vs-bot tournament system — ELO ratings (elo.js), match/tournament runners, custom-bot compilation & validation, replay format. Powers `npm run arena`, the in-game Arena screen, and the CLI bot tooling. See docs/BOT_GUIDE.md for authoring a bot (a function: state → { from, to } | null).
 

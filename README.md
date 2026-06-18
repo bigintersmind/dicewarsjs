@@ -96,7 +96,7 @@ src/
 ├── renderer/     PixiJS rendering (hex grid, dice, animations)
 ├── ui/           Preact components (screens, HUD, overlays)
 ├── arena/        Bot SDK (validation, execution, tournaments, ELO, replays)
-├── ai/           6 AI strategies (example, default, defensive, adaptive, Claude, Codex)
+├── ai/           6 AI strategies (example, default, defensive, adaptive, Strategist, Lookahead)
 ├── store/        Observable GameStore (pub/sub shared state)
 ├── controller/   GameController (game loop orchestrator)
 ├── audio/        Web Audio sound manager
@@ -107,14 +107,16 @@ See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.
 
 ## AI Strategies
 
-| Bot                               | Strategy                                      |
-| --------------------------------- | --------------------------------------------- |
-| **Example** (`ai_example.js`)     | Simple implementation to learn from           |
-| **Default** (`ai_default.js`)     | Original game's balanced AI                   |
-| **Defensive** (`ai_defensive.js`) | Prioritizes protecting vulnerable territories |
-| **Adaptive** (`ai_adaptive.js`)   | Adjusts strategy based on game state          |
-| **Claude** (`ai_claude.js`)       | Exact expected value using odds and income    |
-| **Codex** (`ai_codex.js`)         | Claude EV baseline with expectimax overrides  |
+| Bot                                 | Strategy                                      |
+| ----------------------------------- | --------------------------------------------- |
+| **Example** (`ai_example.js`)       | Simple implementation to learn from           |
+| **Default** (`ai_default.js`)       | Original game's balanced AI                   |
+| **Defensive** (`ai_defensive.js`)   | Prioritizes protecting vulnerable territories |
+| **Adaptive** (`ai_adaptive.js`)     | Adjusts strategy based on game state          |
+| **Strategist** (`ai_strategist.js`) | Exact expected value using odds and income    |
+| **Lookahead** (`ai_lookahead.js`)   | Shallow expectimax over win/loss branches     |
+
+> **Strategist** and **Lookahead** are the two strongest built-in bots, each authored by an AI coding assistant: Strategist by **Claude Opus 4.8** and Lookahead by **GPT-5.5**. The names describe their technique (expected-value scoring vs. shallow search) rather than the tool that wrote them.
 
 ## Documentation
 

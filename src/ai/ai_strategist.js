@@ -1,6 +1,8 @@
 /**
- * Claude AI — expected-value strategy built on exact battle probabilities
+ * Strategist — expected-value strategy built on exact battle probabilities
  * and the economics of connectivity.
+ *
+ * Authored by Claude Opus 4.8.
  *
  * Core insight: reinforcements equal the size of a player's largest connected
  * territory group, so the real currency of Dice Wars is connectivity, not raw
@@ -48,7 +50,7 @@ const DOMINANCE_SHARE = 0.4; // dice share that marks a player as dominant
 const BASE_THRESHOLD = 0.05; // minimum EV to bother attacking
 const PRESS_THRESHOLD = -0.6; // accept negative-EV attacks to close out a win
 
-export const ai_claude = game => {
+export const ai_strategist = game => {
   const pn = game.get_pn();
   const { adat, AREA_MAX } = game;
 

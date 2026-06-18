@@ -4,7 +4,7 @@
   "totalGamesPlayed": 1000,
   "bots": [
     {
-      "name": "Claude",
+      "name": "Strategist",
       "author": "built-in",
       "elo": 1299,
       "previousElo": 1279,
@@ -15,7 +15,7 @@
       "attackWinRate": 0.865
     },
     {
-      "name": "Codex",
+      "name": "Lookahead",
       "author": "built-in",
       "elo": 1288,
       "previousElo": 1247,
@@ -111,13 +111,13 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Claude",
+      "winner": "Strategist",
       "turns": 329
     },
     {
@@ -127,8 +127,8 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"
@@ -143,8 +143,8 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"
@@ -159,8 +159,8 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"
@@ -175,8 +175,8 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"
@@ -191,13 +191,13 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Codex",
+      "winner": "Lookahead",
       "turns": 176
     },
     {
@@ -207,8 +207,8 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"
@@ -223,8 +223,8 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"
@@ -239,13 +239,13 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Claude",
+      "winner": "Strategist",
       "turns": 172
     },
     {
@@ -255,8 +255,8 @@
         "Default",
         "Defensive",
         "Adaptive",
-        "Claude",
-        "Codex",
+        "Strategist",
+        "Lookahead",
         "Connector",
         "Blitz",
         "Giant Slayer"

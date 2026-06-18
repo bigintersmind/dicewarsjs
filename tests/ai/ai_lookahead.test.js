@@ -1,10 +1,9 @@
 /**
- * Tests for Codex AI implementation
+ * Tests for Lookahead AI implementation
  */
-import { ai_codex, codexWinProbability, evaluateCodexTurn } from '../../src/ai/ai_codex.js';
-import { ai_claude } from '../../src/ai/ai_claude.js';
+import { ai_lookahead, winProbability, evaluateLookaheadTurn } from '../../src/ai/ai_lookahead.js';
 
-describe('Codex AI', () => {
+describe('Lookahead AI', () => {
   let mockGame;
 
   const link = (a, b) => {
@@ -52,33 +51,33 @@ describe('Codex AI', () => {
     }
   });
 
-  describe('codexWinProbability', () => {
+  describe('winProbability', () => {
     test('matches known exact values', () => {
-      expect(codexWinProbability(2, 1)).toBeCloseTo(0.8379, 3);
-      expect(codexWinProbability(1, 1)).toBeCloseTo(15 / 36, 6);
-      expect(codexWinProbability(8, 1)).toBeCloseTo(1, 12);
+      expect(winProbability(2, 1)).toBeCloseTo(0.8379, 3);
+      expect(winProbability(1, 1)).toBeCloseTo(15 / 36, 6);
+      expect(winProbability(8, 1)).toBeCloseTo(1, 12);
     });
 
     test('is monotonic in attacker dice', () => {
       for (let defender = 1; defender <= 8; defender++) {
         for (let attacker = 2; attacker <= 8; attacker++) {
-          expect(codexWinProbability(attacker, defender)).toBeGreaterThanOrEqual(
-            codexWinProbability(attacker - 1, defender)
+          expect(winProbability(attacker, defender)).toBeGreaterThanOrEqual(
+            winProbability(attacker - 1, defender)
           );
         }
       }
     });
 
     test('returns 0 for invalid dice counts', () => {
-      expect(codexWinProbability(0, 3)).toBe(0);
-      expect(codexWinProbability(3, 0)).toBe(0);
+      expect(winProbability(0, 3)).toBe(0);
+      expect(winProbability(3, 0)).toBe(0);
     });
   });
 
   test('ends turn when no valid moves are available', () => {
     territory(1, 1, 1);
 
-    expect(ai_codex(mockGame)).toBe(0);
+    expect(ai_lookahead(mockGame)).toBe(0);
     expect(mockGame.area_from).toBe(0);
     expect(mockGame.area_to).toBe(0);
   });
@@ -88,7 +87,7 @@ describe('Codex AI', () => {
     territory(2, 3, 2);
     link(1, 2);
 
-    expect(ai_codex(mockGame)).toBe(0);
+    expect(ai_lookahead(mockGame)).toBe(0);
   });
 
   test('attacks with a clear dice advantage', () => {
@@ -97,7 +96,7 @@ describe('Codex AI', () => {
     territory(3, 2, 1);
     link(1, 2);
 
-    expect(ai_codex(mockGame)).not.toBe(0);
+    expect(ai_lookahead(mockGame)).not.toBe(0);
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(2);
   });
@@ -109,7 +108,7 @@ describe('Codex AI', () => {
     link(1, 2);
     link(2, 3);
 
-    expect(ai_codex(mockGame)).toBe(0);
+    expect(ai_lookahead(mockGame)).toBe(0);
   });
 
   test('prefers eliminating a player over a comparable capture', () => {
@@ -120,7 +119,7 @@ describe('Codex AI', () => {
     link(1, 2);
     link(1, 3);
 
-    ai_codex(mockGame);
+    ai_lookahead(mockGame);
 
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(2);
@@ -139,7 +138,7 @@ describe('Codex AI', () => {
     link(4, 5);
     link(5, 6);
 
-    ai_codex(mockGame);
+    ai_lookahead(mockGame);
 
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(2);
@@ -154,7 +153,7 @@ describe('Codex AI', () => {
     link(1, 3);
     link(3, 4);
 
-    ai_codex(mockGame);
+    ai_lookahead(mockGame);
 
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(3);
@@ -169,12 +168,12 @@ describe('Codex AI', () => {
     link(2, 4);
     link(3, 4);
 
-    ai_codex(mockGame);
+    ai_lookahead(mockGame);
     const firstMove = { from: mockGame.area_from, to: mockGame.area_to };
 
     mockGame.area_from = 0;
     mockGame.area_to = 0;
-    ai_codex(mockGame);
+    ai_lookahead(mockGame);
 
     expect(mockGame.area_from).toBe(firstMove.from);
     expect(mockGame.area_to).toBe(firstMove.to);
@@ -191,7 +190,7 @@ describe('Codex AI', () => {
     link(3, 5);
     link(1, 2);
 
-    const result = ai_codex(mockGame);
+    const result = ai_lookahead(mockGame);
 
     if (result !== 0) {
       const from = mockGame.adat[mockGame.area_from];
@@ -203,32 +202,14 @@ describe('Codex AI', () => {
     }
   });
 
-  // The move ai_claude alone would make on the current board (or null).
-  const claudeAloneMove = () => {
-    mockGame.area_from = 0;
-    mockGame.area_to = 0;
-    const result = ai_claude(mockGame);
-    const move =
-      result === 0 || mockGame.area_from <= 0 || mockGame.area_to <= 0
-        ? null
-        : { from: mockGame.area_from, to: mockGame.area_to };
-    mockGame.area_from = 0;
-    mockGame.area_to = 0;
-    return move;
-  };
-
   /*
-   * The override gate is the defining behavior of Codex over Claude: Claude's
-   * move is the default, and the searched move only takes over when it clears
-   * the attack threshold AND beats Claude by CODEX_OVERRIDE_MARGIN (or Claude
-   * has no move). These tests pin both sides of that gate via evaluateCodexTurn.
+   * Lookahead is standalone: it always plays its own highest-scoring searched
+   * move, provided that move clears the posture-dependent attack threshold.
+   * (There is no Claude fallback or override gate.) These tests pin that
+   * selection via evaluateLookaheadTurn.
    */
-  describe('ai_claude override gate', () => {
-    test('defers to ai_claude when the searched move does not clear the override margin', () => {
-      /*
-       * Board where Codex's search prefers 2->5 but only beats Claude's 2->8 by
-       * ~1.79 (< the 1.8 margin), so Codex must keep Claude's move.
-       */
+  describe('search-driven move selection', () => {
+    test('plays its highest-scoring searched move on a complex board', () => {
       territory(1, 2, 6);
       territory(2, 1, 8);
       territory(3, 2, 1);
@@ -252,27 +233,22 @@ describe('Codex AI', () => {
       link(7, 9);
       link(8, 9);
 
-      const decision = evaluateCodexTurn(mockGame);
+      const decision = evaluateLookaheadTurn(mockGame);
 
-      // The search genuinely found a higher-scoring move than Claude's...
       expect(decision.bestMove).not.toBeNull();
-      expect(decision.claudeMove).not.toBeNull();
-      expect(decision.bestMove).not.toEqual(decision.claudeMove);
-      expect(decision.bestScore).toBeGreaterThan(decision.claudeScore);
       expect(decision.bestScore).toBeGreaterThan(decision.threshold);
-      // ...yet because the gap is under the margin, Codex defers to Claude.
-      expect(decision.chosenMove).toEqual(decision.claudeMove);
+      // With no Claude fallback, the chosen move is simply the searched best.
+      expect(decision.chosenMove).toEqual(decision.bestMove);
 
-      ai_codex(mockGame);
-      expect(mockGame.area_from).toBe(decision.claudeMove.from);
-      expect(mockGame.area_to).toBe(decision.claudeMove.to);
+      ai_lookahead(mockGame);
+      expect(mockGame.area_from).toBe(decision.bestMove.from);
+      expect(mockGame.area_to).toBe(decision.bestMove.to);
     });
 
-    test('overrides ai_claude to take an elimination it would otherwise miss', () => {
+    test('takes an available elimination its search values highly', () => {
       /*
-       * Codex captures area 2 (player 3's only territory — an elimination),
-       * while ai_claude alone prefers the non-eliminating 6->3. The search
-       * beats Claude by > the margin, so the override fires.
+       * Capturing area 2 (player 3's only territory) eliminates a player; the
+       * elimination bonus makes 6->2 the search's top move.
        */
       territory(1, 2, 7);
       territory(2, 3, 1); // player 3's only territory
@@ -291,26 +267,20 @@ describe('Codex AI', () => {
       link(4, 5);
       link(5, 6);
 
-      const claudeOnly = claudeAloneMove();
-      const decision = evaluateCodexTurn(mockGame);
+      const decision = evaluateLookaheadTurn(mockGame);
 
-      // ai_claude alone would not take the elimination here.
-      expect(claudeOnly).toEqual({ from: 6, to: 3 });
-      // Codex overrides to eliminate player 3 by capturing their last territory.
-      expect(decision.chosenMove).toEqual({ from: 6, to: 2 });
       expect(decision.bestMove).toEqual({ from: 6, to: 2 });
-      expect(decision.chosenMove).not.toEqual(decision.claudeMove);
-      expect(decision.bestScore).toBeGreaterThan(decision.claudeScore);
+      expect(decision.chosenMove).toEqual({ from: 6, to: 2 });
 
-      ai_codex(mockGame);
+      ai_lookahead(mockGame);
       expect(mockGame.area_from).toBe(6);
       expect(mockGame.area_to).toBe(2);
     });
 
-    test('attacks on the threshold alone when ai_claude declines', () => {
+    test('plays a searched move that clears the pressing threshold', () => {
       /*
-       * ai_claude ends the turn (no move it likes), but Codex's search finds a
-       * move above the (pressing) threshold and plays it.
+       * Dominant player presses: the search finds a move above the (negative)
+       * pressing threshold and plays it.
        */
       territory(2, 2, 7);
       territory(3, 2, 7);
@@ -322,15 +292,12 @@ describe('Codex AI', () => {
       link(2, 7);
       link(5, 7);
 
-      expect(claudeAloneMove()).toBeNull();
-
-      const decision = evaluateCodexTurn(mockGame);
-      expect(decision.claudeMove).toBeNull();
+      const decision = evaluateLookaheadTurn(mockGame);
       expect(decision.bestMove).not.toBeNull();
       expect(decision.bestScore).toBeGreaterThan(decision.threshold);
       expect(decision.chosenMove).toEqual(decision.bestMove);
 
-      ai_codex(mockGame);
+      ai_lookahead(mockGame);
       expect(mockGame.area_from).toBe(decision.bestMove.from);
       expect(mockGame.area_to).toBe(decision.bestMove.to);
     });
@@ -344,7 +311,7 @@ describe('Codex AI', () => {
   describe('attack-threshold posture', () => {
     const thresholdFor = setup => {
       setup();
-      return evaluateCodexTurn(mockGame).threshold;
+      return evaluateLookaheadTurn(mockGame).threshold;
     };
 
     test('PRESS (dominant) < BASE (balanced) < WEAK (losing)', () => {
@@ -415,17 +382,17 @@ describe('Codex AI', () => {
     link(1, 3);
     link(3, 4);
 
-    const decision = evaluateCodexTurn(mockGame);
+    const decision = evaluateLookaheadTurn(mockGame);
 
     /*
      * The only real attack is found, but the low-odds penalty drives its score
      * strongly negative (a single capture's raw value is ~1-2 units, so a score
-     * below -1.5 can only come from the penalty), and Codex declines.
+     * below -1.5 can only come from the penalty), and Lookahead declines.
      */
     expect(decision.bestMove).toEqual({ from: 1, to: 3 });
     expect(decision.bestScore).toBeLessThan(-1.5);
     expect(decision.chosenMove).toBeNull();
-    expect(ai_codex(mockGame)).toBe(0);
+    expect(ai_lookahead(mockGame)).toBe(0);
   });
 
   test('proposes only legal moves across many random boards', () => {
@@ -462,7 +429,7 @@ describe('Codex AI', () => {
 
       mockGame.area_from = 0;
       mockGame.area_to = 0;
-      const result = ai_codex(mockGame);
+      const result = ai_lookahead(mockGame);
 
       if (result !== 0 && mockGame.area_from > 0 && mockGame.area_to > 0) {
         const pn = mockGame.get_pn();

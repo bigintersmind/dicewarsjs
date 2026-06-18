@@ -1,9 +1,9 @@
 /**
- * Tests for Claude AI implementation
+ * Tests for Strategist AI implementation
  */
-import { ai_claude, winProbability } from '../../src/ai/ai_claude.js';
+import { ai_strategist, winProbability } from '../../src/ai/ai_strategist.js';
 
-describe('Claude AI', () => {
+describe('Strategist AI', () => {
   let mockGame;
 
   /** Symmetrically connect two territories */
@@ -96,7 +96,7 @@ describe('Claude AI', () => {
   test('ends turn when no valid moves are available', () => {
     territory(1, 1, 1); // Own territory with only 1 die cannot attack
 
-    const result = ai_claude(mockGame);
+    const result = ai_strategist(mockGame);
 
     expect(result).toBe(0);
     expect(mockGame.area_from).toBe(0);
@@ -108,7 +108,7 @@ describe('Claude AI', () => {
     territory(2, 3, 2);
     link(1, 2);
 
-    expect(ai_claude(mockGame)).toBe(0);
+    expect(ai_strategist(mockGame)).toBe(0);
   });
 
   test('attacks with a clear dice advantage', () => {
@@ -117,7 +117,7 @@ describe('Claude AI', () => {
     territory(3, 2, 1); // Second enemy territory so no elimination bonus skews it
     link(1, 2);
 
-    const result = ai_claude(mockGame);
+    const result = ai_strategist(mockGame);
 
     expect(result).not.toBe(0);
     expect(mockGame.area_from).toBe(1);
@@ -131,7 +131,7 @@ describe('Claude AI', () => {
     link(1, 2);
     link(2, 3);
 
-    const result = ai_claude(mockGame);
+    const result = ai_strategist(mockGame);
 
     expect(result).toBe(0);
   });
@@ -145,7 +145,7 @@ describe('Claude AI', () => {
     link(1, 3);
     link(3, 4);
 
-    ai_claude(mockGame);
+    ai_strategist(mockGame);
 
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(2);
@@ -162,7 +162,7 @@ describe('Claude AI', () => {
     link(1, 3); // Can hit the cut point...
     link(1, 4); // ...or the chain end
 
-    ai_claude(mockGame);
+    ai_strategist(mockGame);
 
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(3); // The cut, not the end
@@ -178,7 +178,7 @@ describe('Claude AI', () => {
     link(2, 3);
     link(1, 4);
 
-    ai_claude(mockGame);
+    ai_strategist(mockGame);
 
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(3); // The bridge, not the plain cell
@@ -208,13 +208,13 @@ describe('Claude AI', () => {
     };
 
     setup(mockGame);
-    ai_claude(mockGame);
+    ai_strategist(mockGame);
     const firstMove = { from: mockGame.area_from, to: mockGame.area_to };
 
     // Fresh identical game
     mockGame.area_from = 0;
     mockGame.area_to = 0;
-    ai_claude(mockGame);
+    ai_strategist(mockGame);
 
     expect(mockGame.area_from).toBe(firstMove.from);
     expect(mockGame.area_to).toBe(firstMove.to);
@@ -231,7 +231,7 @@ describe('Claude AI', () => {
     link(3, 5);
     link(1, 2);
 
-    const result = ai_claude(mockGame);
+    const result = ai_strategist(mockGame);
 
     if (result !== 0) {
       const from = mockGame.adat[mockGame.area_from];

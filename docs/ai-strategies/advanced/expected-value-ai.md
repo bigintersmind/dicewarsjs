@@ -1,7 +1,8 @@
 # Expected-Value AI
 
-The expected-value (EV) strategy is the approach behind the `ai_claude` bot
-(`src/ai/ai_claude.js`). Instead of a hand-ordered list of tactical rules, it
+The expected-value (EV) strategy is the approach behind the `ai_strategist` bot
+(`src/ai/ai_strategist.js`, authored by Claude Opus 4.8). Instead of a
+hand-ordered list of tactical rules, it
 reduces every candidate move to a single number — the expected change in the
 player's position — and plays the move that maximizes it. The tactical ideas
 from the rest of this guide (dice advantage, choke-point cutting, border
@@ -33,11 +34,11 @@ wins is fixed for each `(a, d)` pair and can be computed exactly by convolving
 the distributions of two dice-sum totals — no simulation or sigmoid
 approximation required.
 
-`ai_claude` builds this 8×8 table once at module load and exports it as
-`winProbability(attackerDice, defenderDice)`:
+The exact 8×8 odds table is built once at module load in `diceOdds.js`;
+`ai_strategist` re-exports it as `winProbability(attackerDice, defenderDice)`:
 
 ```javascript
-import { winProbability } from '../../src/ai/ai_claude.js';
+import { winProbability } from '../../src/ai/ai_strategist.js';
 
 winProbability(2, 1); // 0.8380...  classic 2-vs-1
 winProbability(3, 3); // 0.4536...  equal dice favor the DEFENDER
@@ -129,7 +130,7 @@ interval (Student's t). Read the intervals, not just the ranks:
   last can out-rank a bot that wins more but busts out harder. The sweep table
   sorts by ELO because it is the more complete measure.
 
-A useful companion is a head-to-head: `npm run arena:sweep -- --bots Claude,Defensive`
+A useful companion is a head-to-head: `npm run arena:sweep -- --bots Strategist,Defensive`
 isolates two bots, removing the multi-player gang-up dynamics that shape a
 free-for-all, for a cleaner "A beats B" answer.
 
@@ -146,18 +147,18 @@ npm run arena:sweep -- --runs 50 --games 200
 
 50 runs × 200 games = 10,000 games, five built-in bots, free-for-all:
 
-| Rank | Bot       | Win% (95% CI) | ELO (95% CI) |
-| ---- | --------- | ------------- | ------------ |
-| 1    | Claude    | 33.7 ± 0.9    | 1280 ± 9     |
-| 2    | Defensive | 23.3 ± 0.8    | 1251 ± 10    |
-| 3    | Example   | 13.2 ± 0.7    | 1183 ± 12    |
-| 4    | Adaptive  | 13.7 ± 0.6    | 1160 ± 10    |
-| 5    | Default   | 10.9 ± 0.6    | 1126 ± 11    |
+| Rank | Bot        | Win% (95% CI) | ELO (95% CI) |
+| ---- | ---------- | ------------- | ------------ |
+| 1    | Strategist | 33.7 ± 0.9    | 1280 ± 9     |
+| 2    | Defensive  | 23.3 ± 0.8    | 1251 ± 10    |
+| 3    | Example    | 13.2 ± 0.7    | 1183 ± 12    |
+| 4    | Adaptive   | 13.7 ± 0.6    | 1160 ± 10    |
+| 5    | Default    | 10.9 ± 0.6    | 1126 ± 11    |
 
 Fair-share win rate with five bots is 20.0%. Observations at the time of
 measurement:
 
-- **Claude leads decisively.** Its win-rate interval `[32.8, 34.6]` does not
+- **Strategist leads decisively.** Its win-rate interval `[32.8, 34.6]` does not
   overlap the runner-up's `[22.5, 24.1]` — a ~9-point gap well outside sampling
   error. It wins at roughly 1.7× fair share.
 - **Example vs Adaptive is the metric-disagreement case.** Their win-rate
@@ -165,8 +166,8 @@ measurement:
   cleanly separated with Example ahead — Example finishes higher on average even
   though it does not win outright more often. This is exactly the win%/ELO
   divergence described above.
-- Head-to-head, Claude beats Defensive in roughly 71% of two-player games
-  (`npm run arena:sweep -- --bots Claude,Defensive`).
+- Head-to-head, Strategist beats Defensive in roughly 71% of two-player games
+  (`npm run arena:sweep -- --bots Strategist,Defensive`).
 
 ## When to Use This Approach
 

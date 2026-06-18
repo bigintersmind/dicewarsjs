@@ -93,8 +93,6 @@ module.exports = {
     'func-names': ['off'],
   },
   globals: {
-    // CreateJS library globals
-    createjs: 'readonly',
     // Global functions available in newer Node.js versions
     structuredClone: 'readonly',
   },
@@ -113,11 +111,6 @@ module.exports = {
 
     // Source files excluded temporarily (will be improved gradually)
     'src/utils/config.js',
-    '**/PlayerData.js', // Private field syntax not supported by current ESLint config
-
-    // Test files with parsing issues
-    'tests/models/enhanced/PlayerData.test.js',
-    'tests/state/ImmutableState.test.js',
 
     // Test setup (mock globals, not linted)
     'tests/setup.js',

@@ -30,6 +30,18 @@ export const PLAYER_COLORS_CSS = [
   '#ff5858',
 ];
 
+/** Human-readable names for each player color, indexed like PLAYER_COLORS. */
+export const PLAYER_COLOR_NAMES = [
+  'Purple',
+  'Lime',
+  'Green',
+  'Pink',
+  'Orange',
+  'Cyan',
+  'Yellow',
+  'Red',
+];
+
 /**
  * Color-blind safe player palette (Wong palette).
  * Designed to be distinguishable by users with color vision deficiencies.
@@ -83,6 +95,18 @@ export const COLORBLIND_PLAYER_COLORS_CSS = [
   '#56b4e9',
   '#d55e00',
   '#000000',
+];
+
+/** Human-readable names for the color-blind palette, indexed alike. */
+export const COLORBLIND_PLAYER_COLOR_NAMES = [
+  'Blue',
+  'Orange',
+  'Teal',
+  'Yellow',
+  'Pink',
+  'Sky blue',
+  'Vermillion',
+  'Black',
 ];
 
 /** Territory border color. */

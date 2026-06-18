@@ -10,6 +10,7 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { TitleScreen } from '../../src/ui/TitleScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { PLAYER_COLOR_NAMES } from '../../src/renderer/constants.js';
 
 let container;
 
@@ -35,7 +36,11 @@ const aiBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent === 'AI vs AI');
 const customizeBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent.includes('Customize players'));
-const slotSelect = n => container.querySelector(`select[aria-label="Bot for player ${n}"]`);
+// Slots are labelled by player color now; `n` stays the 1-indexed player number.
+const slotSelect = n => {
+  const colorName = PLAYER_COLOR_NAMES[(n - 1) % PLAYER_COLOR_NAMES.length];
+  return container.querySelector(`select[aria-label="Bot for ${colorName} player"]`);
+};
 
 /** Set a native <select> value and fire the change event Preact listens for. */
 function chooseBot(playerNumber, aiId) {

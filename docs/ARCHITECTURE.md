@@ -35,7 +35,7 @@ This document describes how the codebase is organized and how data flows through
 | `src/arena/`      | Bot SDK: bot validation, sandboxed execution, match running, ELO ratings, tournament formats, replay serialization.                                                    |
 | `src/ai/`         | Built-in AI strategies (example, default, defensive, adaptive, Claude, Codex) using the legacy game object interface. Adapted for the arena via `legacyBotAdapter.js`. |
 | `src/audio/`      | Web Audio API sound manager with lazy loading.                                                                                                                         |
-| `src/utils/`      | Game configuration — map-size presets (`resolveMapSize`) surfaced in the title screen.                                                                                 |
+| `src/utils/`      | Game configuration — map-size presets surfaced in the title screen, resolved to engine dimensions by the controller (`resolveMapSize`).                                |
 
 ## Data Flow: Playing a Game
 

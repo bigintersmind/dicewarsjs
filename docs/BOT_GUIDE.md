@@ -33,7 +33,7 @@ return null;
 Write your bot as a file (see the [`bots/`](../bots/) examples) and test it from the command line:
 
 ```bash
-npm run new-bot -- my-bot            # scaffold a new bot from a template
+npm run new-bot -- my                # scaffold bots/my-bot.js from a template
 npm run validate-bot -- bots/my-bot.js   # check syntax + runtime
 npm run benchmark-bot -- bots/my-bot.js  # win rate, ELO, placement
 npm run arena                        # run all built-in bots head-to-head

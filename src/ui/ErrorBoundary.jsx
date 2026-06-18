@@ -11,7 +11,7 @@ import { Component } from 'preact';
 
 const STYLE = {
   container: {
-    color: '#e94560',
+    color: 'var(--ui-accent)',
     padding: '2rem',
     fontFamily: 'sans-serif',
     textAlign: 'center',
@@ -21,7 +21,7 @@ const STYLE = {
     padding: '0.5rem 1.5rem',
     fontSize: '1rem',
     cursor: 'pointer',
-    background: '#e94560',
+    background: 'var(--ui-accent)',
     color: '#fff',
     border: 'none',
     borderRadius: '4px',

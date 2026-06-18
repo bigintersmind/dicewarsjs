@@ -33,7 +33,7 @@ const STYLE = {
   text: {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.85rem',
-    color: '#bbb',
+    color: 'var(--ui-text-muted)',
     lineHeight: 1.4,
     marginBottom: '0.7rem',
   },

@@ -8,7 +8,6 @@
 
 import { useGameStore } from './hooks/useGameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
-import { getTheme } from '../renderer/themes.js';
 
 const STYLE = {
   bar: {
@@ -20,7 +19,7 @@ const STYLE = {
     justifyContent: 'center',
     gap: '0.5rem',
     padding: '0.5rem',
-    background: 'rgba(0, 0, 0, 0.5)',
+    background: 'var(--ui-bg)',
     pointerEvents: 'auto',
   },
   player: {
@@ -31,7 +30,7 @@ const STYLE = {
     borderRadius: '4px',
     fontFamily: 'Anton, sans-serif',
     fontSize: '1rem',
-    color: '#fff',
+    color: 'var(--ui-text)',
     transition: 'opacity 0.3s',
   },
   swatch: {
@@ -47,7 +46,7 @@ const STYLE = {
   },
   stock: {
     fontSize: '0.75rem',
-    color: '#aaa',
+    color: 'var(--ui-text-muted)',
     marginLeft: '0.2rem',
   },
 };
@@ -61,13 +60,12 @@ export function GameHUD({ store }) {
   const prefs = useGameStore(store, s => s.preferences);
   if (!gameState) return null;
 
-  const theme = getTheme(prefs?.theme);
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const { players, turnOrder, currentPlayerIndex } = gameState;
   const currentPlayerId = turnOrder[currentPlayerIndex];
 
   return (
-    <div style={{ ...STYLE.bar, background: theme.uiBg }}>
+    <div style={STYLE.bar}>
       {players.map(p => {
         if (p.eliminated) return null;
         const isCurrent = p.id === currentPlayerId;
@@ -77,15 +75,12 @@ export function GameHUD({ store }) {
             key={p.id}
             style={{
               ...STYLE.player,
-              color: theme.uiText,
               ...(isCurrent ? STYLE.current : {}),
             }}
           >
             <span style={{ ...STYLE.swatch, background: color }} />
             <span>{p.territoryCount}</span>
-            {p.stock > 0 && (
-              <span style={{ ...STYLE.stock, color: theme.uiTextMuted }}>+{p.stock}</span>
-            )}
+            {p.stock > 0 && <span style={STYLE.stock}>+{p.stock}</span>}
           </div>
         );
       })}

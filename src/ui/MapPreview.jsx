@@ -20,7 +20,7 @@ const STYLE = {
   label: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.4rem',
-    color: '#fff',
+    color: 'var(--ui-text)',
     textShadow: '1px 1px 4px rgba(0,0,0,0.8)',
     alignSelf: 'center',
   },
@@ -34,13 +34,13 @@ const STYLE = {
     letterSpacing: '0.05em',
   },
   yes: {
-    background: '#e94560',
+    background: 'var(--ui-accent)',
     color: '#fff',
   },
   no: {
     background: 'transparent',
-    border: '2px solid #e94560',
-    color: '#e94560',
+    border: '2px solid var(--ui-accent)',
+    color: 'var(--ui-accent)',
   },
 };
 

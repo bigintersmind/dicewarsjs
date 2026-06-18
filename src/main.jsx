@@ -12,6 +12,7 @@ import { createGameController } from './controller/GameController.js';
 import { createSoundManager } from './audio/SoundManager.js';
 import { createPreferencesManager } from './store/PreferencesManager.js';
 import { createKeyboardController } from './controller/KeyboardController.js';
+import { applyThemeVars } from './ui/applyThemeVars.js';
 
 async function main() {
   // Create the shared store
@@ -35,6 +36,15 @@ async function main() {
   preferencesManager.subscribe(prefs => {
     soundManager.setEnabled(!prefs.muted);
   });
+
+  /*
+   * Apply the DOM theme as CSS variables (+ page background) up front and on
+   * every change. Done independently of the renderer so the UI overlay stays
+   * themed even if WebGL initialization fails, and so the saved theme is
+   * honored on first paint rather than only after the first toggle.
+   */
+  applyThemeVars(preferencesManager.get('theme'));
+  preferencesManager.subscribe(prefs => applyThemeVars(prefs.theme));
 
   // Initialize PixiJS renderer
   let gameRenderer = null;
@@ -66,8 +76,6 @@ async function main() {
       gameRenderer.setTheme(prefs.theme);
       gameRenderer.setColorBlindMode(prefs.colorBlindMode);
       gameRenderer.setDiceDisplayMode(prefs.diceDisplayMode);
-      // Sync body background for the HTML body element
-      document.body.style.background = prefs.theme === 'light' ? '#e8e8f0' : '#1a1a2e';
     });
   }
 

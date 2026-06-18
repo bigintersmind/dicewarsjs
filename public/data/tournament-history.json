@@ -523,5 +523,59 @@
         "wins": 3
       }
     ]
+  },
+  {
+    "date": "2026-06-18",
+    "gamesPlayed": 100,
+    "failedGames": 0,
+    "botCount": 9,
+    "champion": "Strategist",
+    "standings": [
+      {
+        "name": "Strategist",
+        "elo": 1295,
+        "wins": 22
+      },
+      {
+        "name": "Lookahead",
+        "elo": 1282,
+        "wins": 5
+      },
+      {
+        "name": "Default",
+        "elo": 1247,
+        "wins": 2
+      },
+      {
+        "name": "Defensive",
+        "elo": 1223,
+        "wins": 19
+      },
+      {
+        "name": "Connector",
+        "elo": 1187,
+        "wins": 10
+      },
+      {
+        "name": "Example",
+        "elo": 1170,
+        "wins": 9
+      },
+      {
+        "name": "Blitz",
+        "elo": 1148,
+        "wins": 6
+      },
+      {
+        "name": "Giant Slayer",
+        "elo": 1141,
+        "wins": 1
+      },
+      {
+        "name": "Adaptive",
+        "elo": 1121,
+        "wins": 7
+      }
+    ]
   }
 ]

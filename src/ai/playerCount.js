@@ -16,7 +16,11 @@
 export function getPlayerCount(game) {
   let max = game.player?.length || 0;
   const { adat, AREA_MAX } = game;
-  for (let i = 1; i < AREA_MAX; i++) {
+  /*
+   * Guard `adat`: a partial view (or test mock) may omit the board entirely,
+   * in which case the player[] length and the floor of 8 are all we have.
+   */
+  for (let i = 1; adat && i < AREA_MAX; i++) {
     const area = adat[i];
     if (area && area.size !== 0 && area.arm + 1 > max) {
       max = area.arm + 1;

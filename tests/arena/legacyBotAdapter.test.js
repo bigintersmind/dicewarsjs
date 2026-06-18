@@ -18,10 +18,13 @@ function createTestBotState(seed = 42, playerCount = 4) {
 /*
  * The online tournament runs a 9-bot field, so games can seat more than 8
  * players. Legacy bots that assumed 8 player slots dropped the 9th player from
- * their census and threw on its turn; adaptLegacyBot swallows the throw (logs
- * "threw" and forfeits), so a crash shows up as a silent forfeit, not a test
- * failure. These tests pin that every built-in bot runs cleanly as the
- * highest-indexed player (index 8) in a 9-player game.
+ * their census and threw on its turn; adaptLegacyBot swallows the throw (it
+ * logs a warning and forfeits), so a crash shows up as a silent forfeit, not a
+ * test failure. adaptLegacyBot only warns on that swallowed throw, so we assert
+ * that no warning fired at all — keying on the call, not its wording, so the
+ * guard survives a reword of the log message. These tests pin that every
+ * built-in bot runs cleanly as the highest-indexed player (index 8) in a
+ * 9-player game.
  */
 describe('built-in bots in 9-player games (N-player robustness)', () => {
   const BOTS = [
@@ -41,10 +44,10 @@ describe('built-in bots in 9-player games (N-player robustness)', () => {
 
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const move = bot(botState);
-      const threw = warnSpy.mock.calls.some(args => String(args[0]).includes('threw'));
+      const warned = warnSpy.mock.calls.length > 0;
       warnSpy.mockRestore();
 
-      expect(threw).toBe(false);
+      expect(warned).toBe(false);
       if (move !== null) {
         expect(validateMove(move, botState).valid).toBe(true);
       }

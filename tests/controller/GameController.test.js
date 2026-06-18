@@ -90,10 +90,11 @@ vi.mock('../../src/arena/communityBots.js', () => ({
 }));
 
 vi.mock('../../src/arena/modernBotAdapter.js', () => ({
+  // Mirror the real adapter's shape: tag __modernBot and set the function name.
   adaptModernBot: vi.fn((fn, name) => {
     const wrapped = () => fn();
     wrapped.__modernBot = true;
-    wrapped.botLabel = name;
+    Object.defineProperty(wrapped, 'name', { value: name });
     return wrapped;
   }),
 }));
@@ -250,6 +251,29 @@ describe('GameController', () => {
         expect.any(Function),
         'community:bigintersmind/connector'
       );
+    });
+
+    it('falls back to ai_default and surfaces a notice when a community bot fails to load', async () => {
+      const { loadCommunityBot } = await import('../../src/arena/communityBots.js');
+      const { getAIImplementation } = await import('../../src/ai/aiConfig.js');
+      loadCommunityBot.mockImplementationOnce(() => {
+        throw new Error('compile failed');
+      });
+
+      await controller.startNewGame({
+        playerCount: 3,
+        spectator: false,
+        aiAssignments: [null, 'community:broken/bot', 'ai_default'],
+      });
+
+      // The game still starts (fallback succeeded), not a crash back to title.
+      expect(store.getState().screen).toBe('mapPreview');
+      expect(getAIImplementation).toHaveBeenCalledWith('ai_default');
+
+      // The player's discarded choice is surfaced, not silently swapped.
+      const warnings = store.getState().aiLoadWarnings;
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('broken/bot');
     });
 
     it('resets to title screen on createGame failure', async () => {

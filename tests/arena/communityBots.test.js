@@ -67,7 +67,12 @@ describe('community bot in the in-game loop (end-to-end)', () => {
     const state = createGame({ seed: 9, playerCount: 4 });
     const next = runFullAITurn(state, aiFn);
 
-    // The turn completes and advances the game (END_TURN at minimum).
+    /*
+     * Smoke test only: a real compiled community bot drives a full turn through
+     * the adapter + engine and the turn closes (END_TURN always grows history).
+     * That a modern move actually reaches engine state is proven deterministically
+     * in modernBotAdapter.test.js — a real bot may legitimately pass on this seed.
+     */
     expect(next).toBeDefined();
     expect(next.history.length).toBeGreaterThan(state.history.length);
   });

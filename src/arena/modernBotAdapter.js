@@ -18,6 +18,12 @@ import { createBotState } from './botState.js';
 /**
  * Wrap a modern bot function for the in-game AI loop.
  *
+ * `adaptModernBot` is the ONLY supported producer of `__modernBot`-tagged
+ * functions: its try/catch converts a bot's own throw into end-turn, which is
+ * what lets `runAI` treat any throw it sees from a tagged function as an
+ * adapter/sanitization bug (see engine/AIAdapter.js). Tag a raw bot `__modernBot`
+ * without this wrapper and that invariant breaks.
+ *
  * @param {Function} modernFn - Modern bot: (BotState) → { from, to } | null
  * @param {string}   [name]   - Optional name for debugging
  * @returns {Function} Engine-callable bot: (GameState) → { from, to } | null,
@@ -36,9 +42,10 @@ export function adaptModernBot(modernFn, name) {
     } catch (err) {
       /*
        * A community/arena bot throwing is a bot error, not an adapter bug —
-       * log it and end the turn rather than crashing the game loop.
+       * log it (with stack, to match the legacy path) and end the turn rather
+       * than crashing the game loop.
        */
-      console.warn(`Modern bot "${botName}" threw: ${err.message}`);
+      console.warn(`Modern bot "${botName}" threw: ${err.message}\n${err.stack}`);
       return null;
     }
 
@@ -46,7 +53,17 @@ export function adaptModernBot(modernFn, name) {
       return { from: move.from, to: move.to };
     }
 
-    // null / undefined / malformed → end turn
+    /*
+     * null / undefined is the legitimate "I'm done" signal. A truthy-but-wrong
+     * shape is almost always a bot bug (e.g. a typo'd move), so warn rather than
+     * silently passing — mirroring the legacy path's "unexpected value" warning.
+     */
+    if (move != null) {
+      console.warn(
+        `Modern bot "${botName}" returned a malformed move ${JSON.stringify(move)}; ` +
+          `expected { from: number, to: number } or null. Ending turn.`
+      );
+    }
     return null;
   }
 

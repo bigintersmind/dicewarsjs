@@ -60,8 +60,15 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
   /**
    * Build AI assignment array from config.
+   *
+   * Returns the per-slot functions plus any player-facing notices: when a
+   * community bot (the player's explicit per-slot choice) fails to load we fall
+   * back to ai_default, but silently swapping it in would misrepresent who the
+   * player is up against — so those failures are surfaced (see startNewGame).
+   *
    * @param {number} playerCount
    * @param {boolean} spectator
+   * @returns {Promise<{ fns: (Function | null)[], warnings: string[] }>}
    */
   async function loadAIFunctions(playerCount, spectator) {
     const storeState = store.getState();
@@ -75,6 +82,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     }
 
     const fns = [];
+    const warnings = [];
     for (let i = 0; i < playerCount; i++) {
       const aiId = assignments[i];
       if (!aiId) {
@@ -87,17 +95,29 @@ export function createGameController(store, renderer, soundManager, preferencesM
             `Failed to load AI "${aiId}" for player ${i}, falling back to ai_default:`,
             err
           );
+          /*
+           * Built-in id failures are internal bugs that shouldn't happen in
+           * normal use; community-bot failures are expected (a curated bot can
+           * have a bug) and are the player's explicit choice, so surface those.
+           */
+          if (aiId.startsWith(COMMUNITY_PREFIX)) {
+            warnings.push(
+              `Player ${i + 1}: community bot "${aiId.slice(COMMUNITY_PREFIX.length)}" ` +
+                `could not load — using Default AI instead.`
+            );
+          }
           try {
             fns.push(await getAIImplementation('ai_default'));
           } catch (fallbackErr) {
             throw new Error(
-              `Cannot load any AI for player ${i}: both "${aiId}" and "ai_default" failed`
+              `Cannot load any AI for player ${i}: both "${aiId}" and "ai_default" failed`,
+              { cause: fallbackErr }
             );
           }
         }
       }
     }
-    return fns;
+    return { fns, warnings };
   }
 
   /**
@@ -139,7 +159,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
-    store.setState({ error: null });
+    store.setState({ error: null, aiLoadWarnings: [] });
 
     if (!renderer) {
       store.setState({ error: 'Cannot start game: graphics engine not available.' });
@@ -178,7 +198,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     try {
       // Load AI functions
-      aiFunctions = await loadAIFunctions(playerCount, spectator);
+      const { fns, warnings } = await loadAIFunctions(playerCount, spectator);
+      aiFunctions = fns;
 
       // Create game via engine
       const gameState = createGame({
@@ -195,6 +216,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         animationPhase: 'idle',
         awaitingInput: null,
         humanEliminated: false,
+        aiLoadWarnings: warnings,
       });
 
       // Draw the map in the renderer

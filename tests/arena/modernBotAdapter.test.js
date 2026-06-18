@@ -6,7 +6,9 @@
  */
 
 import { adaptModernBot } from '../../src/arena/modernBotAdapter.js';
-import { runAI } from '../../src/engine/AIAdapter.js';
+import { runAI, runFullAITurn } from '../../src/engine/AIAdapter.js';
+import { getValidMoves } from '../../src/engine/StateManager.js';
+import { ACTION_TYPES } from '../../src/engine/constants.js';
 import { createGame } from '../../src/engine/GameRunner.js';
 
 describe('adaptModernBot', () => {
@@ -79,5 +81,36 @@ describe('runAI routing for modern bots', () => {
     const state = createGame({ seed: 3, playerCount: 2 });
     const wrapped = adaptModernBot(() => ({ from: 0, to: 0 }));
     expect(runAI(state, wrapped)).toBeNull();
+  });
+
+  it('warns but ends the turn on an out-of-range move (not the {0,0} sentinel)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const state = createGame({ seed: 3, playerCount: 2 });
+    const wrapped = adaptModernBot(() => ({ from: 5, to: 0 }));
+    expect(runAI(state, wrapped)).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('out-of-range'));
+    warnSpy.mockRestore();
+  });
+});
+
+describe('modern bot move application (end-to-end through the engine)', () => {
+  it("applies the wrapped bot's chosen move to engine state, not just END_TURN", () => {
+    const state = createGame({ seed: 9, playerCount: 4 });
+    const validMoves = getValidMoves(state);
+    expect(validMoves.length).toBeGreaterThan(0); // sanity: the board has moves
+
+    /*
+     * A deterministic bot that plays a known-legal attack — proves the move
+     * survives the full adapter → runAI → applyAction chain (Connector may
+     * legitimately pass on a given seed, which is why we don't rely on it here).
+     */
+    const chosen = validMoves[0];
+    const wrapped = adaptModernBot(() => ({ from: chosen.from, to: chosen.to }), 'stub');
+
+    const next = runFullAITurn(state, wrapped);
+
+    const attacks = next.history.filter(h => h.type === ACTION_TYPES.ATTACK);
+    expect(attacks.length).toBeGreaterThan(0); // a real move landed, not only END_TURN
+    expect(attacks[0]).toMatchObject({ from: chosen.from, to: chosen.to });
   });
 });

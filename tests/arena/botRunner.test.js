@@ -63,10 +63,3 @@ describe('runBotDirect', () => {
     expect(receivedState).toBe(botState);
   });
 });
-
-/*
- * Note: createBotWorker and runBotMove tests require a real Worker environment
- * which jsdom doesn't support. These are tested via integration tests in the browser.
- * The Worker protocol is tested indirectly through the arena runner tests
- * which use runBotDirect for all built-in bots.
- */

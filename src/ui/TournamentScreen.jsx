@@ -11,7 +11,7 @@ import { runRoundRobin, runSingleElimination } from '../arena/tournament.js';
 import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
 import { createReplay } from '../arena/replayFormat.js';
 import { Leaderboard } from './Leaderboard.jsx';
-import { CustomBotInput } from './CustomBotInput.jsx';
+import { AddBotViaGithub } from './AddBotViaGithub.jsx';
 
 const STYLE = {
   container: {
@@ -140,7 +140,6 @@ export function TournamentScreen({ onBack, onViewReplay }) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [replays, setReplays] = useState([]);
-  const [customBots, setCustomBots] = useState([]);
   const [error, setError] = useState(null);
 
   const toggleBot = useCallback(id => {
@@ -155,23 +154,6 @@ export function TournamentScreen({ onBack, onViewReplay }) {
     });
   }, []);
 
-  const handleCustomBotReady = useCallback(bot => {
-    setCustomBots(prev => {
-      const filtered = prev.filter(b => b.name !== bot.name);
-      return [...filtered, bot];
-    });
-    setSelectedBots(prev => new Set([...prev, `custom:${bot.name}`]));
-  }, []);
-
-  const removeCustomBot = useCallback(name => {
-    setCustomBots(prev => prev.filter(b => b.name !== name));
-    setSelectedBots(prev => {
-      const next = new Set(prev);
-      next.delete(`custom:${name}`);
-      return next;
-    });
-  }, []);
-
   const canRun = selectedBots.size >= 2 && !running;
 
   const handleRun = useCallback(() => {
@@ -182,11 +164,7 @@ export function TournamentScreen({ onBack, onViewReplay }) {
     setReplays([]);
     setError(null);
 
-    const builtIn = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id));
-    const custom = customBots
-      .filter(b => selectedBots.has(`custom:${b.name}`))
-      .map(b => ({ name: b.name, fn: b.fn }));
-    const bots = [...builtIn, ...custom];
+    const bots = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id));
 
     setTimeout(() => {
       try {
@@ -222,7 +200,7 @@ export function TournamentScreen({ onBack, onViewReplay }) {
         setRunning(false);
       }
     }, 50);
-  }, [canRun, selectedBots, tournamentType, gamesPerRound, customBots]);
+  }, [canRun, selectedBots, tournamentType, gamesPerRound]);
 
   // Map standings to leaderboard format
   const leaderboardBots = result
@@ -277,35 +255,11 @@ export function TournamentScreen({ onBack, onViewReplay }) {
               {bot.name}
             </button>
           ))}
-          {customBots.map(bot => (
-            <button
-              key={`custom:${bot.name}`}
-              style={{
-                ...STYLE.btn,
-                ...(selectedBots.has(`custom:${bot.name}`) ? STYLE.btnActive : {}),
-              }}
-              onClick={() => toggleBot(`custom:${bot.name}`)}
-            >
-              {bot.name}{' '}
-              <span
-                onClick={e => {
-                  e.stopPropagation();
-                  removeCustomBot(bot.name);
-                }}
-                style={{ cursor: 'pointer', marginLeft: '0.3rem', opacity: 0.6 }}
-              >
-                x
-              </span>
-            </button>
-          ))}
         </div>
       </div>
 
       <div style={STYLE.section}>
-        <CustomBotInput
-          onBotReady={handleCustomBotReady}
-          existingNames={BUILT_IN_BOTS.map(b => b.name)}
-        />
+        <AddBotViaGithub />
       </div>
 
       <div style={STYLE.section}>

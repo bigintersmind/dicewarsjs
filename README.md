@@ -55,15 +55,17 @@ See the [Bot Guide](docs/BOT_GUIDE.md) for the full SDK reference and the [`bots
 
 ### Test your bot
 
-**In the browser:** Go to Arena, paste your code into the Custom Bot input, and run matches against built-in bots.
-
-**From the command line:**
+Test and benchmark your bot from the command line:
 
 ```bash
+npm run validate-bot -- bots/my-bot.js   # check syntax + runtime
+npm run benchmark-bot -- bots/my-bot.js  # win rate, ELO, placement
 npm run arena                            # 100 games, all built-in bots
 npm run arena -- --games 50              # 50 games
 npm run arena -- --bots Default,Adaptive # specific bots
 ```
+
+To enter the **daily online tournament** with ELO rankings, submit your bot via GitHub — see [Submitting Your Bot](docs/BOT_GUIDE.md#submitting-your-bot).
 
 ## Available Scripts
 

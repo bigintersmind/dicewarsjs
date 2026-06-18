@@ -133,7 +133,7 @@ const result = runArena({
   baseSeed: dateSeed,
   maxTurns: 500,
   initialRatings,
-  onGameComplete: (i, _match) => {
+  onGameComplete: i => {
     if ((i + 1) % 10 === 0 || i + 1 === gameCount) {
       process.stdout.write(`  ${i + 1}/${gameCount} games\r`);
     }
@@ -151,9 +151,11 @@ if (result.aborted) {
 
 // --- Select notable replays ---
 
-// Pick the longest *decisive* games — a game that someone actually won is a far
-// better showcase than a stalemate that ran out the turn cap. Among decisive
-// games, longer ones tend to be the most competitive, back-and-forth matches.
+/*
+ * Pick the longest *decisive* games — a game that someone actually won is a far
+ * better showcase than a stalemate that ran out the turn cap. Among decisive
+ * games, longer ones tend to be the most competitive, back-and-forth matches.
+ */
 const replayMatches = result.matches
   .filter(m => m.finalState && m.winner !== null && m.turnCount > 5)
   .map(m => {
@@ -257,7 +259,7 @@ for (let i = 0; i < result.bots.length; i++) {
   const b = result.bots[i];
   const winPct = b.gamesPlayed > 0 ? ((b.wins / b.gamesPlayed) * 100).toFixed(1) : '0.0';
   console.log(
-    `${String(i + 1).padEnd(6)}${b.name.padEnd(16)}${String(Math.round(b.elo)).padEnd(8)}${String(b.wins).padEnd(8)}${(winPct + '%').padEnd(8)}${String(b.avgPlacement).padEnd(10)}${((b.attackWinRate * 100).toFixed(1) + '%').padEnd(10)}`
+    `${String(i + 1).padEnd(6)}${b.name.padEnd(16)}${String(Math.round(b.elo)).padEnd(8)}${String(b.wins).padEnd(8)}${`${winPct}%`.padEnd(8)}${String(b.avgPlacement).padEnd(10)}${`${(b.attackWinRate * 100).toFixed(1)}%`.padEnd(10)}`
   );
 }
 

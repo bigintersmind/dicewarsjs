@@ -6,8 +6,8 @@
  * Creates a new bot file from a template.
  *
  * Usage:
- *   npm run new-bot -- my-bot                          # from random template
- *   npm run new-bot -- my-bot --template greedy        # from greedy template
+ *   npm run new-bot -- my                          # from random template
+ *   npm run new-bot -- my --template greedy        # from greedy template
  */
 
 import fs from 'node:fs';
@@ -28,8 +28,8 @@ const template = getArg(args, 'template', 'random');
 if (!name) {
   console.error('Usage: npm run new-bot -- <name> [--template random|greedy|cautious|strategic]');
   console.error('\nExamples:');
-  console.error('  npm run new-bot -- my-bot');
-  console.error('  npm run new-bot -- my-bot --template strategic');
+  console.error('  npm run new-bot -- my');
+  console.error('  npm run new-bot -- my --template strategic');
   process.exit(1);
 }
 

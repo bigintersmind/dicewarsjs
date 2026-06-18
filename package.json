@@ -18,8 +18,8 @@
     "benchmark": "node tests/benchmarks/benchmark.cjs",
     "benchmark:full": "node --input-type=module tests/benchmarks/runBenchmarks.js",
     "test:benchmark": "vitest run tests/benchmarks/ai.benchmark.js",
-    "lint": "eslint . --max-warnings=100",
-    "lint:fix": "eslint . --fix",
+    "lint": "eslint . --ext .js,.jsx,.mjs --max-warnings=100",
+    "lint:fix": "eslint . --ext .js,.jsx,.mjs --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "fix-warnings": "node scripts/fix-lint-warnings.cjs",
@@ -56,7 +56,7 @@
     "vitest": "^3.2.4"
   },
   "lint-staged": {
-    "*.{js,jsx}": [
+    "*.{js,jsx,mjs}": [
       "eslint --fix --max-warnings=100",
       "prettier --write"
     ],

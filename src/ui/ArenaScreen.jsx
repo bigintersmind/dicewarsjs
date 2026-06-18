@@ -13,7 +13,7 @@ import { updateEloRatings, DEFAULT_RATING } from '../arena/elo.js';
 import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
 import { createReplay } from '../arena/replayFormat.js';
 import { Leaderboard } from './Leaderboard.jsx';
-import { CustomBotInput } from './CustomBotInput.jsx';
+import { AddBotViaGithub } from './AddBotViaGithub.jsx';
 
 const GAME_COUNT_OPTIONS = [5, 10, 25, 50, 100];
 
@@ -171,7 +171,6 @@ export function ArenaScreen({ onBack, onViewReplay }) {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [replays, setReplays] = useState([]);
-  const [customBots, setCustomBots] = useState([]);
   const [error, setError] = useState(null);
 
   const toggleBot = useCallback(id => {
@@ -182,23 +181,6 @@ export function ArenaScreen({ onBack, onViewReplay }) {
       } else {
         next.add(id);
       }
-      return next;
-    });
-  }, []);
-
-  const handleCustomBotReady = useCallback(bot => {
-    setCustomBots(prev => {
-      const filtered = prev.filter(b => b.name !== bot.name);
-      return [...filtered, bot];
-    });
-    setSelectedBots(prev => new Set([...prev, `custom:${bot.name}`]));
-  }, []);
-
-  const removeCustomBot = useCallback(name => {
-    setCustomBots(prev => prev.filter(b => b.name !== name));
-    setSelectedBots(prev => {
-      const next = new Set(prev);
-      next.delete(`custom:${name}`);
       return next;
     });
   }, []);
@@ -214,14 +196,10 @@ export function ArenaScreen({ onBack, onViewReplay }) {
     setReplays([]);
     setError(null);
 
-    const builtIn = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
+    const bots = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
       name: b.name,
       fn: b.fn,
     }));
-    const custom = customBots
-      .filter(b => selectedBots.has(`custom:${b.name}`))
-      .map(b => ({ name: b.name, fn: b.fn }));
-    const bots = [...builtIn, ...custom];
 
     // Per-bot accumulators
     const ratings = {};
@@ -331,7 +309,7 @@ export function ArenaScreen({ onBack, onViewReplay }) {
 
     // Defer first game to let "RUNNING..." state paint
     setTimeout(() => runNextGame(0), 50);
-  }, [canRun, selectedBots, gameCount, customBots]);
+  }, [canRun, selectedBots, gameCount]);
 
   return (
     <div style={STYLE.container}>
@@ -354,35 +332,11 @@ export function ArenaScreen({ onBack, onViewReplay }) {
               {bot.name}
             </button>
           ))}
-          {customBots.map(bot => (
-            <button
-              key={`custom:${bot.name}`}
-              style={{
-                ...STYLE.botBtn,
-                ...(selectedBots.has(`custom:${bot.name}`) ? STYLE.botBtnActive : {}),
-              }}
-              onClick={() => toggleBot(`custom:${bot.name}`)}
-            >
-              {bot.name}{' '}
-              <span
-                onClick={e => {
-                  e.stopPropagation();
-                  removeCustomBot(bot.name);
-                }}
-                style={{ cursor: 'pointer', marginLeft: '0.3rem', opacity: 0.6 }}
-              >
-                x
-              </span>
-            </button>
-          ))}
         </div>
       </div>
 
       <div style={STYLE.section}>
-        <CustomBotInput
-          onBotReady={handleCustomBotReady}
-          existingNames={BUILT_IN_BOTS.map(b => b.name)}
-        />
+        <AddBotViaGithub />
       </div>
 
       <div style={STYLE.section}>

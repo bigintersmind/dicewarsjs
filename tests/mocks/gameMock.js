@@ -3,7 +3,7 @@
  *
  * Provides utilities for creating mock game objects for AI testing
  */
-import { AreaData } from '../../src/models/AreaData.js';
+import { AreaData } from './areaData.js';
 
 /**
  * Creates a standardized mock game object for AI testing

@@ -2,7 +2,7 @@
  * Tests for Example AI implementation
  */
 import { ai_example } from '../../src/ai/ai_example.js';
-import { AreaData } from '../../src/models/AreaData.js';
+import { AreaData } from '../mocks/areaData.js';
 
 describe('Example AI', () => {
   // Create a mock game object

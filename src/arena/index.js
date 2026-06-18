@@ -7,7 +7,7 @@
 export { createBotState } from './botState.js';
 export { validateBotSource, validateMove } from './botValidator.js';
 export { adaptLegacyBot } from './legacyBotAdapter.js';
-export { runBotDirect, createBotWorker, runBotMove } from './botRunner.js';
+export { runBotDirect } from './botRunner.js';
 export { runMatch } from './matchRunner.js';
 export { runArena } from './arenaRunner.js';
 export { updateEloRatings, expectedScore, DEFAULT_RATING, DEFAULT_K } from './elo.js';

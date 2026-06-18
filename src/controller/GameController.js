@@ -108,7 +108,13 @@ export function createGameController(store, renderer, soundManager, preferencesM
   /**
    * Start a new game from the title screen.
    *
-   * @param {{ playerCount: number, spectator: boolean, mapSize?: string }} config
+   * @param {Object} config
+   * @param {number} config.playerCount
+   * @param {boolean} config.spectator
+   * @param {string} [config.mapSize]
+   * @param {(string | null)[]} [config.aiAssignments] - Per-slot AI strategy IDs
+   *   (index = player slot, null = human). Falls back to the store's current
+   *   assignments when omitted.
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
@@ -133,13 +139,19 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * store's current value if the caller omits it.
      */
     const mapSize = config.mapSize ?? store.getState().config.mapSize;
+    /*
+     * Per-slot bot lineup chosen on the title screen. Fall back to the store's
+     * current assignments when the caller omits it. loadAIFunctions reads this
+     * from the store below, so it must be written before that call.
+     */
+    const aiAssignments = config.aiAssignments ?? store.getState().config.aiAssignments;
 
     /*
      * Update store config. Persist mapSize so a later rejectMap() regenerates
      * at the same size the player chose.
      */
     store.setState({
-      config: { ...store.getState().config, playerCount, mapSize },
+      config: { ...store.getState().config, playerCount, mapSize, aiAssignments },
       humanPlayerIndex: spectator ? null : 0,
     });
 

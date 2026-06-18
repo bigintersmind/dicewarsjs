@@ -34,8 +34,8 @@ wins is fixed for each `(a, d)` pair and can be computed exactly by convolving
 the distributions of two dice-sum totals — no simulation or sigmoid
 approximation required.
 
-`ai_strategist` builds this 8×8 table once at module load and exports it as
-`winProbability(attackerDice, defenderDice)`:
+The exact 8×8 odds table is built once at module load in `diceOdds.js`;
+`ai_strategist` re-exports it as `winProbability(attackerDice, defenderDice)`:
 
 ```javascript
 import { winProbability } from '../../src/ai/ai_strategist.js';

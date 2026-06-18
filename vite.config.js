@@ -16,7 +16,6 @@ export default defineConfig(({ command }) => ({
       '@utils': path.resolve(import.meta.dirname, 'src/utils'),
       '@ai': path.resolve(import.meta.dirname, 'src/ai'),
       '@models': path.resolve(import.meta.dirname, 'src/models'),
-      '@mechanics': path.resolve(import.meta.dirname, 'src/mechanics'),
       '@state': path.resolve(import.meta.dirname, 'src/state'),
       '@engine': path.resolve(import.meta.dirname, 'src/engine'),
     },
@@ -84,12 +83,6 @@ export default defineConfig(({ command }) => ({
           branches: 60,
           functions: 70,
           lines: 70,
-        },
-        'src/mechanics/**/*.js': {
-          statements: 50,
-          branches: 35,
-          functions: 55,
-          lines: 55,
         },
         'src/engine/**/*.js': {
           statements: 70,

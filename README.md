@@ -100,9 +100,7 @@ src/
 ├── store/        Observable GameStore (pub/sub shared state)
 ├── controller/   GameController (game loop orchestrator)
 ├── audio/        Web Audio sound manager
-├── mechanics/    Shared game mechanics and error hierarchy
-├── models/       Data structures (AreaData, PlayerData, etc.)
-└── utils/        Configuration and helpers
+└── utils/        Game configuration (map size, player/AI assignments)
 ```
 
 See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.

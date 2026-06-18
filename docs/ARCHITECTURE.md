@@ -35,10 +35,7 @@ This document describes how the codebase is organized and how data flows through
 | `src/arena/`      | Bot SDK: bot validation, sandboxed execution, match running, ELO ratings, tournament formats, replay serialization.                                                    |
 | `src/ai/`         | Built-in AI strategies (example, default, defensive, adaptive, Claude, Codex) using the legacy game object interface. Adapted for the arena via `legacyBotAdapter.js`. |
 | `src/audio/`      | Web Audio API sound manager with lazy loading.                                                                                                                         |
-| `src/mechanics/`  | Shared game mechanics: event system, error handling, map generation utilities.                                                                                         |
-| `src/models/`     | Data structures (AreaData, PlayerData, Battle, etc.) used across the game engine and AI.                                                                               |
-| `src/utils/`      | Configuration, debug tools, and helper functions.                                                                                                                      |
-| `src/state/`      | Orphaned immutable state patterns — never integrated.                                                                                                                  |
+| `src/utils/`      | Game configuration (map size presets, player/AI assignments) with localStorage persistence.                                                                            |
 
 ## Data Flow: Playing a Game
 

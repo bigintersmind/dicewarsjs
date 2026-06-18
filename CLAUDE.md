@@ -129,23 +129,15 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 - **SoundManager** (src/audio/SoundManager.js): Web Audio API sound system replacing legacy CreateJS SoundJS. Lazy AudioContext creation, on-demand loading, volume control.
 
-- **Map Generation** (src/mechanics/mapGenerator.js): Creates the hexagonal grid and territories.
+- **Map Generation** (src/engine/MapGenerator.js): Creates the hexagonal grid and territories.
 
-- **Battle Resolution** (src/mechanics/battleResolution.js): Handles attack resolution and dice distribution.
-
-- **Models** (src/models/): Data structures for game entities (AreaData, PlayerData, Battle, HistoryData, JoinData).
-
-- **Enhanced Modules** (src/models/enhanced/, src/mechanics/enhanced/): Improved variants of core components with additional features like adjacency graphs, territory graphs, and disjoint sets.
-
-- **Error Handling** (src/mechanics/errors/): Custom error classes for different error types.
+- **Battle Resolution** (src/engine/BattleResolver.js): Handles attack resolution and dice distribution.
 
 ### Important Design Patterns
 
-1. **Immutable Data**: The state directory implements immutable data patterns for the game state.
+1. **Immutable State**: The engine never mutates state in place — `applyAction(...)` returns a new state object (see `src/engine/StateManager.js`).
 
 2. **Factory Functions**: Used throughout the codebase to create game objects.
-
-3. **Error Hierarchy**: Custom error classes (GameError, BattleError, TerritoryError, etc.) provide structured error handling.
 
 ### AI Implementation Notes
 
@@ -177,13 +169,13 @@ The full suite forks many workers; running several copies at once can exhaust RA
 
 1. **Code Style**: Follow existing code patterns and conventions
 2. **Documentation**: Update relevant documentation when making significant changes
-3. **Error Handling**: Use appropriate custom error classes from src/mechanics/errors/
+3. **Error Handling**: Validate inputs at boundaries and raise or return errors explicitly rather than failing silently
 4. **Testing**: Write tests for new functionality and ensure existing tests pass
 5. **Commit Messages**: Use conventional commit format (e.g., "feat:", "fix:", "test:", "docs:")
 
 ## Gotchas
 
-- **Path aliases**: `@utils`, `@ai`, `@models`, `@mechanics`, `@state` are configured in `vite.config.js` for both builds and tests. Source files use relative imports; aliases are available but prefer relative paths in new code.
+- **Path aliases**: `@utils`, `@ai`, `@engine` are configured in `vite.config.js` for both builds and tests. Source files use relative imports; aliases are available but prefer relative paths in new code.
 - **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` and `.jsx` files.
 - **Vitest globals**: Tests use `globals: true` in vitest config, so `describe`, `it`, `expect`, `vi`, `beforeEach`, `afterEach` are available without imports. Use `import { vi } from 'vitest'` only if needed for explicit typing.
 - **Test environment is `node` by default**: To keep memory down, the suite runs under the lightweight Node environment, not jsdom. A test that touches `document`, `window`, `localStorage`, canvas, or renders a Preact component must declare `// @vitest-environment jsdom` as the first line of the file, or it will fail with `X is not defined`.
@@ -191,7 +183,7 @@ The full suite forks many workers; running several copies at once can exhaust RA
 ## Common Pitfalls to Avoid
 
 1. Always run tests before suggesting code is complete
-2. Ensure error events are properly emitted for error tracking
+2. Surface errors explicitly instead of silently swallowing them
 3. Keep AI functions pure and deterministic for testing
 
 ## Documentation Updates

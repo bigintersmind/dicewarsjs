@@ -256,8 +256,8 @@ When the AI Championship Platform is ready, you'll be able to submit your AI thr
 
 - Existing AI implementations in `src/ai/`
 - Centralized AI configuration in `src/ai/aiConfig.js`
-- Game mechanics in `src/mechanics/`
-- AI handling in `src/mechanics/aiHandler.js`
+- Game engine in `src/engine/`
+- AI integration in `src/engine/AIAdapter.js`
 - Test framework for AI performance testing in `tests/ai/`
 
 ## Future Enhancements

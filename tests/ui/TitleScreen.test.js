@@ -28,10 +28,23 @@ function renderTitle(props = {}) {
 }
 
 const sizeBtn = label => container.querySelector(`button[aria-label="${label} map"]`);
+const playerBtn = n => container.querySelector(`button[aria-label="Play with ${n} players"]`);
 const startBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent === 'START');
 const aiBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent === 'AI vs AI');
+const customizeBtn = () =>
+  [...container.querySelectorAll('button')].find(b => b.textContent.includes('Customize players'));
+const slotSelect = n => container.querySelector(`select[aria-label="Bot for player ${n}"]`);
+
+/** Set a native <select> value and fire the change event Preact listens for. */
+function chooseBot(playerNumber, aiId) {
+  const sel = slotSelect(playerNumber);
+  act(() => {
+    sel.value = aiId;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
 
 afterEach(() => {
   if (container) {
@@ -66,25 +79,88 @@ describe('TitleScreen', () => {
   it('passes the default map size to onStart via START', () => {
     const { onStart } = renderTitle();
     act(() => startBtn().click());
-    expect(onStart).toHaveBeenCalledWith({ playerCount: 7, spectator: false, mapSize: 'medium' });
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ playerCount: 7, spectator: false, mapSize: 'medium' })
+    );
   });
 
   it('passes the chosen map size to onStart via START', () => {
     const { onStart } = renderTitle();
     act(() => sizeBtn('Small').click());
     act(() => startBtn().click());
-    expect(onStart).toHaveBeenCalledWith({ playerCount: 7, spectator: false, mapSize: 'small' });
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ playerCount: 7, spectator: false, mapSize: 'small' })
+    );
   });
 
   it('threads the chosen map size through the AI-vs-AI (spectator) path', () => {
     const { onStart } = renderTitle();
     act(() => sizeBtn('Large').click());
     act(() => aiBtn().click());
-    expect(onStart).toHaveBeenCalledWith({ playerCount: 7, spectator: true, mapSize: 'large' });
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ playerCount: 7, spectator: true, mapSize: 'large' })
+    );
   });
 
   it('renders an error banner when error prop is set', () => {
     renderTitle({ error: 'Map generation failed' });
     expect(container.textContent).toContain('Map generation failed');
+  });
+
+  describe('per-slot bot picker', () => {
+    it('hides the slot controls until "Customize players" is expanded', () => {
+      renderTitle();
+      expect(slotSelect(2)).toBeNull();
+      act(() => customizeBtn().click());
+      expect(slotSelect(2)).toBeTruthy();
+    });
+
+    it('shows one bot dropdown per AI slot, with slot 0 marked as the human', () => {
+      renderTitle();
+      act(() => customizeBtn().click());
+      // 7 players → slot 0 is "You", slots 1..6 are dropdowns.
+      expect(container.querySelectorAll('select')).toHaveLength(6);
+      expect(container.textContent).toContain('You (human)');
+    });
+
+    it('resizes the slot list when the player count changes', () => {
+      renderTitle();
+      act(() => customizeBtn().click());
+      expect(container.querySelectorAll('select')).toHaveLength(6);
+      act(() => playerBtn(3).click());
+      // 3 players → slot 0 human + 2 dropdowns.
+      expect(container.querySelectorAll('select')).toHaveLength(2);
+    });
+
+    it('always sends a human (null) slot 0 and a concrete bot for every AI slot', () => {
+      const { onStart } = renderTitle();
+      act(() => startBtn().click());
+      const { aiAssignments } = onStart.mock.calls[0][0];
+      expect(aiAssignments).toHaveLength(7);
+      expect(aiAssignments[0]).toBeNull();
+      expect(aiAssignments.slice(1).every(id => typeof id === 'string')).toBe(true);
+    });
+
+    it('threads chosen bots — including duplicates — into onStart', () => {
+      const { onStart } = renderTitle();
+      act(() => customizeBtn().click());
+      chooseBot(2, 'ai_strategist');
+      chooseBot(3, 'ai_strategist');
+      act(() => startBtn().click());
+      const { aiAssignments } = onStart.mock.calls[0][0];
+      expect(aiAssignments[0]).toBeNull();
+      expect(aiAssignments[1]).toBe('ai_strategist');
+      expect(aiAssignments[2]).toBe('ai_strategist');
+    });
+
+    it('carries the chosen lineup through the AI-vs-AI path too', () => {
+      const { onStart } = renderTitle();
+      act(() => customizeBtn().click());
+      chooseBot(2, 'ai_lookahead');
+      act(() => aiBtn().click());
+      const { spectator, aiAssignments } = onStart.mock.calls[0][0];
+      expect(spectator).toBe(true);
+      expect(aiAssignments[1]).toBe('ai_lookahead');
+    });
   });
 });

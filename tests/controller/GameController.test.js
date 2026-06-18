@@ -192,6 +192,34 @@ describe('GameController', () => {
       expect(soundManager.loadAll).toHaveBeenCalledTimes(1);
     });
 
+    it('threads custom aiAssignments into store config, keeping slot 0 human', async () => {
+      const custom = [null, 'ai_strategist', 'ai_lookahead'];
+      await controller.startNewGame({ playerCount: 3, spectator: false, aiAssignments: custom });
+
+      expect(store.getState().config.aiAssignments).toEqual(custom);
+      expect(store.getState().config.aiAssignments[0]).toBeNull();
+    });
+
+    it('loads the AI implementations named in aiAssignments', async () => {
+      const { getAIImplementation } = await import('../../src/ai/aiConfig.js');
+
+      await controller.startNewGame({
+        playerCount: 3,
+        spectator: false,
+        aiAssignments: [null, 'ai_strategist', 'ai_lookahead'],
+      });
+
+      expect(getAIImplementation).toHaveBeenCalledWith('ai_strategist');
+      expect(getAIImplementation).toHaveBeenCalledWith('ai_lookahead');
+    });
+
+    it('falls back to the store lineup when aiAssignments is omitted', async () => {
+      const before = store.getState().config.aiAssignments;
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(store.getState().config.aiAssignments).toEqual(before);
+    });
+
     it('resets to title screen on createGame failure', async () => {
       const { createGame } = await import('../../src/engine/index.js');
       createGame.mockImplementationOnce(() => {

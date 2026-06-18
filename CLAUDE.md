@@ -175,7 +175,7 @@ The full suite forks many workers; running several copies at once can exhaust RA
 
 ## Gotchas
 
-- **Path aliases**: `@utils`, `@ai`, `@engine` are configured in `vite.config.js` for both builds and tests. Source files use relative imports; aliases are available but prefer relative paths in new code.
+- **Imports**: Source files use relative paths — the project configures no path aliases. (The old `@utils`/`@ai`/`@engine` Vite aliases were unused and have been removed.)
 - **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` and `.jsx` files.
 - **Vitest globals**: Tests use `globals: true` in vitest config, so `describe`, `it`, `expect`, `vi`, `beforeEach`, `afterEach` are available without imports. Use `import { vi } from 'vitest'` only if needed for explicit typing.
 - **Test environment is `node` by default**: To keep memory down, the suite runs under the lightweight Node environment, not jsdom. A test that touches `document`, `window`, `localStorage`, canvas, or renders a Preact component must declare `// @vitest-environment jsdom` as the first line of the file, or it will fail with `X is not defined`.

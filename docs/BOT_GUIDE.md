@@ -30,16 +30,16 @@ return null;
 
 ## How to Test Your Bot
 
-1. Run `npm run dev` and open the game in your browser
-2. Go to the **Arena** screen
-3. Paste your bot code into the **Custom Bot** input
-4. Run matches against the built-in bots
-
-You can also run bots from the command line:
+Write your bot as a file (see the [`bots/`](../bots/) examples) and test it from the command line:
 
 ```bash
-npm run arena
+npm run new-bot -- my-bot            # scaffold a new bot from a template
+npm run validate-bot -- bots/my-bot.js   # check syntax + runtime
+npm run benchmark-bot -- bots/my-bot.js  # win rate, ELO, placement
+npm run arena                        # run all built-in bots head-to-head
 ```
+
+The in-game **Arena** and **Tournament** screens let you watch the built-in bots compete. To see your own bot ranked against them, submit it via GitHub (see [Submitting Your Bot](#submitting-your-bot)) — it then competes in the daily online tournament.
 
 ## BotState Reference
 

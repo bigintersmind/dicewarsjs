@@ -10,6 +10,7 @@
 
 import { applyAction, getValidMoves } from './StateManager.js';
 import { ACTION_TYPES, GAME_PHASES } from './constants.js';
+import { playerSlotCount } from '../ai/playerCount.js';
 
 /**
  * Transform engine GameState into the mutable shape legacy AIs expect.
@@ -44,11 +45,12 @@ export function createLegacyGameView(state) {
 
   /*
    * Build player[] in legacy shape, one entry per real player. Games can have
-   * more than 8 players (the online tournament runs a 9-bot field), so size to
-   * the actual count; keep a floor of 8 because some legacy AIs still index up
-   * to 8 unconditionally. The extra slots above players.length are empty pads.
+   * more than 8 players, so size via playerSlotCount — the same board-aware
+   * sizing the AIs use through getPlayerCount — so player.length always covers
+   * every owner index. Floors at 8 because some legacy AIs still index up to 8
+   * unconditionally; extra slots above players.length are empty pads.
    */
-  const playerSlots = Math.max(8, players.length);
+  const playerSlots = playerSlotCount(players.length, adat, AREA_MAX);
   const player = new Array(playerSlots);
   for (let i = 0; i < playerSlots; i++) {
     if (i < players.length) {

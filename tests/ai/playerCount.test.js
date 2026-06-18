@@ -1,4 +1,4 @@
-import { getPlayerCount } from '../../src/ai/playerCount.js';
+import { getPlayerCount, playerSlotCount } from '../../src/ai/playerCount.js';
 
 /*
  * getPlayerCount reads only three fields of a legacy game view: player[] (for
@@ -68,5 +68,45 @@ describe('getPlayerCount', () => {
     const game = { player: Array(9).fill(null), AREA_MAX: 5 };
     expect(() => getPlayerCount(game)).not.toThrow();
     expect(getPlayerCount(game)).toBe(9);
+  });
+});
+
+/*
+ * playerSlotCount is the shared core the view builders (AIAdapter,
+ * legacyBotAdapter) call to size player[] up front, from the same board scan
+ * getPlayerCount runs afterward. These cases pin that contract and the
+ * invariant that ties the two together: a view sized by playerSlotCount always
+ * reports the same count from getPlayerCount, so AIs never index past player[].
+ */
+describe('playerSlotCount', () => {
+  const adat = [null, occupied(0), occupied(1), occupied(2)];
+  const AREA_MAX = 4;
+
+  it('takes the seated player count when it dominates', () => {
+    expect(playerSlotCount(9, adat, AREA_MAX)).toBe(9);
+  });
+
+  it('takes one past the highest owner index when the board has more owners than seats', () => {
+    expect(playerSlotCount(8, [null, occupied(9), occupied(2)], 3)).toBe(10);
+  });
+
+  it('floors at 8 and tolerates an absent board', () => {
+    expect(playerSlotCount(4, adat, AREA_MAX)).toBe(8);
+    expect(playerSlotCount(3, undefined, 5)).toBe(8);
+  });
+
+  it('agrees with getPlayerCount on a view it was used to size', () => {
+    /*
+     * Mirror how a builder works: size player[] via playerSlotCount, then let
+     * an AI re-derive the count from the finished view — they must match, and
+     * every owner index must be a valid player[] slot.
+     */
+    const board = [null, occupied(9), occupied(2), occupied(0)];
+    const slots = playerSlotCount(5, board, 4);
+    const view = { player: Array(slots).fill(null), adat: board, AREA_MAX: 4 };
+
+    expect(getPlayerCount(view)).toBe(slots);
+    expect(slots).toBe(10); // owner index 9 forces 10 slots even with 5 seated
+    expect(view.player.length).toBeGreaterThan(9); // index 9 deref is in-bounds
   });
 });

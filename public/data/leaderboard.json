@@ -1,106 +1,106 @@
 {
-  "updatedAt": "2026-06-18T20:37:16.199Z",
-  "tournamentCount": 12,
-  "totalGamesPlayed": 1200,
+  "updatedAt": "2026-06-18T22:25:53.938Z",
+  "tournamentCount": 13,
+  "totalGamesPlayed": 1300,
   "bots": [
     {
       "name": "Lookahead",
       "author": "built-in",
-      "elo": 1358,
-      "previousElo": 1282,
-      "wins": 32,
+      "elo": 1420,
+      "previousElo": 1358,
+      "wins": 27,
       "gamesPlayed": 100,
-      "winRate": 0.32,
-      "avgPlacement": 2.85,
-      "attackWinRate": 0.831
-    },
-    {
-      "name": "Defensive",
-      "author": "built-in",
-      "elo": 1246,
-      "previousElo": 1223,
-      "wins": 15,
-      "gamesPlayed": 100,
-      "winRate": 0.15,
-      "avgPlacement": 4.49,
-      "attackWinRate": 0.801
+      "winRate": 0.27,
+      "avgPlacement": 2.71,
+      "attackWinRate": 0.853
     },
     {
       "name": "Strategist",
       "author": "built-in",
-      "elo": 1245,
-      "previousElo": 1295,
-      "wins": 23,
+      "elo": 1302,
+      "previousElo": 1245,
+      "wins": 17,
       "gamesPlayed": 100,
-      "winRate": 0.23,
-      "avgPlacement": 3.87,
-      "attackWinRate": 0.842
-    },
-    {
-      "name": "Connector",
-      "author": "bigintersmind",
-      "elo": 1194,
-      "previousElo": 1187,
-      "wins": 4,
-      "gamesPlayed": 100,
-      "winRate": 0.04,
-      "avgPlacement": 5.04,
-      "attackWinRate": 0.907
-    },
-    {
-      "name": "Example",
-      "author": "built-in",
-      "elo": 1182,
-      "previousElo": 1170,
-      "wins": 2,
-      "gamesPlayed": 100,
-      "winRate": 0.02,
-      "avgPlacement": 5.18,
-      "attackWinRate": 0.886
-    },
-    {
-      "name": "Adaptive",
-      "author": "built-in",
-      "elo": 1179,
-      "previousElo": 1121,
-      "wins": 4,
-      "gamesPlayed": 100,
-      "winRate": 0.04,
-      "avgPlacement": 5.36,
-      "attackWinRate": 0.896
+      "winRate": 0.17,
+      "avgPlacement": 3.97,
+      "attackWinRate": 0.863
     },
     {
       "name": "Giant Slayer",
       "author": "bigintersmind",
-      "elo": 1162,
-      "previousElo": 1141,
-      "wins": 1,
+      "elo": 1202,
+      "previousElo": 1162,
+      "wins": 8,
       "gamesPlayed": 100,
-      "winRate": 0.01,
-      "avgPlacement": 5.94,
-      "attackWinRate": 0.891
+      "winRate": 0.08,
+      "avgPlacement": 5.35,
+      "attackWinRate": 0.912
+    },
+    {
+      "name": "Defensive",
+      "author": "built-in",
+      "elo": 1191,
+      "previousElo": 1246,
+      "wins": 14,
+      "gamesPlayed": 100,
+      "winRate": 0.14,
+      "avgPlacement": 4.85,
+      "attackWinRate": 0.815
+    },
+    {
+      "name": "Connector",
+      "author": "bigintersmind",
+      "elo": 1167,
+      "previousElo": 1194,
+      "wins": 5,
+      "gamesPlayed": 100,
+      "winRate": 0.05,
+      "avgPlacement": 5.25,
+      "attackWinRate": 0.888
+    },
+    {
+      "name": "Example",
+      "author": "built-in",
+      "elo": 1162,
+      "previousElo": 1182,
+      "wins": 3,
+      "gamesPlayed": 100,
+      "winRate": 0.03,
+      "avgPlacement": 5.24,
+      "attackWinRate": 0.877
+    },
+    {
+      "name": "Adaptive",
+      "author": "built-in",
+      "elo": 1143,
+      "previousElo": 1179,
+      "wins": 4,
+      "gamesPlayed": 100,
+      "winRate": 0.04,
+      "avgPlacement": 5.55,
+      "attackWinRate": 0.882
     },
     {
       "name": "Blitz",
       "author": "bigintersmind",
-      "elo": 1137,
-      "previousElo": 1148,
-      "wins": 5,
+      "elo": 1111,
+      "previousElo": 1137,
+      "wins": 2,
       "gamesPlayed": 100,
-      "winRate": 0.05,
-      "avgPlacement": 6.06,
-      "attackWinRate": 0.788
+      "winRate": 0.02,
+      "avgPlacement": 5.84,
+      "attackWinRate": 0.762
     },
     {
       "name": "Default",
       "author": "built-in",
-      "elo": 1101,
-      "previousElo": 1247,
+      "elo": 1098,
+      "previousElo": 1101,
       "wins": 1,
       "gamesPlayed": 100,
       "winRate": 0.01,
-      "avgPlacement": 6.21,
-      "attackWinRate": 0.725
+      "avgPlacement": 6.24,
+      "attackWinRate": 0.71
     }
   ],
   "replays": [
@@ -117,8 +117,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Connector",
-      "turns": 499
+      "winner": "Adaptive",
+      "turns": 197
     },
     {
       "file": "replay-2.json",
@@ -133,8 +133,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Strategist",
-      "turns": 456
+      "winner": "Adaptive",
+      "turns": 188
     },
     {
       "file": "replay-3.json",
@@ -150,7 +150,7 @@
         "Giant Slayer"
       ],
       "winner": "Strategist",
-      "turns": 268
+      "turns": 182
     },
     {
       "file": "replay-4.json",
@@ -165,8 +165,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Strategist",
-      "turns": 184
+      "winner": "Example",
+      "turns": 168
     },
     {
       "file": "replay-5.json",
@@ -182,7 +182,7 @@
         "Giant Slayer"
       ],
       "winner": "Lookahead",
-      "turns": 181
+      "turns": 167
     },
     {
       "file": "replay-6.json",
@@ -198,7 +198,7 @@
         "Giant Slayer"
       ],
       "winner": "Defensive",
-      "turns": 178
+      "turns": 164
     },
     {
       "file": "replay-7.json",
@@ -214,7 +214,7 @@
         "Giant Slayer"
       ],
       "winner": "Defensive",
-      "turns": 173
+      "turns": 159
     },
     {
       "file": "replay-8.json",
@@ -229,8 +229,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Defensive",
-      "turns": 156
+      "winner": "Lookahead",
+      "turns": 154
     },
     {
       "file": "replay-9.json",
@@ -245,8 +245,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Lookahead",
-      "turns": 156
+      "winner": "Defensive",
+      "turns": 152
     },
     {
       "file": "replay-10.json",
@@ -261,8 +261,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Defensive",
-      "turns": 147
+      "winner": "Lookahead",
+      "turns": 150
     }
   ]
 }

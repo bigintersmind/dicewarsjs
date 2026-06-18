@@ -85,8 +85,7 @@ npm run format          # Format with Prettier
 npm run format:check    # Check formatting
 
 npm run arena           # Run bot arena from CLI
-npm run benchmark       # Run performance benchmarks
-npm run perf:check      # Check bundle size
+npm run benchmark       # Run AI strategy benchmarks
 ```
 
 ## Project Architecture

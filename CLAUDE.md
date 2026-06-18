@@ -33,9 +33,6 @@ npm run test:coverage
 # Run benchmarks
 npm run benchmark
 
-# Run full benchmark suite
-npm run benchmark:full
-
 # Check for linting issues
 npm run lint
 
@@ -50,12 +47,6 @@ npm run format:check
 
 # Run Vitest benchmark tests
 npm run test:benchmark
-
-# Check bundle size
-npm run perf:check
-
-# Auto-fix lint warnings
-npm run fix-warnings
 
 # Run bot arena (CLI) — single deterministic ELO ranking
 npm run arena

@@ -7,9 +7,6 @@
  * @module arena/botState
  */
 
-// eslint-disable-next-line no-unused-vars -- used in JSDoc
-import './types.js';
-
 /**
  * Compute the estimated game phase based on active player count and turn number.
  *

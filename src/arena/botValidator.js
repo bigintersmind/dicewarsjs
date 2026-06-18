@@ -7,9 +7,6 @@
  * @module arena/botValidator
  */
 
-// eslint-disable-next-line no-unused-vars -- used in JSDoc
-import './types.js';
-
 /**
  * Validate that bot source code can be parsed as a function body.
  *

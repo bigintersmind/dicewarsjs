@@ -6,9 +6,6 @@
  * @module arena/botRunner
  */
 
-// eslint-disable-next-line no-unused-vars -- used in JSDoc
-import './types.js';
-
 /**
  * Run a bot function directly (synchronous, no timeout).
  *

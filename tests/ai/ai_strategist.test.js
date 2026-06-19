@@ -220,6 +220,52 @@ describe('Strategist AI', () => {
     expect(mockGame.area_to).toBe(firstMove.to);
   });
 
+  describe('bank-aware endgame aggression', () => {
+    /*
+     * Shared all-8s stalemate: player 1 (me) trails the leader (player 0) and
+     * its ONLY legal attack is an 8v8 into the leader. Extra players are placed
+     * away from player 1 purely to set the active-player count.
+     */
+    const buildStalemate = () => {
+      territory(1, 0, 8); // leader
+      territory(2, 0, 8);
+      territory(3, 0, 8);
+      territory(4, 1, 8); // me
+      territory(5, 1, 8);
+      link(1, 2);
+      link(2, 3);
+      link(4, 5);
+      link(4, 1); // my only enemy border: an 8v8 into the leader
+      mockGame.player[1].stock = 16; // a full reserve to spend
+    };
+
+    test('spends its reserve to chip the leader once the field has narrowed', () => {
+      buildStalemate();
+      territory(6, 2, 8); // third player -> 3 active, endgame gate open
+      link(6, 3);
+
+      const result = ai_strategist(mockGame);
+
+      expect(result).not.toBe(0);
+      expect(mockGame.area_from).toBe(4);
+      expect(mockGame.adat[mockGame.area_to].arm).toBe(0); // attacked the leader
+    });
+
+    test('stays patient at the same all-8s board while many players are alive', () => {
+      buildStalemate();
+      territory(6, 2, 8); // four active players -> endgame gate closed
+      territory(7, 3, 8);
+      link(6, 3);
+      link(7, 3);
+
+      /*
+       * Same reserve, same lone 8v8 into the leader, but the field is too wide:
+       * patient play is stronger here, so it should not burn the attack.
+       */
+      expect(ai_strategist(mockGame)).toBe(0);
+    });
+  });
+
   test('only proposes legal attacks on a mixed board', () => {
     territory(1, 1, 3);
     territory(2, 1, 2);

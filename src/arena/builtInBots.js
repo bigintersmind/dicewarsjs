@@ -14,6 +14,7 @@ import { ai_defensive } from '../ai/ai_defensive.js';
 import { ai_adaptive } from '../ai/ai_adaptive.js';
 import { ai_strategist } from '../ai/ai_strategist.js';
 import { ai_lookahead } from '../ai/ai_lookahead.js';
+import { ai_expectimax } from '../ai/ai_expectimax.js';
 
 export const BUILT_IN_BOTS = [
   { id: 'ai_example', name: 'Example', fn: adaptLegacyBot(ai_example, 'Example') },
@@ -22,4 +23,5 @@ export const BUILT_IN_BOTS = [
   { id: 'ai_adaptive', name: 'Adaptive', fn: adaptLegacyBot(ai_adaptive, 'Adaptive') },
   { id: 'ai_strategist', name: 'Strategist', fn: adaptLegacyBot(ai_strategist, 'Strategist') },
   { id: 'ai_lookahead', name: 'Lookahead', fn: adaptLegacyBot(ai_lookahead, 'Lookahead') },
+  { id: 'ai_expectimax', name: 'Expectimax', fn: adaptLegacyBot(ai_expectimax, 'Expectimax') },
 ];

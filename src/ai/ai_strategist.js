@@ -27,13 +27,13 @@
  *
  * Bank-aware endgame aggression breaks all-8s stalemates. The cost of losing an
  * attack — burned dice and a weakened source — is largely an illusion when the
- * player holds a reinforcement reserve, because that reserve plus its income
- * refills the holes at the end of the same turn, before any opponent can act. So
+ * player holds a reinforcement reserve, because that reserve plus its income tops
+ * its board back up at the end of the same turn, before any opponent can act. So
  * once the field narrows to a few players, an attack's refundable cost is
- * discounted by how completely the reserve will patch it, and a player trailing
+ * discounted by how completely the reserve will cover it, and a player trailing
  * the leader with a real reserve will spend it chipping the leader down rather
  * than turtling into a slow loss. (Kept to the endgame on purpose: with many
- * players alive, patient play is stronger and the arena confirms it.)
+ * players alive, patient play measured stronger in arena sweeps.)
  *
  * Fully deterministic: no randomness; ties break toward the lowest area index.
  */
@@ -65,7 +65,7 @@ const PRESS_THRESHOLD = -0.6; // accept negative-EV attacks to close out a win
 const ENDGAME_PLAYERS = 3; // unlock bank-aware aggression only once the field narrows to this many
 const REFILL_EFFICIENCY = 0.85; // fraction of an attack's refundable cost the reserve neutralizes
 const DISRUPT_MIN_BANK = MAX_DICE; // banked dice before gunning for the leader at a loss (~one full stack)
-const DISRUPT_MIN_P = 0.4; // only swing at the leader on coin-flip-or-better odds (8v8 = 0.471)
+const DISRUPT_MIN_P = 0.4; // only swing at the leader on near-even odds or better (admits the 8v8 case, p=0.471)
 const DISRUPT_BONUS = 0.6; // extra pull toward the leader when trailing with a reserve to spend
 const DISRUPT_THRESHOLD = -0.8; // accept a moderately negative swing at the leader to break a stalemate
 
@@ -268,7 +268,7 @@ export const ai_strategist = game => {
   let bestFrom = -1;
   let bestTo = -1;
   let bestScore = -Infinity;
-  // Best coin-flip-or-better swing aimed at the leader (the disruption fallback).
+  // Best near-even-odds-or-better swing aimed at the leader (the disruption fallback).
   let bestLeaderFrom = -1;
   let bestLeaderTo = -1;
   let bestLeaderScore = -Infinity;
@@ -305,9 +305,12 @@ export const ai_strategist = game => {
       /*
        * Refill discount: the fraction of the holes this attack opens that my
        * reserve + income will patch this end of turn, before opponents act.
-       * `myVacancy` already reflects holes opened by earlier attacks this turn,
-       * so the discount fades as I spend down — I press while banked, then
-       * fortify once the reserve can no longer cover another swing.
+       * `myVacancy` is recomputed from the live board on every call, and the
+       * engine re-invokes this AI once per attack (runFullAITurn), so across a
+       * turn each landed attack leaves more vacancy on the next call — shrinking
+       * refillPool / vacancy until the reserve can no longer cover another swing.
+       * The effect plays out across calls, not within this loop: press while
+       * banked, then fortify as the reserve runs dry.
        */
       const refillFactor =
         !endgame || refillPool <= 0
@@ -322,13 +325,17 @@ export const ai_strategist = game => {
        * chokepoint source falls), net of the refill that patches it first.
        */
       const fromStake = EXPOSURE_WEIGHT + INCOME_WEIGHT * 0.5 * incomeLossIfCaptured(from);
-      const heldDice = Math.round(a - 1 + refund * (MAX_DICE - (a - 1)));
+      const heldDice = Math.min(MAX_DICE, Math.round(a - 1 + refund * (MAX_DICE - (a - 1))));
       const recaptureP = captureThreat(to, Math.max(1, heldDice), from);
       const exposureWin = captureThreat(from, 1, to) * (1 - refund);
       const exposureLoss = captureThreat(from, 1, -1) * (1 - refund);
 
       const winValue = gains * (1 - HOLD_DISCOUNT * recaptureP) - fromStake * exposureWin;
-      // Dice burned on a failed attack are refilled from the reserve next turn.
+      /*
+       * A failed swing is partly recouped: end-of-turn reinforcements (distributed
+       * this same turn, before opponents move) top the board back up on average, so
+       * discount the burned dice by `refund`.
+       */
       const lossCost = LOSS_WEIGHT * (a - 1) * (1 - refund) + fromStake * exposureLoss;
 
       const score = p * winValue - (1 - p) * lossCost;
@@ -359,7 +366,7 @@ export const ai_strategist = game => {
 
   /*
    * Stuck behind the leader but holding a reserve: rather than turtling into a
-   * slow loss, take the best even-odds-or-better swing at the leader. The refill
+   * slow loss, take the best near-even-odds-or-better swing at the leader. The refill
    * discount keeps these swings cheap precisely because the reserve patches the
    * holes they open before the leader can exploit them.
    */

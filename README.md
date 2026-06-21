@@ -13,7 +13,7 @@ Built on the original [Dice Wars](https://www.gamedesign.jp/games/dicewars/) by 
 - **Configurable map size** — pick Small (20×24), Medium (28×32, default) or Large (36×40) before each game
 - **Bot SDK** — write a bot in a single function and compete in the arena
 - **Arena mode** — run tournaments with ELO ratings and match replays
-- **6 built-in AI strategies** — from random to exact-odds EV search
+- **7 built-in AI strategies** — from random to exact-odds EV and chance-node search
 - **PixiJS rendering** — WebGL-accelerated hex grid with dice animations
 - **Mobile-friendly** — responsive design with touch support
 
@@ -97,7 +97,7 @@ src/
 ├── renderer/     PixiJS rendering (hex grid, dice, animations)
 ├── ui/           Preact components (screens, HUD, overlays)
 ├── arena/        Bot SDK (validation, execution, tournaments, ELO, replays)
-├── ai/           6 AI strategies (example, default, defensive, adaptive, Strategist, Lookahead)
+├── ai/           7 AI strategies (example, default, defensive, adaptive, Strategist, Lookahead, Expectimax)
 ├── store/        Observable GameStore (pub/sub shared state)
 ├── controller/   GameController (game loop orchestrator)
 ├── audio/        Web Audio sound manager
@@ -108,16 +108,19 @@ See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.
 
 ## AI Strategies
 
-| Bot                                 | Strategy                                      |
-| ----------------------------------- | --------------------------------------------- |
-| **Example** (`ai_example.js`)       | Simple implementation to learn from           |
-| **Default** (`ai_default.js`)       | Original game's balanced AI                   |
-| **Defensive** (`ai_defensive.js`)   | Prioritizes protecting vulnerable territories |
-| **Adaptive** (`ai_adaptive.js`)     | Adjusts strategy based on game state          |
-| **Strategist** (`ai_strategist.js`) | Exact expected value using odds and income    |
-| **Lookahead** (`ai_lookahead.js`)   | Shallow expectimax over win/loss branches     |
+| Bot                                 | Strategy                                                  |
+| ----------------------------------- | --------------------------------------------------------- |
+| **Example** (`ai_example.js`)       | Simple implementation to learn from                       |
+| **Default** (`ai_default.js`)       | Original game's balanced AI                               |
+| **Defensive** (`ai_defensive.js`)   | Prioritizes protecting vulnerable territories             |
+| **Adaptive** (`ai_adaptive.js`)     | Adjusts strategy based on game state                      |
+| **Strategist** (`ai_strategist.js`) | Exact expected value using odds and income                |
+| **Lookahead** (`ai_lookahead.js`)   | Shallow expectimax over win/loss branches                 |
+| **Expectimax** (`ai_expectimax.js`) | Chance-node expectimax over the exact battle distribution |
 
 > **Strategist** and **Lookahead** are the two strongest built-in bots, each authored by an AI coding assistant: Strategist by **Claude Opus 4.8** and Lookahead by **GPT-5.5**. The names describe their technique (expected-value scoring vs. shallow search) rather than the tool that wrote them.
+>
+> **Expectimax** is the search-first baseline of the [ML-bot initiative](docs/ml-bot/) — a depth-2 chance-node search that scores the positions resulting from each attack's win/loss outcomes, weighted by exact dice odds.
 
 ## Documentation
 

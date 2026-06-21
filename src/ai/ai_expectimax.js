@@ -172,9 +172,10 @@ function enumerateAttacks(owner, dice, alive, adj, areaMax, me) {
  * this board and the first attack that achieves it (`from === -1` ⇒ stop).
  *
  * At every node `me` may stop (value = evaluateBoard) or attack; each attack is
- * a chance node mixing its win/loss continuations by the exact odds. Beyond the
- * first ply only the TOP_K attacks (ranked by their one-ply EV) are expanded,
- * bounding the branching of the otherwise quadratic-per-ply search.
+ * a chance node mixing its win/loss continuations by the exact odds. Internal
+ * nodes (depth > 1) recurse into only the TOP_K attacks ranked by their one-ply
+ * EV, bounding the branching of the otherwise quadratic-per-ply search; leaf
+ * nodes (depth === 1) score every attack by that one-ply EV without recursing.
  */
 function search(owner, dice, alive, adj, areaMax, me, pmax, depth) {
   const stopValue = evaluateBoard(owner, dice, alive, adj, areaMax, me, pmax);

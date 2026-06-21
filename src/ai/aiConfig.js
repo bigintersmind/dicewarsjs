@@ -13,6 +13,7 @@ export const load_ai_example = async () => (await import('./ai_example.js')).ai_
 export const load_ai_adaptive = async () => (await import('./ai_adaptive.js')).ai_adaptive;
 export const load_ai_strategist = async () => (await import('./ai_strategist.js')).ai_strategist;
 export const load_ai_lookahead = async () => (await import('./ai_lookahead.js')).ai_lookahead;
+export const load_ai_expectimax = async () => (await import('./ai_expectimax.js')).ai_expectimax;
 
 /**
  * AI Strategy Registry
@@ -83,6 +84,16 @@ export const AI_STRATEGIES = {
     description: 'Searches win/loss branches with exact dice odds and board-value evaluation',
     difficulty: 5,
     loader: load_ai_lookahead,
+    implementation: null,
+  },
+
+  // Chance-node expectimax search over the exact battle distribution
+  ai_expectimax: {
+    id: 'ai_expectimax',
+    name: 'Expectimax AI',
+    description: 'Chance-node expectimax over win/loss outcomes weighted by exact dice odds',
+    difficulty: 5,
+    loader: load_ai_expectimax,
     implementation: null,
   },
 };

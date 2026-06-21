@@ -112,6 +112,31 @@ describe('Expectimax AI', () => {
     }
   });
 
+  test('plans a deeper combo than a one-ply scorer would (depth-2 differentiator)', () => {
+    /*
+     * Same board as the legality test above, chosen because it is a verified
+     * depth divergence and guards the bot's headline lookahead: a greedy
+     * one-ply scorer takes 2->4, but the depth-2 search prefers 1->3 (capturing
+     * area 3 opens a profitable continuation a one-ply scorer cannot see).
+     * Verified to flip to 2->4 when SEARCH_DEPTH is reduced to 1, so this
+     * assertion fails if the search silently collapses to greedy.
+     */
+    territory(1, 1, 3);
+    territory(2, 1, 2);
+    territory(3, 2, 2);
+    territory(4, 3, 1);
+    territory(5, 2, 8);
+    link(1, 3);
+    link(2, 4);
+    link(3, 5);
+    link(1, 2);
+
+    ai_expectimax(mockGame);
+
+    expect(mockGame.area_from).toBe(1);
+    expect(mockGame.area_to).toBe(3);
+  });
+
   test('prefers a near-certain elimination over a coin-flip non-cutting fight', () => {
     territory(1, 1, 8); // My strong attacker
     territory(2, 2, 1); // Player 2's only territory -> trivial 8v1 elimination

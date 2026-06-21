@@ -56,7 +56,7 @@ Entry template:
   reusing `ai_strategist`'s eval + `WIN_TABLE`, register it, and run the first
   `arena:sweep` vs `ai_strategist`. Record the baseline + first result in
   `RESULTS.md`.
-- **Blocker on the baseline:** PR #35 (`fix/strategist-endgame-turtle`) changes
-  `ai_strategist`. Run the baseline sweep only after #35 merges to master, and pin
-  the strategist SHA in `RESULTS.md`. Building/validating the expectimax bot itself
-  is not blocked.
+- **Baseline dependency (now cleared):** PR #35 (`fix/strategist-endgame-turtle`)
+  changed `ai_strategist`; it **merged to master the same day as `f5fedb2`**. Pin
+  that SHA in `RESULTS.md` when running the baseline sweep. Building/validating the
+  expectimax bot itself was never blocked.

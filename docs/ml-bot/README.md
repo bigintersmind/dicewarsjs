@@ -113,8 +113,9 @@ Verified against the code during the 2026-06-21 analysis:
   opponents.)
 - **Measured throughput:** ~150 games/s/core pure engine (~6.6 ms/game, ~12
   µs/`applyAction`), ~77 g/s with the Strategist heuristic, near-linear across
-  cores (~266 g/s on 4 procs). 1M engine-bound games ≈ 14–28 min on 8 cores.
-  **Inference, not the engine, will be the bottleneck.**
+  cores (the Strategist run hit ~266 g/s on 4 procs ≈ 3.4× its 77 g/s single
+  core). 1M engine-bound games ≈ 14–28 min on 8 cores. **Inference, not the
+  engine, will be the bottleneck.**
 - **Training-mode perf fixes:** disable the O(n²) `history` append
   (`StateManager.js:199,244`); per-move `cloneAreas`/`recalcPlayerStats`
   trimmable later if needed.

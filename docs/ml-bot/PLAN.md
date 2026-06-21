@@ -47,10 +47,11 @@ certainly won't either, and we've spent days, not weeks.
 - Runs a full `arena:sweep` vs `ai_strategist` and the result is recorded in
   `RESULTS.md`.
 
-> **Baseline timing.** `ai_strategist` is being changed by PR #35
-> (`fix/strategist-endgame-turtle`). Run the baseline sweep **after #35 merges to
-> master**, and pin the strategist commit SHA in the `RESULTS.md` row — otherwise
-> the baseline is an in-flight, moving target. See `RESULTS.md` for the convention.
+> **Baseline timing.** PR #35 (`fix/strategist-endgame-turtle`) changed
+> `ai_strategist` and **merged to master on 2026-06-21 as `f5fedb2`** — the
+> blocker is cleared. Pin that strategist SHA in the `RESULTS.md` row so the
+> baseline isn't measured against an in-flight version. See `RESULTS.md` for the
+> convention.
 
 **Go/No-Go gate.**
 

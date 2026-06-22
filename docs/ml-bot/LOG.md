@@ -21,6 +21,54 @@ Entry template:
 
 ---
 
+## 2026-06-22 — Eval-rework spike kicked off (Phase 0.5, Track A)
+
+**Phase:** 0.5 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Squash-merged the press-mechanism PR (#39, parity with Lookahead) to `master`
+  (`2ee4070`); branched `ml-bot/expectimax-eval-rework` off it so any new sweep
+  measures against the shipped parity baseline.
+- Opened **Phase 0.5** (PLAN): a _bounded_ eval-rework spike — the last cheap Track-A
+  swing at the open Phase-0 gate (a significant **outright-win%** edge over
+  Lookahead; placement/ELO already at parity). Approved basket: `mergePotential`,
+  `fieldRivalIncome`, `trappedDice` (+ `supportedBorder` only if those show life).
+  **Capped at 4 sweep swings.**
+- Added the three features to `evaluateBoard` as `DEFAULT_PARAMS` weights defaulting
+  to **0**, so `makeExpectimax()` reproduces the D-9 bot byte-for-byte (27/27 tests
+  green, lint clean) until a sweep turns one on. Reuses the whole
+  `makeExpectimax` / `_tune.mjs` / `_baseline.mjs` infra — no engine changes.
+- Launched **Swing 1**: single-term magnitude screen (`_tune.mjs --games 1000`,
+  seed 1) over each term at 3 magnitudes.
+
+**Learned / decided:**
+
+- **Spike killed at 2/4 swings — basket is a dud ([D-11]).** Swing 1 (1000 games,
+  seed 1): `mergePotential` and `trappedDice` neutral-when-tiny, harmful-when-grown;
+  `fieldRivalIncome 0.2` the lone (noisy) positive. Swing 2 (3000 games, seed 2): the
+  0.2 bump **didn't replicate** — no config beats the D-9 baseline at higher power on
+  fresh maps. Same parity ceiling as D-8/D-9; the eval sits at a local optimum and
+  bolt-on terms perturb rather than break it.
+- **Reverted the three dud params** (don't ship inert, known-negative weights); the
+  finding lives in RESULTS + [D-11]. Stopped early on purpose — the 4-swing cap was a
+  ceiling, not a quota.
+
+**Dead ends / surprises:**
+
+- Plumbing check (140 games): `trappedDice: 0.5` already over-penalizes (cand win%
+  collapses), so the useful range is well below that — screened smaller magnitudes.
+- The Swing-1 `fieldRivalIncome 0.2` positive was a seed-1 fluke (didn't survive a
+  fresh seed at 3× the games) — a reminder that single-seed screens overfit.
+
+**Next:**
+
+- **Pivot to Track B — Phase 1 (self-play harness hardening):** disable the O(n²)
+  history append for training, force end-to-end seeds + a determinism test, add
+  trajectory export, confirm parallel self-play. Its own PR off clean master.
+
+---
+
 ## 2026-06-22 — PR #39 review follow-up: interior posture-bar documented ([D-10])
 
 **Phase:** 0 · **Who:** Ivan + Claude

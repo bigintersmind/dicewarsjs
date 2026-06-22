@@ -209,3 +209,57 @@ tuning.
 (omit `--cand` once landed; add `--seedbase 100`/`200` for the disjoint runs). The
 `--cand` and `--seedbase` flags were added to the retained `_baseline.mjs` gate
 harness this session; `_tune.mjs` now also reports the paired edge vs Lookahead.
+
+---
+
+### 2026-06-22 — Phase 0.5 eval-rework spike (Track A, capped at 4 swings) · in progress
+
+**Question.** Is an outright-win% edge over Lookahead hiding in a better board
+**evaluation** (not weights)? Three new `evaluateBoard` terms, each a `DEFAULT_PARAMS`
+weight defaulting to 0 (so `makeExpectimax()` = the D-9 bot until swept):
+`mergePotential` (latent unifying-capture income), `fieldRivalIncome` (suppress the
+trailing field, not just the leader), `trappedDice` (idle interior strike dice).
+Screened with `_tune.mjs` (cand = Expectimax slot vs the real 7-bot FFA). Win% noise
+≈ ±2.5% at 1000 games, ±1.4% at 3000 — these screens judge **direction**; the kill
+verdict / any finalist goes to the full seat-fair `_baseline.mjs` gate.
+
+**Swing 1 — single-term magnitude screen (1000 games/config, seed 1).** Baseline
+`{}`: cand 20.5% / look 22.9% / paired-vsLook 48.6% (the D-9 parity, reproduced).
+
+| Term · magnitudes                   | cand win%          | note                                                      |
+| ----------------------------------- | ------------------ | --------------------------------------------------------- |
+| `mergePotential` 0.3 / 0.6 / 1.0    | 20.2 / 20.7 / 18.0 | neutral → **harmful** (1.0: paired 45.0%, p=0.0016 worse) |
+| `fieldRivalIncome` 0.05 / 0.1 / 0.2 | 19.5 / 19.3 / 21.4 | noisy; only 0.2 edged baseline (+0.9%, within noise)      |
+| `trappedDice` 0.1 / 0.2 / 0.35      | 20.0 / 18.9 / 13.2 | neutral → **harmful** as it grows                         |
+
+Read: the only statistically real effect is a _degradation_ (`mergePotential 1.0`).
+`mergePotential` and `trappedDice` are neutral-when-tiny, harmful-when-grown — no
+upside. `fieldRivalIncome 0.2` is the lone (noisy, non-monotonic) positive → earns
+one higher-power look. Consistent with the D-9 ceiling: the eval sits near a local
+optimum; single structural terms perturb rather than break it.
+
+**Swing 2 — focused high-power screen (3000 games/config, seed 2; `fieldRivalIncome`
+finer + pairwise).** Baseline `{}` at seed 2: cand 20.5% / look 23.4% / paired 48.2%.
+
+| Config                                        | cand win% (Δ vs base) | paired-vsLook          | note                        |
+| --------------------------------------------- | --------------------- | ---------------------- | --------------------------- |
+| `fieldRivalIncome` 0.15                       | 19.9 (−0.6)           | 47.5% (p=0.007 worse)  | below baseline              |
+| `fieldRivalIncome` 0.25                       | 20.4 (−0.1)           | 48.6%                  | ≈ baseline (best candidate) |
+| `fieldRivalIncome` 0.35                       | 18.8 (−1.7)           | 45.2% (p=1.5e-7 worse) | **harmful**                 |
+| `fieldRivalIncome` 0.2 + `mergePotential` 0.4 | 19.2 (−1.3)           | 47.0% (p=0.001 worse)  | below baseline              |
+| `fieldRivalIncome` 0.2 + `trappedDice` 0.1    | 19.8 (−0.7)           | 48.0% (p=0.031 worse)  | below baseline              |
+
+Read: **the Swing-1 `fieldRivalIncome 0.2` bump did not replicate.** At higher power
+on fresh maps, no config beats the D-9 baseline — the best (0.25) is dead-even, higher
+magnitudes are significantly worse, and both pairwise combos underperform. None show
+even a _trend_ above baseline on win% or the paired placement metric.
+
+**Verdict — basket is a dud; spike stopped at 2 of 4 swings.** All three structural
+terms are confirmed neutral-at-best, harmful-when-grown, across two independent seeds
+at two power levels. `supportedBorder` (gated on "the first three show life") is moot.
+This is the same ceiling D-8/D-9 hit: the eval sits at a local optimum and bolt-on
+structural terms perturb rather than break it. Stopping early (the 4-swing cap was a
+ceiling, not a quota) — the answer is clear and reconfirming a dead pattern wastes
+budget. **Earned signal: search valuation is tapped out at this structure → pivot to
+Track B (Phase 1).** Code reverted (the 3 dud params are not shipped); finding kept
+here + in DECISIONS.

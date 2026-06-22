@@ -304,6 +304,58 @@ up a structural side effect as intent; the comments now give both honestly.
 
 ---
 
+## D-11 — Eval-rework spike: structural eval terms don't break the parity ceiling; pivot to Track B · Accepted (2026-06-22) · follows [D-10](#d-10--posture-bar-gates-interior-search-nodes-not-just-the-root-commit-kept-as-policy-consistent-valuation-decoupling-ab-deferred)
+
+**Context.** [D-9] left the Phase-0 headline gate open: `ai_expectimax` reached
+parity with Lookahead (significant placement edge, win% tie) but no significant
+**outright-win%** edge, and concluded that crossing it needs a better board
+_evaluation_ or deeper _search_, not more posture tuning. Before committing weeks to
+Track B (learned policy), we ran one last _cheap_ Track-A spike (Phase 0.5): is a
+win% edge hiding in a better **eval feature set** (not weights)? Approved basket of
+three structural terms, each a `DEFAULT_PARAMS` weight defaulting to 0 so
+`makeExpectimax()` stayed the D-9 bot until swept: `mergePotential` (latent
+unifying-capture income), `fieldRivalIncome` (suppress the trailing field, not just
+the leader), `trappedDice` (idle interior strike dice). **Capped at 4 sweep swings.**
+
+**Decision.** **Kill the spike at 2 of 4 swings** — the basket does not cross the
+gate — **revert the three dud params** (do not ship inert, known-negative weights),
+and **pivot to Track B (Phase 1)**. The earned signal: search valuation is tapped out
+at this eval structure.
+
+**Result (see RESULTS 2026-06-22).**
+
+- **Swing 1** (single-term magnitude screen, 1000 games, seed 1): `mergePotential` and
+  `trappedDice` are neutral-when-tiny, **harmful-when-grown** (no upside); the only
+  statistically real effect was a degradation (`mergePotential 1.0`, paired p=0.0016
+  worse). `fieldRivalIncome 0.2` was the lone positive (+0.9% win%, within noise,
+  non-monotonic).
+- **Swing 2** (focused high-power screen, 3000 games, seed 2): the `fieldRivalIncome
+0.2` bump **did not replicate** — at higher power on fresh maps no config beats the
+  D-9 baseline (best, 0.25, is dead-even; higher magnitudes significantly worse; both
+  pairwise combos underperform). `supportedBorder` (gated on "the first three show
+  life") moot.
+
+**Why this matters for the roadmap.** This is the same "places better, win% ties"
+ceiling D-8 hit (vs Strategist) and D-9 hit (vs Lookahead), now confirmed a third
+context: bolt-on structural eval terms perturb a near-local-optimum eval rather than
+break it. Diagnostically the terms are redundant or counterproductive — `mergePotential`
+largely re-derives what the chance-search already values, `trappedDice` fights the
+income term. **Track-A search has been given a thorough shake (posture, elimination,
+risk-floor, depth, and now eval features) and converges to parity.** Crossing to a
+decisive win% edge over Lookahead is now firmly Track B's job: a learned policy/eval
+([D-7]/[D-1]). Phase 1 (self-play harness hardening) is next.
+
+**Rejected.** (a) Spending Swings 3–4 to reconfirm a dead pattern — the 4-swing cap
+was a ceiling, not a quota; two independent seeds at two power levels already agree,
+and the terms trend harmful (not merely neutral). (b) A joint base-weight re-tune as a
+"last fair shot" — the one stone left unturned, but the terms degrade even at the
+frozen D-9 optimum, and D-9 already showed joint weight-tuning converges to parity;
+not worth a swing. (c) Shipping the three params at weight 0 "for future use" — dead,
+known-negative config surface; the finding is preserved here and in RESULTS, the code
+is reverted to the clean D-9 eval.
+
+---
+
 ## D-Encoding — MDP / state / action / reward shape · Proposed (2026-06-21)
 
 **Proposed (finalize in Phase 2).**

@@ -87,6 +87,38 @@ first-mover luck.
 
 ---
 
+## D-6 — Bot convention: legacy for the search baseline, modern for the learned bot · Accepted (2026-06-21)
+
+**Decision.** Write the **search baseline (`ai_expectimax`, Phase 0)** in the
+**legacy** convention — `(game) → 0|void`, mutating `game.area_from`/`area_to`,
+reading `game.adat`/`get_pn()` — like every other built-in. Write the eventual
+**learned bot (Phase 4 deploy, per [D-4](#d-4--deploy-via-onnx-runtime-web))** in the
+**modern** convention — a pure `(BotState) → {from,to}|null`.
+
+**Why.** The two conventions are interchangeable at the arena boundary
+(`adaptLegacyBot` synthesizes a legacy view from `BotState`), so this is about
+fit, not capability:
+
+- The search baseline exists to be measured against `ai_strategist` (D-5). Writing
+  it legacy-style lets it mirror the sibling's exact data-access patterns and reuse
+  the same connectivity economics — apples-to-apples is the whole point.
+- The learned bot is net-new, has no sibling to mirror, and benefits from the
+  clean read-only `BotState` contract (the documented public bot API). It carries
+  no reason to adopt the mutable legacy view.
+
+**Caveat (informational).** The synthesized legacy view is lossy in two fields —
+`adat[i].size` is hard-coded to `1` ("exists"), and turn order `jun` is synthetic.
+`ai_expectimax` (and `ai_strategist`) read neither: both rebuild ownership/dice/
+adjacency and compute largest-connected-group themselves. A future legacy bot that
+relied on real territory size or seat order would get degraded data — another
+reason new bots should prefer the modern convention.
+
+**Rejected.** Writing the search baseline in the modern convention — would have
+diverged from `ai_strategist`'s structure and muddied the head-to-head comparison
+the whole Phase 0 gate depends on.
+
+---
+
 ## D-Encoding — MDP / state / action / reward shape · Proposed (2026-06-21)
 
 **Proposed (finalize in Phase 2).**

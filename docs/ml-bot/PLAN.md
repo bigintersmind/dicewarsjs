@@ -81,6 +81,54 @@ certainly won't either, and we've spent days, not weeks.
 
 ---
 
+## Phase 0.5 — Eval-rework spike (Track A, bounded) · ❌ Killed at 2/4 swings — no gate cross ([D-11], 2026-06-22)
+
+> **Outcome.** None of the three structural terms beat the D-9 baseline: neutral at
+> best, harmful when grown, across two seeds at two power levels (RESULTS / [D-11]).
+> Same parity ceiling as D-8/D-9 — bolt-on eval terms perturb a near-local-optimum
+> eval rather than break it. Dud params reverted; **pivot to Track B (Phase 1).**
+
+**Objective.** Answer the last _cheap_ question before committing weeks to Track B:
+is there an **outright-win% edge over `ai_lookahead`** still hiding in a better board
+**evaluation** (not weights)? [D-9] showed posture/threshold tuning converges to
+parity; the eval's _feature set_ — not just its weights — was never reworked.
+
+**Why now (gate philosophy).** Pure JS, no GPU, days not weeks. Either it crosses
+the open Phase-0 gate (ship it, possibly defer RL), or a bounded basket also
+converges to parity — the _earned_ signal that search valuation is tapped out and
+Track B is worth the GPU-weeks. Bounded swings, not unbounded tuning.
+
+**Approach.** Each candidate feature is a new `DEFAULT_PARAMS` weight defaulting to
+`0`, so `makeExpectimax()` stays the shipped (D-9) bot until a sweep turns it on —
+reusing the whole `makeExpectimax` / `_tune.mjs` / `_baseline.mjs` infra, zero engine
+changes.
+
+**Feature basket (approved 2026-06-22 — all tested, none cleared).**
+
+- [x] `mergePotential` — latent income from the best _unifying_ capture. **Dud:**
+      neutral when tiny, harmful as it grows (redundant with the chance-search).
+- [x] `fieldRivalIncome` — suppress the _trailing_ field (Σ rival income − leader's).
+      **Dud:** lone Swing-1 bump (+0.9%) didn't replicate at higher power.
+- [x] `trappedDice` — penalize idle interior strike dice. **Dud:** neutral→harmful
+      (fights the income term).
+- [ ] `supportedBorder` (defensibility) — gated on the first three showing life;
+      **not reached** (precondition unmet).
+
+**Loop.** `_tune.mjs --games ~1000` coarse single-term + pairwise screens →
+promote finalists to `_baseline.mjs` (seat-fair + paired + 1v1) on a held-out
+`--seedbase`.
+
+**Budget / kill criterion.** **Capped at 4 sweep swings** (matching how posture
+tuning was capped at four). If no config clears the gate within 4 swings, record it
+in `DECISIONS.md` as the earned "search valuation is tapped out" signal and move to
+Phase 1. Each swing's result goes in `RESULTS.md`.
+
+**Go/No-Go gate.** A **statistically significant outright-win% edge over
+`ai_lookahead`** on a clean seat-fair sweep → land the reworked eval as the new
+default and the Phase-0 headline gate is finally **met**. Otherwise → Track B.
+
+---
+
 ## Phase 1 — Harness hardening for self-play · ⬜ Not started · ~3–5 days
 
 **Objective.** Turn the headless arena into a fast, reproducible, _instrumented_

@@ -27,7 +27,9 @@
  * ai_strategist in the ml-bot Phase 0 sweep (see docs/ml-bot/RESULTS.md). Tuning
  * `attackThreshold` (patience) and `threat` (exposure-aversion) lifted this bot
  * from the worst "smart" bot to Strategist-class: a significant ELO / head-to-head
- * placement edge, though Strategist still converts more games to outright wins.
+ * placement edge, though the two are statistically tied on outright win% (the sign
+ * flips with the seed sample — Strategist edges it in the fixed-seat sweep,
+ * Expectimax in the seat-fair one).
  * Beating Strategist on win% (and chasing Lookahead) needs a *press-when-ahead*
  * mechanism — a posture-adaptive threshold — which a single fixed `attackThreshold`
  * cannot express; that is the next structural lever, not a weight to tune.

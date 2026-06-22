@@ -5,7 +5,7 @@
  * `game` with an `adat` territory table, `get_pn()`, and `area_from/area_to`
  * set in place by the bot.
  */
-import { ai_expectimax } from '../../src/ai/ai_expectimax.js';
+import { ai_expectimax, makeExpectimax } from '../../src/ai/ai_expectimax.js';
 
 describe('Expectimax AI', () => {
   let mockGame;
@@ -118,8 +118,9 @@ describe('Expectimax AI', () => {
      * depth divergence and guards the bot's headline lookahead: a greedy
      * one-ply scorer takes 2->4, but the depth-2 search prefers 1->3 (capturing
      * area 3 opens a profitable continuation a one-ply scorer cannot see).
-     * Verified to flip to 2->4 when SEARCH_DEPTH is reduced to 1, so this
-     * assertion fails if the search silently collapses to greedy.
+     * Verified to flip to 2->4 when searchDepth is reduced to 1
+     * (makeExpectimax({ searchDepth: 1 }) — see the dedicated test below), so
+     * this assertion fails if the search silently collapses to greedy.
      */
     territory(1, 1, 3);
     territory(2, 1, 2);
@@ -200,6 +201,14 @@ describe('Expectimax AI', () => {
      * confounds the comparison. The safe choice (area 3) is the HIGHER index, so a
      * reversed index — WIN_TABLE[8][1]=1 becomes WIN_TABLE[1][8]=0 — would zero
      * both exposures and the tie-break would (wrongly) pick area 2, failing this.
+     *
+     * Built with an explicit low `attackThreshold` (not the shipped default): with
+     * the Phase-0-tuned `threat: 2.0`, both single-cell 2v1 captures here are
+     * deliberately marginal (each exposes a fresh 1-die cell to a counter), so the
+     * shipped bot would correctly *decline both* — which can't isolate the
+     * vulnerability term. Lowering only the threshold forces the choice while
+     * keeping the shipped `threat` weight under test, so this guards the
+     * vulnerability mechanic independently of how patient the production tuning is.
      */
     territory(1, 1, 2); // my only attacker
     territory(2, 2, 1); // capture backs onto a strong enemy (area 4) — exposed
@@ -211,7 +220,7 @@ describe('Expectimax AI', () => {
     link(2, 4);
     link(3, 5);
 
-    ai_expectimax(mockGame);
+    makeExpectimax({ attackThreshold: 0.05 })(mockGame);
 
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(3);
@@ -266,6 +275,117 @@ describe('Expectimax AI', () => {
     expect(() => ai_expectimax(mockGame)).not.toThrow();
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(2);
+  });
+
+  test('makeExpectimax() with no overrides reproduces the shipped default bot', () => {
+    /*
+     * The PR claim that the shipped `ai_expectimax` is exactly `makeExpectimax()`
+     * with DEFAULT_PARAMS. Guards the no-arg factory path against drift.
+     */
+    territory(1, 1, 4);
+    territory(2, 2, 1);
+    territory(3, 2, 1); // second enemy cell so the capture is not an elimination
+    link(1, 2);
+
+    ai_expectimax(mockGame);
+    const shipped = { from: mockGame.area_from, to: mockGame.area_to };
+
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    makeExpectimax()(mockGame);
+
+    expect(mockGame.area_from).toBe(shipped.from);
+    expect(mockGame.area_to).toBe(shipped.to);
+  });
+
+  test('overriding one param keeps the other defaults (factory merges, not replaces)', () => {
+    /*
+     * The factory does `{ ...DEFAULT_PARAMS, ...params }`. If it instead did
+     * `{ ...params }`, every unspecified weight would be undefined -> NaN scores
+     * -> the bot would never clear the threshold and would return 0. Overriding
+     * only `attackThreshold` and still landing a real attack proves the income/
+     * territory/dice/threat defaults survived the merge.
+     */
+    territory(1, 1, 4);
+    territory(2, 2, 1);
+    territory(3, 2, 1);
+    link(1, 2);
+
+    const result = makeExpectimax({ attackThreshold: 0.05 })(mockGame);
+
+    expect(result).not.toBe(0);
+    expect(mockGame.area_from).toBe(1);
+    expect(mockGame.area_to).toBe(2);
+  });
+
+  test('rejects an unknown or non-finite param (fail-fast config guard)', () => {
+    /*
+     * A typo'd key would otherwise be silently dropped and the sweep would
+     * re-test the defaults while appearing to test the candidate.
+     */
+    expect(() => makeExpectimax({ attackThreshhold: 0.5 })).toThrow(/unknown param/);
+    expect(() => makeExpectimax({ threat: NaN })).toThrow(/finite number/);
+  });
+
+  test('the tuned default declines a marginal capture a lower threshold would take (patience)', () => {
+    /*
+     * Guards the Phase-0 patience tuning (attackThreshold 0.3 + threat 2.0), which
+     * is otherwise asserted nowhere — a regression reverting either weight would
+     * keep the rest of the suite green. On the vulnerability board both 2v1
+     * captures expose a fresh 1-die cell to a counter, so the shipped default
+     * correctly declines BOTH; only a lower `attackThreshold` takes one. (The
+     * threshold is the lever that flips decline->capture here; `threat: 2.0` keeps
+     * the captures marginal enough for the threshold to bite.)
+     */
+    territory(1, 1, 2); // my only attacker
+    territory(2, 2, 1); // capture backs onto a strong enemy (area 4) — exposed
+    territory(3, 2, 1); // capture backs onto a weak enemy (area 5) — safer
+    territory(4, 3, 8); // strong threat behind area 2
+    territory(5, 3, 2); // weak threat behind area 3
+    link(1, 2);
+    link(1, 3);
+    link(2, 4);
+    link(3, 5);
+
+    // Shipped default: stays put rather than over-extending.
+    expect(ai_expectimax(mockGame)).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+
+    // A lower threshold takes the safer of the two captures (area 3).
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    makeExpectimax({ attackThreshold: 0.05 })(mockGame);
+    expect(mockGame.area_to).toBe(3);
+  });
+
+  test('searchDepth is threaded through the factory (depth 2 plans the combo, depth 1 plays greedy)', () => {
+    /*
+     * Same board as the depth-2 combo test. Holding the eval weights and a low
+     * `attackThreshold` fixed (so neither config declines), the ONLY varied input
+     * is `searchDepth` — proving the search-shape param flows through the factory,
+     * not just the eval weights. Depth 2 sees the 1->3 combo; depth 1 is greedy
+     * (2->4). Converts the manual verification note on the combo test into an
+     * executable assertion.
+     */
+    territory(1, 1, 3);
+    territory(2, 1, 2);
+    territory(3, 2, 2);
+    territory(4, 3, 1);
+    territory(5, 2, 8);
+    link(1, 3);
+    link(2, 4);
+    link(3, 5);
+    link(1, 2);
+
+    makeExpectimax({ searchDepth: 2, attackThreshold: 0.05 })(mockGame);
+    expect(mockGame.area_from).toBe(1);
+    expect(mockGame.area_to).toBe(3);
+
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    makeExpectimax({ searchDepth: 1, attackThreshold: 0.05 })(mockGame);
+    expect(mockGame.area_from).toBe(2);
+    expect(mockGame.area_to).toBe(4);
   });
 
   test('is deterministic for identical states', () => {

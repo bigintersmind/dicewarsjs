@@ -76,10 +76,12 @@ train+infer for a small net).
 
 ---
 
-## D-5 — Evaluation gate = `arena:sweep` vs `ai_strategist` with CIs · Accepted (2026-06-21)
+## D-5 — Evaluation gate = `arena:sweep` (seat-controlled, with CIs) · Accepted (2026-06-21) · opponent amended by [D-7](#d-7--the-bar-is-lookahead-2532-not-strategist-1418--accepted-2026-06-21--amends-d-5)
 
-**Decision.** "Better" means a statistically significant win-rate/ELO edge over
-`ai_strategist` on multi-seed `arena:sweep`, controlling seat/turn-order.
+**Decision.** "Better" means a statistically significant win-rate/ELO edge on
+multi-seed `arena:sweep`, controlling seat/turn-order. _The opponent of record was
+`ai_strategist`; **[D-7] re-baselined it to `ai_lookahead`** (the actual field
+leader). The method below is unchanged — only the bot being beaten changed._
 
 **Why.** Battles are high-variance (dice). Single-seed results are noise.
 Turn-order is shuffled, so seat effects must be controlled to measure skill, not
@@ -116,6 +118,80 @@ reason new bots should prefer the modern convention.
 **Rejected.** Writing the search baseline in the modern convention — would have
 diverged from `ai_strategist`'s structure and muddied the head-to-head comparison
 the whole Phase 0 gate depends on.
+
+---
+
+## D-7 — The bar is `Lookahead` (~25–32%), not `Strategist` (~14–18%) · Accepted (2026-06-21) · amends [D-5](#d-5--evaluation-gate--arenasweep-vs-ai_strategist-with-cis)
+
+**Context.** The plan everywhere named `ai_strategist` as "the current strongest
+bot" and the bar to beat. The Phase 0 baseline sweep (see `RESULTS.md`,
+2026-06-21) contradicts that premise: **`ai_lookahead` tops the 7-bot FFA at
+~26–32%, far ahead of `ai_strategist` at ~14–18%.** Lookahead — a depth-1
+chance-node searcher — is already the strongest built-in by a wide, significant
+margin.
+
+**Decision (accepted by Ivan, 2026-06-21).** **`ai_lookahead` is the incumbent to
+beat** for any new bot (search or learned). A candidate "wins" the gate only when
+it beats `Lookahead` with a statistically significant win-rate/ELO edge on
+seat-controlled `arena:sweep` (the D-5 method, just with Lookahead as the
+opponent of record). **Pin `Lookahead` like the old baseline: it last changed at
+`596f781`** (PR #30) — record that SHA in the "Lookahead @" column of `RESULTS.md`,
+and re-baseline if Lookahead changes. Implications:
+
+- The Phase 0 "does search beat the baseline?" question is **already answered _yes_**
+  by a sibling search bot — so a default-weight Expectimax losing was _not_ a
+  Track-B-kill signal (D-1's "search can't win here" trigger does not fire).
+- Phase 0 / any phase "succeeds" only by producing the **new field-strongest** bot
+  (beating Lookahead), not merely clearing the lower Strategist bar.
+- The tuned Expectimax landed in [D-8] (rank 1–2 by ELO, beats Strategist) **does
+  not pass this gate** — it trails Lookahead on win% (~14–16% vs ~25%). It ships as
+  a genuine improvement, but Phase 0's headline gate is now **open** against
+  Lookahead.
+
+**Strategist's ongoing role.** Kept as a **secondary reference** (a known, stable
+quantity) reported alongside Lookahead in `RESULTS.md` rows — useful for continuity
+and for sanity-checking, but no longer the bar that decides "shipped / proceed."
+
+**Rejected.** Continuing to treat Strategist as "strongest" — it demonstrably
+isn't, and optimizing against a beaten baseline understates the difficulty and
+risks shipping a bot weaker than one we already have.
+
+---
+
+## D-8 — Phase-0 weight-tuning hit a structural ceiling: a fixed threshold can't both press and stay patient · Accepted (2026-06-21)
+
+**Context.** Tuning `ai_expectimax`'s existing scalar params (sweeping
+`attackThreshold` × `threat` × weight perturbations vs Strategist) lifted it from
+the worst "smart" bot (7.1% win, ELO 1140, loses everything) to Strategist-class —
+**but the improvement was entirely on consistency, not closing.** Across every
+viable config and every seed range, the tuned bot beats Strategist on **ELO and
+head-to-head placement** (p ≈ 0) yet **ties-or-trails on outright win%** (best
+~13.8% vs Strategist ~15.3%), and none approach `Lookahead` (~25%). See
+`RESULTS.md` 2026-06-21.
+
+**Decision.** Land the best all-around config (`attackThreshold: 0.3`,
+`threat: 2.0`) as the shipped default — a large, significant net improvement — and
+treat the Phase-0 gate as **partially met** (ELO/placement edge, no win% edge), per
+Ivan's call. **Stop weight-tuning the existing structure**: the data shows a single
+_fixed_ `attackThreshold` cannot beat Strategist on win%, because the same patience
+that prevents FFA over-extension also prevents pressing to close out won games.
+Strategist is boom-or-bust (wins more, places worse); patient Expectimax is steady
+(places better, wins less).
+
+**Why this matters for the roadmap.** The eval _terms_ are sound — Expectimax ties
+Strategist 1v1 and out-places it in the FFA — so the bottleneck is the **decision
+policy** (when to attack / stop / press), not the board valuation. The proven fix
+is a **posture-adaptive threshold + a press/elimination term**, exactly what makes
+`Lookahead` (depth-1) the field leader at ~32%. This is encouraging for Track B:
+the lever is a _policy_, which is precisely what a learned net optimizes. It also
+sharpens D-1/D-7 — "search first" already succeeded (Lookahead); the open frontier
+is learning (or hand-coding) a better _policy_ than a fixed heuristic threshold.
+
+**Rejected.** (a) Continuing to sweep the existing scalar params — the win% ceiling
+is structural, so more tuning won't cross it. (b) Adding the structural
+press-mechanism in this pass — that is a redesign beyond "iterate the eval weights"
+(the Phase-0, step-3 scope); it is the natural next iteration, recorded here so it
+isn't lost.
 
 ---
 

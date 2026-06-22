@@ -21,6 +21,107 @@ Entry template:
 
 ---
 
+## 2026-06-22 — PR #39 review follow-up: interior posture-bar documented ([D-10])
+
+**Phase:** 0 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Applied the low-risk findings from the multi-agent PR #39 review (script guards,
+  comment accuracy, a strict-boundary press test) — committed `3728997`.
+- Resolved the one deferred design finding: the posture `threshold` is threaded into
+  every recursive `search` node, so it gates interior-node valuation, not just the
+  root commit. Decided **(b) keep + document accurately** over (a) decouple+re-tune.
+  Rewrote the `postureThreshold` / `search` doc comments to frame it as
+  **policy-consistent valuation** (value interior nodes under the bot's own
+  threshold-gated policy) with the **frozen-root-posture caveat**; recorded the call
+  and a deferred decoupling A/B in [D-10]. Also fixed a lingering "U-shaped" →
+  "inverted-U (∩)" label in the [D-9] record.
+
+**Learned / decided:**
+
+- The interior gating is **defensible, not a bug**: at `searchDepth: 2` it is one
+  interior layer, and the frozen-root-posture approximation rarely changes a board's
+  posture bucket one ply out. It is genuinely closer to evaluating positions under
+  the behavior policy than under a neutral greedy max.
+- The cleaner separation (neutral interior bar + posture only at the root, as
+  `ai_lookahead` does) is the lever to revisit **only if `searchDepth` grows** — the
+  approximation worsens with depth. Deferred as a tracked A/B, not run now (marginal
+  expected effect at depth 2; out of scope for a review follow-up).
+
+**Dead ends / surprises:**
+
+- None — the finding turned out to be a documentation/intent-clarity issue, not a
+  behavioral defect.
+
+**Next:**
+
+- Unchanged from [D-9]: Track B (learned policy) or an eval rework to cross from
+  win% parity to a decisive edge over Lookahead. The [D-10] A/B is a small,
+  depth-gated side quest, not on the critical path.
+
+---
+
+## 2026-06-22 — Press-mechanism (D-9): Expectimax reaches parity with Lookahead
+
+**Phase:** 0 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Built the structural **press-mechanism** [D-8] named into `ai_expectimax`:
+  (1) a **posture-adaptive attack threshold** (`postureThreshold` — PRESS/WEAK/BASE
+  U-shape, replacing the single fixed `attackThreshold`, which became a nullable
+  fixed-bar override); (2) a **strengthened elimination term** (`activeRival`); and
+  (3) a **low-odds risk floor** (`lowOddsFloor`/`lowOddsPenalty`) — a third
+  ingredient beyond the two D-8 named, mirroring Lookahead's `LOW_ODDS_PENALTY`.
+- Tuned via a parallel arena-sweep **workflow** (coarse 36-config grid → auto-refine,
+  90 configs) + focused two-seed low-odds/depth sweeps; verified finalists on a
+  **holdout seed** and at the full seat-fair gate. **Landed** `{ baseThreshold 1.2,
+pressThreshold -2.5, activeRival 2, lowOddsFloor 0.78, lowOddsPenalty 5,
+searchDepth 2 }` as the new shipped default.
+- Generalized the retained gate harnesses: `_tune.mjs` now reports the paired edge
+  **vs Lookahead** (+ `beatsLook`); `_baseline.mjs` gained `--vs <bot>` (default
+  Lookahead), `--cand '<json>'` (gate a config without landing), and `--seedbase`
+  (disjoint-seed confirmation). Rewrote the unit suite's policy tests into 7
+  tuning-independent posture/risk-floor mechanic tests (23 pass).
+
+**Learned / decided:**
+
+- **Result = parity, not a win.** Across 3 disjoint-seed × 5600-game seat-fair runs
+  (16,800 games): Expectimax **ties Lookahead on win%** (22–23% vs 22.5–23.9%,
+  overlapping CIs; Look a hair ahead on raw wins), **significantly out-places it**
+  (pooled paired 51.2%, z=3.09, **p≈0.002**), is **ELO co-leader**, and **ties the
+  1v1 duel** (49.5%, which the pre-press default _lost_ at 45.3%, p=0.007). Beats
+  Strategist decisively. Rank 6/7 → **joint-strongest**.
+- **The headline gate (significant win% edge over Lookahead) is NOT met — it's a
+  tie.** Phase 0's gate stays open on win%. Landed anyway: it is a strict, large
+  improvement over the previous shipped Expectimax (which lost to Lookahead). See
+  [D-9].
+- **depth-2 is essential** (depth-1 win% collapses to ~10%); `activeRival` wants to
+  be **low** (1–2) — over-chasing eliminations hurts; the **low-odds floor was the
+  key third lever** (posture+elimination alone left a ~4–5 pt gap it mostly closed).
+
+**Dead ends / surprises:**
+
+- **Seed-1 overfitting bit twice:** the coarse workflow's seed-1 winner appeared to
+  edge Lookahead but trailed by 3–6 pts on a holdout seed. Lesson reinforced:
+  always confirm tuned configs on disjoint seeds (now easy via `--seedbase`).
+- The "strong elimination punches through the floor" hypothesis was **wrong** —
+  `activeRival` 4–6 _hurt_ win% vs `activeRival` 2.
+- Found+fixed a bug in the new `--cand` path: `_baseline.mjs`'s 2-player section was
+  still reading the shipped bot, not the override (A and B gave identical 1v1
+  numbers, the tell).
+
+**Next:**
+
+- The "places better, win% ties" ceiling that capped Expectimax-vs-Strategist (D-8)
+  now caps Expectimax-vs-Lookahead one tier up. A decisive win% edge over Lookahead
+  likely needs a better board **evaluation** or deeper **search**, not more posture
+  tuning → **Track B (learned policy)** is the open frontier, or a separate eval
+  rework. Decide before sinking more effort into Track A.
+
+---
+
 ## 2026-06-21 — Gate re-baselined to `Lookahead` (D-7 accepted)
 
 **Phase:** 0 · **Who:** Ivan + Claude

@@ -58,9 +58,9 @@ const BASE_THRESHOLD = 2.2;
 const PRESS_THRESHOLD = -0.45;
 const WEAK_THRESHOLD = 0.18;
 /*
- * Dice-share cutoffs that select the posture above: at/above PRESS_DICE_SHARE
- * the bot is dominant enough to press; below WEAK_DICE_SHARE (in a crowd) it is
- * weak enough to claw back. Between them it holds the patient BASE bar.
+ * Dice-share cutoffs that select the posture above: above PRESS_DICE_SHARE
+ * (strict >) the bot is dominant enough to press; below WEAK_DICE_SHARE (in a
+ * crowd) it is weak enough to claw back. Between them it holds the patient BASE bar.
  */
 const PRESS_DICE_SHARE = 0.38;
 const WEAK_DICE_SHARE = 0.15;

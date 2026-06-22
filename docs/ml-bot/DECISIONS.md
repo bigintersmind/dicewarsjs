@@ -195,6 +195,115 @@ isn't lost.
 
 ---
 
+## D-9 — Press-mechanism built into `ai_expectimax`: reaches parity with Lookahead (significant placement edge, win% tie) — gate still open · Accepted (2026-06-22) · follows [D-8](#d-8--phase-0-weight-tuning-hit-a-structural-ceiling-a-fixed-threshold-cant-both-press-and-stay-patient)
+
+**Context.** [D-8] named the structural fix for Expectimax's win% ceiling — a
+**posture-adaptive threshold + elimination term** (the `ai_lookahead` mechanism) —
+and deferred it as "the natural next iteration." This is that iteration.
+
+**Decision.** Build the press-mechanism into `ai_expectimax` and land the tuned
+config as the new shipped default:
+
+- **Posture-adaptive attack threshold** (`postureThreshold`): an inverted-U (∩) bar
+  (high/patient in the middle, low/decisive at both strength extremes) —
+  PRESS (`pressThreshold`, negative) when dominant (dice share > `pressDiceShare`,
+  or ahead in a heads-up duel); WEAK (`weakThreshold`, low) when weak in a crowd;
+  steep BASE (`baseThreshold`) otherwise. Replaces the single fixed `attackThreshold`
+  (kept as a nullable fixed-bar override for tests/tuning).
+- **Strengthened elimination term** (`activeRival`): already flows through the
+  chance-node search as a win-prob-weighted elimination bonus; tuned, not the order-
+  of-magnitude-too-weak 0.4 it was.
+- **Low-odds risk floor** (`lowOddsFloor`/`lowOddsPenalty`): a third ingredient,
+  beyond the two D-8 named — mirrors Lookahead's `LOW_ODDS_PENALTY`. Pure expectimax
+  under-penalizes coin-flips in a 7-way elimination game (an EV-neutral gamble exposes
+  you to the _other_ five rivals); this docks low-win-prob attacks. It was needed to
+  close most of the residual gap the posture+elimination terms left.
+
+**Landed config:** `{ baseThreshold: 1.2, pressThreshold: -2.5, weakThreshold: 0.15,
+pressDiceShare: 0.38, weakDiceShare: 0.15, activeRival: 2.0, lowOddsFloor: 0.78,
+lowOddsPenalty: 5.0, searchDepth: 2, topK: 6 }`.
+
+**Result (3 disjoint-seed × 5600-game seat-fair runs = 16,800 games; see RESULTS).**
+
+- **Win% vs Lookahead: a statistical TIE** — Expectimax 22–23% vs Lookahead
+  22.5–23.9% (overlapping CIs across all 3 runs; Lookahead a hair ahead on raw
+  outright wins, −0.84% pooled).
+- **Placement: Expectimax SIGNIFICANTLY out-places Lookahead** — pooled paired
+  51.2%, z = 3.09, **p ≈ 0.002**. It is the more _consistent_ bot.
+- **ELO: co-leader** (Expectimax ahead in 2 of 3 runs).
+- **1v1 duel: a TIE** (49.5%) — the pre-press shipped default _lost_ the duel
+  (45.3%, p = 0.007), so the press-mechanism also fixed the head-to-head deficit.
+- Beats `ai_strategist` decisively (22% vs 13–14%).
+
+Net: Expectimax went from rank 6/7 (lost everything, trailed Lookahead by ~10 win%
+points) to the **joint-strongest bot in the field**.
+
+**Gate status: the headline gate (a statistically significant WIN% edge over
+Lookahead) is NOT met — it is a tie.** Phase 0's headline gate stays **open** on
+the win% metric. The bot ships as the new default regardless, because it is a
+strict, large improvement over the previous shipped Expectimax (which lost to
+Lookahead).
+
+**Key finding for the roadmap.** The same "places better, win% tie" ceiling that
+capped Expectimax-vs-Strategist ([D-8]) now caps Expectimax-vs-Lookahead one tier
+up. Threshold / elimination / risk-floor / depth tuning converges to **parity**,
+not a decisive win — consistent with the prior-art difficulty thesis. Crossing to a
+decisive win% edge over Lookahead likely needs a better board **evaluation** or
+deeper **search**, not more posture tuning — i.e. **Track B's learned policy** (or
+a separate eval rework), which is the open frontier ([D-7]/[D-8]).
+
+**Rejected.** (a) Pushing posture/press params harder — four multi-seed sweeps
+converged to the same ~tie ceiling; press beyond −2.5 trades ELO for no win% gain.
+(b) Not landing it — config B is strictly stronger than the previous shipped
+Expectimax. (c) Claiming the gate met — the win% edge is a tie, not significant;
+overclaiming would understate the remaining difficulty.
+
+---
+
+## D-10 — Posture bar gates interior search nodes, not just the root commit: kept as policy-consistent valuation; decoupling A/B deferred · Accepted (2026-06-22) · follows [D-9](#d-9--press-mechanism-built-into-ai_expectimax-reaches-parity-with-lookahead-significant-placement-edge-win-tie--gate-still-open)
+
+**Context.** The PR #39 review (the press-mechanism, [D-9]) flagged that
+`postureThreshold` is threaded unchanged into every recursive `search` call, so the
+accept gate `best.value > stopValue + threshold` fires at **every** node, not only
+the root commit decision. Interior nodes therefore report a value shaped by the
+posture bar (in PRESS a node can return a continuation worth up to `|pressThreshold|`
+_less_ than stopping; BASE biases the other way), and that value is mixed into the
+parent's EV. `ai_lookahead` deliberately does **not** do this — its
+`bestContinuationGain` floors continuation at `max(0, …)` (a neutral bar) and applies
+posture only at the root (`bestScore > threshold`).
+
+**Decision.** Keep the current behavior and document it accurately, rather than
+silently changing a tuned, shipped bot. The honest framing is **policy-consistent
+valuation**: the bot's real policy _is_ threshold-gated, so valuing interior nodes
+under the same bar predicts what the bot will actually do (stop when attacks don't
+clear the bar) better than a neutral max, which would assume a future self that
+greedily grabs every positive-EV scrap it won't actually take. The [D-9] config was
+tuned with this behavior in place, so changing it would invalidate that tuning. The
+`postureThreshold` and `search` doc comments now state this (and the caveat below)
+explicitly, replacing the bare "applied at every search node."
+
+**Known caveat.** The bar is the _root_ posture, frozen, applied to deeper boards
+whose own posture could differ; a truly policy-consistent valuation would recompute
+posture per node. Negligible at the shipped `searchDepth: 2` (a board one ply out
+rarely changes posture bucket), but the approximation worsens as depth grows.
+
+**Revisit trigger / deferred A/B.** If `searchDepth` is ever raised, reconsider
+decoupling: add an optional `interiorThreshold` param (default = current = the root
+bar) and sweep `interiorThreshold: 0` (neutral interior, lookahead-style) against the
+default via `_tune.mjs` / `_baseline.mjs --cand`. If neutral-interior wins, flip the
+default — decoupling earned with data; if it's a wash, this decision is confirmed
+empirically. **Not run now**: at depth 2 the expected effect is marginal (the gate
+only changes a node's answer when a follow-up sits inside the threshold band), and it
+is out of scope for the PR-#39 review follow-up.
+
+**Rejected.** (a) Decoupling now (neutral interior bar + re-tune) — changes shipped
+behavior and invalidates the [D-9] tuning for a marginal expected gain at depth 2;
+deferred to the A/B above. (b) Documenting it as deliberate "continuation shaping"
+without the policy-consistency rationale or the frozen-posture caveat — that dresses
+up a structural side effect as intent; the comments now give both honestly.
+
+---
+
 ## D-Encoding — MDP / state / action / reward shape · Proposed (2026-06-21)
 
 **Proposed (finalize in Phase 2).**

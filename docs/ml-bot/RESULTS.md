@@ -49,12 +49,13 @@ _Bar = `ai_lookahead` (`596f781`) since 2026-06-21 ([D-7]); earlier rows used
 `ai_strategist` (`f5fedb2`). The "Beats strategist?" column header is kept for the
 historical rows; new rows judge against Lookahead (noted inline)._
 
-| Date       | Candidate                                                            | Phase | Field     | Seeds/Games             | Win% (95% CI) | ELO       | Beats strategist?                           | Strategist @ | Notes / commit                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ---------- | -------------------------------------------------------------------- | ----: | --------- | ----------------------- | ------------- | --------- | ------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-06-21 | **Strategist** (baseline reference)                                  |     — | 7-bot FFA | 30 × 200 (6000)         | 17.5 ± 1.0    | 1250 ± 12 | _baseline_                                  | `f5fedb2`    | Rank 2/7. `Lookahead` (also a search bot) **leads the field at 32.1 ± 1.2** (ELO 1358) — i.e. search _already_ beats Strategist decisively; the search-viability question is settled.                                                                                                                                                                                                                                                                                             |
-| 2026-06-21 | Expectimax (depth-2, default weights)                                |     0 | 7-bot FFA | 30 × 200 (6000)         | 7.1 ± 0.8     | 1140 ± 11 | ❌ **loses decisively**                     | `f5fedb2`    | Rank 6/7 (barely above the dumb bots). Paired per-game test z = −19.7, **p ≈ 0**. Seat-counterbalanced sweep agrees (7.1%). **1v1 deterministic = statistical tie** (49.5%, p = 0.67) → the eval isn't broken; it over-extends in the 7-player crowd. Tuning underway (Phase 0, step 3).                                                                                                                                                                                          |
-| 2026-06-21 | **Expectimax (tuned: `attackThreshold 0.3`, `threat 2.0`)** — LANDED |     0 | 7-bot FFA | 30 × 200 (6000)         | 13.8 ± 1.0    | 1305 ± 13 | **ELO ✅ sig · win% ~tie**                  | `f5fedb2`    | Tuned defaults landed. Canonical: Expectimax ELO **1305 ± 13 vs Strat 1229 ± 13** (non-overlapping → significant), win% 13.8 vs 14.5 (overlapping → tie). Seat-fair (5600 games): Ex **15.7 ± 1.2 / ELO 1349** vs Strat 14.0 ± 0.9 / 1256, paired **62.4% (z = 18.6, p ≈ 0)**, outright wins 880 vs 783. Now **rank 1–2 by ELO** (up from 6/7). Still trails `Lookahead` on win% (~25%). Per [D-8](./DECISIONS.md): the win% ceiling is structural (fixed threshold can't press). |
-| 2026-06-21 | Expectimax (tuned) **vs the new bar `Lookahead`**                    |     0 | 7-bot FFA | 30×200 + 5600 seat-fair | 13.8–15.7     | 1305–1349 | ❌ **loses to bar (win%)** · ~ELO co-leader | `596f781`    | **Gate re-baselined to `Lookahead` ([D-7]).** Lookahead leads on win% (canonical 26.2%, seat-fair 24.0%; ELO 1330/1307); tuned Expectimax ~15% win but co-leading ELO (1305/1349). **Phase 0 headline gate (beat Lookahead) is OPEN** — needs the structural press-mechanism ([D-8]) or Track B.                                                                                                                                                                                  |
+| Date       | Candidate                                                            | Phase | Field     | Seeds/Games                | Win% (95% CI) | ELO       | Beats strategist?                               | Strategist @               | Notes / commit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------- | -------------------------------------------------------------------- | ----: | --------- | -------------------------- | ------------- | --------- | ----------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-06-21 | **Strategist** (baseline reference)                                  |     — | 7-bot FFA | 30 × 200 (6000)            | 17.5 ± 1.0    | 1250 ± 12 | _baseline_                                      | `f5fedb2`                  | Rank 2/7. `Lookahead` (also a search bot) **leads the field at 32.1 ± 1.2** (ELO 1358) — i.e. search _already_ beats Strategist decisively; the search-viability question is settled.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 2026-06-21 | Expectimax (depth-2, default weights)                                |     0 | 7-bot FFA | 30 × 200 (6000)            | 7.1 ± 0.8     | 1140 ± 11 | ❌ **loses decisively**                         | `f5fedb2`                  | Rank 6/7 (barely above the dumb bots). Paired per-game test z = −19.7, **p ≈ 0**. Seat-counterbalanced sweep agrees (7.1%). **1v1 deterministic = statistical tie** (49.5%, p = 0.67) → the eval isn't broken; it over-extends in the 7-player crowd. Tuning underway (Phase 0, step 3).                                                                                                                                                                                                                                                                                                      |
+| 2026-06-21 | **Expectimax (tuned: `attackThreshold 0.3`, `threat 2.0`)** — LANDED |     0 | 7-bot FFA | 30 × 200 (6000)            | 13.8 ± 1.0    | 1305 ± 13 | **ELO ✅ sig · win% ~tie**                      | `f5fedb2`                  | Tuned defaults landed. Canonical: Expectimax ELO **1305 ± 13 vs Strat 1229 ± 13** (non-overlapping → significant), win% 13.8 vs 14.5 (overlapping → tie). Seat-fair (5600 games): Ex **15.7 ± 1.2 / ELO 1349** vs Strat 14.0 ± 0.9 / 1256, paired **62.4% (z = 18.6, p ≈ 0)**, outright wins 880 vs 783. Now **rank 1–2 by ELO** (up from 6/7). Still trails `Lookahead` on win% (~25%). Per [D-8](./DECISIONS.md): the win% ceiling is structural (fixed threshold can't press).                                                                                                             |
+| 2026-06-21 | Expectimax (tuned) **vs the new bar `Lookahead`**                    |     0 | 7-bot FFA | 30×200 + 5600 seat-fair    | 13.8–15.7     | 1305–1349 | ❌ **loses to bar (win%)** · ~ELO co-leader     | `596f781`                  | **Gate re-baselined to `Lookahead` ([D-7]).** Lookahead leads on win% (canonical 26.2%, seat-fair 24.0%; ELO 1330/1307); tuned Expectimax ~15% win but co-leading ELO (1305/1349). **Phase 0 headline gate (beat Lookahead) is OPEN** — needs the structural press-mechanism ([D-8]) or Track B.                                                                                                                                                                                                                                                                                              |
+| 2026-06-22 | **Expectimax + press-mechanism (D-9)** — LANDED                      |     0 | 7-bot FFA | 3 × 5600 seat-fair (16800) | 22–23 (≈ tie) | 1332–1339 | **vs Look: win% ~tie · placement ✅ (p≈0.002)** | `f5fedb2` (Look `596f781`) | **Press-mechanism: posture-adaptive threshold + elimination term + low-odds risk floor.** Across 3 disjoint-seed seat-fair runs Expectimax **ties Lookahead on win%** (Look 22.5–23.9; Look a hair ahead on raw wins, −0.84% pooled), **significantly out-places it** (pooled paired **51.2%, z=3.09, p≈0.002**), is **ELO co-leader** (ahead 2/3 runs), and **ties the 1v1 duel** (49.5%, vs the pre-press default's losing 45.3% p=0.007). Beats Strategist (13–14%). Rank 6/7 → **joint-strongest**. Headline gate (sig. win% edge over Lookahead) **still open** — it's a tie; see [D-9]. |
 
 ---
 
@@ -151,3 +152,60 @@ ELO, paired ~60%, win% competitive). Official measurements vs Strategist `f5fedb
 **Net:** Expectimax went from rank 6/7 (loses everything) to **rank 1–2 by ELO**,
 significantly out-placing Strategist, with win% a tie. Gate treated as **partially
 met** (ELO/placement ✅, win% tie) per Ivan's call. Shipped as the new default.
+
+### 2026-06-22 — Phase 0, step 4: press-mechanism (D-9) → parity with Lookahead
+
+**What was built.** The structural press-mechanism [D-8] named, plus a third
+ingredient: (1) a **posture-adaptive attack threshold** (`postureThreshold`:
+PRESS/WEAK/BASE U-shape), (2) a **strengthened elimination term** (`activeRival`,
+win-prob-weighted through the search), and (3) a **low-odds risk floor**
+(`lowOddsFloor`/`lowOddsPenalty`, mirrors Lookahead's `LOW_ODDS_PENALTY`). The floor
+proved necessary: pure expectimax under-penalizes coin-flips in a 7-way elimination
+game, so the posture+elimination terms alone left a ~4–5 pt win% gap that the floor
+closed most of.
+
+**Tuning.** A parallel arena-sweep workflow (coarse 36-config grid over
+base×press×elimination → auto-refine, 90 configs total) found the region; a focused
+two-seed low-odds + search-depth sweep then showed **depth-2 is essential**
+(depth-1 win% collapses to ~10%) and that `activeRival` wants to be **low** (1–2),
+not strong — over-chasing eliminations hurts. Finalists were verified on a **holdout
+seed** (the seed-1 coarse winners were overfit — they led on seed 1 but trailed on
+fresh maps), then the two best at the full seat-fair gate.
+
+**Landed config = `{ baseThreshold: 1.2, pressThreshold: -2.5, weakThreshold: 0.15,
+pressDiceShare: 0.38, weakDiceShare: 0.15, activeRival: 2.0, lowOddsFloor: 0.78,
+lowOddsPenalty: 5.0, searchDepth: 2, topK: 6 }`** (press −2.5 beat press −1.5: same
+ELO, better win% conversion).
+
+**Authoritative result — 3 disjoint-seed seat-fair runs (seedbase 1 / 100 / 200,
+each 20 runs × 40 seeds × 7 rotations = 5600 games; 16,800 total), vs Lookahead
+`596f781`:**
+
+| Run (seedbase) | Ex win% | Look win% | Ex ELO | Look ELO | Paired (Ex higher)          |
+| -------------- | ------- | --------- | ------ | -------- | --------------------------- |
+| 1              | 23.0    | 22.5      | 1335   | 1291     | 51.4% (p=0.037)             |
+| 100            | 22.0    | 23.1      | 1339   | 1271     | 51.1% (p=0.115)             |
+| 200            | 22.0    | 23.9      | 1332   | 1372     | 51.1% (p=0.092)             |
+| **pooled**     | ~22.3   | ~23.2     | —      | —        | **51.2% (z=3.09, p≈0.002)** |
+
+- **Win%: a statistical tie** — overlapping CIs in all three runs; Lookahead a hair
+  ahead on raw outright wins (3891 vs 3750 pooled, −0.84%).
+- **Placement: Expectimax significantly out-places Lookahead** (pooled 51.2%,
+  z=3.09, p≈0.002) — the more consistent bot.
+- **1v1 deterministic (2000 games):** Expectimax 49.5%, p=0.69 → **tie** (the
+  pre-press shipped default _lost_ this duel, 45.3%, p=0.007 — the press-mechanism
+  fixed the head-to-head deficit too).
+- Beats `ai_strategist` decisively (13–14% in this field).
+
+**Verdict.** The press-mechanism brought Expectimax to **parity with Lookahead** —
+joint-strongest, with a significant placement edge and a win% dead-heat. The
+**headline gate (a significant win% edge over Lookahead) is NOT met — it's a tie**
+([D-9]). Same "places better, win% ties" ceiling as D-8, one tier up. Crossing it
+likely needs a better board evaluation or deeper search (Track B), not more posture
+tuning.
+
+**Repro:** `node scripts/_baseline.mjs --vs Lookahead --runs 20 --seeds 40 --h2h 2000
+--cand '{"baseThreshold":1.2,"pressThreshold":-2.5,"activeRival":2,"searchDepth":2,"lowOddsFloor":0.78,"lowOddsPenalty":5}'`
+(omit `--cand` once landed; add `--seedbase 100`/`200` for the disjoint runs). The
+`--cand` and `--seedbase` flags were added to the retained `_baseline.mjs` gate
+harness this session; `_tune.mjs` now also reports the paired edge vs Lookahead.

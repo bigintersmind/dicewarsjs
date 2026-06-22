@@ -65,9 +65,19 @@ certainly won't either, and we've spent days, not weeks.
 - Search viability is **proven** (Lookahead is a search bot and the field leader),
   so this is not a Track-B-kill signal. The win% ceiling is structural ([D-8]): a
   fixed attack threshold can't both stay patient and press to close out.
-- **Next:** either add the structural **press-mechanism** (posture-adaptive
-  threshold + elimination term) to chase Lookahead with search, or carry this
-  finding into Track B's learned policy. Decide before sinking more effort here.
+- **Update 2026-06-22 — press-mechanism built ([D-9]).** Added the posture-adaptive
+  threshold + elimination term + a low-odds risk floor to `ai_expectimax`. Result
+  across 16,800 seat-fair games: Expectimax **ties `ai_lookahead` on win%** (22–23%
+  vs 22.5–23.9%), **significantly out-places it** (paired 51.2%, p≈0.002), is ELO
+  co-leader, and ties the 1v1 duel — i.e. **parity / joint-strongest**, up from rank
+  6/7. **The headline gate (a _significant win% edge_ over Lookahead) is still NOT
+  met — it's a tie.** Landed anyway as a strict improvement over the prior shipped
+  Expectimax.
+- **Next:** the same "places better, win% ties" ceiling now caps
+  Expectimax-vs-Lookahead one tier up; threshold/elimination/floor tuning converges
+  to parity, not a decisive win. Crossing it needs a better board **evaluation** or
+  deeper **search** → **Track B (learned policy)** or an eval rework, not more
+  posture tuning.
 
 ---
 

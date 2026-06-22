@@ -29,10 +29,10 @@
  * a crowd (avoid over-extension) and press to close out a won game. The fix,
  * mirroring what makes `ai_lookahead` the field leader, is two structural terms:
  *
- *   1. A *posture-adaptive* attack threshold (`postureThreshold`) — a U-shaped bar
- *      that PRESSES (accepts slightly-negative-EV captures) when dominant, claws
- *      back at a low bar when weak in a crowd, and holds a steep patient BASE bar
- *      in the common balanced case.
+ *   1. A *posture-adaptive* attack threshold (`postureThreshold`) — an inverted-U
+ *      (∩) bar that PRESSES (accepts slightly-negative-EV captures) when dominant,
+ *      claws back at a low bar when weak in a crowd, and holds a steep patient BASE
+ *      bar in the common balanced case.
  *   2. A strengthened *elimination term* (`activeRival`) — a per-rival penalty in
  *      the board eval, so a capture that removes a rival scores higher on its win
  *      branch; through the chance-node search that becomes an implicitly
@@ -65,7 +65,8 @@ export const DEFAULT_PARAMS = {
    * --- Decision policy: posture-adaptive attack threshold (the D-8 press-mechanism) ---
    * A single fixed bar can't both stay patient in a crowd and press to close out a
    * won game (docs/ml-bot DECISIONS D-8), so the bar adapts to my board posture,
-   * forming a U: decisive at both extremes, patient in the middle.
+   * forming an inverted U (∩): a high (patient) bar in the middle, low (decisive)
+   * bars at both strength extremes.
    */
   attackThreshold: null, // fixed EV bar override; null ⇒ posture-adaptive (base/press/weak below)
   baseThreshold: 1.2, // balanced game (the common case): steep bar — only clearly profitable captures (D-9 tuned)
@@ -100,8 +101,8 @@ const clampDie = n => (n > MAX_DICE ? MAX_DICE : n);
  * stop value by before the bot commits. This is the D-8 press-mechanism a single
  * fixed threshold cannot express.
  *
- * The bar forms a U over my strength: when I'm dominant (high dice share, or
- * ahead in a heads-up duel) I PRESS — accepting even slightly-negative-EV
+ * The bar forms an inverted U (∩) over my strength: when I'm dominant (high dice
+ * share, or ahead in a heads-up duel) I PRESS — accepting even slightly-negative-EV
  * captures to close the game out; when I'm weak in a crowd I claw back at a low
  * bar; in the common balanced case I hold the steep BASE bar and only spend dice
  * on clearly profitable captures. Mirrors ai_lookahead's posture logic — the
@@ -279,27 +280,27 @@ function search(owner, dice, alive, adj, areaMax, me, pmax, depth, P, threshold)
 
   /*
    * One-ply EV of each attack: weight the two outcome positions by the odds, less
-   * an explicit risk floor that penalizes committing to a low-odds attack (the
-   * win-prob is the first move's odds at this node — see DEFAULT_PARAMS.lowOdds*).
+   * an explicit risk floor that penalizes committing to a low-odds attack. The
+   * penalty keys off each candidate attack's *own* win-prob (`m.p`); deeper plies
+   * are floored too, inside their recursive value below, just probability-discounted
+   * by the odds of reaching them (see DEFAULT_PARAMS.lowOdds*).
    */
   for (const m of moves) {
     const vWin = evaluateBoard(m.winOwner, m.winDice, alive, adj, areaMax, me, pmax, P);
     const vLoss = evaluateBoard(owner, m.lossDice, alive, adj, areaMax, me, pmax, P);
     m.immediate = m.p * vWin + (1 - m.p) * vLoss;
     m.lowOdds = P.lowOddsPenalty > 0 ? Math.max(0, P.lowOddsFloor - m.p) * P.lowOddsPenalty : 0;
+    m.riskAdjEV = m.immediate - m.lowOdds; // one-ply EV net of the risk floor
   }
 
   let candidates;
   if (depth === 1) {
     // Leaf decision: the one-ply EV (net of the risk floor) is the value.
-    for (const m of moves) m.value = m.immediate - m.lowOdds;
+    for (const m of moves) m.value = m.riskAdjEV;
     candidates = moves;
   } else {
     // Expand only the most promising attacks one ply deeper (by risk-adjusted EV).
-    moves.sort(
-      (x, y) =>
-        y.immediate - y.lowOdds - (x.immediate - x.lowOdds) || x.from - y.from || x.to - y.to
-    );
+    moves.sort((x, y) => y.riskAdjEV - x.riskAdjEV || x.from - y.from || x.to - y.to);
     candidates = moves.slice(0, P.topK);
     for (const m of candidates) {
       const win = search(
@@ -428,6 +429,17 @@ export function makeExpectimax(params = {}) {
         : postureThreshold(diceByPlayer, areasByPlayer, me, pmax, P);
 
     const best = search(owner, dice, alive, adj, AREA_MAX, me, pmax, P.searchDepth, P, threshold);
+    /*
+     * A non-finite search value means a weight NaN-poisoned the eval — a degenerate
+     * config the construction-time guard somehow let through. Throw loudly rather
+     * than let the legacy adapter swallow it and silently "stop on every board", the
+     * worst failure mode for a tuning sweep.
+     */
+    if (!Number.isFinite(best.value)) {
+      throw new Error(
+        `makeExpectimax: non-finite search value (${best.value}) — degenerate config?`
+      );
+    }
     if (best.from === -1) return 0;
 
     game.area_from = best.from;

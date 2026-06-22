@@ -22,7 +22,16 @@ const arg = (k, d) => {
 };
 const games = parseInt(arg('games', '600'), 10);
 const baseSeed = parseInt(arg('seed', '1'), 10);
-const configs = JSON.parse(arg('configs', '[{}]'));
+/*
+ * Name the flag on a parse failure (mirrors _baseline.mjs's --cand guard) rather
+ * than surfacing a bare SyntaxError with no hint at which flag was malformed.
+ */
+let configs;
+try {
+  configs = JSON.parse(arg('configs', '[{}]'));
+} catch (e) {
+  throw new Error(`--configs must be valid JSON: ${e.message}`);
+}
 
 // Normal CDF for the paired sign-test p-value.
 function normCdf(z) {
@@ -41,9 +50,19 @@ function evalConfig(cfg) {
     b.name === 'Expectimax' ? { name: 'Expectimax', fn: candFn } : { name: b.name, fn: b.fn }
   );
   const res = runArena({ bots: field, gameCount: games, baseSeed });
-  const cand = res.bots.find(b => b.name === 'Expectimax');
-  const strat = res.bots.find(b => b.name === 'Strategist');
-  const look = res.bots.find(b => b.name === 'Lookahead');
+  /*
+   * These names are hardcoded; if a built-in bot is renamed or dropped, `.find()`
+   * returns undefined and the next property access throws a cryptic TypeError. Name
+   * the missing bot instead, so the verdict harness fails actionably.
+   */
+  const findBot = name => {
+    const b = res.bots.find(x => x.name === name);
+    if (!b) throw new Error(`reference bot "${name}" not in arena field (built-in bots changed?)`);
+    return b;
+  };
+  const cand = findBot('Expectimax');
+  const strat = findBot('Strategist');
+  const look = findBot('Lookahead');
 
   // Paired per-game placement edge vs each reference bot (lower placement = better).
   const pairedEdge = ref => {
@@ -93,7 +112,12 @@ function evalConfig(cfg) {
     zLook: vsLook.z,
     pLook: vsLook.p,
     beatsStrat: vsStrat.candBetter > vsStrat.refBetter && vsStrat.p < 0.05 && clean,
-    // The real gate: out-place AND out-win Lookahead, significantly, on a clean run.
+    /*
+     * The real gate: out-place AND out-win Lookahead, significantly, on a clean run.
+     * Raw `cand.wins > look.wins` is a valid win-rate comparison because every bot
+     * plays every FFA match, so gamesPlayed is equal across the field (and `clean`
+     * forces failedGames === 0) — no need to divide.
+     */
     beatsLook:
       vsLook.candBetter > vsLook.refBetter && vsLook.p < 0.05 && cand.wins > look.wins && clean,
     failedGames: res.failedGames,

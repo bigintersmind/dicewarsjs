@@ -527,6 +527,34 @@ describe('Expectimax AI', () => {
     expect(mockGame.area_from).toBe(0);
   });
 
+  test('pressDiceShare boundary is strict: a share exactly at the cutoff does NOT press', () => {
+    /*
+     * Pins the strict `>` in `myShare > pressDiceShare` (a `>=` regression would
+     * silently press here). The board gives me exactly half the dice on the board
+     * (4 of 8), and pressDiceShare is set to 0.5 to match. With the strict `>`,
+     * 0.5 is NOT > 0.5 → not PRESS; two rivals keep the duel shortcut from firing
+     * and WEAK can't fire (0.5 is not < weakDiceShare), so the bar falls to the
+     * steep BASE and declines the capture. A relaxed `>=` would select PRESS and
+     * take it. press pinned low / base+weak pinned high so posture is the only lever.
+     */
+    territory(1, 1, 4); // me: 4 dice — exactly half the board — my only attacker
+    territory(2, 2, 1); // a near-certain 4v1 capture (player 2 survives via area 3)
+    territory(3, 2, 1); // player 2's other cell → capturing area 2 is not an elimination
+    territory(4, 3, 2); // a second rival → activeRivals === 2 (duel shortcut can't fire)
+    link(1, 2);
+
+    const result = makeExpectimax({
+      pressThreshold: -50,
+      baseThreshold: 50,
+      weakThreshold: 50,
+      pressDiceShare: 0.5,
+      lowOddsPenalty: 0,
+    })(mockGame);
+
+    expect(result).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+  });
+
   /*
    * Heads-up-duel PRESS shortcut: PRESS is also selected by `activeRivals === 1 &&
    * diceByPlayer[me] > bestRivalDice` — the second half of the PRESS condition, which

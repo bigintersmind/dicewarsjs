@@ -60,6 +60,13 @@ const ST = arg('vs', 'Lookahead');
 if (!field.some(b => b.name === ST)) {
   throw new Error(`--vs must name a built-in bot (got "${ST}")`);
 }
+if (ST === EX) {
+  /*
+   * Comparing Expectimax against itself makes every paired placement a tie — a
+   * meaningless report. Fail loud rather than print all-ties.
+   */
+  throw new Error(`--vs cannot be "${EX}" (the candidate compares against itself)`);
+}
 /*
  * Crash loudly on a bad count instead of silently skipping the loop. A
  * non-numeric flag (e.g. `--runs abc`) makes parseInt return NaN, `n < NaN` is
@@ -74,15 +81,25 @@ const intArg = (k, d) => {
   }
   return parseInt(raw, 10);
 };
+// Same loud-failure contract as intArg, but allows 0 (for offsets, not counts).
+const nonNegIntArg = (k, d) => {
+  const raw = arg(k, d);
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`--${k} must be a non-negative integer (got "${raw}")`);
+  }
+  return parseInt(raw, 10);
+};
 const RUNS = intArg('runs', '20'); // blocks for CI
 const SEEDS_PER_RUN = intArg('seeds', '40'); // distinct map seeds per block
 const STRIDE = 1_000_000;
 /*
  * Offset the seed range by `--seedbase B` (default 0): block r uses seeds
- * (B + r) * STRIDE + 1 .. + SEEDS_PER_RUN. A large offset (e.g. 100) yields maps
- * disjoint from the default range, for independent confirmation of a candidate.
+ * (B + r) * STRIDE + 1 .. + SEEDS_PER_RUN. A large offset (e.g. `--seedbase 100`)
+ * yields maps disjoint from the default range, for independent confirmation of a
+ * candidate. The flag value IS the offset (0-based), so `--seedbase 0` reproduces
+ * the default seed range exactly.
  */
-const SEEDBASE = intArg('seedbase', '1') - 1; // intArg requires ≥1; shift so default 1 ⇒ offset 0
+const SEEDBASE = nonNegIntArg('seedbase', '0');
 
 // --- stats helpers ---
 const T95 = {

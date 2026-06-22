@@ -109,7 +109,15 @@ const clampDie = n => (n > MAX_DICE ? MAX_DICE : n);
  * mechanism that makes it the field leader.
  *
  * Computed once from the real root board (posture is a turn-level property) and
- * applied at every search node, so the bot's stance doesn't flip mid-turn.
+ * threaded unchanged into every recursive `search` node, so the bot's stance can't
+ * flip mid-turn. That means the bar gates not just the root commit decision but the
+ * value each interior node reports up: positions are valued under the bot's own
+ * threshold-gated policy (what it will *actually* do — stop when attacks don't clear
+ * the bar), not under a neutral max that assumes a greedy future self. Caveat — this
+ * freezes the *root* posture onto deeper boards whose own posture could differ;
+ * negligible at the shipped searchDepth: 2 (a board one ply out rarely flips
+ * bucket), but the lever to revisit (recurse the interior with a neutral 0 bar)
+ * should searchDepth grow. See docs/ml-bot/DECISIONS.md D-10.
  */
 function postureThreshold(diceByPlayer, areasByPlayer, me, pmax, P) {
   let totalDice = 0;
@@ -267,8 +275,11 @@ function enumerateAttacks(owner, dice, alive, adj, areaMax, me) {
  *
  * `threshold` is the EV the best attack must beat stopping by before it is
  * committed (otherwise the node stops). The caller passes the posture-adaptive
- * bar (`postureThreshold`), or a fixed override — see `makeExpectimax`. Each
- * move's value is also docked a risk-floor penalty for low win-probability (see
+ * bar (`postureThreshold`), or a fixed override — see `makeExpectimax`. The same
+ * bar gates every node, not just the root: inside the recursion it shapes the value
+ * each node reports up, so positions are valued under the bot's own threshold-gated
+ * policy (deliberate — see `postureThreshold` and DECISIONS.md D-10). Each move's
+ * value is also docked a risk-floor penalty for low win-probability (see
  * DEFAULT_PARAMS.lowOdds*), so the bot avoids variance-heavy gambles in a crowd.
  */
 function search(owner, dice, alive, adj, areaMax, me, pmax, depth, P, threshold) {

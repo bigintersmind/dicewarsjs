@@ -204,7 +204,8 @@ and deferred it as "the natural next iteration." This is that iteration.
 **Decision.** Build the press-mechanism into `ai_expectimax` and land the tuned
 config as the new shipped default:
 
-- **Posture-adaptive attack threshold** (`postureThreshold`): a U-shaped bar —
+- **Posture-adaptive attack threshold** (`postureThreshold`): an inverted-U (∩) bar
+  (high/patient in the middle, low/decisive at both strength extremes) —
   PRESS (`pressThreshold`, negative) when dominant (dice share > `pressDiceShare`,
   or ahead in a heads-up duel); WEAK (`weakThreshold`, low) when weak in a crowd;
   steep BASE (`baseThreshold`) otherwise. Replaces the single fixed `attackThreshold`
@@ -256,6 +257,50 @@ converged to the same ~tie ceiling; press beyond −2.5 trades ELO for no win% g
 (b) Not landing it — config B is strictly stronger than the previous shipped
 Expectimax. (c) Claiming the gate met — the win% edge is a tie, not significant;
 overclaiming would understate the remaining difficulty.
+
+---
+
+## D-10 — Posture bar gates interior search nodes, not just the root commit: kept as policy-consistent valuation; decoupling A/B deferred · Accepted (2026-06-22) · follows [D-9](#d-9--press-mechanism-built-into-ai_expectimax-reaches-parity-with-lookahead-significant-placement-edge-win-tie--gate-still-open)
+
+**Context.** The PR #39 review (the press-mechanism, [D-9]) flagged that
+`postureThreshold` is threaded unchanged into every recursive `search` call, so the
+accept gate `best.value > stopValue + threshold` fires at **every** node, not only
+the root commit decision. Interior nodes therefore report a value shaped by the
+posture bar (in PRESS a node can return a continuation worth up to `|pressThreshold|`
+_less_ than stopping; BASE biases the other way), and that value is mixed into the
+parent's EV. `ai_lookahead` deliberately does **not** do this — its
+`bestContinuationGain` floors continuation at `max(0, …)` (a neutral bar) and applies
+posture only at the root (`bestScore > threshold`).
+
+**Decision.** Keep the current behavior and document it accurately, rather than
+silently changing a tuned, shipped bot. The honest framing is **policy-consistent
+valuation**: the bot's real policy _is_ threshold-gated, so valuing interior nodes
+under the same bar predicts what the bot will actually do (stop when attacks don't
+clear the bar) better than a neutral max, which would assume a future self that
+greedily grabs every positive-EV scrap it won't actually take. The [D-9] config was
+tuned with this behavior in place, so changing it would invalidate that tuning. The
+`postureThreshold` and `search` doc comments now state this (and the caveat below)
+explicitly, replacing the bare "applied at every search node."
+
+**Known caveat.** The bar is the _root_ posture, frozen, applied to deeper boards
+whose own posture could differ; a truly policy-consistent valuation would recompute
+posture per node. Negligible at the shipped `searchDepth: 2` (a board one ply out
+rarely changes posture bucket), but the approximation worsens as depth grows.
+
+**Revisit trigger / deferred A/B.** If `searchDepth` is ever raised, reconsider
+decoupling: add an optional `interiorThreshold` param (default = current = the root
+bar) and sweep `interiorThreshold: 0` (neutral interior, lookahead-style) against the
+default via `_tune.mjs` / `_baseline.mjs --cand`. If neutral-interior wins, flip the
+default — decoupling earned with data; if it's a wash, this decision is confirmed
+empirically. **Not run now**: at depth 2 the expected effect is marginal (the gate
+only changes a node's answer when a follow-up sits inside the threshold band), and it
+is out of scope for the PR-#39 review follow-up.
+
+**Rejected.** (a) Decoupling now (neutral interior bar + re-tune) — changes shipped
+behavior and invalidates the [D-9] tuning for a marginal expected gain at depth 2;
+deferred to the A/B above. (b) Documenting it as deliberate "continuation shaping"
+without the policy-consistency rationale or the frozen-posture caveat — that dresses
+up a structural side effect as intent; the comments now give both honestly.
 
 ---
 

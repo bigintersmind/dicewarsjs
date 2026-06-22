@@ -21,6 +21,47 @@ Entry template:
 
 ---
 
+## 2026-06-22 — PR #39 review follow-up: interior posture-bar documented ([D-10])
+
+**Phase:** 0 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Applied the low-risk findings from the multi-agent PR #39 review (script guards,
+  comment accuracy, a strict-boundary press test) — committed `3728997`.
+- Resolved the one deferred design finding: the posture `threshold` is threaded into
+  every recursive `search` node, so it gates interior-node valuation, not just the
+  root commit. Decided **(b) keep + document accurately** over (a) decouple+re-tune.
+  Rewrote the `postureThreshold` / `search` doc comments to frame it as
+  **policy-consistent valuation** (value interior nodes under the bot's own
+  threshold-gated policy) with the **frozen-root-posture caveat**; recorded the call
+  and a deferred decoupling A/B in [D-10]. Also fixed a lingering "U-shaped" →
+  "inverted-U (∩)" label in the [D-9] record.
+
+**Learned / decided:**
+
+- The interior gating is **defensible, not a bug**: at `searchDepth: 2` it is one
+  interior layer, and the frozen-root-posture approximation rarely changes a board's
+  posture bucket one ply out. It is genuinely closer to evaluating positions under
+  the behavior policy than under a neutral greedy max.
+- The cleaner separation (neutral interior bar + posture only at the root, as
+  `ai_lookahead` does) is the lever to revisit **only if `searchDepth` grows** — the
+  approximation worsens with depth. Deferred as a tracked A/B, not run now (marginal
+  expected effect at depth 2; out of scope for a review follow-up).
+
+**Dead ends / surprises:**
+
+- None — the finding turned out to be a documentation/intent-clarity issue, not a
+  behavioral defect.
+
+**Next:**
+
+- Unchanged from [D-9]: Track B (learned policy) or an eval rework to cross from
+  win% parity to a decisive edge over Lookahead. The [D-10] A/B is a small,
+  depth-gated side quest, not on the critical path.
+
+---
+
 ## 2026-06-22 — Press-mechanism (D-9): Expectimax reaches parity with Lookahead
 
 **Phase:** 0 · **Who:** Ivan + Claude

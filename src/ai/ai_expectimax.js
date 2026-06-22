@@ -23,16 +23,25 @@
  * Fully deterministic: no randomness; ties break toward the lowest area index
  * (sort by score, then `from`, then `to`).
  *
- * NOTE: the parameters below were tuned against `npm run arena:sweep` vs
- * ai_strategist in the ml-bot Phase 0 sweep (see docs/ml-bot/RESULTS.md). Tuning
- * `attackThreshold` (patience) and `threat` (exposure-aversion) lifted this bot
- * from the worst "smart" bot to Strategist-class: a significant ELO / head-to-head
- * placement edge, though the two are statistically tied on outright win% (the sign
- * flips with the seed sample — Strategist edges it in the fixed-seat sweep,
- * Expectimax in the seat-fair one).
- * Beating Strategist on win% (and chasing Lookahead) needs a *press-when-ahead*
- * mechanism — a posture-adaptive threshold — which a single fixed `attackThreshold`
- * cannot express; that is the next structural lever, not a weight to tune.
+ * Decision policy — the structural press-mechanism (ml-bot D-8). Phase-0 weight
+ * tuning lifted this bot to Strategist-class on ELO/placement but hit a ceiling
+ * on outright win%: a single *fixed* attack threshold cannot both stay patient in
+ * a crowd (avoid over-extension) and press to close out a won game. The fix,
+ * mirroring what makes `ai_lookahead` the field leader, is two structural terms:
+ *
+ *   1. A *posture-adaptive* attack threshold (`postureThreshold`) — a U-shaped bar
+ *      that PRESSES (accepts slightly-negative-EV captures) when dominant, claws
+ *      back at a low bar when weak in a crowd, and holds a steep patient BASE bar
+ *      in the common balanced case.
+ *   2. A strengthened *elimination term* (`activeRival`) — a per-rival penalty in
+ *      the board eval, so a capture that removes a rival scores higher on its win
+ *      branch; through the chance-node search that becomes an implicitly
+ *      win-probability-weighted bonus, pushing the bot to finish players off rather
+ *      than stall on a winning board.
+ *
+ * These parameters were tuned against `npm run arena:sweep` (see
+ * docs/ml-bot/RESULTS.md); the gate is `ai_lookahead` (D-7), with `ai_strategist`
+ * as a secondary reference.
  */
 
 import { MAX_DICE, WIN_TABLE } from './diceOdds.js';
@@ -52,17 +61,78 @@ export const DEFAULT_PARAMS = {
   // --- Search shape ---
   searchDepth: 2, // plies of attack lookahead within the turn
   topK: 6, // attacks recursed into per internal node (depth > 1); leaves score all
-  attackThreshold: 0.3, // best attack must beat stopping by at least this EV (Phase-0 tuned: 0.05 → 0.3 for patience)
+  /*
+   * --- Decision policy: posture-adaptive attack threshold (the D-8 press-mechanism) ---
+   * A single fixed bar can't both stay patient in a crowd and press to close out a
+   * won game (docs/ml-bot DECISIONS D-8), so the bar adapts to my board posture,
+   * forming a U: decisive at both extremes, patient in the middle.
+   */
+  attackThreshold: null, // fixed EV bar override; null ⇒ posture-adaptive (base/press/weak below)
+  baseThreshold: 1.2, // balanced game (the common case): steep bar — only clearly profitable captures (D-9 tuned)
+  pressThreshold: -2.5, // dominant / winning duel: spend the advantage hard to close the game out (D-9 tuned)
+  weakThreshold: 0.15, // losing badly in a crowd: still take near-even fights to claw back
+  pressDiceShare: 0.38, // dice share at/above which I'm dominant enough to press
+  weakDiceShare: 0.15, // dice share below which (in a crowd) I'm weak enough to claw back
   // --- Evaluation weights ---
   income: 1.1, // value of +1 reinforcement/turn = +1 to largest group
   territory: 1.0, // value of holding one more territory
   dice: 0.5, // value per die I own; also the cost of dice burned on a loss
   threat: 2.0, // cost of border cells an enemy can plausibly take (Phase-0 tuned: 0.45 → 2.0 vs over-extension)
   rivalIncome: 0.5, // value of suppressing the strongest rival's income
-  activeRival: 0.4, // value of every rival eliminated from the board
+  activeRival: 2.0, // elimination term: per-rival board-eval penalty → an eliminating capture's win branch scores higher (implicitly winChance-weighted via the search)
+  /*
+   * --- Risk floor (mirrors ai_lookahead's LOW_ODDS_PENALTY) ---
+   * Pure expectimax under-penalizes variance in a 7-way elimination game: an
+   * EV-neutral coin-flip is actually bad, because losing the dice/position exposes
+   * me to the *other* five rivals, not just the one I attacked. This adds an
+   * explicit penalty on committing to a low-odds attack, on top of the EV math, so
+   * the bot only gambles when the upside clearly justifies it. `lowOddsPenalty: 0`
+   * disables it (pure expectimax).
+   */
+  lowOddsFloor: 0.78, // win-prob below which an attack is penalized (D-9 tuned)
+  lowOddsPenalty: 5.0, // penalty per unit of win-prob below the floor (D-9 tuned)
 };
 
 const clampDie = n => (n > MAX_DICE ? MAX_DICE : n);
+
+/**
+ * Posture-adaptive attack threshold — the EV a candidate attack must beat the
+ * stop value by before the bot commits. This is the D-8 press-mechanism a single
+ * fixed threshold cannot express.
+ *
+ * The bar forms a U over my strength: when I'm dominant (high dice share, or
+ * ahead in a heads-up duel) I PRESS — accepting even slightly-negative-EV
+ * captures to close the game out; when I'm weak in a crowd I claw back at a low
+ * bar; in the common balanced case I hold the steep BASE bar and only spend dice
+ * on clearly profitable captures. Mirrors ai_lookahead's posture logic — the
+ * mechanism that makes it the field leader.
+ *
+ * Computed once from the real root board (posture is a turn-level property) and
+ * applied at every search node, so the bot's stance doesn't flip mid-turn.
+ */
+function postureThreshold(diceByPlayer, areasByPlayer, me, pmax, P) {
+  let totalDice = 0;
+  let activeRivals = 0;
+  let bestRivalDice = 0;
+  for (let pl = 0; pl < pmax; pl++) {
+    totalDice += diceByPlayer[pl];
+    if (pl === me) continue;
+    if (areasByPlayer[pl] > 0) activeRivals += 1;
+    if (diceByPlayer[pl] > bestRivalDice) bestRivalDice = diceByPlayer[pl];
+  }
+  const myShare = totalDice > 0 ? diceByPlayer[me] / totalDice : 0;
+
+  // Dominant, or ahead in a heads-up endgame → press to finish.
+  if (myShare > P.pressDiceShare || (activeRivals === 1 && diceByPlayer[me] > bestRivalDice)) {
+    return P.pressThreshold;
+  }
+  // Weak in a crowd → low bar to claw back.
+  if (myShare < P.weakDiceShare && activeRivals > 1) {
+    return P.weakThreshold;
+  }
+  // Balanced → patient.
+  return P.baseThreshold;
+}
 
 /**
  * Positional value of a board for `me`, in dice-equivalent units.
@@ -193,34 +263,70 @@ function enumerateAttacks(owner, dice, alive, adj, areaMax, me) {
  * nodes (depth > 1) recurse into only the top-K attacks (P.topK) ranked by their one-ply
  * EV, bounding the branching of the otherwise quadratic-per-ply search; leaf
  * nodes (depth === 1) score every attack by that one-ply EV without recursing.
+ *
+ * `threshold` is the EV the best attack must beat stopping by before it is
+ * committed (otherwise the node stops). The caller passes the posture-adaptive
+ * bar (`postureThreshold`), or a fixed override — see `makeExpectimax`. Each
+ * move's value is also docked a risk-floor penalty for low win-probability (see
+ * DEFAULT_PARAMS.lowOdds*), so the bot avoids variance-heavy gambles in a crowd.
  */
-function search(owner, dice, alive, adj, areaMax, me, pmax, depth, P) {
+function search(owner, dice, alive, adj, areaMax, me, pmax, depth, P, threshold) {
   const stopValue = evaluateBoard(owner, dice, alive, adj, areaMax, me, pmax, P);
   if (depth <= 0) return { value: stopValue, from: -1, to: -1 };
 
   const moves = enumerateAttacks(owner, dice, alive, adj, areaMax, me);
   if (moves.length === 0) return { value: stopValue, from: -1, to: -1 };
 
-  // One-ply EV of each attack: weight the two outcome positions by the odds.
+  /*
+   * One-ply EV of each attack: weight the two outcome positions by the odds, less
+   * an explicit risk floor that penalizes committing to a low-odds attack (the
+   * win-prob is the first move's odds at this node — see DEFAULT_PARAMS.lowOdds*).
+   */
   for (const m of moves) {
     const vWin = evaluateBoard(m.winOwner, m.winDice, alive, adj, areaMax, me, pmax, P);
     const vLoss = evaluateBoard(owner, m.lossDice, alive, adj, areaMax, me, pmax, P);
     m.immediate = m.p * vWin + (1 - m.p) * vLoss;
+    m.lowOdds = P.lowOddsPenalty > 0 ? Math.max(0, P.lowOddsFloor - m.p) * P.lowOddsPenalty : 0;
   }
 
   let candidates;
   if (depth === 1) {
-    // Leaf decision: the one-ply EV is the value.
-    for (const m of moves) m.value = m.immediate;
+    // Leaf decision: the one-ply EV (net of the risk floor) is the value.
+    for (const m of moves) m.value = m.immediate - m.lowOdds;
     candidates = moves;
   } else {
-    // Expand only the most promising attacks one ply deeper.
-    moves.sort((x, y) => y.immediate - x.immediate || x.from - y.from || x.to - y.to);
+    // Expand only the most promising attacks one ply deeper (by risk-adjusted EV).
+    moves.sort(
+      (x, y) =>
+        y.immediate - y.lowOdds - (x.immediate - x.lowOdds) || x.from - y.from || x.to - y.to
+    );
     candidates = moves.slice(0, P.topK);
     for (const m of candidates) {
-      const win = search(m.winOwner, m.winDice, alive, adj, areaMax, me, pmax, depth - 1, P);
-      const loss = search(owner, m.lossDice, alive, adj, areaMax, me, pmax, depth - 1, P);
-      m.value = m.p * win.value + (1 - m.p) * loss.value;
+      const win = search(
+        m.winOwner,
+        m.winDice,
+        alive,
+        adj,
+        areaMax,
+        me,
+        pmax,
+        depth - 1,
+        P,
+        threshold
+      );
+      const loss = search(
+        owner,
+        m.lossDice,
+        alive,
+        adj,
+        areaMax,
+        me,
+        pmax,
+        depth - 1,
+        P,
+        threshold
+      );
+      m.value = m.p * win.value + (1 - m.p) * loss.value - m.lowOdds;
     }
   }
 
@@ -228,7 +334,7 @@ function search(owner, dice, alive, adj, areaMax, me, pmax, depth, P) {
   candidates.sort((x, y) => y.value - x.value || x.from - y.from || x.to - y.to);
   const best = candidates[0];
 
-  if (best.value > stopValue + P.attackThreshold) {
+  if (best.value > stopValue + threshold) {
     return { value: best.value, from: best.from, to: best.to };
   }
   return { value: stopValue, from: -1, to: -1 };
@@ -260,6 +366,12 @@ export function makeExpectimax(params = {}) {
         `makeExpectimax: unknown param "${key}" (expected one of: ${Object.keys(DEFAULT_PARAMS).join(', ')})`
       );
     }
+    /*
+     * `attackThreshold` may be null — the sentinel that selects the posture-adaptive
+     * bar (base/press/weak). Every other param, and a non-null attackThreshold, must
+     * be a finite number.
+     */
+    if (key === 'attackThreshold' && params[key] === null) continue;
     if (!Number.isFinite(params[key])) {
       throw new Error(
         `makeExpectimax: param "${key}" must be a finite number (got ${params[key]})`
@@ -276,11 +388,15 @@ export function makeExpectimax(params = {}) {
     /*
      * Build a compact, search-friendly snapshot once: ownership, dice, liveness,
      * and adjacency restricted to live territories (all static under capture).
+     * The per-player dice/area census is gathered in the same pass to choose the
+     * posture-adaptive attack threshold (see postureThreshold).
      */
     const alive = new Array(AREA_MAX).fill(false);
     const owner = new Array(AREA_MAX).fill(-1);
     const dice = new Array(AREA_MAX).fill(0);
     const adj = new Array(AREA_MAX);
+    const diceByPlayer = new Array(pmax).fill(0);
+    const areasByPlayer = new Array(pmax).fill(0);
     let myTerritories = 0;
 
     for (let i = 1; i < AREA_MAX; i++) {
@@ -292,6 +408,8 @@ export function makeExpectimax(params = {}) {
       alive[i] = true;
       owner[i] = area.arm;
       dice[i] = area.dice;
+      diceByPlayer[area.arm] += area.dice;
+      areasByPlayer[area.arm] += 1;
       if (area.arm === me) myTerritories += 1;
       const list = [];
       const { join } = area;
@@ -303,7 +421,13 @@ export function makeExpectimax(params = {}) {
 
     if (myTerritories === 0) return 0;
 
-    const best = search(owner, dice, alive, adj, AREA_MAX, me, pmax, P.searchDepth, P);
+    // Posture-adaptive bar (D-8 press-mechanism), unless a fixed override is set.
+    const threshold =
+      P.attackThreshold != null
+        ? P.attackThreshold
+        : postureThreshold(diceByPlayer, areasByPlayer, me, pmax, P);
+
+    const best = search(owner, dice, alive, adj, AREA_MAX, me, pmax, P.searchDepth, P, threshold);
     if (best.from === -1) return 0;
 
     game.area_from = best.from;

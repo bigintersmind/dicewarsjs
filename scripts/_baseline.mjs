@@ -17,17 +17,37 @@
 import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
 import { updateEloRatings, DEFAULT_RATING } from '../src/arena/elo.js';
+import { makeExpectimax } from '../src/ai/ai_expectimax.js';
+import { adaptLegacyBot } from '../src/arena/legacyBotAdapter.js';
 
-const field = BUILT_IN_BOTS.map(b => ({ name: b.name, fn: b.fn }));
-const N = field.length; // 7
 const EX = 'Expectimax';
-const ST = 'Strategist';
 
 // --- args ---
 const arg = (k, d) => {
   const i = process.argv.indexOf(`--${k}`);
   return i >= 0 ? process.argv[i + 1] : d;
 };
+/*
+ * Optional candidate override: `--cand '{"baseThreshold":1.2,...}'` swaps the
+ * Expectimax slot for makeExpectimax(cfg), so a tuned config can be gated without
+ * first landing it in DEFAULT_PARAMS. Omitted ⇒ the shipped ai_expectimax.
+ */
+const candArg = arg('cand', '');
+const field = BUILT_IN_BOTS.map(b =>
+  candArg && b.name === EX
+    ? { name: EX, fn: adaptLegacyBot(makeExpectimax(JSON.parse(candArg)), EX) }
+    : { name: b.name, fn: b.fn }
+);
+const N = field.length; // 7
+/*
+ * Reference bot for the paired + 2-player head-to-head tests. Defaults to
+ * Lookahead — the gate's opponent of record since D-7 (it is the field-strongest
+ * bot). Pass `--vs Strategist` to compare against the secondary reference instead.
+ */
+const ST = arg('vs', 'Lookahead');
+if (!field.some(b => b.name === ST)) {
+  throw new Error(`--vs must name a built-in bot (got "${ST}")`);
+}
 /*
  * Crash loudly on a bad count instead of silently skipping the loop. A
  * non-numeric flag (e.g. `--runs abc`) makes parseInt return NaN, `n < NaN` is
@@ -45,6 +65,12 @@ const intArg = (k, d) => {
 const RUNS = intArg('runs', '20'); // blocks for CI
 const SEEDS_PER_RUN = intArg('seeds', '40'); // distinct map seeds per block
 const STRIDE = 1_000_000;
+/*
+ * Offset the seed range by `--seedbase B` (default 0): block r uses seeds
+ * (B + r) * STRIDE + 1 .. + SEEDS_PER_RUN. A large offset (e.g. 100) yields maps
+ * disjoint from the default range, for independent confirmation of a candidate.
+ */
+const SEEDBASE = intArg('seedbase', '1') - 1; // intArg requires ≥1; shift so default 1 ⇒ offset 0
 
 // --- stats helpers ---
 const T95 = {
@@ -123,7 +149,7 @@ for (let run = 0; run < RUNS; run++) {
   const wins = Object.fromEntries(field.map(b => [b.name, 0]));
   let games = 0;
   for (let s = 0; s < SEEDS_PER_RUN; s++) {
-    const seed = run * STRIDE + s + 1;
+    const seed = (SEEDBASE + run) * STRIDE + s + 1;
     for (let r = 0; r < N; r++) {
       const bots = rotatedField(field, r);
       const res = runMatch({ bots, seed });
@@ -171,30 +197,30 @@ const nPair = exBetter + stBetter;
 const phat = exBetter / nPair;
 const z = (exBetter - nPair / 2) / Math.sqrt(nPair / 4);
 const pTwoSided = 2 * (1 - normCdf(Math.abs(z)));
-console.log('Paired per-game head-to-head (Expectimax vs Strategist placement, seat-fair):');
+console.log(`Paired per-game head-to-head (Expectimax vs ${ST} placement, seat-fair):`);
 console.log(
-  `  Expectimax placed higher in ${exBetter} games, Strategist higher in ${stBetter}, ties ${h2hTie}`
+  `  Expectimax placed higher in ${exBetter} games, ${ST} higher in ${stBetter}, ties ${h2hTie}`
 );
 console.log(
   `  head-to-head win rate (ex / non-ties) = ${(phat * 100).toFixed(1)}%   z = ${z.toFixed(2)}   p(two-sided) = ${pTwoSided.toExponential(2)}`
 );
 console.log(
-  `  outright game wins: Expectimax ${exWinsGame}, Strategist ${stWinsGame} (of ${totalGames})\n`
+  `  outright game wins: Expectimax ${exWinsGame}, ${ST} ${stWinsGame} (of ${totalGames})\n`
 );
 
-// ----- (3) 2-player deterministic head-to-head, seat-counterbalanced -----
+/*
+ * ----- (3) 2-player deterministic head-to-head, seat-counterbalanced -----
+ * Use the same field entries as above, so the EX slot honors any --cand override.
+ */
 const H2H_GAMES = intArg('h2h', '2000');
-const pair = [
-  { name: EX, fn: BUILT_IN_BOTS.find(b => b.name === EX).fn },
-  { name: ST, fn: BUILT_IN_BOTS.find(b => b.name === ST).fn },
-];
+const pair = [field.find(b => b.name === EX), field.find(b => b.name === ST)];
 let exW = 0,
   stW = 0,
   draws = 0;
 const t1 = Date.now();
 for (let g = 0; g < H2H_GAMES; g++) {
   // counterbalance seats: even g -> [EX,ST], odd g -> [ST,EX]; same seed pairs both orders
-  const seed = Math.floor(g / 2) + 1;
+  const seed = SEEDBASE * STRIDE + Math.floor(g / 2) + 1;
   const bots = g % 2 === 0 ? pair : [pair[1], pair[0]];
   const res = runMatch({ bots, seed });
   if (res.winnerName === EX) exW++;
@@ -206,10 +232,10 @@ const decided = exW + stW;
 const z2 = (exW - decided / 2) / Math.sqrt(decided / 4);
 const p2 = 2 * (1 - normCdf(Math.abs(z2)));
 console.log(
-  `2-player deterministic head-to-head: ${H2H_GAMES} games (seat-counterbalanced), ${h2hSecs.toFixed(0)}s`
+  `2-player deterministic head-to-head vs ${ST}: ${H2H_GAMES} games (seat-counterbalanced), ${h2hSecs.toFixed(0)}s`
 );
 console.log(
-  `  Expectimax ${exW} wins (${((exW / H2H_GAMES) * 100).toFixed(1)}%), Strategist ${stW} (${((stW / H2H_GAMES) * 100).toFixed(1)}%), draws ${draws}`
+  `  Expectimax ${exW} wins (${((exW / H2H_GAMES) * 100).toFixed(1)}%), ${ST} ${stW} (${((stW / H2H_GAMES) * 100).toFixed(1)}%), draws ${draws}`
 );
 console.log(
   `  win rate among decided = ${((exW / decided) * 100).toFixed(1)}%   z = ${z2.toFixed(2)}   p(two-sided) = ${p2.toExponential(2)}`

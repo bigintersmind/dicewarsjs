@@ -327,45 +327,212 @@ describe('Expectimax AI', () => {
     expect(() => makeExpectimax({ threat: NaN })).toThrow(/finite number/);
   });
 
-  test('the tuned default declines a marginal capture a lower threshold would take (patience)', () => {
-    /*
-     * Guards the Phase-0 patience tuning (attackThreshold 0.3 + threat 2.0), which
-     * is otherwise asserted nowhere — a regression reverting either weight would
-     * keep the rest of the suite green. On the vulnerability board both 2v1
-     * captures expose a fresh 1-die cell to a counter, so the shipped default
-     * correctly declines BOTH; only a lower `attackThreshold` takes one. (The
-     * threshold is the lever that flips decline->capture here; `threat: 2.0` keeps
-     * the captures marginal enough for the threshold to bite.)
-     */
-    territory(1, 1, 2); // my only attacker
-    territory(2, 2, 1); // capture backs onto a strong enemy (area 4) — exposed
-    territory(3, 2, 1); // capture backs onto a weak enemy (area 5) — safer
-    territory(4, 3, 8); // strong threat behind area 2
-    territory(5, 3, 2); // weak threat behind area 3
-    link(1, 2);
+  /*
+   * Posture-adaptive threshold — the D-8 press-mechanism. Each test below pins a
+   * board into one of the three postures (by dice share / rival count) and proves
+   * the corresponding threshold is the lever that flips decline->attack, while the
+   * other two thresholds are set to extremes so a *mis-selected* posture would give
+   * the wrong answer. Pinned to explicit params (not the shipped defaults), so the
+   * mechanism stays under test independently of how the production weights are tuned.
+   */
+
+  /** Balanced board: my dice share ≈ 0.29, two rivals → BASE posture. */
+  const balancedBoard = () => {
+    territory(1, 1, 4); // my attacker
+    territory(2, 1, 2); // my other cell
+    territory(3, 2, 1); // a near-certain 4v1 capture (modest, ~+1 EV gain)
+    territory(4, 2, 4);
+    territory(5, 2, 3);
+    territory(6, 3, 4);
+    territory(7, 3, 3);
     link(1, 3);
-    link(2, 4);
-    link(3, 5);
+    link(3, 4); // captured cell backs onto a live enemy → modest, not free
+    link(4, 5);
+    link(2, 6);
+    link(6, 7);
+  };
 
-    // Shipped default: stays put rather than over-extending.
-    expect(ai_expectimax(mockGame)).toBe(0);
-    expect(mockGame.area_from).toBe(0);
+  /*
+   * Dominant board: my dice share ≈ 0.70 → PRESS posture. Two rivals on purpose,
+   * so the heads-up-duel press shortcut (activeRivals === 1) does NOT fire and the
+   * press posture is selected by dice share alone — which the pressDiceShare-gating
+   * test below relies on to isolate the share cutoff.
+   */
+  const dominantBoard = () => {
+    territory(1, 1, 3); // my attacker (a 3v3 coin-flip, marginal EV)
+    territory(2, 1, 8);
+    territory(3, 1, 8); // lots of my dice → dominant
+    territory(4, 2, 3);
+    territory(5, 2, 2);
+    territory(6, 3, 2);
+    territory(7, 3, 1);
+    link(1, 4);
+    link(4, 5);
+    link(5, 6);
+    link(6, 7);
+  };
 
-    // A lower threshold takes the safer of the two captures (area 3).
+  /** Weak board: my dice share ≈ 0.10, two strong rivals → WEAK posture. */
+  const weakBoard = () => {
+    territory(1, 1, 4); // my attacker
+    territory(2, 1, 1);
+    territory(3, 2, 1); // a near-certain 4v1 capture (~+0.6 EV gain)
+    territory(4, 2, 8);
+    territory(5, 2, 6);
+    territory(6, 2, 8);
+    territory(7, 3, 8);
+    territory(8, 3, 6);
+    territory(9, 3, 8);
+    link(1, 3);
+    link(3, 4);
+    link(4, 5);
+    link(5, 6);
+    link(7, 8);
+    link(8, 9);
+    link(2, 7);
+  };
+
+  test('BASE posture: a balanced game uses baseThreshold (patience)', () => {
+    // press/weak pinned low: a mis-selected posture would attack in BOTH cases.
+    balancedBoard();
+    expect(
+      makeExpectimax({ baseThreshold: 0.5, pressThreshold: -50, weakThreshold: -50 })(mockGame)
+    ).not.toBe(0);
+    expect(mockGame.area_to).toBe(3);
+
     mockGame.area_from = 0;
     mockGame.area_to = 0;
-    makeExpectimax({ attackThreshold: 0.05 })(mockGame);
+    balancedBoard();
+    expect(
+      makeExpectimax({ baseThreshold: 2.0, pressThreshold: -50, weakThreshold: -50 })(mockGame)
+    ).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+  });
+
+  test('PRESS posture: a dominant board uses pressThreshold (close out a won game)', () => {
+    /*
+     * base/weak pinned high: a mis-selected posture would decline in BOTH cases.
+     * The capture is a 3v3 coin flip, so the risk floor is disabled (lowOddsPenalty: 0)
+     * to isolate the posture threshold from it.
+     */
+    dominantBoard();
+    expect(
+      makeExpectimax({
+        pressThreshold: -2,
+        baseThreshold: 50,
+        weakThreshold: 50,
+        lowOddsPenalty: 0,
+      })(mockGame)
+    ).not.toBe(0);
+    expect(mockGame.area_from).toBe(1);
+    expect(mockGame.area_to).toBe(4);
+
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    dominantBoard();
+    expect(
+      makeExpectimax({
+        pressThreshold: 2,
+        baseThreshold: 50,
+        weakThreshold: 50,
+        lowOddsPenalty: 0,
+      })(mockGame)
+    ).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+  });
+
+  test('WEAK posture: losing badly in a crowd uses weakThreshold (claw back)', () => {
+    // press/base pinned high: a mis-selected posture would decline in BOTH cases.
+    weakBoard();
+    expect(
+      makeExpectimax({ weakThreshold: 0.3, pressThreshold: 50, baseThreshold: 50 })(mockGame)
+    ).not.toBe(0);
     expect(mockGame.area_to).toBe(3);
+
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    weakBoard();
+    expect(
+      makeExpectimax({ weakThreshold: 1.2, pressThreshold: 50, baseThreshold: 50 })(mockGame)
+    ).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+  });
+
+  test('pressDiceShare gates the press posture (board dice-share selects the bar)', () => {
+    /*
+     * Same dominant board and same low pressThreshold both times; only the share
+     * cutoff moves. At the default cutoff (0.38) my 0.79 share qualifies → PRESS →
+     * the marginal capture clears the negative bar. Raise the cutoff above my share
+     * (0.99) and I no longer qualify → BASE → the high baseThreshold declines it.
+     * Isolates the posture *selector*, not the threshold values.
+     */
+    dominantBoard();
+    expect(
+      makeExpectimax({
+        pressThreshold: -2,
+        baseThreshold: 50,
+        weakThreshold: 50,
+        lowOddsPenalty: 0,
+      })(mockGame)
+    ).not.toBe(0);
+    expect(mockGame.area_to).toBe(4);
+
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    dominantBoard();
+    expect(
+      makeExpectimax({
+        pressThreshold: -2,
+        baseThreshold: 50,
+        weakThreshold: 50,
+        pressDiceShare: 0.99,
+        lowOddsPenalty: 0,
+      })(mockGame)
+    ).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+  });
+
+  test('attackThreshold override disables posture adaptation (fixed bar)', () => {
+    /*
+     * Setting an explicit attackThreshold pins a single fixed bar regardless of
+     * posture — the back-compat path the mechanic tests above (and the tuning
+     * sweeps) rely on. On the dominant board a high fixed bar declines the same
+     * marginal capture that the posture-adaptive default (PRESS) would take.
+     */
+    dominantBoard();
+    expect(makeExpectimax({ attackThreshold: 50 })(mockGame)).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    dominantBoard();
+    expect(makeExpectimax({ attackThreshold: -50 })(mockGame)).not.toBe(0);
+    expect(mockGame.area_to).toBe(4);
+  });
+
+  test('attackThreshold: null is accepted (selects posture-adaptive mode)', () => {
+    // null is the sentinel for posture mode; it must not trip the finite-number guard.
+    expect(() => makeExpectimax({ attackThreshold: null })).not.toThrow();
+    /*
+     * A dominant, near-certain 4v1 capture: posture mode (PRESS) takes it regardless
+     * of the production threshold/risk tuning, so this stays a robust accept-the-sentinel check.
+     */
+    territory(1, 1, 4);
+    territory(2, 2, 1);
+    territory(3, 2, 1);
+    link(1, 2);
+    makeExpectimax({ attackThreshold: null })(mockGame);
+    expect(mockGame.area_from).toBe(1);
+    expect(mockGame.area_to).toBe(2);
   });
 
   test('searchDepth is threaded through the factory (depth 2 plans the combo, depth 1 plays greedy)', () => {
     /*
-     * Same board as the depth-2 combo test. Holding the eval weights and a low
-     * `attackThreshold` fixed (so neither config declines), the ONLY varied input
-     * is `searchDepth` — proving the search-shape param flows through the factory,
-     * not just the eval weights. Depth 2 sees the 1->3 combo; depth 1 is greedy
-     * (2->4). Converts the manual verification note on the combo test into an
-     * executable assertion.
+     * Same board as the depth-2 combo test. Holding the eval weights, a low fixed
+     * `attackThreshold` (so neither config declines), and the risk floor off
+     * (`lowOddsPenalty: 0`, so it can't reshape the combo's odds math), the ONLY
+     * varied input is `searchDepth` — proving the search-shape param flows through
+     * the factory. Depth 2 sees the 1->3 combo; depth 1 is greedy (2->4).
      */
     territory(1, 1, 3);
     territory(2, 1, 2);
@@ -377,15 +544,38 @@ describe('Expectimax AI', () => {
     link(3, 5);
     link(1, 2);
 
-    makeExpectimax({ searchDepth: 2, attackThreshold: 0.05 })(mockGame);
+    makeExpectimax({ searchDepth: 2, attackThreshold: 0.05, lowOddsPenalty: 0 })(mockGame);
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(3);
 
     mockGame.area_from = 0;
     mockGame.area_to = 0;
-    makeExpectimax({ searchDepth: 1, attackThreshold: 0.05 })(mockGame);
+    makeExpectimax({ searchDepth: 1, attackThreshold: 0.05, lowOddsPenalty: 0 })(mockGame);
     expect(mockGame.area_from).toBe(2);
     expect(mockGame.area_to).toBe(4);
+  });
+
+  test('lowOddsPenalty makes the bot decline a coin-flip it would otherwise gamble on (risk floor)', () => {
+    /*
+     * The risk floor (mirrors ai_lookahead's LOW_ODDS_PENALTY): pure EV would take
+     * an even-money capture in a winning position, but the explicit floor docks
+     * low-win-probability attacks so the bot avoids variance in a crowd. The
+     * dominant board's only capture is a 3v3 coin flip (p ≈ 0.47, below the 0.78
+     * floor). With the floor off the press posture gambles; with a steep floor the
+     * same move is declined. pressThreshold is held fixed so the floor is the only
+     * lever that flips the decision.
+     */
+    dominantBoard();
+    expect(makeExpectimax({ lowOddsPenalty: 0, pressThreshold: -1 })(mockGame)).not.toBe(0);
+    expect(mockGame.area_to).toBe(4);
+
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    dominantBoard();
+    expect(
+      makeExpectimax({ lowOddsFloor: 0.78, lowOddsPenalty: 20, pressThreshold: -1 })(mockGame)
+    ).toBe(0);
+    expect(mockGame.area_from).toBe(0);
   });
 
   test('is deterministic for identical states', () => {

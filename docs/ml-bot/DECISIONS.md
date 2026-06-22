@@ -195,6 +195,70 @@ isn't lost.
 
 ---
 
+## D-9 — Press-mechanism built into `ai_expectimax`: reaches parity with Lookahead (significant placement edge, win% tie) — gate still open · Accepted (2026-06-22) · follows [D-8](#d-8--phase-0-weight-tuning-hit-a-structural-ceiling-a-fixed-threshold-cant-both-press-and-stay-patient)
+
+**Context.** [D-8] named the structural fix for Expectimax's win% ceiling — a
+**posture-adaptive threshold + elimination term** (the `ai_lookahead` mechanism) —
+and deferred it as "the natural next iteration." This is that iteration.
+
+**Decision.** Build the press-mechanism into `ai_expectimax` and land the tuned
+config as the new shipped default:
+
+- **Posture-adaptive attack threshold** (`postureThreshold`): a U-shaped bar —
+  PRESS (`pressThreshold`, negative) when dominant (dice share > `pressDiceShare`,
+  or ahead in a heads-up duel); WEAK (`weakThreshold`, low) when weak in a crowd;
+  steep BASE (`baseThreshold`) otherwise. Replaces the single fixed `attackThreshold`
+  (kept as a nullable fixed-bar override for tests/tuning).
+- **Strengthened elimination term** (`activeRival`): already flows through the
+  chance-node search as a win-prob-weighted elimination bonus; tuned, not the order-
+  of-magnitude-too-weak 0.4 it was.
+- **Low-odds risk floor** (`lowOddsFloor`/`lowOddsPenalty`): a third ingredient,
+  beyond the two D-8 named — mirrors Lookahead's `LOW_ODDS_PENALTY`. Pure expectimax
+  under-penalizes coin-flips in a 7-way elimination game (an EV-neutral gamble exposes
+  you to the _other_ five rivals); this docks low-win-prob attacks. It was needed to
+  close most of the residual gap the posture+elimination terms left.
+
+**Landed config:** `{ baseThreshold: 1.2, pressThreshold: -2.5, weakThreshold: 0.15,
+pressDiceShare: 0.38, weakDiceShare: 0.15, activeRival: 2.0, lowOddsFloor: 0.78,
+lowOddsPenalty: 5.0, searchDepth: 2, topK: 6 }`.
+
+**Result (3 disjoint-seed × 5600-game seat-fair runs = 16,800 games; see RESULTS).**
+
+- **Win% vs Lookahead: a statistical TIE** — Expectimax 22–23% vs Lookahead
+  22.5–23.9% (overlapping CIs across all 3 runs; Lookahead a hair ahead on raw
+  outright wins, −0.84% pooled).
+- **Placement: Expectimax SIGNIFICANTLY out-places Lookahead** — pooled paired
+  51.2%, z = 3.09, **p ≈ 0.002**. It is the more _consistent_ bot.
+- **ELO: co-leader** (Expectimax ahead in 2 of 3 runs).
+- **1v1 duel: a TIE** (49.5%) — the pre-press shipped default _lost_ the duel
+  (45.3%, p = 0.007), so the press-mechanism also fixed the head-to-head deficit.
+- Beats `ai_strategist` decisively (22% vs 13–14%).
+
+Net: Expectimax went from rank 6/7 (lost everything, trailed Lookahead by ~10 win%
+points) to the **joint-strongest bot in the field**.
+
+**Gate status: the headline gate (a statistically significant WIN% edge over
+Lookahead) is NOT met — it is a tie.** Phase 0's headline gate stays **open** on
+the win% metric. The bot ships as the new default regardless, because it is a
+strict, large improvement over the previous shipped Expectimax (which lost to
+Lookahead).
+
+**Key finding for the roadmap.** The same "places better, win% tie" ceiling that
+capped Expectimax-vs-Strategist ([D-8]) now caps Expectimax-vs-Lookahead one tier
+up. Threshold / elimination / risk-floor / depth tuning converges to **parity**,
+not a decisive win — consistent with the prior-art difficulty thesis. Crossing to a
+decisive win% edge over Lookahead likely needs a better board **evaluation** or
+deeper **search**, not more posture tuning — i.e. **Track B's learned policy** (or
+a separate eval rework), which is the open frontier ([D-7]/[D-8]).
+
+**Rejected.** (a) Pushing posture/press params harder — four multi-seed sweeps
+converged to the same ~tie ceiling; press beyond −2.5 trades ELO for no win% gain.
+(b) Not landing it — config B is strictly stronger than the previous shipped
+Expectimax. (c) Claiming the gate met — the win% edge is a tie, not significant;
+overclaiming would understate the remaining difficulty.
+
+---
+
 ## D-Encoding — MDP / state / action / reward shape · Proposed (2026-06-21)
 
 **Proposed (finalize in Phase 2).**

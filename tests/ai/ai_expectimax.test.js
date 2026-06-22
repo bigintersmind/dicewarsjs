@@ -5,7 +5,7 @@
  * `game` with an `adat` territory table, `get_pn()`, and `area_from/area_to`
  * set in place by the bot.
  */
-import { ai_expectimax } from '../../src/ai/ai_expectimax.js';
+import { ai_expectimax, makeExpectimax } from '../../src/ai/ai_expectimax.js';
 
 describe('Expectimax AI', () => {
   let mockGame;
@@ -200,6 +200,14 @@ describe('Expectimax AI', () => {
      * confounds the comparison. The safe choice (area 3) is the HIGHER index, so a
      * reversed index — WIN_TABLE[8][1]=1 becomes WIN_TABLE[1][8]=0 — would zero
      * both exposures and the tie-break would (wrongly) pick area 2, failing this.
+     *
+     * Built with an explicit low `attackThreshold` (not the shipped default): with
+     * the Phase-0-tuned `threat: 2.0`, both single-cell 2v1 captures here are
+     * deliberately marginal (each exposes a fresh 1-die cell to a counter), so the
+     * shipped bot would correctly *decline both* — which can't isolate the
+     * vulnerability term. Lowering only the threshold forces the choice while
+     * keeping the shipped `threat` weight under test, so this guards the
+     * vulnerability mechanic independently of how patient the production tuning is.
      */
     territory(1, 1, 2); // my only attacker
     territory(2, 2, 1); // capture backs onto a strong enemy (area 4) — exposed
@@ -211,7 +219,7 @@ describe('Expectimax AI', () => {
     link(2, 4);
     link(3, 5);
 
-    ai_expectimax(mockGame);
+    makeExpectimax({ attackThreshold: 0.05 })(mockGame);
 
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(3);

@@ -1,6 +1,6 @@
 # ML / Self-Play Bot Initiative
 
-> **Status:** Active — Phase 0 not started
+> **Status:** Active — gate re-baselined to `ai_lookahead` (D-7). Tuned Expectimax shipped (rank 1–2 by ELO) but does **not** beat the new bar (trails Lookahead on win%), so the Phase 0 headline gate is **open**. Next: structural press-mechanism (D-8) or Track B.
 > **Last updated:** 2026-06-21
 > **Owners:** Ivan (+ Claude)
 
@@ -17,8 +17,9 @@ Produce a DiceWars bot that:
 
 1. Runs **in-browser as just another bot** — same contract as every other bot:
    `(BotState) → { from, to } | null`.
-2. Is **measurably stronger than `ai_strategist`** (the current strongest bot),
-   judged by the evaluation gate below.
+2. Is **measurably stronger than `ai_lookahead`** (the current strongest bot —
+   re-baselined from `ai_strategist` per [D-7](./DECISIONS.md); Strategist had been
+   assumed strongest but Lookahead beats it decisively), judged by the gate below.
 
 ## Verdict (from the 2026-06-21 feasibility analysis)
 
@@ -28,7 +29,9 @@ mask (`getValidMoves`) and an exact dice-odds table (`WIN_TABLE`). The plumbing 
 mostly already in place.
 
 The **hard, uncertain** part is not the plumbing — it's that from-scratch
-self-play RL has a real chance of **never beating `ai_strategist`**. The most
+self-play RL has a real chance of **never beating the strong heuristic bar** (the
+2026-06-21 analysis said `ai_strategist`; it is now `ai_lookahead`, which is even
+stronger — see [D-7](./DECISIONS.md)). The most
 relevant prior art (a KTH Risk AlphaZero/ExIt thesis; Moy & Shekh's hex-grid
 wargaming) shows naive self-play nets _losing_ to good heuristics until they're
 bootstrapped with heuristic/supervised data. `ai_strategist` is a strong,
@@ -40,11 +43,13 @@ empirical bar.
 
 ## The bar — evaluation gate (used at EVERY phase)
 
-A candidate is only "better" if it beats `ai_strategist` on
-**`npm run arena:sweep`** (multi-seed, mean win%/ELO with 95% confidence
-intervals), controlling for seat/turn-order so we measure skill not first-mover
-luck. The edge must be **statistically significant**, not a single-seed fluke.
-Every run gets a row in [`RESULTS.md`](./RESULTS.md).
+A candidate is only "better" if it beats **`ai_lookahead`** — the current
+field-strongest bot, pinned at `596f781` (re-baselined from `ai_strategist` per
+[D-7](./DECISIONS.md)) — on **`npm run arena:sweep`** (multi-seed, mean win%/ELO
+with 95% confidence intervals), controlling for seat/turn-order so we measure skill
+not first-mover luck. The edge must be **statistically significant**, not a
+single-seed fluke. `ai_strategist` is kept as a secondary reference. Every run gets
+a row in [`RESULTS.md`](./RESULTS.md).
 
 ---
 
@@ -63,13 +68,13 @@ Every run gets a row in [`RESULTS.md`](./RESULTS.md).
 
 ## Status dashboard
 
-| Phase | Title                                 | Status         | Go/No-Go gate                                                    |
-| ----: | ------------------------------------- | -------------- | ---------------------------------------------------------------- |
-|     0 | Quick-win search bot                  | ⬜ Not started | Does expectimax beat `ai_strategist` on sweep?                   |
-|     1 | Harness hardening for self-play       | ⬜ Not started | Reproducible, fast, instrumented self-play loop?                 |
-|     2 | Imitation baseline (de-risk learning) | ⬜ Not started | Can a net clone `ai_strategist` to ~parity, in-browser via ONNX? |
-|     3 | Self-play RL (PPO)                    | ⬜ Not started | Does PPO beat `ai_strategist` with significance?                 |
-|     4 | Ship the strongest bot                | ⬜ Not started | Winner wired as in-browser bot + in tournament pool              |
+| Phase | Title                                 | Status                | Go/No-Go gate                                                                                                                                                                                                                                                                |
+| ----: | ------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|     0 | Quick-win search bot                  | 🟨 Shipped; gate open | Tuned Expectimax landed (`thr 0.3`, `threat 2.0`): **rank 1–2 by ELO**, beats Strategist on ELO/placement (p≈0), win% tie. **Bar is now `ai_lookahead`** (D-7); Expectimax trails it on win% (~15% vs ~25%) → headline gate **open**. Next: press-mechanism (D-8) / Track B. |
+|     1 | Harness hardening for self-play       | ⬜ Not started        | Reproducible, fast, instrumented self-play loop?                                                                                                                                                                                                                             |
+|     2 | Imitation baseline (de-risk learning) | ⬜ Not started        | Can a net clone the strongest heuristic (`ai_lookahead`) to ~parity, in-browser via ONNX?                                                                                                                                                                                    |
+|     3 | Self-play RL (PPO)                    | ⬜ Not started        | Does PPO beat `ai_lookahead` (the bar, per D-7) with significance?                                                                                                                                                                                                           |
+|     4 | Ship the strongest bot                | ⬜ Not started        | Winner wired as in-browser bot + in tournament pool                                                                                                                                                                                                                          |
 
 **Legend:** ⬜ Not started · 🟨 In progress · ✅ Done · ⛔ Blocked · ❌ Killed (gate failed)
 

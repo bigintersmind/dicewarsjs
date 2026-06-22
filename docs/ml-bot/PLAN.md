@@ -11,8 +11,10 @@ dashboard. Record results in [`RESULTS.md`](./RESULTS.md), session notes in
 [`LOG.md`](./LOG.md), and decisions in [`DECISIONS.md`](./DECISIONS.md).
 
 > **Evaluation gate (applies to every phase that produces a bot):** beat
-> `ai_strategist` on `npm run arena:sweep` (multi-seed, 95% CIs), seat/turn-order
-> controlled, edge statistically significant.
+> **`ai_lookahead`** (the field-strongest bot, pinned `596f781` — re-baselined from
+> `ai_strategist` per [D-7](./DECISIONS.md)) on `npm run arena:sweep` (multi-seed,
+> 95% CIs), seat/turn-order controlled, edge statistically significant. Strategist
+> stays as a secondary reference.
 
 ---
 
@@ -53,13 +55,19 @@ certainly won't either, and we've spent days, not weeks.
 > baseline isn't measured against an in-flight version. See `RESULTS.md` for the
 > convention.
 
-**Go/No-Go gate.**
+**Go/No-Go gate.** _(Outcome recorded 2026-06-21 — see `RESULTS.md` / `LOG.md`.)_
 
-- **Beats `ai_strategist` significantly** → ship it as a built-in (Phase 4 wiring
-  is trivial since it's already a normal bot), AND proceed to Phase 1 for Track B.
-- **Roughly ties / loses** → important early signal that this game rewards
-  heuristics over depth here. Reconsider whether Track B is worth it before
-  committing; record the reasoning in `DECISIONS.md`.
+- Default-weight Expectimax **lost** the FFA; weight-tuning (`attackThreshold 0.3`,
+  `threat 2.0`) made it **rank 1–2 by ELO** and beat Strategist on ELO/placement
+  significantly, but only **tied on win%** — and it **does not beat the real bar,
+  `ai_lookahead`** (~25% vs ~15%). Shipped as a net improvement; the headline gate
+  (beat Lookahead) is **open**.
+- Search viability is **proven** (Lookahead is a search bot and the field leader),
+  so this is not a Track-B-kill signal. The win% ceiling is structural ([D-8]): a
+  fixed attack threshold can't both stay patient and press to close out.
+- **Next:** either add the structural **press-mechanism** (posture-adaptive
+  threshold + elimination term) to chase Lookahead with search, or carry this
+  finding into Track B's learned policy. Decide before sinking more effort here.
 
 ---
 
@@ -103,20 +111,22 @@ everything technical before we gamble on RL.
 
 **Tasks.**
 
-- [ ] Generate ~100k–1M `ai_strategist` self-play games; export trajectories
-      (minutes-to-hours on 8 cores).
+- [ ] Generate ~100k–1M self-play games of the **strongest heuristic to imitate —
+      `ai_lookahead`** (per [D-7]; cloning the field leader both de-risks the
+      pipeline and yields a stronger starting policy than cloning Strategist would);
+      export trajectories (minutes-to-hours on 8 cores).
 - [ ] Decide the encoding (see `DECISIONS.md` D-Encoding): graph over ≤31
       territory nodes (features: owner, dice, is-mine, is-border, per-edge
       win-prob from `WIN_TABLE`); policy head over legal `(from,to)` edges + an
       explicit STOP; masked by `getValidMoves`.
 - [ ] Train a small masked policy/value net (GNN or per-edge MLP) by behavioral
-      cloning to predict `ai_strategist`'s move.
+      cloning to predict `ai_lookahead`'s move.
 - [ ] Export to ONNX; load in-browser via ONNX Runtime Web; wrap as a normal bot.
 - [ ] Evaluate the in-browser net on `arena:sweep` vs `ai_strategist`.
 
 **Acceptance criteria.**
 
-- The cloned net **matches `ai_strategist`'s strength** (within CI) on
+- The cloned net **matches `ai_lookahead`'s strength** (within CI) on
   `arena:sweep` — it's imitating it, so parity is the bar.
 - The same ONNX model runs in Node and in-browser with identical action choices
   on fixed seeds (cross-bridge action-encoding test passes).
@@ -158,8 +168,8 @@ everything technical before we gamble on RL.
 
 **Go/No-Go gate (and kill criterion).**
 
-- **Statistically significant win-rate edge over `ai_strategist`** → proceed to
-  Phase 4 with the RL bot as the candidate.
+- **Statistically significant win-rate edge over `ai_lookahead`** (the bar, per
+  [D-7]) → proceed to Phase 4 with the RL bot as the candidate.
 - **No significant edge after a few training iterations** → treat as a **plateau
   signal** (exactly what the Risk thesis hit). Don't pour unbounded compute in.
   Record in `DECISIONS.md`; fall back to shipping the best of Track A / Phase 2.

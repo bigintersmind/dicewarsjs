@@ -247,6 +247,27 @@ describe('Expectimax AI', () => {
     expect(mockGame.area_to).toBe(3);
   });
 
+  test('plays a legal move as the highest-indexed player in a 9-player game', () => {
+    /*
+     * The online tournament seats more than 8 players, so the bot must handle
+     * being player 8 — an owner index past the usual 8 slots. getPlayerCount
+     * sizes the census to one past the highest board owner (9 here) even though
+     * player[] holds only 8 entries, so evaluateBoard's per-player arrays must
+     * cover index 8 without going out of bounds. Guards that sizing path for the
+     * highest-indexed seat (a config unit board tests otherwise never exercise).
+     */
+    mockGame.jun = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+    mockGame.ban = 8; // get_pn() -> 8
+    territory(1, 8, 5); // my cell (player 8)
+    territory(2, 2, 1); // weak enemy, a near-certain capture
+    territory(3, 2, 1); // second enemy cell so the capture is not an elimination
+    link(1, 2);
+
+    expect(() => ai_expectimax(mockGame)).not.toThrow();
+    expect(mockGame.area_from).toBe(1);
+    expect(mockGame.area_to).toBe(2);
+  });
+
   test('is deterministic for identical states', () => {
     const setup = game => {
       const t = (id, arm, dice) => {

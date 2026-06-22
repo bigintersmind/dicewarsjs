@@ -25,8 +25,7 @@
  *
  * NOTE: the evaluation weights below are a principled first pass aligned with
  * ai_strategist's units. They are meant to be tuned against
- * `npm run arena:sweep` vs ai_strategist (see docs/ml-bot/RESULTS.md). That
- * baseline measurement waits on PR #35, which changes ai_strategist.
+ * `npm run arena:sweep` vs the current ai_strategist (see docs/ml-bot/RESULTS.md).
  */
 
 import { MAX_DICE, WIN_TABLE } from './diceOdds.js';
@@ -34,7 +33,7 @@ import { getPlayerCount } from './playerCount.js';
 
 // --- Search shape ---
 const SEARCH_DEPTH = 2; // plies of attack lookahead within the turn
-const TOP_K = 6; // candidate attacks expanded per node beyond the first ply
+const TOP_K = 6; // attacks recursed into per internal node (depth > 1); leaves score all
 const ATTACK_THRESHOLD = 0.05; // best attack must beat stopping by at least this EV
 
 // --- Evaluation weights (dice-equivalent units, aligned with ai_strategist) ---

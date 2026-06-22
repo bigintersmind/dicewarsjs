@@ -458,10 +458,45 @@ describe('Expectimax AI', () => {
     expect(mockGame.area_from).toBe(0);
   });
 
+  test('WEAK posture requires >1 rival (a single dominant rival stays BASE)', () => {
+    /*
+     * Guards the `activeRivals > 1` half of the WEAK condition. Two boards identical
+     * except for how the dominant enemy dice are split: one player vs two. My share is
+     * ~0.11 (below weakDiceShare) in BOTH, and I never lead, so the only thing that can
+     * select WEAK is the rival count. weakThreshold is pinned low (would take the 4v1
+     * capture) and base/press pinned high (would decline). A regression relaxing the
+     * guard to `>= 1` would make the single-rival board claw back — exactly the wrong
+     * posture in a 1v1 you are losing.
+     */
+    const cfg = { weakThreshold: 0.3, baseThreshold: 50, pressThreshold: 50, lowOddsPenalty: 0 };
+    const losingBoard = splitRival => () => {
+      territory(1, 1, 4); // my attacker — a near-certain 4v1 capture
+      territory(2, 2, 1); // the capture target (owned by player 2)
+      territory(3, 2, 8);
+      territory(4, 2, 8);
+      territory(5, splitRival ? 3 : 2, 8); // splitRival ⇒ a 2nd rival; else all player 2
+      territory(6, splitRival ? 3 : 2, 8);
+      link(1, 2);
+    };
+
+    // One dominant rival → guard blocks WEAK → falls to the steep BASE → decline.
+    losingBoard(false)();
+    expect(makeExpectimax(cfg)(mockGame)).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+
+    // Same dice, split across two rivals → WEAK fires → the low bar takes the capture.
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    losingBoard(true)();
+    expect(makeExpectimax(cfg)(mockGame)).not.toBe(0);
+    expect(mockGame.area_from).toBe(1);
+    expect(mockGame.area_to).toBe(2);
+  });
+
   test('pressDiceShare gates the press posture (board dice-share selects the bar)', () => {
     /*
      * Same dominant board and same low pressThreshold both times; only the share
-     * cutoff moves. At the default cutoff (0.38) my 0.79 share qualifies → PRESS →
+     * cutoff moves. At the default cutoff (0.38) my ≈0.70 share qualifies → PRESS →
      * the marginal capture clears the negative bar. Raise the cutoff above my share
      * (0.99) and I no longer qualify → BASE → the high baseThreshold declines it.
      * Isolates the posture *selector*, not the threshold values.
@@ -489,6 +524,56 @@ describe('Expectimax AI', () => {
         lowOddsPenalty: 0,
       })(mockGame)
     ).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+  });
+
+  /*
+   * Heads-up-duel PRESS shortcut: PRESS is also selected by `activeRivals === 1 &&
+   * diceByPlayer[me] > bestRivalDice` — the second half of the PRESS condition, which
+   * none of the dominantBoard tests reach (that board uses two rivals on purpose). In a
+   * true 1v1 a dice lead already pushes my share past pressDiceShare, so to isolate the
+   * shortcut these tests raise pressDiceShare to 0.99 — above my ~0.86 share — so the
+   * share clause CANNOT fire and only the duel shortcut can select PRESS. Note
+   * `diceByPlayer`/`bestRivalDice` are per-player *totals*, not per-cell maxima.
+   */
+  const duelBoard = iLead => () => {
+    territory(1, 1, 3); // my attacker — a marginal 3v3 coin flip vs the rival
+    territory(2, 2, 3); // rival defender
+    territory(3, 1, 8); // my dice elsewhere
+    territory(4, iLead ? 1 : 2, 8); // mine ⇒ I lead the duel 19–3; rival's ⇒ totals tie 11–11
+    link(1, 2);
+  };
+
+  test('PRESS shortcut: leading a heads-up duel presses even below pressDiceShare', () => {
+    /*
+     * pressDiceShare pinned at 0.99 (above my share) so the share clause is off; PRESS
+     * can only come from the duel lead. base/weak pinned high so a mis-selected posture
+     * declines. lowOddsPenalty off so the coin-flip's risk floor can't mask the result.
+     */
+    const cfg = {
+      pressThreshold: -3,
+      baseThreshold: 50,
+      weakThreshold: 50,
+      pressDiceShare: 0.99,
+      lowOddsPenalty: 0,
+    };
+
+    // Leading the duel (19 vs 3 dice) → shortcut fires → PRESS takes the marginal capture.
+    duelBoard(true)();
+    expect(makeExpectimax(cfg)(mockGame)).not.toBe(0);
+    expect(mockGame.area_from).toBe(1);
+    expect(mockGame.area_to).toBe(2);
+
+    /*
+     * Same board, dice rebalanced to a tie (11 vs 11): `diceByPlayer[me] > bestRivalDice`
+     * is now false (strict >), so the shortcut does NOT fire. Share is still below the
+     * 0.99 cutoff and WEAK needs >1 rival, so the bar falls to the steep BASE → decline.
+     * Pins the strict-greater boundary of the duel lead.
+     */
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    duelBoard(false)();
+    expect(makeExpectimax(cfg)(mockGame)).toBe(0);
     expect(mockGame.area_from).toBe(0);
   });
 
@@ -576,6 +661,58 @@ describe('Expectimax AI', () => {
       makeExpectimax({ lowOddsFloor: 0.78, lowOddsPenalty: 20, pressThreshold: -1 })(mockGame)
     ).toBe(0);
     expect(mockGame.area_from).toBe(0);
+  });
+
+  test('the risk floor reorders the chosen move, not just attack-vs-stop', () => {
+    /*
+     * The test above runs on a single-attack board, so it only exercises the floor's
+     * effect on the final accept/decline gate. This board offers TWO competing attacks
+     * and pins a low fixed bar (attackThreshold: -50) so the bot always attacks — the
+     * only observable is WHICH move it picks, isolating the floor's effect on the
+     * candidate ranking (search() subtracts m.lowOdds from each move's value, not only
+     * from the accept check). Depth 1 keeps it a clean one-ply leaf decision.
+     *
+     *   A (1->2): a 3v3 coin flip (p≈0.45) whose win eliminates rival 3 → high EV but
+     *             low odds, so the floor docks it hard.
+     *   B (5->6): a 4v1 near-certain capture (p≈0.997) of modest value → above the
+     *             floor, essentially undocked.
+     *
+     * Floor off, A's higher EV wins; turn the floor on and A's low-odds penalty drops
+     * it below B, so the bot switches to the safe capture. A regression that applied
+     * the penalty to the accept gate but not to the per-move value would keep picking A.
+     */
+    const sortBoard = () => {
+      territory(1, 1, 3); // attacker A — 3v3 coin flip
+      territory(2, 3, 3); // rival 3's ONLY cell → winning A eliminates rival 3
+      territory(5, 1, 4); // attacker B — 4v1
+      territory(6, 2, 1); // capture target for B
+      territory(7, 2, 5);
+      territory(8, 2, 5); // rival 2 survives B
+      link(1, 2);
+      link(5, 6);
+      link(6, 7);
+      link(7, 8);
+    };
+    const cfg = pen => ({
+      searchDepth: 1,
+      attackThreshold: -50,
+      lowOddsFloor: 0.78,
+      lowOddsPenalty: pen,
+    });
+
+    // Floor off → the high-EV coin flip wins the ranking.
+    sortBoard();
+    expect(makeExpectimax(cfg(0))(mockGame)).not.toBe(0);
+    expect(mockGame.area_from).toBe(1);
+    expect(mockGame.area_to).toBe(2);
+
+    // Floor on → the coin flip is penalized below the safe capture; the pick flips.
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    sortBoard();
+    expect(makeExpectimax(cfg(20))(mockGame)).not.toBe(0);
+    expect(mockGame.area_from).toBe(5);
+    expect(mockGame.area_to).toBe(6);
   });
 
   test('is deterministic for identical states', () => {

@@ -33,9 +33,21 @@ const arg = (k, d) => {
  * first landing it in DEFAULT_PARAMS. Omitted ⇒ the shipped ai_expectimax.
  */
 const candArg = arg('cand', '');
+let candCfg = null;
+if (candArg) {
+  /*
+   * Fail loudly with the offending flag named (mirrors the --vs / --runs guards),
+   * rather than a bare SyntaxError from deep inside the map callback below.
+   */
+  try {
+    candCfg = JSON.parse(candArg);
+  } catch (e) {
+    throw new Error(`--cand must be valid JSON (got ${candArg}): ${e.message}`);
+  }
+}
 const field = BUILT_IN_BOTS.map(b =>
-  candArg && b.name === EX
-    ? { name: EX, fn: adaptLegacyBot(makeExpectimax(JSON.parse(candArg)), EX) }
+  candCfg && b.name === EX
+    ? { name: EX, fn: adaptLegacyBot(makeExpectimax(candCfg), EX) }
     : { name: b.name, fn: b.fn }
 );
 const N = field.length; // 7

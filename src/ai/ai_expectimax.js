@@ -71,7 +71,7 @@ export const DEFAULT_PARAMS = {
   baseThreshold: 1.2, // balanced game (the common case): steep bar — only clearly profitable captures (D-9 tuned)
   pressThreshold: -2.5, // dominant / winning duel: spend the advantage hard to close the game out (D-9 tuned)
   weakThreshold: 0.15, // losing badly in a crowd: still take near-even fights to claw back
-  pressDiceShare: 0.38, // dice share at/above which I'm dominant enough to press
+  pressDiceShare: 0.38, // dice share above which (strict >) I'm dominant enough to press
   weakDiceShare: 0.15, // dice share below which (in a crowd) I'm weak enough to claw back
   // --- Evaluation weights ---
   income: 1.1, // value of +1 reinforcement/turn = +1 to largest group

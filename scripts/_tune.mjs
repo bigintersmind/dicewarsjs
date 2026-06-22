@@ -4,12 +4,12 @@
  *
  * Evaluates one or more candidate param configs in the real 7-bot FFA field
  * (the candidate replaces the Expectimax slot via makeExpectimax(cfg)), and
- * reports each candidate's field win%, paired per-game edge vs Strategist, and
- * ELO. Emits a JSON array on the last stdout line for machine parsing; a human
- * table goes to stderr.
+ * reports each candidate's field win%, paired per-game edge vs Lookahead (the
+ * gate, D-7) and Strategist (secondary reference), and ELO. Emits a JSON array on
+ * the last stdout line for machine parsing; a human table goes to stderr.
  *
- * Usage:
- *   node scripts/_tune.mjs --games 600 --seed 1 --configs '[{},{"attackThreshold":1.0,"threat":2.0}]'
+ * Usage (sweep the posture/risk levers — attackThreshold defaults to null/posture-adaptive):
+ *   node scripts/_tune.mjs --games 600 --seed 1 --configs '[{},{"pressThreshold":-3.0},{"baseThreshold":1.5}]'
  */
 import { runArena } from '../src/arena/arenaRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';

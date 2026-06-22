@@ -67,13 +67,26 @@ function evalConfig(cfg) {
     pairedWinRate: nPair > 0 ? +((candBetter / nPair) * 100).toFixed(1) : 0,
     z: +z.toFixed(2),
     p: +p.toExponential(2),
-    beatsStrat: candBetter > stratBetter && p < 0.05,
+    /*
+     * runArena is fault-tolerant: it drops failed matches and aborts past a 50%
+     * failure rate (see arenaRunner.js). A verdict from a silently-truncated
+     * sample is worse than no verdict, so a clean run is required to claim BEATS.
+     */
+    beatsStrat: candBetter > stratBetter && p < 0.05 && !res.aborted && res.failedGames === 0,
+    failedGames: res.failedGames,
+    aborted: res.aborted,
     games: res.totalGames,
   };
 }
 
 const out = configs.map(evalConfig);
 for (const r of out) {
+  if (r.aborted || r.failedGames > 0) {
+    process.stderr.write(
+      `WARNING: ${r.failedGames} game(s) failed${r.aborted ? ' — RUN ABORTED' : ''}; ` +
+        `stats below are from ${r.games} surviving game(s) only for ${JSON.stringify(r.cfg)}\n`
+    );
+  }
   process.stderr.write(
     `cand ${String(r.candWin).padStart(5)}%  strat ${String(r.stratWin).padStart(5)}%  look ${String(r.lookWin).padStart(5)}%  ` +
       `paired ${String(r.pairedWinRate).padStart(5)}% (p=${r.p})  ${r.beatsStrat ? 'BEATS' : '----'}  ${JSON.stringify(r.cfg)}\n`

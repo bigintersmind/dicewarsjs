@@ -28,8 +28,22 @@ const arg = (k, d) => {
   const i = process.argv.indexOf(`--${k}`);
   return i >= 0 ? process.argv[i + 1] : d;
 };
-const RUNS = parseInt(arg('runs', '20'), 10); // blocks for CI
-const SEEDS_PER_RUN = parseInt(arg('seeds', '40'), 10); // distinct map seeds per block
+/*
+ * Crash loudly on a bad count instead of silently skipping the loop. A
+ * non-numeric flag (e.g. `--runs abc`) makes parseInt return NaN, `n < NaN` is
+ * false, every loop is skipped, and the script prints a full `NaN ± NaN` table
+ * as if it were valid. The strict regex also rejects garbage-suffixed values
+ * (`--runs 2O`), which parseInt would otherwise silently truncate to 2.
+ */
+const intArg = (k, d) => {
+  const raw = arg(k, d);
+  if (!/^[1-9]\d*$/.test(raw)) {
+    throw new Error(`--${k} must be a positive integer (got "${raw}")`);
+  }
+  return parseInt(raw, 10);
+};
+const RUNS = intArg('runs', '20'); // blocks for CI
+const SEEDS_PER_RUN = intArg('seeds', '40'); // distinct map seeds per block
 const STRIDE = 1_000_000;
 
 // --- stats helpers ---
@@ -169,7 +183,7 @@ console.log(
 );
 
 // ----- (3) 2-player deterministic head-to-head, seat-counterbalanced -----
-const H2H_GAMES = parseInt(arg('h2h', '2000'), 10);
+const H2H_GAMES = intArg('h2h', '2000');
 const pair = [
   { name: EX, fn: BUILT_IN_BOTS.find(b => b.name === EX).fn },
   { name: ST, fn: BUILT_IN_BOTS.find(b => b.name === ST).fn },

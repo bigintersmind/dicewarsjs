@@ -12,7 +12,7 @@
  *
  * A Dice Wars turn is a *sequence* of single attacks ended by stopping, so the
  * search recurses on both outcome boards (a failed attack does not end the
- * turn) up to SEARCH_DEPTH plies. This lets it plan combos a greedy scorer
+ * turn) up to `searchDepth` plies (DEFAULT_PARAMS.searchDepth). This lets it plan combos a greedy scorer
  * misses — e.g. take a low-EV cell now because it unlocks a high-value capture
  * next. Opponent replies (which only happen after the turn ends) are proxied by
  * the evaluation's border-vulnerability and rival-income terms.
@@ -188,7 +188,7 @@ function enumerateAttacks(owner, dice, alive, adj, areaMax, me) {
  *
  * At every node `me` may stop (value = evaluateBoard) or attack; each attack is
  * a chance node mixing its win/loss continuations by the exact odds. Internal
- * nodes (depth > 1) recurse into only the TOP_K attacks ranked by their one-ply
+ * nodes (depth > 1) recurse into only the top-K attacks (P.topK) ranked by their one-ply
  * EV, bounding the branching of the otherwise quadratic-per-ply search; leaf
  * nodes (depth === 1) score every attack by that one-ply EV without recursing.
  */
@@ -245,6 +245,25 @@ function search(owner, dice, alive, adj, areaMax, me, pmax, depth, P) {
  * @returns {(game: Object) => 0|undefined} A legacy-convention bot function.
  */
 export function makeExpectimax(params = {}) {
+  /*
+   * Fail fast on bad config: these are fed externally-sourced JSON by the tuning
+   * sweeps (scripts/_tune.mjs), where a typo'd key would otherwise be silently
+   * dropped — the sweep would "succeed" while re-testing the defaults, the worst
+   * failure mode for a tuning tool. A non-finite weight (NaN/Infinity) likewise
+   * silently makes every eval NaN and the bot stop on every board.
+   */
+  for (const key of Object.keys(params)) {
+    if (!(key in DEFAULT_PARAMS)) {
+      throw new Error(
+        `makeExpectimax: unknown param "${key}" (expected one of: ${Object.keys(DEFAULT_PARAMS).join(', ')})`
+      );
+    }
+    if (!Number.isFinite(params[key])) {
+      throw new Error(
+        `makeExpectimax: param "${key}" must be a finite number (got ${params[key]})`
+      );
+    }
+  }
   const P = { ...DEFAULT_PARAMS, ...params };
 
   return game => {

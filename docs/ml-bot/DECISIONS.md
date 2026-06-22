@@ -356,6 +356,119 @@ is reverted to the clean D-9 eval.
 
 ---
 
+## D-12 — Phase-1 scope corrected by a verified surface-map: history isn't the perf lever, parallelism is greenfield; optimize per-move now + build a committed harness · Accepted (2026-06-22) · follows [D-11](#d-11--eval-rework-spike-structural-eval-terms-dont-break-the-parity-ceiling-pivot-to-track-b)
+
+**Context.** Before writing any Phase-1 (self-play harness hardening) code, we ran a
+fan-out **map + adversarial verification** of the whole Phase-1 surface area — 6
+subsystem readers + 5 skeptics over the engine, arena, scripts, and ml-bot docs.
+Three of the five load-bearing claims the PLAN rested on came back refuted or partial.
+
+**Findings (verified against code).**
+
+- **The O(n²) `history` append is _not_ the throughput lever.** Component microbench at
+  realistic game length: per-move cost is dominated by `cloneAreas` + `clonePlayers` +
+  7× `findLargestConnectedGroup` (~4.7 µs); the `[...state.history]` spread is ~0.25 µs
+  at depth 378 (~19× smaller). Real decisive games average ~378 actions (max ~741) — the
+  quadratic term only bites in the thousands. The history fix is worth doing for
+  **memory + asymptotic safety** (every retained immutable state holds a growing array)
+  and is cheap/low-risk, but it cannot clear the written "≥100 g/s/core" gate
+  (Strategist self-play ~77 g/s; the per-move trims are the real lever).
+- **Parallel self-play is greenfield.** Zero `worker_threads`/`child_process`/`cluster`
+  anywhere; every path is a sequential loop through `runArena` → `runMatch`. The
+  "~266 g/s on 4 procs / near-linear" figure came from a **deleted, uncommitted**
+  feasibility probe — not reproducible from the tree. Task 5 is build-and-measure, not
+  "confirm."
+- **The history flag has real non-arena consumers** — the browser `GameController`
+  (`:398/:572`, battle animation) and replay/tournament persistence (`createReplay`,
+  `run-online-tournament.mjs:178`) read `state.history` — so the flag must default OFF
+  and stay engine/arena-only. The arena hot loop itself never reads history (safe).
+- **Confirmed:** seeding is fully deterministic except the `createGame` `Math.random`
+  seed-fallback + the 3 known `Math.random` bots (default/example/adaptive); round-trip
+  replay already works today (`replayGame` re-applies _recorded_ actions, proven by
+  `GameRunner.test.js:205` — even with a `Math.random` bot). The enabling precondition
+  is just "capture an explicit seed" (task 2), plus persisting `dicePerArea` in the
+  replay config.
+
+**Decision.**
+
+1. **Optimize per-move allocation now** — promote task 3 (clone/recalc trims) from
+   "optional" to a **first-class Phase-1 goal**, since self-play data-gen cost is a real
+   Phase-2 risk. Keep the cheap history flag too (memory/safety).
+2. **Build a committed, reusable self-play harness** (`scripts/selfplay.mjs` +
+   `npm run selfplay`), not a throwaway probe — Phase 2 uses the same harness to
+   generate its 100k–1M games. `worker_threads` pool, bot-identifiers-not-closures,
+   JSONL streaming, single-threaded deterministic aggregation.
+3. **Reframe the Phase-1 throughput gate** from a single "≥100 g/s/core" absolute to
+   "near-linear parallel scaling confirmed + per-field before/after numbers recorded."
+   `ai_lookahead` (the Phase-2 clone target) is ~4 g/s/core and no engine opt changes
+   that — Phase-2 data-gen is parallelism-bound, which the committed harness delivers.
+
+**Why this matters.** The PLAN as written would have spent Phase-1 effort on the wrong
+lever (history) and assumed a parallel substrate that doesn't exist. Correcting now
+keeps the gate honest and ensures the harness built in Phase 1 is the one Phase 2
+actually needs.
+
+**Rejected.** (a) Keep the hard ≥100 g/s/core gate and chase it on the real field —
+unachievable for the lookahead-clone field at any engine speed (the bot fn dominates),
+so a misleading bar. (b) An internal throwaway `_selfplay.mjs` for Phase-1 numbers only
+— wastes the build; Phase 2 needs a real generator. (c) Treat history removal as the
+throughput task — measured at ~1–2% of per-move time.
+
+---
+
+## D-13 — Compute topology: distribute data-gen across machines (seed-range shards), train on the GPU box · Accepted (2026-06-22) · follows [D-3](#d-3--js-engine-is-the-single-source-of-truth-python-for-training-only)
+
+**Context.** Track B's cost splits cleanly: Phases 1–2 (self-play game generation /
+imitation data) are **CPU/engine-bound and embarrassingly parallel**; Phase 3 (PPO) is
+**GPU-bound**. The hardware available is a small personal fleet — several multi-core CPU
+machines plus one workstation with a CUDA GPU. (Exact hostnames/specs are kept out of
+this public repo; they live in the maintainer's local notes.) The question that prompted
+this: are we anchoring on a single machine?
+
+**Decision.**
+
+- **Data-gen (Phases 1–2)** distributes across **all CPU cores on every available
+  machine**. The committed `scripts/selfplay.mjs` ([D-12]) is **shardable by seed range**
+  — each machine runs a disjoint range and emits JSONL that concatenates losslessly (the
+  engine is seed-deterministic and games are independent). An always-on, otherwise-idle
+  machine is the unattended workhorse (full cores); interactive machines cap at ~50% to
+  stay usable.
+- **Training (Phase 3, and the Phase-2 clone-net fit)** runs on the **GPU workstation**
+  (Linux/WSL, Python/PyTorch+CUDA per [D-2]/[D-3]); Phase 3 runs the _full_ loop
+  (engine env workers + PPO learner) **co-located** there so the [D-3] bridge is a
+  local socket, not a network hop.
+- **Cross-machine fidelity:** replay round-trips are engine-only (integer Mulberry32
+  RNG) → bit-identical across machines/CPU arches, and we record the _actual moves
+  taken_, so generate-here/replay-there is safe. We do **not** rely on re-deriving a
+  bot's move from an observation (that involves FP eval that can differ across arches).
+
+**Why.** Anchoring on one machine wastes most of the available throughput and the only
+GPU. At ~4 g/s/core for the `ai_lookahead` teacher (the Phase-2 clone target), a few
+machines' worth of cores aggregate to enough self-play throughput to generate **1M
+imitation games in a few hours** (100k in well under an hour) — Phase-2 data-gen is
+comfortably tractable distributed, vs the better part of a day tying up a single box.
+
+**GPU workstation — capacity notes.** The training box is a consumer desktop with a
+mid-to-high-end CUDA GPU, an 8-core/16-thread CPU, and large RAM/disk — ample for this
+project. Implications:
+
+- The planned nets are _tiny_ (masked policy/value over ≤31 nodes — [D-Encoding]), so
+  **GPU VRAM is a non-constraint** — the GPU is overkill for the net → fast iteration,
+  and it confirms **env throughput / the JS→Py bridge — not GPU — is the Phase-3
+  bottleneck** (so the Phase-1 harness work is squarely on the critical path).
+- **Run the whole stack in Linux/WSL** — the path of least resistance for PettingZoo/SB3,
+  with CUDA passthrough for the GPU. Node engine + PyTorch trainer in one Linux box.
+- **Storage strategy:** keep the **lean replay** (seed + actions) as the canonical
+  on-disk dataset (single-digit GB for 1M games) and expand to packed tensor shards
+  (`.npz`, tens of GB) in a one-time JS pass for training — avoids both TB-scale fat
+  JSON and per-epoch re-expansion; ample RAM also holds large replay buffers in memory.
+
+**Rejected.** (a) Single-machine data-gen — leaves throughput and the GPU on the table.
+(b) A central distributed-RL learner fed by remote env workers in Phase 3 — real
+complexity we don't need; one GPU box suffices for the planned (small) net sizes.
+
+---
+
 ## D-Encoding — MDP / state / action / reward shape · Proposed (2026-06-21)
 
 **Proposed (finalize in Phase 2).**

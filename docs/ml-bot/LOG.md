@@ -21,6 +21,65 @@ Entry template:
 
 ---
 
+## 2026-06-22 — Phase 1 kicked off: verified surface-map + scope correction ([D-12])
+
+**Phase:** 1 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Branched **`ml-bot/selfplay-harness`** off clean `master` (`e3b8928`) for Phase 1.
+- Ran a fan-out **map + adversarial verification** of the entire Phase-1 surface area
+  (6 subsystem readers + 5 skeptics over engine/arena/scripts/docs) _before_ writing
+  any code — to ground the scope in verified facts, not assumptions.
+- Rewrote the PLAN Phase-1 section and recorded the rationale in **[D-12]**.
+
+**Learned / decided:**
+
+- **History append is _not_ the perf lever** — ~1–2% of per-move cost; `cloneAreas` +
+  `clonePlayers` + 7× `findLargestConnectedGroup` (~19× larger) dominates. History fix
+  kept for memory/asymptotic safety, but **per-move alloc trims (task 3) promoted to
+  first-class** (Ivan's call) — the real lever and a Phase-2 data-gen risk.
+- **Parallel self-play is greenfield** — no worker/process code exists; the "266 g/s on
+  4 procs" number was a deleted, uncommitted probe. Building a **committed
+  `scripts/selfplay.mjs`** (Ivan's call) that Phase 2 reuses for its 100k–1M games.
+- **`recordHistory` flag must default OFF** — the browser `GameController` + replay
+  persistence read `state.history`; the arena hot loop doesn't (safe to skip there).
+- **Round-trip already works** (`replayGame`, `GameRunner.test.js:205`); enabling
+  precondition is just explicit-seed capture + persisting `dicePerArea` in the replay
+  config.
+- **Gate reframed** from "≥100 g/s/core" to "near-linear scaling confirmed + per-field
+  numbers recorded" — `ai_lookahead` self-play is ~4 g/s and parallelism-bound, not
+  micro-opt-bound.
+- **Compute is multi-machine ([D-13]):** data-gen shards by seed range across the
+  available CPU machines (engine determinism + independent games → clean JSONL merge);
+  PPO trains on a CUDA GPU workstation, full loop co-located to keep the bridge local.
+  `selfplay.mjs` designed shardable from day one — a few machines' worth of cores make 1M
+  lookahead-teacher games a few-hours job. (Machine specifics kept in local notes, not
+  the repo.)
+- **Bot-side overhead found:** all built-in bots run via `adaptLegacyBot` →
+  `createLegacyViewFromBotState`, which rebuilds an O(areas²) `join` matrix _per move_;
+  strategist/lookahead/expectimax read the legacy view, not `BotState` (the README's
+  "modern" label is loose). A modern fast-path is a **measured** task-3 candidate for the
+  hot heuristic bots (re-validate parity after) — not a blanket port; the learner reads
+  engine→tensor directly.
+
+**Dead ends / surprises:**
+
+- The PLAN's "near-linear scaling already measured" leaned on a probe that no longer
+  exists in the tree — the parallel result is unproven from committed code.
+- Identical-Strategist self-play is degenerate: 0 attacks, stalemates to `maxTurns`
+  every game → worst-case throughput + zero learning signal. The harness must use a
+  decisive/heterogeneous field and report completion rate.
+
+**Next:**
+
+- **PR 1** — `feat(engine)`: training-mode `recordHistory` flag + end-to-end seeds +
+  `tests/engine/determinism.test.js` (tasks 1–2). Then **PR 2** trajectory export
+  (task 4), **PR 3** committed parallel harness + per-move trims + throughput numbers
+  (tasks 5, 3).
+
+---
+
 ## 2026-06-22 — Eval-rework spike kicked off (Phase 0.5, Track A)
 
 **Phase:** 0.5 · **Who:** Ivan + Claude

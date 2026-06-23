@@ -13,7 +13,7 @@ import { ACTION_TYPES, GAME_PHASES } from '../engine/constants.js';
 import { createBotState } from './botState.js';
 import { validateMove } from './botValidator.js';
 import { runBotDirect } from './botRunner.js';
-import { STOP, createTrajectoryRecorder } from './trajectoryExport.js';
+import { STOP, buildStep, createTrajectoryRecorder } from './trajectoryExport.js';
 
 /** Maximum moves a single bot can make per turn */
 const MAX_MOVES_PER_TURN = 100;
@@ -110,6 +110,7 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
       continue;
     }
 
+    const preAttackState = currentState;
     try {
       currentState = applyAction(currentState, {
         type: ACTION_TYPES.ATTACK,
@@ -129,17 +130,18 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
 
     if (onStep) {
       /*
-       * botState + validMoves were captured BEFORE applyAction — the observation
-       * and legal set at the decision point. Reused here at zero extra engine cost.
+       * Build via the shared producer. botState + validMoves were captured BEFORE
+       * applyAction (for the bot call + validation) — passing them as the cached
+       * observation/legal set means buildStep adds no extra engine work here.
        */
-      onStep({
-        playerId,
-        turnNumber: botState.turnNumber,
-        observation: botState,
-        legalMoves: [...validMoves, STOP],
-        chosenMove: { from: move.from, to: move.to },
-        outcome: { won },
-      });
+      onStep(
+        buildStep(
+          preAttackState,
+          { type: ACTION_TYPES.ATTACK, from: move.from, to: move.to },
+          currentState,
+          { observation: botState, legalMoves: [...validMoves, STOP] }
+        )
+      );
     }
   }
 
@@ -157,15 +159,7 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
        * quarantines the whole game, and a turn of length === MAX_MOVES_PER_TURN drops
        * that turn's STOP label. (See the TrajectoryStep typedef + PLAN task 5.)
        */
-      const observation = createBotState(currentState, playerId);
-      onStep({
-        playerId,
-        turnNumber: observation.turnNumber,
-        observation,
-        legalMoves: [...getValidMoves(currentState), STOP],
-        chosenMove: STOP,
-        outcome: null,
-      });
+      onStep(buildStep(currentState, { type: ACTION_TYPES.END_TURN }, currentState));
     }
     try {
       currentState = applyAction(currentState, { type: ACTION_TYPES.END_TURN });

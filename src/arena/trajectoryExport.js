@@ -50,6 +50,17 @@ export const OBSERVATION_SCHEMA_VERSION = 1;
 export const STOP = Object.freeze({ type: ACTION_TYPES.END_TURN });
 
 /**
+ * True for the STOP decision — whether the canonical frozen {@link STOP} singleton
+ * (the in-process value) or a structurally-equal `{type:'END_TURN'}` rehydrated from
+ * a deserialized record. Prefer this over `=== STOP` so STOP-ness survives the
+ * on-disk round-trip (a parsed record's END_TURN is a fresh object, not the singleton).
+ *
+ * @param {{from:number,to:number}|{type:string}} move
+ * @returns {boolean}
+ */
+export const isStopMove = move => move === STOP || move?.type === ACTION_TYPES.END_TURN;
+
+/**
  * @typedef {Object} TrajectoryStep
  * @property {number} playerId    - Player who made the decision
  * @property {number} turnNumber  - Engine turn number at the decision
@@ -99,21 +110,28 @@ function applyRecordedAction(state, action) {
 
 /**
  * Build a fat step from a pre-action state, the action taken, and the resulting
- * state. Shared by live capture re-derivation and {@link trajectoryFromReplay}.
+ * state. The single producer of a {@link TrajectoryStep} — used by both live capture
+ * (matchRunner's `onStep` hook) and re-derivation ({@link trajectoryFromReplay}) — so
+ * the `outcome`-is-null-iff-STOP invariant and the `Object.freeze` live in one place.
  *
- * @param {import('../engine/types.js').GameState} state - State before the action
+ * @param {import('../engine/types.js').GameState} state - State BEFORE the action
  * @param {import('./replayFormat.js').CompactAction} action
  * @param {import('../engine/types.js').GameState} nextState - State after the action
+ *   (only read for an ATTACK's outcome; pass `state` for a non-attack)
+ * @param {{observation?: import('./types.js').BotState, legalMoves?: Array<Object>}} [cached]
+ *   Pre-computed observation/legal set from the live decision point. The hot path
+ *   passes these (already built for the bot call + validation) so buildStep adds no
+ *   extra engine work; re-derivation omits them and they are computed here.
  * @returns {TrajectoryStep}
  */
-function buildStep(state, action, nextState) {
+export function buildStep(state, action, nextState, cached) {
   const playerId = state.turnOrder[state.currentPlayerIndex];
   const isAttack = action.type === ACTION_TYPES.ATTACK;
   return Object.freeze({
     playerId,
     turnNumber: state.turnNumber,
-    observation: createBotState(state, playerId),
-    legalMoves: legalMovesWithStop(state),
+    observation: cached?.observation ?? createBotState(state, playerId),
+    legalMoves: cached?.legalMoves ?? legalMovesWithStop(state),
     chosenMove: isAttack ? { from: action.from, to: action.to } : STOP,
     outcome: isAttack ? { won: nextState.areas[action.to].owner === playerId } : null,
   });
@@ -142,7 +160,7 @@ export function createTrajectoryRecorder() {
   let finalized = false;
 
   const onStep = step => {
-    const isStop = step.chosenMove === STOP || step.chosenMove?.type === ACTION_TYPES.END_TURN;
+    const isStop = isStopMove(step.chosenMove);
     actions.push(
       isStop
         ? { type: ACTION_TYPES.END_TURN }
@@ -187,17 +205,28 @@ export function createTrajectoryRecorder() {
     onStep,
     finalize,
     toRecord,
+    /*
+     * Return shallow copies so a caller can't break the `fatSteps ≡ actions`
+     * invariant by mutating the recorder's internals (read-only by contract).
+     */
     get actions() {
-      return actions;
+      return [...actions];
     },
     get fatSteps() {
-      return fatSteps;
+      return [...fatSteps];
     },
   };
 }
 
 /**
- * @typedef {import('./replayFormat.js').Replay & {observationSchemaVersion: number}} TrajectoryRecord
+ * A lean replay plus the two trajectory-specific extensions: the observation-schema
+ * stamp and the terminal `placements` reward label (added by `toRecord`, beyond a
+ * plain replay's `metadata`).
+ *
+ * @typedef {import('./replayFormat.js').Replay & {
+ *   observationSchemaVersion: number,
+ *   metadata: import('./replayFormat.js').ReplayMetadata & { placements: number[]|null }
+ * }} TrajectoryRecord
  */
 
 /**

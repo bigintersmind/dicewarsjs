@@ -1,6 +1,7 @@
 import {
   OBSERVATION_SCHEMA_VERSION,
   STOP,
+  isStopMove,
   createTrajectoryRecorder,
   trajectoryFromReplay,
   trajectoryStepFromReplay,
@@ -48,6 +49,20 @@ function buildRecord(seed = 7) {
   });
   return { ...replay, observationSchemaVersion: OBSERVATION_SCHEMA_VERSION };
 }
+
+describe('isStopMove', () => {
+  it('is true for the STOP singleton and for a rehydrated END_TURN (round-trip safe)', () => {
+    expect(isStopMove(STOP)).toBe(true);
+    // A deserialized record's END_TURN is a fresh object, not the singleton.
+    expect(isStopMove({ type: 'END_TURN' })).toBe(true);
+  });
+
+  it('is false for an attack move and for nullish input', () => {
+    expect(isStopMove({ from: 2, to: 3 })).toBe(false);
+    expect(isStopMove(undefined)).toBe(false);
+    expect(isStopMove(null)).toBe(false);
+  });
+});
 
 describe('trajectoryFromReplay', () => {
   it('produces one fat step per recorded action', () => {

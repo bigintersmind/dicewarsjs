@@ -21,6 +21,60 @@ Entry template:
 
 ---
 
+## 2026-06-23 — Tensor-expansion pass landed: lean corpus → packed BC tensors
+
+**Phase:** 2 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Built the **observation encoder** (`src/arena/encodeObservation.js`) — a pure
+  `encodeStep(step, ctx)` that turns one re-derived fat step into the D-Encoding tensors:
+  node graph `[maxAreas][present, dice/8, isMine, isEnemy, isBorder]`, per-seat globals
+  `[playerCount][isMe, eliminated, territoriesFrac, diceFrac, connectedFrac, stockNorm]`,
+  board scalars `[myDiceShare, activeFrac, phase one-hot]`, a masked edge head over
+  `getValidMoves` + STOP (`winProb, atk/8, def/8, isStop`), the BC label (chosen-edge
+  index), and an aux value head (`won`, normalized `placement`). Owner is encoded
+  **relationally** (no seat one-hot). Feature-column orders exported as constants
+  (single source of truth for the manifest + tests).
+- Built the **CLI** (`scripts/encode-corpus.mjs`, `npm run encode-corpus`) — streams a lean
+  corpus, re-derives via `trajectoryFromReplay`, filters to the teacher seat(s) (`--teacher`,
+  default `Lookahead`; `#n` suffix stripped), and writes a **NumPy-loadable packed artifact**:
+  dense `nodes`/`players`/`board`, CSR edges (`edges`/`edge_index`/`edge_offsets`), plus
+  `labels`/`value`/`meta`, all described by `manifest.json` (dtypes, shapes, feature names).
+- Ran it on `corpus-fullfield-300.jsonl`: **300 games → 24,254 Lookahead-seat steps**, 6.9
+  edges/step avg, 24.8 MB across 9 blobs in 1.8s. Output gitignored under
+  `data/selfplay/encoded/`.
+
+**Learned / decided:**
+
+- **The encoding invariant holds end-to-end.** A test re-runs `getValidMoves(state)`
+  independently at _every_ decision of a real game and asserts the encoder's non-STOP edges
+  are exactly that set (+ one trailing STOP, all-ones mask). The label always points at the
+  applied move. 18 encoder unit tests + 3 CLI e2e tests; full suite **885 green**.
+- **The packed binary round-trips.** A read-back-as-Python check (and a committed CLI test)
+  confirm every blob's byte size matches its manifest shape and the first step reconstructs
+  bit-for-bit from disk. CSR offsets are monotonic and terminate at `totalEdges`.
+- **Two version stamps, deliberately separate:** `OBSERVATION_SCHEMA_VERSION` (on-disk lean
+  record) vs `ENCODING_VERSION` (expanded tensor layout) — the tensor layout can evolve
+  without reshuffling the corpus.
+- Edge ragged-set handled with CSR (concat + row offsets), so no per-step edge padding waste;
+  nodes/globals stay dense fixed-width (+ present-mask) for trivial `reshape` in Python.
+
+**Dead ends / surprises:**
+
+- None functional. One TDZ bug (a `const` lookup table referenced above its declaration in
+  the end-of-run size summary) — fixed by summing over the manifest's own file list.
+- Node-tensor size is the cost driver (32×5 floats/step → ~5 GB at 8M steps). Fine for now;
+  noted Int8/quantization as the obvious shrink if the full corpus gets unwieldy.
+
+**Next:**
+
+- **Behavioral cloning** on the packed tensors (Python, per D-3): masked per-edge MLP over
+  node+global+edge features → cross-entropy on the legal set; aux value head on `placement`.
+  Escalate to a 1–2 layer GNN only if the MLP can't clone (gate = clone reaches Lookahead
+  parity). Then export to ONNX (D-4) and wire as an in-browser bot. Open: **where the Python
+  training code lives** (sibling dir vs separate repo) — decide at BC kickoff.
+
 ## 2026-06-23 — Corpus field validated: the full 7-bot arena field ([D-15], RESULTS)
 
 **Phase:** 2 · **Who:** Ivan + Claude

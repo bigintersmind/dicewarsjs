@@ -29,7 +29,8 @@
     "benchmark-bot": "node scripts/benchmark-bot.mjs",
     "validate-community-bots": "node scripts/validate-community-bots.mjs",
     "tournament": "node scripts/run-online-tournament.mjs",
-    "selfplay": "node scripts/selfplay.mjs"
+    "selfplay": "node scripts/selfplay.mjs",
+    "encode-corpus": "node scripts/encode-corpus.mjs"
   },
   "keywords": [
     "game",

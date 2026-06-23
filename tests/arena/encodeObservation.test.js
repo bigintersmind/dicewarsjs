@@ -5,11 +5,10 @@ import { dirname, resolve } from 'node:path';
 import { runMatch } from '../../src/arena/matchRunner.js';
 import { adaptLegacyBot } from '../../src/arena/legacyBotAdapter.js';
 import { ai_example } from '../../src/ai/ai_example.js';
-import { getValidMoves } from '../../src/engine/StateManager.js';
-import { replayToState } from '../../src/arena/replayFormat.js';
+import { getValidMoves, applyAction } from '../../src/engine/StateManager.js';
+import { createGame } from '../../src/engine/GameRunner.js';
 import {
   STOP,
-  trajectoryStepFromReplay,
   trajectoryFromReplay,
   serializeTrajectory,
   deserializeTrajectory,
@@ -255,16 +254,21 @@ describe('encodeStep — action mask matches getValidMoves (the encoding invaria
   });
 
   it('encodes exactly getValidMoves(state) + STOP at every decision, with the label on the applied move', () => {
-    for (let i = 0; i < record.actions.length; i++) {
-      const state = replayToState(record, i);
+    /*
+     * Single forward pass — O(n). trajectoryFromReplay gives every fat step in one
+     * pass; we replay the same actions independently to recompute getValidMoves at
+     * each decision's pre-action state. (Re-deriving per index via replayToState is
+     * O(n²) and times out under CI's coverage instrumentation.)
+     */
+    const steps = trajectoryFromReplay(record);
+    let state = createGame(record.config);
+    for (let i = 0; i < steps.length; i++) {
+      const action = record.actions[i];
       const validKey = new Set(getValidMoves(state).map(m => `${m.from}->${m.to}`));
-
-      const step = trajectoryStepFromReplay(record, i);
-      const enc = encodeStep(step, ctx);
+      const enc = encodeStep(steps[i], ctx);
 
       // exactly one STOP edge, always last
-      const stopRows = enc.edges.filter(e => e[3] === 1);
-      expect(stopRows).toHaveLength(1);
+      expect(enc.edges.filter(e => e[3] === 1)).toHaveLength(1);
       expect(enc.edges[enc.edges.length - 1][3]).toBe(1);
       expect(enc.mask.every(m => m === 1)).toBe(true);
 
@@ -276,12 +280,13 @@ describe('encodeStep — action mask matches getValidMoves (the encoding invaria
       expect(enc.edges.length).toBe(validKey.size + 1);
 
       // the label points at the move actually applied at this step
-      const action = record.actions[i];
       if (action.type === 'END_TURN') {
         expect(enc.edges[enc.label][3]).toBe(1);
       } else {
         expect(enc.edgeIndex[enc.label]).toEqual([action.from, action.to]);
       }
+
+      state = applyAction(state, action);
     }
   });
 

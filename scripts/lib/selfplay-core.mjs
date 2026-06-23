@@ -20,7 +20,7 @@
  *   2. {@link forcedEndReason} — the D-14 data-quality filter. A self-play game
  *      is *quarantined* (its trajectory dropped, not written) when any bot's
  *      `errors`, `invalidMoves`, or `maxMovesHit` counter on `MatchResult.botStats`
- *      is > 0. These are the four forced-turn-end signals the lean record cannot
+ *      is > 0. These are the three forced-turn-end signals the lean record cannot
  *      self-describe (a forced END_TURN is recorded as a voluntary STOP — D-14);
  *      enforcement lives *here*, at the data-gen boundary, not in the per-step
  *      record.
@@ -87,6 +87,46 @@ export function resolveBotsByName(names) {
     }
     return { id: bot.id, name: bot.name, fn: bot.fn };
   });
+}
+
+/**
+ * Build a contiguous seed range `[start, start+count)` as an array.
+ *
+ * @param {number} start - First seed
+ * @param {number} count - Number of seeds
+ * @returns {number[]}
+ */
+export function rangeToSeeds(start, count) {
+  const seeds = new Array(count);
+  for (let i = 0; i < count; i++) seeds[i] = start + i;
+  return seeds;
+}
+
+/**
+ * Split `[start, start+count)` into `n` contiguous ascending blocks, spreading
+ * the remainder over the first blocks. Contiguous + ascending so concatenating
+ * each worker's part-file in worker order reproduces strict seed order on disk —
+ * the lossless cross-machine merge story (D-13). Zero-size blocks are skipped, so
+ * `n > count` yields `count` singletons rather than empty chunks.
+ *
+ * @param {number} start - First seed
+ * @param {number} count - Total seeds to split
+ * @param {number} n - Number of blocks (workers)
+ * @returns {number[][]} Up to `n` contiguous ascending seed blocks
+ */
+export function chunkSeeds(start, count, n) {
+  const base = Math.floor(count / n);
+  const rem = count % n;
+  const chunks = [];
+  let next = start;
+  for (let w = 0; w < n; w++) {
+    const size = base + (w < rem ? 1 : 0);
+    if (size > 0) {
+      chunks.push(rangeToSeeds(next, size));
+      next += size;
+    }
+  }
+  return chunks;
 }
 
 /**
@@ -247,6 +287,9 @@ function percentile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
 }
 
+/** Cap on distinct failure-message groups surfaced by {@link aggregateStats}. */
+const FAILURE_SAMPLE_LIMIT = 5;
+
 /**
  * @typedef {Object} SelfPlayStats
  * @property {number} totalGames
@@ -255,6 +298,10 @@ function percentile(sorted, p) {
  * @property {number} failedGames       - Subset of quarantined where `runMatch` threw
  * @property {number} cleanRate         - cleanGames / totalGames (0–1)
  * @property {{errors: number, invalidMoves: number, maxMovesHit: number, failed: number}} quarantineBySignal
+ * @property {Array<{error: string, count: number, firstSeed: number}>} failureSamples
+ *   Distinct `runMatch`-throw messages (capped at {@link FAILURE_SAMPLE_LIMIT}), each with its
+ *   occurrence count and lowest seed — so a systemic failure is diagnosable from the report,
+ *   not merely counted. Empty unless `runMatch` actually threw.
  * @property {{min: number, p50: number, mean: number, p95: number, max: number}} actionCounts - Over clean games
  * @property {Array<{name: string, wins: number, gamesPlayed: number, winRate: number, elo: number}>} bots
  *   Per-bot stats over clean games, sorted by ELO descending.
@@ -284,15 +331,39 @@ export function aggregateStats(summaries, botNames) {
 
   const quarantineBySignal = { errors: 0, invalidMoves: 0, maxMovesHit: 0, failed: 0 };
   let failedGames = 0;
+  /*
+   * Distinct runMatch-throw messages → { count, firstSeed }. Keyed by message and
+   * reduced by MIN seed so the sample is independent of summary order — the same
+   * invariant the ELO replay relies on (a shuffled `summaries` must aggregate
+   * identically).
+   */
+  const failureMessages = new Map();
   for (const s of summaries) {
     if (!s.quarantined) continue;
     if (s.failed) {
       failedGames++;
       quarantineBySignal.failed++;
+      const msg = s.error ?? 'unknown error';
+      const prev = failureMessages.get(msg);
+      if (prev) {
+        prev.count++;
+        prev.firstSeed = Math.min(prev.firstSeed, s.seed);
+      } else {
+        failureMessages.set(msg, { count: 1, firstSeed: s.seed });
+      }
     } else if (s.quarantineSignal && s.quarantineSignal in quarantineBySignal) {
       quarantineBySignal[s.quarantineSignal]++;
     }
   }
+
+  /*
+   * Most frequent first, ties broken by lowest seed; capped so a pathological run
+   * with thousands of distinct messages can't flood the report.
+   */
+  const failureSamples = [...failureMessages.entries()]
+    .map(([error, { count, firstSeed }]) => ({ error, count, firstSeed }))
+    .sort((a, b) => b.count - a.count || a.firstSeed - b.firstSeed)
+    .slice(0, FAILURE_SAMPLE_LIMIT);
 
   const ratings = {};
   const wins = {};
@@ -337,6 +408,7 @@ export function aggregateStats(summaries, botNames) {
     failedGames,
     cleanRate: totalGames > 0 ? +(clean.length / totalGames).toFixed(4) : 0,
     quarantineBySignal,
+    failureSamples,
     actionCounts: {
       min: actionCountsSorted[0] ?? 0,
       p50: Math.round(percentile(actionCountsSorted, 50)),

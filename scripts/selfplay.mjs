@@ -49,6 +49,8 @@ import {
   generateShard,
   aggregateStats,
   makeFileWriter,
+  chunkSeeds,
+  rangeToSeeds,
 } from './lib/selfplay-core.mjs';
 import { getArg, hasFlag, colors } from './lib/cli-utils.mjs';
 
@@ -281,6 +283,23 @@ function report(stats, { elapsed: elapsedSec, workers: nWorkers }) {
     `  Clean: ${stats.cleanGames} (${cleanPct}%) · Quarantined: ${stats.quarantinedGames}${breakdown}`
   );
 
+  /*
+   * Surface WHY games failed, not just how many: on an unattended 100k–1M-game run
+   * a bare `failed:N` is undiagnosable. Print the distinct runMatch-throw messages.
+   */
+  if (stats.failedGames > 0 && stats.failureSamples.length > 0) {
+    console.log(`  ${colors.red}runMatch threw — distinct failure messages:${colors.reset}`);
+    for (const f of stats.failureSamples) {
+      console.log(
+        `    ${colors.red}×${f.count}${colors.reset} (first seed ${f.firstSeed}): ${f.error}`
+      );
+    }
+    const sampled = stats.failureSamples.reduce((n, f) => n + f.count, 0);
+    if (stats.failedGames > sampled) {
+      console.log(`    …and ${stats.failedGames - sampled} more in other message group(s)`);
+    }
+  }
+
   const a = stats.actionCounts;
   console.log(
     `  Action-count/game (clean): min ${a.min} · p50 ${a.p50} · mean ${a.mean} · p95 ${a.p95} · max ${a.max}\n`
@@ -312,33 +331,6 @@ function report(stats, { elapsed: elapsedSec, workers: nWorkers }) {
 }
 
 // --- Helpers ---
-
-/** Build a contiguous seed range as an array. */
-function rangeToSeeds(start, count) {
-  const seeds = new Array(count);
-  for (let i = 0; i < count; i++) seeds[i] = start + i;
-  return seeds;
-}
-
-/**
- * Split [start, start+count) into `n` contiguous ascending blocks (remainder
- * spread over the first blocks). Contiguous + ascending so concatenating each
- * worker's part-file in worker order reproduces strict seed order on disk.
- */
-function chunkSeeds(start, count, n) {
-  const base = Math.floor(count / n);
-  const rem = count % n;
-  const chunks = [];
-  let next = start;
-  for (let w = 0; w < n; w++) {
-    const size = base + (w < rem ? 1 : 0);
-    if (size > 0) {
-      chunks.push(rangeToSeeds(next, size));
-      next += size;
-    }
-  }
-  return chunks;
-}
 
 /**
  * Concatenate part-files into `dest`, in order. Removing the parts is the

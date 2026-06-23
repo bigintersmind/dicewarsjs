@@ -18,6 +18,8 @@ import {
   generateShard,
   aggregateStats,
   makeFileWriter,
+  chunkSeeds,
+  rangeToSeeds,
 } from '../../scripts/lib/selfplay-core.mjs';
 import { deserializeTrajectory } from '../../src/arena/trajectoryExport.js';
 
@@ -60,6 +62,54 @@ describe('forcedEndReason (D-14 quarantine predicate)', () => {
   it('checks every seat, not just the first', () => {
     const reason = forcedEndReason([stat(), stat({ name: 'Z', invalidMoves: 4 })]);
     expect(reason).toMatchObject({ bot: 'Z', signal: 'invalidMoves' });
+  });
+});
+
+describe('resolveBotsByName', () => {
+  it('resolves known names case-insensitively to { id, name, fn }', () => {
+    const [bot] = resolveBotsByName(['strategist']);
+    expect(bot.name).toBe('Strategist');
+    expect(bot.id).toBeTruthy();
+    expect(typeof bot.fn).toBe('function');
+  });
+
+  it('throws a helpful error listing the available bots for an unknown name', () => {
+    expect(() => resolveBotsByName(['NotABot'])).toThrow(/Unknown bot "NotABot"/);
+    // The message names the valid options so the operator can self-correct.
+    expect(() => resolveBotsByName(['NotABot'])).toThrow(/Available:.*Strategist/);
+  });
+});
+
+describe('chunkSeeds / rangeToSeeds (D-13 seed-range sharding)', () => {
+  it('builds a contiguous ascending seed range', () => {
+    expect(rangeToSeeds(5, 4)).toEqual([5, 6, 7, 8]);
+    expect(rangeToSeeds(1, 1)).toEqual([1]);
+    expect(rangeToSeeds(10, 0)).toEqual([]);
+  });
+
+  it('splits evenly when the count divides by the worker count', () => {
+    expect(chunkSeeds(1, 6, 3)).toEqual([
+      [1, 2],
+      [3, 4],
+      [5, 6],
+    ]);
+  });
+
+  it('spreads the remainder over the first blocks, staying contiguous and ascending', () => {
+    expect(chunkSeeds(1, 10, 3)).toEqual([
+      [1, 2, 3, 4],
+      [5, 6, 7],
+      [8, 9, 10],
+    ]);
+  });
+
+  it('concatenates back to the original strict-ascending range (lossless merge)', () => {
+    const flat = chunkSeeds(100, 17, 4).flat();
+    expect(flat).toEqual(rangeToSeeds(100, 17));
+  });
+
+  it('skips zero-size blocks when workers exceed the seed count (no empty chunks)', () => {
+    expect(chunkSeeds(1, 2, 5)).toEqual([[1], [2]]);
   });
 });
 
@@ -257,6 +307,23 @@ describe('aggregateStats (deterministic ELO/stats post-pass)', () => {
       maxMovesHit: 0,
       failed: 1,
     });
+    // The failed game's message is surfaced (not just counted) for diagnosability.
+    expect(stats.failureSamples).toEqual([{ error: 'boom', count: 1, firstSeed: 5 }]);
+  });
+
+  it('aggregates failures by message (count + lowest seed), most frequent first', () => {
+    const withFailures = [
+      { seed: 7, quarantined: true, failed: true, error: 'boom' },
+      { seed: 2, quarantined: true, failed: true, error: 'boom' },
+      { seed: 9, quarantined: true, failed: true, error: 'kaboom' },
+    ];
+    const stats = aggregateStats(withFailures, botNames);
+    expect(stats.failedGames).toBe(3);
+    // 'boom' collapses to one group (count 2, lowest seed 2) and outranks the rarer 'kaboom'.
+    expect(stats.failureSamples).toEqual([
+      { error: 'boom', count: 2, firstSeed: 2 },
+      { error: 'kaboom', count: 1, firstSeed: 9 },
+    ]);
   });
 
   it('ranks the consistent winner first by ELO and reports win rate over clean games', () => {

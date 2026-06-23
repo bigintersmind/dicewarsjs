@@ -74,6 +74,24 @@ def test_split_by_game_no_leakage(tmp_path):
     assert len(val_games) == 1  # round(3 * 0.34) == 1
 
 
+def test_integrity_rejects_out_of_range_label(tmp_path):
+    corpus = default_corpus(tmp_path / "c")
+    labels = np.fromfile(corpus / "labels.i32", dtype="<i4")
+    labels[0] = 999  # far outside step 0's edge slice
+    labels.tofile(corpus / "labels.i32")
+    with pytest.raises(ValueError, match="out of range"):
+        CorpusDataset(corpus)
+
+
+def test_integrity_rejects_empty_segment(tmp_path):
+    corpus = default_corpus(tmp_path / "c")
+    offsets = np.fromfile(corpus / "edge_offsets.i32", dtype="<i4")
+    offsets[1] = offsets[0]  # step 0 now owns zero edges (no STOP)
+    offsets.tofile(corpus / "edge_offsets.i32")
+    with pytest.raises(ValueError, match=">=1"):
+        CorpusDataset(corpus)
+
+
 def test_split_val_frac_zero(tmp_path):
     corpus = default_corpus(tmp_path / "c")
     ds = CorpusDataset(corpus)

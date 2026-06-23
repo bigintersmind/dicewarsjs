@@ -31,29 +31,38 @@ INPUT_NAMES = ["nodes", "players", "board", "edge_feat", "edge_from", "edge_to",
 OUTPUT_NAMES = ["edge_logits", "value"]
 
 
-def _example_inputs(config: ModelConfig, n_edges: int = 6, seed: int = 0):
-    """A single valid decision step (B=1, ``n_edges`` legal moves incl. STOP).
+def _make_example(config: ModelConfig, edge_counts, n_seats=None, seed: int = 0):
+    """A structurally valid ``B``-step batch (``B = len(edge_counts)``).
 
-    Random feature values, but structurally valid: a present-mask, in-range
-    territory ids, and a trailing STOP edge — enough to trace the graph and to
-    drive a meaningful PyTorch-vs-ORT parity check.
+    Each step gets ``edge_counts[i]`` legal moves with a trailing STOP edge.
+    Random feature values, but valid: a present-mask, in-range territory ids, a
+    STOP edge per step (ids → sentinel 0). ``n_seats`` defaults to
+    ``config.player_count``; pass a different value to exercise the dynamic seat
+    axis. Used both to trace the graph (B=1) and to drive PyTorch-vs-ORT parity
+    at B=1 and B>1 (so the cross-step ``edge_batch`` gather is actually checked).
     """
     g = torch.Generator().manual_seed(seed)
-    a, p = config.max_areas, 7  # player_count isn't on config; globals width is from features
-    # players height is data-defined, not on ModelConfig; infer a plausible 7 for the example.
-    nodes = torch.rand(1, a, config.node_features, generator=g)
-    nodes[..., EdgePolicyNet.PRESENT_COL] = (torch.rand(1, a, generator=g) > 0.3).float()
-    players = torch.rand(1, p, config.player_features, generator=g)
-    board = torch.rand(1, config.board_features, generator=g)
+    a = config.max_areas
+    p = config.player_count if n_seats is None else n_seats
+    b = len(edge_counts)
 
-    edge_feat = torch.rand(n_edges, config.edge_features, generator=g)
-    edge_feat[-1] = torch.tensor([0.0, 0.0, 0.0, 1.0])  # STOP edge (isStop=1)
-    # Valid in-range territory ids; STOP references the sentinel node 0.
-    edge_from = torch.randint(1, a, (n_edges,), generator=g)
-    edge_to = torch.randint(1, a, (n_edges,), generator=g)
-    edge_from[-1] = 0
-    edge_to[-1] = 0
-    edge_batch = torch.zeros(n_edges, dtype=torch.int64)
+    nodes = torch.rand(b, a, config.node_features, generator=g)
+    nodes[..., EdgePolicyNet.PRESENT_COL] = (torch.rand(b, a, generator=g) > 0.3).float()
+    players = torch.rand(b, p, config.player_features, generator=g)
+    board = torch.rand(b, config.board_features, generator=g)
+
+    total = sum(edge_counts)
+    edge_feat = torch.rand(total, config.edge_features, generator=g)
+    edge_from = torch.randint(1, a, (total,), generator=g)
+    edge_to = torch.randint(1, a, (total,), generator=g)
+    # Mark each step's LAST edge as STOP (isStop=1, ids → sentinel node 0).
+    ends = torch.tensor(edge_counts).cumsum(0).tolist()
+    for end in ends:
+        i = end - 1
+        edge_feat[i] = torch.tensor([0.0, 0.0, 0.0, 1.0])
+        edge_from[i] = 0
+        edge_to[i] = 0
+    edge_batch = torch.repeat_interleave(torch.arange(b), torch.tensor(edge_counts))
     return (nodes, players, board, edge_feat, edge_from, edge_to, edge_batch)
 
 
@@ -64,13 +73,16 @@ def export(ckpt_path: str | Path, out_path: str | Path, opset: int = 17) -> Path
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
 
-    example = _example_inputs(config)
+    example = _make_example(config, [6])  # B=1 single step, for tracing
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Both the seat axis (players dim 1) and edge count are per-game dynamic — the
+    # net is seat-count-agnostic (mean-pool over seats), so the export must not
+    # freeze either. Batch is dynamic for the B>1 parity check below.
     dynamic_axes = {
         "nodes": {0: "batch"},
-        "players": {0: "batch"},
+        "players": {0: "batch", 1: "players"},
         "board": {0: "batch"},
         "edge_feat": {0: "edges"},
         "edge_from": {0: "edges"},
@@ -92,35 +104,46 @@ def export(ckpt_path: str | Path, out_path: str | Path, opset: int = 17) -> Path
     )
     print(f"Exported ONNX → {out_path}")
 
-    _check_parity(model, example, out_path)
+    # Check parity at B=1 (the inference shape) AND B=2 — the latter is the only
+    # case that exercises the cross-step `edge_batch * A` gather offset (it
+    # vanishes at B=1) and confirms the dynamic batch/seat axes re-resolve.
+    _check_parity(
+        model,
+        out_path,
+        [
+            ("B=1 single step", example),
+            ("B=2 multi-step", _make_example(config, [4, 5], seed=1)),
+        ],
+    )
     _write_sidecar(out_path, ckpt, config, opset)
     return out_path
 
 
-def _check_parity(model, example, out_path: Path) -> None:
-    """Assert onnxruntime reproduces PyTorch's outputs (the cross-bridge gate)."""
+def _check_parity(model, out_path: Path, examples) -> None:
+    """Assert onnxruntime reproduces PyTorch's outputs (the cross-bridge gate),
+    across each labeled (name, inputs) example."""
     try:
         import onnxruntime as ort
     except ImportError:
         print("onnxruntime not installed — skipping the ORT parity check (install ml[onnx]).")
         return
 
-    with torch.no_grad():
-        torch_logits, torch_value = model(*example)
-
     sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
-    feeds = {name: t.numpy() for name, t in zip(INPUT_NAMES, example)}
-    ort_logits, ort_value = sess.run(OUTPUT_NAMES, feeds)
-
-    logit_err = float(np.abs(ort_logits - torch_logits.numpy()).max())
-    value_err = float(np.abs(ort_value - torch_value.numpy()).max())
     tol = 1e-4
-    if logit_err > tol or value_err > tol:
-        raise RuntimeError(
-            f"ONNX/PyTorch parity FAILED: max |Δlogits|={logit_err:.2e}, "
-            f"max |Δvalue|={value_err:.2e} (tol {tol:.0e})."
-        )
-    print(f"ORT parity OK: max |Δlogits|={logit_err:.2e}, max |Δvalue|={value_err:.2e}")
+    for label, example in examples:
+        with torch.no_grad():
+            torch_logits, torch_value = model(*example)
+        feeds = {name: t.numpy() for name, t in zip(INPUT_NAMES, example)}
+        ort_logits, ort_value = sess.run(OUTPUT_NAMES, feeds)
+
+        logit_err = float(np.abs(ort_logits - torch_logits.numpy()).max())
+        value_err = float(np.abs(ort_value - torch_value.numpy()).max())
+        if logit_err > tol or value_err > tol:
+            raise RuntimeError(
+                f"ONNX/PyTorch parity FAILED on {label}: max |Δlogits|={logit_err:.2e}, "
+                f"max |Δvalue|={value_err:.2e} (tol {tol:.0e})."
+            )
+        print(f"ORT parity OK ({label}): max |Δlogits|={logit_err:.2e}, max |Δvalue|={value_err:.2e}")
 
 
 def _write_sidecar(out_path: Path, ckpt: dict, config: ModelConfig, opset: int) -> None:

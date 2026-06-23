@@ -18,8 +18,9 @@ import torch
 import torch.nn.functional as F
 
 
-def _segment_ids(edge_offsets: torch.Tensor, total_edges: int) -> torch.Tensor:
-    """Per-edge step id (0..B-1) from per-batch CSR offsets [B+1]."""
+def _segment_ids(edge_offsets: torch.Tensor) -> torch.Tensor:
+    """Per-edge step id (0..B-1) from per-batch CSR offsets [B+1]. The result has
+    length ``edge_offsets[-1]`` (= total edges) by construction."""
     counts = edge_offsets[1:] - edge_offsets[:-1]
     return torch.repeat_interleave(
         torch.arange(counts.shape[0], device=edge_offsets.device), counts
@@ -52,7 +53,7 @@ def segmented_nll_per_step(
     at least the STOP edge, so no segment is empty.
     """
     num_steps = labels.shape[0]
-    seg = _segment_ids(edge_offsets, edge_logits.shape[0])
+    seg = _segment_ids(edge_offsets)
 
     # Per-segment max (stability), then logsumexp within each segment.
     seg_max = torch.full((num_steps,), float("-inf"), device=edge_logits.device)
@@ -75,7 +76,7 @@ def segmented_argmax_local(
     usable on full eval batches.
     """
     num_steps = edge_offsets.shape[0] - 1
-    seg = _segment_ids(edge_offsets, edge_logits.shape[0])
+    seg = _segment_ids(edge_offsets)
 
     seg_max = torch.full((num_steps,), float("-inf"), device=edge_logits.device)
     seg_max = seg_max.scatter_reduce(0, seg, edge_logits, reduce="amax", include_self=True)

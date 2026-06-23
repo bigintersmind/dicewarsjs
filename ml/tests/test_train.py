@@ -33,6 +33,7 @@ def test_train_one_epoch_writes_checkpoint(tmp_path):
     assert ckpt["encoding_version"] == 1
     assert ckpt["teacher"] == "Lookahead"
     assert ckpt["config"]["max_areas"] == 6
+    assert ckpt["config"]["player_count"] == 2  # carried from the manifest for the ONNX export
     assert "state_dict" in ckpt
     assert 0.0 <= ckpt["val_accuracy"] <= 1.0
 

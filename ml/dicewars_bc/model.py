@@ -47,6 +47,10 @@ class ModelConfig:
     player_features: int
     board_features: int
     edge_features: int
+    # Seat count of the corpus this model targets. The net is seat-count-agnostic
+    # (mean-pool over seats), so this is metadata only — used to size the ONNX
+    # export example and stamp the contract. Defaults to the engine default (7).
+    player_count: int = 7
     node_hidden: int = 64
     player_hidden: int = 32
     context_hidden: int = 128
@@ -60,6 +64,7 @@ class ModelConfig:
             player_features=m.player_features,
             board_features=m.board_features,
             edge_features=m.edge_features,
+            player_count=m.player_count,
             **overrides,
         )
 

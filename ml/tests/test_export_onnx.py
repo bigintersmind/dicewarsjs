@@ -74,6 +74,34 @@ def test_onnx_dynamic_edges_axis(tmp_path):
         assert value.shape == (1, 2)
 
 
+def test_onnx_dynamic_players_axis(tmp_path):
+    """The exported graph accepts a seat count different from the trace — the model
+    mean-pools over seats, so the seat axis must stay dynamic (regression for the
+    seat-axis-frozen-at-7 bug)."""
+    ckpt_path, config = _make_checkpoint(tmp_path)  # config.player_count defaults to 7
+    onnx_path = tmp_path / "bc_policy.onnx"
+    export(ckpt_path, onnx_path)
+
+    sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    a = config.max_areas
+    n_edges = 5
+    for n_seats in (2, 4, 8):  # the trace used config.player_count (7)
+        nodes = np.random.rand(1, a, 5).astype(np.float32)
+        nodes[..., 0] = 1.0
+        feeds = {
+            "nodes": nodes,
+            "players": np.random.rand(1, n_seats, 6).astype(np.float32),
+            "board": np.random.rand(1, 5).astype(np.float32),
+            "edge_feat": np.random.rand(n_edges, 4).astype(np.float32),
+            "edge_from": np.random.randint(0, a, n_edges).astype(np.int64),
+            "edge_to": np.random.randint(0, a, n_edges).astype(np.int64),
+            "edge_batch": np.zeros(n_edges, dtype=np.int64),
+        }
+        edge_logits, value = sess.run(OUTPUT_NAMES, feeds)
+        assert edge_logits.shape == (n_edges,)
+        assert value.shape == (1, 2)
+
+
 def test_onnx_matches_torch_on_a_real_step(tmp_path):
     """Independent ORT-vs-PyTorch check on a freshly built single step."""
     ckpt_path, config = _make_checkpoint(tmp_path)

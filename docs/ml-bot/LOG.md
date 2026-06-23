@@ -65,8 +65,22 @@ Entry template:
 
 **Dead ends / surprises:**
 
-- None structural. (A hand-computed expected value in one loss test had a sign slip;
-  the cross-check against `torch.cross_entropy` caught it — implementation was right.)
+- A hand-computed expected value in one loss test had a sign slip; the cross-check
+  against `torch.cross_entropy` caught it — implementation was right.
+- **Adversarial verification pass (5-dimension multi-agent review) caught a real
+  high-severity export bug:** `export_onnx.py` hardcoded the player/seat axis to 7 and
+  only marked the batch axis dynamic, so the exported graph **froze the seat count at
+  7** while the sidecar advertised it as dynamic — a model trained on a non-7p corpus
+  would have rejected its own inference shape. Fixed: `player_count` now flows
+  `manifest → ModelConfig → checkpoint → export example`, and the seat axis is marked
+  dynamic (the net mean-pools over seats, so it was already seat-agnostic). Also added a
+  **B=2 parity check** (the B=1 case never exercised the cross-step `edge_batch*A`
+  gather), one-time **corpus integrity validation** at load (catches a dropped STOP /
+  out-of-range label loudly instead of an `-inf` loss), and dropped a dead loss param.
+  Re-verified on the real corpus: B=1 + B=2 ORT parity green, graph accepts 2/3/5/8
+  seats. (Benign producer-side finding deferred: `encode-corpus.mjs` `counts.games` can
+  over-count games with a teacher seat but zero emitted steps — the loader uses
+  `np.unique(meta)`, so no leakage; a follow-up nit.)
 
 **Next:**
 

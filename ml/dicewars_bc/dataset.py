@@ -61,6 +61,40 @@ class CorpusDataset(Dataset):
         self.value = _memmap(m, "value.f32")
         self.meta = _memmap(m, "meta.i32")
 
+        self._validate_integrity()
+
+    def _validate_integrity(self) -> None:
+        """One-time corpus sanity checks at load — cheap (only the small i32 index
+        arrays are read fully). Turns a contract break (a dropped STOP edge, an
+        out-of-range label, a truncated/non-CSR offset array) into a loud error at
+        the seam, rather than an ``-inf`` loss or a silent neighbor-row read deep in
+        training (the segmented loss assumes every step has >=1 edge and a
+        per-slice-local label)."""
+        offsets = np.asarray(self.edge_offsets, dtype=np.int64)
+        labels = np.asarray(self.labels, dtype=np.int64)
+        total_edges = self.edges.shape[0]
+
+        if offsets[0] != 0:
+            raise ValueError(f"edge_offsets[0] must be 0, got {offsets[0]}.")
+        if offsets[-1] != total_edges:
+            raise ValueError(
+                f"edge_offsets[-1]={offsets[-1]} != edges row count {total_edges} — truncated/corrupt corpus."
+            )
+        counts = np.diff(offsets)
+        if counts.size and counts.min() < 1:
+            bad = int(np.argmin(counts))
+            raise ValueError(
+                f"step {bad} has {int(counts[bad])} edges — every step must have >=1 (the trailing "
+                f"STOP edge). A dropped STOP would silently mis-index the segmented loss."
+            )
+        out_of_range = (labels < 0) | (labels >= counts)
+        if out_of_range.any():
+            bad = int(np.argmax(out_of_range))
+            raise ValueError(
+                f"label {int(labels[bad])} at step {bad} is out of range [0, {int(counts[bad])}) "
+                f"for its edge slice — labels must be LOCAL chosen-edge indices."
+            )
+
     def __len__(self) -> int:
         return self.manifest.steps
 

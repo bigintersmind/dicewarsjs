@@ -159,15 +159,15 @@ export function deserializeReplay(encoded) {
   let json;
   try {
     json = decodeURIComponent(escape(atob(encoded)));
-  } catch {
-    throw new Error('Invalid replay data: could not decode');
+  } catch (err) {
+    throw new Error(`Invalid replay data: could not decode — ${err.message}`, { cause: err });
   }
 
   let replay;
   try {
     replay = JSON.parse(json);
-  } catch {
-    throw new Error('Invalid replay data: malformed JSON');
+  } catch (err) {
+    throw new Error(`Invalid replay data: malformed JSON — ${err.message}`, { cause: err });
   }
 
   if (!replay || typeof replay !== 'object') {

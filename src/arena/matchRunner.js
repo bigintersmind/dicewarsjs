@@ -65,10 +65,15 @@ const DEFAULT_MAX_TURNS = 500;
  * @param {string}   botName - For logging
  * @param {Object}   stats - Mutable stats accumulator { attacks, wins }
  * @param {(step: import('./trajectoryExport.js').TrajectoryStep) => void} [onStep] - Optional
- *   per-decision callback. Fires once for every action actually applied — each
- *   successful ATTACK (with its outcome) and the turn-ending STOP — and never
- *   for rejected/invalid moves or bot errors. Captures the observation *before*
- *   the action, independently of `state.history`, so it survives training mode.
+ *   per-decision callback. Fires once per *applied* ATTACK (with its outcome) and
+ *   exactly once at turn end with a STOP step — never for an individual rejected or
+ *   invalid attack. The turn-end STOP fires on *every* non-GAME_OVER exit of the move
+ *   loop, so it covers both a voluntary stop (bot returns null) and a forced end (bot
+ *   error / MAX_CONSECUTIVE_INVALID / MAX_MOVES_PER_TURN); all are recorded as a
+ *   voluntary STOP and are NOT distinguished here (see the `TrajectoryStep` typedef
+ *   for why, and the task-5 data-gen filter for where forced ends are dropped — D-14).
+ *   Captures the observation *before* the action, independently of `state.history`,
+ *   so it survives training mode.
  * @returns {import('../engine/types.js').GameState}
  */
 function runBotTurn(state, botFn, botName, stats, onStep) {
@@ -141,8 +146,16 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
   if (currentState.phase !== GAME_PHASES.GAME_OVER) {
     if (onStep) {
       /*
-       * The bot chose to stop (or the turn was force-ended) while attacks may
-       * still have been legal — the STOP training example.
+       * Turn ended short of GAME_OVER — emit the STOP training example. This fires
+       * for EVERY non-terminal exit of the loop above: a voluntary stop (move ===
+       * null) AND a forced end (bot error / MAX_CONSECUTIVE_INVALID / MAX_MOVES_PER_TURN).
+       * We deliberately record all of them as a single voluntary STOP label
+       * (explicit-(c), D-14): it keeps the lean action list pure and round-trippable,
+       * and matches the teacher's true behavior at the ~0% forced-end rate. Forced ends
+       * are NOT marked on the step; the task-5 self-play harness filters them at
+       * consumption, where the signals already live — botStats.errors/.invalidMoves > 0
+       * quarantines the whole game, and a turn of length === MAX_MOVES_PER_TURN drops
+       * that turn's STOP label. (See the TrajectoryStep typedef + PLAN task 5.)
        */
       const observation = createBotState(currentState, playerId);
       onStep({
@@ -241,8 +254,23 @@ export function runMatch(config) {
   while (state.phase !== GAME_PHASES.GAME_OVER && turnCount < maxTurns) {
     const currentPlayerId = state.turnOrder[state.currentPlayerIndex];
 
-    // Skip eliminated players (engine should handle this, but be safe)
+    /*
+     * Skip eliminated players. The engine's nextTurn already skips eliminated
+     * players, so this branch is defensive dead code in normal play. But this
+     * applyAction does NOT flow through runBotTurn's onStep, so if it fired with
+     * trajectory capture active it would advance the engine by an END_TURN that is
+     * absent from the recorded action list — silently desyncing re-derivation from
+     * live capture. Fail loudly in that case rather than corrupt training data; keep
+     * the harmless defensive skip for the no-recorder path. (See D-14.)
+     */
     if (state.players[currentPlayerId].eliminated) {
+      if (stepHandler) {
+        throw new Error(
+          `[Match] reached eliminated player ${currentPlayerId} mid-game with trajectory ` +
+            `recording active — engine turn-advance invariant violated; aborting to avoid a ` +
+            `desynced trajectory.`
+        );
+      }
       try {
         state = applyAction(state, { type: ACTION_TYPES.END_TURN });
       } catch (err) {

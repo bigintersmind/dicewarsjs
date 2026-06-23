@@ -184,7 +184,7 @@ _parallel_ self-play environment. No learning yet.
       directly and never touches this chain ([D-13]).
 - [x] **(4) Trajectory export** (`src/arena/trajectoryExport.js`, beside
       `replayFormat.js`). **Landed.** Per-step `{observation: BotState, legalMoves
-    (getValidMoves + an explicit STOP), chosenMove, outcome}` + terminal
+  (getValidMoves + an explicit STOP), chosenMove, outcome}` + terminal
       `{winner, placements, turnCount}`. Hooked via an `onStep`/`recordTrajectory`
       option threaded `runMatch → runBotTurn`: observation captured **before**
       `applyAction`, outcome after, **rejected/invalid moves skipped**, STOP tuple
@@ -217,6 +217,12 @@ _parallel_ self-play environment. No learning yet.
       (`--seed-start`/`--seed-count`/`--out`) so the JSONL concatenates losslessly
       across machines — data-gen fans out across all cores on every available machine,
       not one box (engine determinism + game independence make the merge clean — [D-13]).
+      **Data-quality filter at consumption — this harness owns forced-end cleanup
+      ([D-14]).** Task-4 records every turn-end as a voluntary STOP (explicit-(c)); the
+      rare forced ends are dropped here, where the signals already live: a game with
+      `botStats.errors`/`invalidMoves > 0` is **quarantined** (teacher misbehaved — <0.1%
+      of games), and a turn whose length === `MAX_MOVES_PER_TURN` has its STOP label
+      **flagged/dropped**. Keeps the lean record pure; no per-action markers in the format.
 
 **Acceptance criteria.**
 

@@ -158,6 +158,31 @@ describe('createTrajectoryRecorder', () => {
     expect(out.metadata.placements).toEqual([0, 2, 1]);
     expect(out.metadata.bots).toEqual(['A', 'B', 'C']);
   });
+
+  it('toRecord throws if finalize() was not called (guards against a falsely-null reward)', () => {
+    const rec = createTrajectoryRecorder();
+    rec.onStep({
+      playerId: 0,
+      turnNumber: 1,
+      observation: {},
+      legalMoves: [STOP],
+      chosenMove: STOP,
+      outcome: null,
+    });
+    expect(() =>
+      rec.toRecord({
+        config: {
+          seed: 1,
+          playerCount: 3,
+          mapWidth: 28,
+          mapHeight: 32,
+          maxAreas: 32,
+          dicePerArea: 3,
+        },
+        botNames: ['A', 'B', 'C'],
+      })
+    ).toThrow(/before finalize/);
+  });
 });
 
 describe('serializeTrajectory / deserializeTrajectory', () => {
@@ -195,6 +220,27 @@ describe('serializeTrajectory / deserializeTrajectory', () => {
 
   it('rejects malformed JSON', () => {
     expect(() => deserializeTrajectory('{not json')).toThrow(/malformed JSON/);
+  });
+
+  it('rejects a non-object JSON value', () => {
+    expect(() => deserializeTrajectory('null')).toThrow(/not an object/);
+    expect(() => deserializeTrajectory('5')).toThrow(/not an object/);
+  });
+
+  it('rejects a record with a non-numeric seed', () => {
+    const record = buildRecord();
+    const bad = { ...record, config: { ...record.config, seed: 'oops' } };
+    expect(() => deserializeTrajectory(serializeTrajectory(bad))).toThrow(/seed/);
+  });
+
+  it('rejects a malformed action, naming its index', () => {
+    const record = buildRecord();
+
+    const badType = { ...record, actions: [...record.actions, { type: 'WOBBLE' }] };
+    expect(() => deserializeTrajectory(serializeTrajectory(badType))).toThrow(/invalid type/);
+
+    const badAttack = { ...record, actions: [...record.actions, { type: 'ATTACK', from: 1 }] };
+    expect(() => deserializeTrajectory(serializeTrajectory(badAttack))).toThrow(/invalid from\/to/);
   });
 });
 
@@ -295,5 +341,63 @@ describe('committed sample .jsonl fixture', () => {
       const steps = trajectoryFromReplay(record);
       expect(steps).toHaveLength(record.actions.length);
     }
+  });
+});
+
+describe('misbehaving bots & onStep wiring (D-14 / coverage gaps)', () => {
+  const strat = BUILT_IN_BOTS.find(b => b.id === 'ai_strategist');
+  const def = BUILT_IN_BOTS.find(b => b.id === 'ai_defensive');
+  const opponent = { name: strat.name, fn: strat.fn };
+
+  // Seed-pure (no Math.random) misbehaving bots, so the match stays deterministic.
+  const throwingBot = {
+    name: 'Thrower',
+    fn: () => {
+      throw new Error('boom');
+    },
+  };
+  const invalidBot = { name: 'Invalid', fn: () => ({ from: -1, to: -1 }) };
+
+  it.each([
+    ['bot errors', throwingBot],
+    ['repeated invalid moves', invalidBot],
+  ])(
+    'records only STOP steps for a bot that exits on %s — never a phantom ATTACK (D-14)',
+    (_label, badBot) => {
+      const steps = [];
+      const result = runMatch({
+        bots: [opponent, badBot],
+        seed: 4242,
+        recordTrajectory: true,
+        onStep: s => steps.push(s),
+      });
+
+      // The misbehaving bot is player index 1; it takes turns until eliminated.
+      const badSteps = steps.filter(s => s.playerId === 1);
+      expect(badSteps.length).toBeGreaterThan(0);
+      /*
+       * Every recorded decision for it is a STOP — no applied ATTACK ever reaches the
+       * action list (rejected/errored moves are skipped before applyAction).
+       */
+      expect(badSteps.every(s => s.chosenMove === STOP)).toBe(true);
+
+      /*
+       * And the lean record stays faithful: re-derivation reproduces live capture
+       * step-for-step despite the misbehavior ("one fat step per applied action").
+       */
+      expect(trajectoryFromReplay(result.trajectory)).toEqual(steps);
+    }
+  );
+
+  it('fires onStep independently of recordTrajectory (and returns no trajectory)', () => {
+    const steps = [];
+    const result = runMatch({
+      bots: [opponent, { name: def.name, fn: def.fn }],
+      seed: 77,
+      onStep: s => steps.push(s),
+    });
+
+    expect(steps.length).toBeGreaterThan(0);
+    expect(result.trajectory).toBeUndefined();
   });
 });

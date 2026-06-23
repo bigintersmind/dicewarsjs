@@ -470,6 +470,44 @@ complexity we don't need; one GPU box suffices for the planned (small) net sizes
 
 ---
 
+## D-14 — Forced turn-ends are recorded as voluntary STOP; data-quality enforcement lives at the task-5 data-gen boundary, not in the per-step record · Accepted (2026-06-22) · follows [D-13](#d-13--compute-topology-distribute-data-gen-across-machines-seed-range-shards-train-on-the-gpu-box)
+
+**Context.** The trajectory recorder (task 4) emits a STOP training step at every
+non-`GAME_OVER` turn end. The match harness ends a turn for four reasons: the bot
+voluntarily returns null, the bot throws, it emits `MAX_CONSECUTIVE_INVALID` bad moves,
+or it hits the `MAX_MOVES_PER_TURN` cap. The recorder cannot tell these apart from the
+applied action alone — all four produce an identical `END_TURN`. Recording the forced
+three as a "the policy chose to STOP" label is a mislabeled imitation target. PR-#42
+review (three independent reviewers) flagged that the code was _silently_ doing this.
+
+**Decision — explicit-(c) now, filter at the data-gen boundary later.**
+
+- **PR #42 (task 4): explicit, comment-only.** Keep recording every `END_TURN` as a
+  voluntary STOP (option (c)), but say so loudly — at the STOP emit site, in the
+  `runBotTurn` `onStep` JSDoc, and in the `TrajectoryStep` typedef. No behavior change;
+  the lean action list stays pure and the `rederived === live` round-trip is untouched.
+- **Task 5 (self-play harness): filter at consumption**, because every problematic case
+  is detectable there without touching the per-step record:
+  - bot-error / repeated-invalid (cases 2–3) → `MatchResult.botStats[teacher].errors`
+    or `.invalidMoves > 0` ⇒ **quarantine the whole game** (loses <0.1% of games for a
+    well-behaved teacher).
+  - force-end at the cap (case 4) → derivable from turn length === `MAX_MOVES_PER_TURN`
+    ⇒ **drop/flag that turn's STOP label**.
+
+**Why.** The signals already live at the data-gen boundary, which is the layer that
+actually owns "is this game clean enough to train on." Pushing enforcement there keeps
+the canonical lean format pure and exactly round-trippable, matches the real ~0%
+frequency, and adds zero moving parts to the recorder / matchRunner / re-derivation.
+
+**Rejected.** (d) A per-action forced-end marker in the lean record — the "correct,"
+self-describing fix, but it bloats the canonical format and adds coordinated changes
+across recorder + matchRunner + re-derivation for a case the `ai_lookahead` teacher
+essentially never hits. **Escape hatch if we later train on a noisier teacher:** a tiny
+`metadata.forcedEndTurns: number[]` (action indices, usually empty) — keeps the action
+list pure and the round-trip intact — is preferred over per-action flags. Not built now.
+
+---
+
 ## D-Encoding — MDP / state / action / reward shape · Proposed (2026-06-21)
 
 **Proposed (finalize in Phase 2).**

@@ -2,6 +2,7 @@ import { runArena } from '../../src/arena/arenaRunner.js';
 import { adaptLegacyBot } from '../../src/arena/legacyBotAdapter.js';
 import { ai_example } from '../../src/ai/ai_example.js';
 import { ai_default } from '../../src/ai/ai_default.js';
+import { OBSERVATION_SCHEMA_VERSION } from '../../src/arena/trajectoryExport.js';
 
 const exampleBot = adaptLegacyBot(ai_example);
 const defaultBot = adaptLegacyBot(ai_default);
@@ -273,5 +274,55 @@ describe('runArena', () => {
      * conserved around the initial sum (1500 + 1200 = 2700)
      */
     expect(botA.elo + botB.elo).toBeCloseTo(2700, -1);
+  });
+
+  it('forwards recordTrajectory so each match result carries a trajectory record', () => {
+    const result = runArena({
+      bots: [
+        { name: 'example', fn: exampleBot },
+        { name: 'default', fn: defaultBot },
+      ],
+      gameCount: 2,
+      baseSeed: 1,
+      recordTrajectory: true,
+    });
+
+    expect(result.matches.length).toBe(2);
+    for (const m of result.matches) {
+      expect(m.trajectory).toBeDefined();
+      expect(m.trajectory.observationSchemaVersion).toBe(OBSERVATION_SCHEMA_VERSION);
+      expect(m.trajectory.actions.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('forwards onStep to each match', () => {
+    let calls = 0;
+    const result = runArena({
+      bots: [
+        { name: 'example', fn: exampleBot },
+        { name: 'default', fn: defaultBot },
+      ],
+      gameCount: 1,
+      baseSeed: 1,
+      onStep: () => {
+        calls++;
+      },
+    });
+
+    expect(result.totalGames).toBe(1);
+    expect(calls).toBeGreaterThan(0);
+  });
+
+  it('attaches no trajectory when recordTrajectory is unset', () => {
+    const result = runArena({
+      bots: [
+        { name: 'example', fn: exampleBot },
+        { name: 'default', fn: defaultBot },
+      ],
+      gameCount: 1,
+      baseSeed: 1,
+    });
+
+    expect(result.matches[0].trajectory).toBeUndefined();
   });
 });

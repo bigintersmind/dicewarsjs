@@ -57,6 +57,19 @@ export const STOP = Object.freeze({ type: ACTION_TYPES.END_TURN });
  * @property {Array<Object>} legalMoves - getValidMoves() output plus a trailing STOP sentinel
  * @property {{from:number,to:number}|{type:'END_TURN'}} chosenMove - The applied move (STOP === end turn)
  * @property {{won:boolean}|null} outcome - ATTACK result (won/lost); null for STOP
+ *
+ * STOP labels are voluntary-only by convention (explicit-(c), [D-14]). Every recorded
+ * END_TURN is stored as a *voluntary* STOP decision; the match harness ends a turn for
+ * several reasons — the bot returning null (genuine stop), a bot error, repeated invalid
+ * moves, or the `MAX_MOVES_PER_TURN` cap — and this record does NOT distinguish them
+ * (there is no per-step forced-end marker). That keeps the lean action list pure and
+ * exactly round-trippable. Forced ends are rare (~0%) for a well-behaved teacher and are
+ * filtered at consumption by the task-5 self-play harness, which owns "is this game clean
+ * enough to train on": a game with `botStats.errors`/`invalidMoves > 0` is quarantined,
+ * and a turn whose length === `MAX_MOVES_PER_TURN` has its STOP label dropped. (If we ever
+ * train on a noisier teacher and need the data to self-describe, the planned escape hatch
+ * is a `metadata.forcedEndTurns: number[]` of action indices — still leaving the action
+ * list pure — not per-action flags. See PLAN task 5 / D-14.)
  */
 
 /**
@@ -126,6 +139,7 @@ export function createTrajectoryRecorder() {
   const actions = [];
   const fatSteps = [];
   let terminal = null;
+  let finalized = false;
 
   const onStep = step => {
     const isStop = step.chosenMove === STOP || step.chosenMove?.type === ACTION_TYPES.END_TURN;
@@ -139,19 +153,33 @@ export function createTrajectoryRecorder() {
 
   const finalize = t => {
     terminal = t;
+    finalized = true;
   };
 
   const toRecord = ({ config, botNames }) => {
+    if (!finalized) {
+      /*
+       * A trajectory's reward label (winner/placements/turnCount) comes from
+       * finalize(). Without it, toRecord would silently emit winner:null/
+       * placements:null/turnCount:0 — indistinguishable on disk from a real
+       * stalemate, which is a poisoned label for a training pipeline. Fail loudly
+       * instead (runMatch always finalizes before calling toRecord).
+       */
+      throw new Error(
+        'TrajectoryRecorder.toRecord() called before finalize(): terminal reward ' +
+          'labels are unset. Finalize with the match outcome before serializing.'
+      );
+    }
     const replay = createReplayFromActions(actions, config, {
       bots: botNames,
-      winner: terminal?.winner ?? null,
-      turnCount: terminal?.turnCount ?? 0,
+      winner: terminal.winner ?? null,
+      turnCount: terminal.turnCount ?? 0,
     });
     return {
       ...replay,
       observationSchemaVersion: OBSERVATION_SCHEMA_VERSION,
       // placements is the terminal reward label — beyond a plain replay's metadata.
-      metadata: { ...replay.metadata, placements: terminal?.placements ?? null },
+      metadata: { ...replay.metadata, placements: terminal.placements ?? null },
     };
   };
 
@@ -187,8 +215,21 @@ export function createTrajectoryRecorder() {
 export function trajectoryFromReplay(replay) {
   let state = createGame(replay.config);
   const steps = [];
-  for (const action of replay.actions) {
-    const nextState = applyRecordedAction(state, action);
+  for (let i = 0; i < replay.actions.length; i++) {
+    const action = replay.actions[i];
+    let nextState;
+    try {
+      nextState = applyRecordedAction(state, action);
+    } catch (err) {
+      /*
+       * A corrupt/illegal recorded action throws deep in the engine; wrap it with
+       * the action index + action so the failure is locatable in a streamed dataset.
+       */
+      throw new Error(
+        `Trajectory re-derivation failed at action ${i} (${JSON.stringify(action)}): ${err.message}`,
+        { cause: err }
+      );
+    }
     steps.push(buildStep(state, action, nextState));
     state = nextState;
   }
@@ -238,8 +279,12 @@ export function deserializeTrajectory(line) {
   let record;
   try {
     record = JSON.parse(line);
-  } catch {
-    throw new Error('Invalid trajectory data: malformed JSON');
+  } catch (err) {
+    /*
+     * Preserve the parser's position/snippet — invaluable for locating corruption
+     * in a large streamed `.jsonl` dataset (the generic message alone is not).
+     */
+    throw new Error(`Invalid trajectory data: malformed JSON — ${err.message}`, { cause: err });
   }
 
   if (!record || typeof record !== 'object') {
@@ -254,6 +299,37 @@ export function deserializeTrajectory(line) {
   if (!record.config || !Array.isArray(record.actions) || !record.metadata) {
     throw new Error('Invalid trajectory data: missing required fields');
   }
+  /*
+   * A non-numeric seed deserializes fine but later throws opaquely inside createGame
+   * during re-derivation — reject it here, at the boundary, with a clear message.
+   */
+  if (!Number.isFinite(record.config.seed)) {
+    throw new Error(
+      `Invalid trajectory data: config.seed must be a finite number, got ${record.config.seed}`
+    );
+  }
+  /*
+   * Shape-check each action so a corrupt entry is caught at parse time (naming the
+   * index) rather than detonating deep in engine re-derivation. Range-correctness
+   * (e.g. an in-bounds-but-illegal target) is still validated by the engine via the
+   * action-indexed wrapper in trajectoryFromReplay.
+   */
+  record.actions.forEach((action, i) => {
+    if (!action || (action.type !== ACTION_TYPES.ATTACK && action.type !== ACTION_TYPES.END_TURN)) {
+      throw new Error(`Invalid trajectory data: action ${i} has invalid type ${action?.type}`);
+    }
+    if (
+      action.type === ACTION_TYPES.ATTACK &&
+      (!Number.isInteger(action.from) ||
+        action.from < 0 ||
+        !Number.isInteger(action.to) ||
+        action.to < 0)
+    ) {
+      throw new Error(
+        `Invalid trajectory data: ATTACK action ${i} has invalid from/to (${action.from}→${action.to})`
+      );
+    }
+  });
 
   return record;
 }

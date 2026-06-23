@@ -1,117 +1,117 @@
 {
-  "updatedAt": "2026-06-22T08:20:26.809Z",
-  "tournamentCount": 18,
-  "totalGamesPlayed": 1800,
+  "updatedAt": "2026-06-23T00:55:46.739Z",
+  "tournamentCount": 19,
+  "totalGamesPlayed": 1900,
   "bots": [
     {
       "name": "Lookahead",
       "author": "built-in",
-      "elo": 1381,
-      "previousElo": 1408,
-      "wins": 20,
+      "elo": 1459,
+      "previousElo": 1381,
+      "wins": 27,
       "gamesPlayed": 100,
-      "winRate": 0.2,
-      "avgPlacement": 3.59,
-      "attackWinRate": 0.821
+      "winRate": 0.27,
+      "avgPlacement": 3.04,
+      "attackWinRate": 0.836
     },
     {
       "name": "Expectimax",
       "author": "built-in",
-      "elo": 1328,
-      "previousElo": 1129,
-      "wins": 14,
+      "elo": 1326,
+      "previousElo": 1328,
+      "wins": 21,
       "gamesPlayed": 100,
-      "winRate": 0.14,
-      "avgPlacement": 3.62,
-      "attackWinRate": 0.873
+      "winRate": 0.21,
+      "avgPlacement": 3.63,
+      "attackWinRate": 0.895
     },
     {
       "name": "Strategist",
       "author": "built-in",
-      "elo": 1239,
-      "previousElo": 1354,
-      "wins": 12,
+      "elo": 1238,
+      "previousElo": 1239,
+      "wins": 13,
       "gamesPlayed": 100,
-      "winRate": 0.12,
+      "winRate": 0.13,
       "avgPlacement": 4.76,
-      "attackWinRate": 0.791
+      "attackWinRate": 0.84
+    },
+    {
+      "name": "Connector",
+      "author": "bigintersmind",
+      "elo": 1201,
+      "previousElo": 1186,
+      "wins": 4,
+      "gamesPlayed": 100,
+      "winRate": 0.04,
+      "avgPlacement": 5.68,
+      "attackWinRate": 0.902
     },
     {
       "name": "Example",
       "author": "built-in",
       "elo": 1196,
-      "previousElo": 1160,
-      "wins": 0,
+      "previousElo": 1196,
+      "wins": 2,
       "gamesPlayed": 100,
-      "winRate": 0,
-      "avgPlacement": 6.1,
-      "attackWinRate": 0.873
-    },
-    {
-      "name": "Connector",
-      "author": "bigintersmind",
-      "elo": 1186,
-      "previousElo": 1147,
-      "wins": 4,
-      "gamesPlayed": 100,
-      "winRate": 0.04,
-      "avgPlacement": 5.54,
-      "attackWinRate": 0.899
+      "winRate": 0.02,
+      "avgPlacement": 5.99,
+      "attackWinRate": 0.882
     },
     {
       "name": "Defensive",
       "author": "built-in",
-      "elo": 1184,
-      "previousElo": 1213,
-      "wins": 17,
+      "elo": 1188,
+      "previousElo": 1184,
+      "wins": 4,
       "gamesPlayed": 100,
-      "winRate": 0.17,
-      "avgPlacement": 5.19,
-      "attackWinRate": 0.749
+      "winRate": 0.04,
+      "avgPlacement": 5.63,
+      "attackWinRate": 0.802
     },
     {
       "name": "Giant Slayer",
       "author": "bigintersmind",
-      "elo": 1180,
-      "previousElo": 1212,
+      "elo": 1179,
+      "previousElo": 1180,
       "wins": 2,
       "gamesPlayed": 100,
       "winRate": 0.02,
-      "avgPlacement": 6.18,
-      "attackWinRate": 0.89
+      "avgPlacement": 5.8,
+      "attackWinRate": 0.907
     },
     {
       "name": "Adaptive",
       "author": "built-in",
-      "elo": 1153,
-      "previousElo": 1177,
-      "wins": 2,
+      "elo": 1133,
+      "previousElo": 1153,
+      "wins": 3,
       "gamesPlayed": 100,
-      "winRate": 0.02,
-      "avgPlacement": 6.11,
-      "attackWinRate": 0.88
+      "winRate": 0.03,
+      "avgPlacement": 6.13,
+      "attackWinRate": 0.889
     },
     {
       "name": "Default",
       "author": "built-in",
-      "elo": 1116,
-      "previousElo": 1114,
-      "wins": 4,
+      "elo": 1058,
+      "previousElo": 1116,
+      "wins": 3,
       "gamesPlayed": 100,
-      "winRate": 0.04,
-      "avgPlacement": 6.74,
-      "attackWinRate": 0.737
+      "winRate": 0.03,
+      "avgPlacement": 7.05,
+      "attackWinRate": 0.7
     },
     {
       "name": "Blitz",
       "author": "bigintersmind",
-      "elo": 1062,
-      "previousElo": 1104,
+      "elo": 1053,
+      "previousElo": 1062,
       "wins": 1,
       "gamesPlayed": 100,
       "winRate": 0.01,
-      "avgPlacement": 7.17,
-      "attackWinRate": 0.754
+      "avgPlacement": 7.29,
+      "attackWinRate": 0.764
     }
   ],
   "replays": [
@@ -129,8 +129,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Defensive",
-      "turns": 369
+      "winner": "Strategist",
+      "turns": 392
     },
     {
       "file": "replay-2.json",
@@ -146,8 +146,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Defensive",
-      "turns": 314
+      "winner": "Lookahead",
+      "turns": 340
     },
     {
       "file": "replay-3.json",
@@ -163,8 +163,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Defensive",
-      "turns": 296
+      "winner": "Example",
+      "turns": 194
     },
     {
       "file": "replay-4.json",
@@ -180,8 +180,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Defensive",
-      "turns": 283
+      "winner": "Strategist",
+      "turns": 188
     },
     {
       "file": "replay-5.json",
@@ -197,8 +197,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Default",
-      "turns": 206
+      "winner": "Lookahead",
+      "turns": 186
     },
     {
       "file": "replay-6.json",
@@ -214,8 +214,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Connector",
-      "turns": 206
+      "winner": "Adaptive",
+      "turns": 185
     },
     {
       "file": "replay-7.json",
@@ -231,8 +231,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Lookahead",
-      "turns": 205
+      "winner": "Strategist",
+      "turns": 183
     },
     {
       "file": "replay-8.json",
@@ -248,8 +248,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Lookahead",
-      "turns": 168
+      "winner": "Expectimax",
+      "turns": 171
     },
     {
       "file": "replay-9.json",
@@ -265,8 +265,8 @@
         "Blitz",
         "Giant Slayer"
       ],
-      "winner": "Expectimax",
-      "turns": 168
+      "winner": "Strategist",
+      "turns": 166
     },
     {
       "file": "replay-10.json",
@@ -283,7 +283,7 @@
         "Giant Slayer"
       ],
       "winner": "Defensive",
-      "turns": 167
+      "turns": 159
     }
   ]
 }

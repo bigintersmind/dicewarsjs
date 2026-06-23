@@ -21,6 +21,106 @@ Entry template:
 
 ---
 
+## 2026-06-23 — Duplicate-seat support built; pure Lookahead mirror is a turtle equilibrium ([D-15])
+
+**Phase:** 2 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Built **duplicate-seat support** in `scripts/selfplay.mjs` (the [D-Encoding] corpus
+  option (a)): a `<count>x<Bot>` field multiplier (`expandFieldTokens`) + `#n`
+  seat-display-name uniquification (`assignSeatNames` / `resolveSeats`) in
+  `scripts/lib/selfplay-core.mjs`, so one policy can fill many seats despite matchRunner's
+  unique-name guard and name-keyed ELO. Worker re-resolves from the expanded base list and
+  derives identical `#n` names. Help/usage updated.
+- Tests: a new `duplicate-seat support` block (multiplier, uniquifier, resolver, a direct
+  `generateShard` mirror asserting `metadata.bots = ['Lookahead#1'..'#3']`, and a CLI
+  worker-pool e2e). `tests/scripts/selfplay.test.js` **55 passing**.
+
+**Learned / decided:**
+
+- **A pure Lookahead mirror is a turtle equilibrium → it is NOT the corpus recipe
+  ([D-15]).** `7×Lookahead` stalemates ~97% at maxTurns 500 and **0% at maxTurns 2000**
+  (just turtles longer — mean ~2046 actions). `6×Lookahead,Strategist` and
+  `5×Lookahead,Strategist,Expectimax` only reach ~12% decisive. Lookahead is patient
+  (`BASE_THRESHOLD` 2.2); in a symmetric N-way standoff nobody gets dominant enough to
+  trigger PRESS, so all hold. Pure-mirror data is almost all turtling STOPs with no winner
+  — it would teach the clone to turtle.
+- **Pivot the corpus to a heterogeneous decisive field, imitating Lookahead's seat**
+  (option b/c). Heterogeneity (weak/aggressive opponents, incl. the canonical arena's
+  `Math.random` bots) is what breaks the symmetry and lets games resolve. The
+  duplicate-seat feature stays as harness infrastructure (controlled / low-player mirrors),
+  just not as the corpus generator.
+
+**Dead ends / surprises:**
+
+- Expected Lookahead's PRESS posture to break the mirror standoff that all-Strategist hits;
+  it doesn't — the patient BASE bar dominates a balanced symmetric field. Confirmed it's an
+  equilibrium, not a turn-cap artifact, by re-running at 4× the cap (still 0% decisive).
+
+**Next:**
+
+- Pick + validate the decisive heterogeneous corpus field (start from the canonical 7-bot
+  arena field; measure decisive rate and Lookahead-seat label density), then the
+  tensor-expansion pass + BC.
+
+## 2026-06-23 — Phase 2 kickoff: D-Encoding finalized + tracer teacher shard
+
+**Phase:** 2 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Branched **`ml-bot/imitation-baseline`** off master for Phase 2.
+- **Finalized D-Encoding (Proposed → Accepted)** after grounding it against the code:
+  graph over the fixed territory-id node space (≤31 real nodes, pad to `maxAreas=32`,
+  present-mask; topology static per game, only owner/dice change); per-node features
+  (`dice/8`, `is_mine`/`is_enemy`/`is_border`, owner encoded **relationally** not as a seat
+  one-hot); per-player globals incl. **my dice-share / activePlayers / gamePhase** (so a
+  feed-forward net can reproduce the teacher's posture-adaptive policy); a **masked edge
+  head + explicit STOP** (not a flat 31×31 head) with `winProb = WIN_TABLE[atk][def]` as the
+  engineered edge feature; BC label = teacher's `chosenMove` filtered to its seat; terminal
+  reward already recorded, optional aux value head recommended for the Phase-3 warm-start.
+- **Verified information-completeness**: read `ai_lookahead.js` — it reads only
+  owner/dice/adjacency, per-player territories/dice/largestGroup/stock(+cohesion), and
+  per-edge win-prob. All present in `BotState` or computable from `getValidMoves` (which
+  returns from/to/attackerDice/defenderDice), so the gate ("can't clone ⇒ encoding is
+  wrong") is well-posed.
+- **Generated a tracer shard**: `npm run selfplay --seed-count 2000 --seed-start 1`
+  (committed harness, default 4-bot seed-pure decisive field) → 2000 games, **100% clean**,
+  19.1 MB, `data/selfplay/tracer-lookahead-seed-1-2000.jsonl` (gitignored, regenerable).
+- **Validated the shard** (scratch script via the committed modules): all 2000 deserialize
+  through `deserializeTrajectory`'s boundary checks; round-trip 5/5
+  (`fatSteps.length === actions.length`); STOP always the last `legalMoves` entry
+  (2199/2199 sample steps); teacher (Lookahead, seat 2) labels extractable as
+  attacks+STOPs; the win-prob edge feature spot-checks correct (4v2 dice → 0.939).
+
+**Learned / decided:**
+
+- **Bar pin `596f781` is still valid.** `ai_lookahead.js`'s only change since then
+  (`2ee4070`, PR #39) is a **comment-only** edit — behavior is byte-identical, so the
+  teacher I'm cloning == the pinned bar. No re-baseline needed.
+- **Two real corpus decisions surfaced (recorded in D-Encoding sub-decision):** (1) the
+  committed harness requires **distinct** bot names and only **4 seed-pure built-ins**
+  exist, so an `N×Lookahead` pure-self-play field isn't expressible today; (2) the eval is
+  **7-player FFA** but the default field is **4-player** (bots = seats). Recommendation for
+  the corpus: **add duplicate-seat support** (seat-suffixed names) → label-dense, on-policy,
+  reproducible `N×Lookahead` 7p self-play. The tracer's 4p mixed-field data is fine for
+  pipeline/encoding development, NOT the training corpus.
+- **STOP-heavy teacher labels**: in the sample, Lookahead STOPs ≫ attacks (patient
+  `BASE_THRESHOLD`). The clone must learn when to hold; flag class imbalance for the BC
+  training step (class weighting / per-class accuracy), and re-check the ratio on 7p data
+  where Lookahead is more aggressive.
+
+**Next:**
+
+- **Corpus field decision** (recommend: duplicate-seat support in `selfplay.mjs`), then
+  generate the real teacher corpus at 7p.
+- **Encoding implementation**: a `src/arena/` (or `training/`) tensor-expansion pass over
+  the lean dataset reusing `trajectoryFromReplay`, emitting masked node/global/edge tensors
+  plus the teacher-seat label; assert the action mask lines up with `getValidMoves`.
+- Then the BC train → ONNX → ORT-Web bot → Node-vs-browser action-parity test (tracer
+  scale first), before scaling data + net for the `arena:sweep` gate.
+
 ## 2026-06-23 — Phase-1 task 3: per-move allocation trims → Phase 1 DONE
 
 **Phase:** 1 · **Who:** Ivan + Claude

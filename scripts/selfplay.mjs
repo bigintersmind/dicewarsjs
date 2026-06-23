@@ -30,6 +30,7 @@
  *   npm run selfplay                                   # default field, seeds 1..1000
  *   npm run selfplay -- --seed-count 100000            # 100k games
  *   npm run selfplay -- --bots Lookahead,Strategist,Expectimax,Defensive
+ *   npm run selfplay -- --bots 7xLookahead             # 7-player Lookahead mirror (pure self-play)
  *   npm run selfplay -- --seed-start 1000000 --seed-count 100000 --out shard-b.jsonl
  *   npm run selfplay -- --workers 1                    # single-core baseline
  *   npm run selfplay -- --no-write --seed-count 2000   # throughput only (no JSONL)
@@ -48,7 +49,8 @@ import { pipeline } from 'node:stream/promises';
 import {
   DEFAULT_FIELD,
   NON_DETERMINISTIC_BOT_IDS,
-  resolveBotsByName,
+  expandFieldTokens,
+  resolveSeats,
   generateShard,
   aggregateStats,
   isUnusableRun,
@@ -108,28 +110,38 @@ const fieldNames = (getArg(args, 'bots', DEFAULT_FIELD.join(',')) || '')
   .map(s => s.trim())
   .filter(Boolean);
 
-// Resolve + validate the field up front (workers re-resolve from names).
+/*
+ * Expand `<count>x<Bot>` multipliers (e.g. `7xLookahead`) into a per-seat base-name
+ * list, then resolve to `{ name, fn }` seats with unique `#n` display names so a
+ * duplicate / mirror field (N copies of one policy) is legal — matchRunner rejects a
+ * duplicate-name field and ELO is keyed by name. Workers re-resolve from `baseSeats`
+ * (the expanded list) and derive the same display names.
+ */
+let baseSeats;
 let resolved;
+let bots;
+let botNames;
 try {
-  resolved = resolveBotsByName(fieldNames);
+  baseSeats = expandFieldTokens(fieldNames);
+  ({ bots, displayNames: botNames, resolved } = resolveSeats(baseSeats));
 } catch (err) {
   fail(err.message);
 }
-if (resolved.length < 2) {
+if (bots.length < 2) {
   fail('Need at least 2 bots for a self-play field.');
 }
 
-const botNames = resolved.map(b => b.name);
-const bots = resolved.map(b => ({ name: b.name, fn: b.fn }));
-
 /*
  * Warn (don't block) on non-reproducible bots — the seed-sharding merge story
- * assumes "same seed → same game", which Math.random bots break (D-13).
+ * assumes "same seed → same game", which Math.random bots break (D-13). Dedupe by
+ * base name so a mirror field reports the policy once, not once per seat.
  */
-const nonDeterministic = resolved.filter(b => NON_DETERMINISTIC_BOT_IDS.has(b.id));
+const nonDeterministic = [
+  ...new Set(resolved.filter(b => NON_DETERMINISTIC_BOT_IDS.has(b.id)).map(b => b.name)),
+];
 if (nonDeterministic.length > 0) {
   warnLine(
-    `Field includes non-reproducible bot(s): ${nonDeterministic.map(b => b.name).join(', ')}. ` +
+    `Field includes non-reproducible bot(s): ${nonDeterministic.join(', ')}. ` +
       'Same seed will NOT reproduce the same game across machines; seed-range shards no longer ' +
       'merge deterministically (the recorded trajectories are still valid and replayable).'
   );
@@ -272,7 +284,17 @@ async function runPool() {
               }
             };
             const worker = new Worker(WORKER_URL, {
-              workerData: { workerId: w, seeds, botNames, maxTurns, outPath: partPaths[w] },
+              /*
+               * Pass the expanded per-seat base names; the worker derives the same `#n`
+               * display names via resolveSeats (closures aren't structured-cloneable — D-12).
+               */
+              workerData: {
+                workerId: w,
+                seeds,
+                botNames: baseSeats,
+                maxTurns,
+                outPath: partPaths[w],
+              },
             });
             spawned.push(worker);
             worker.on('message', msg => {
@@ -443,7 +465,10 @@ Usage:
   npm run selfplay -- [options]
 
 Options:
-  --bots <names>        Comma-separated field (default: ${DEFAULT_FIELD.join(',')})
+  --bots <names>        Comma-separated field (default: ${DEFAULT_FIELD.join(',')}).
+                        A token may use an <count>x<Bot> multiplier, e.g. "7xLookahead"
+                        for a 7-player mirror (pure self-play). Duplicate seats are
+                        tracked independently as "<Bot>#1", "<Bot>#2", … in the ELO table.
   --seed-start <n>      First seed in the range (default: 1)
   --seed-count <n>      Number of games/seeds to run (default: 1000; alias: --games)
   --workers <n>         Worker threads (default: ~50% of cores = ${Math.max(1, Math.floor(os.cpus().length / 2))})

@@ -16,13 +16,18 @@
  */
 
 import { parentPort, workerData } from 'node:worker_threads';
-import { resolveBotsByName, generateShard, makeFileWriter } from './selfplay-core.mjs';
+import { resolveSeats, generateShard, makeFileWriter } from './selfplay-core.mjs';
 
 const { workerId, botNames, seeds, maxTurns, outPath } = workerData;
 
 let writer = null;
 try {
-  const bots = resolveBotsByName(botNames).map(b => ({ name: b.name, fn: b.fn }));
+  /*
+   * `botNames` is the per-seat base-name list (multipliers already expanded by the
+   * CLI, repeats allowed). resolveSeats assigns the same unique `#n` display names the
+   * main thread does, so a duplicate / mirror field is legal across the worker boundary.
+   */
+  const bots = resolveSeats(botNames).bots.map(b => ({ name: b.name, fn: b.fn }));
   writer = makeFileWriter(outPath ?? null);
 
   const { summaries, written, quarantined, failed, aborted } = generateShard({

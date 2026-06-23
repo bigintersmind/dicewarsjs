@@ -21,6 +21,57 @@ Entry template:
 
 ---
 
+## 2026-06-22 — PR 1 landed: training-mode `recordHistory` flag + determinism harness (tasks 1–2)
+
+**Phase:** 1 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Implemented **PR 1** as a tracer-bullet vertical slice: flag → thread through
+  `createGame`/`runMatch`/`runArena` → `tests/engine/determinism.test.js` green.
+- `StateManager.appendHistory()` skips the per-move history append when
+  `config.recordHistory === false`; both reducers route through it. Defaults
+  history **ON**, so the browser `GameController` + replay/tournament persistence
+  are untouched (verified against the call sites in review).
+- `createGame` adds `recordHistory` to the config allowlist and **throws in
+  training mode** (`recordHistory:false`) when the seed is missing/`null`/`NaN` —
+  the production UI keeps its `Math.random` seed fallback (history on → never gated).
+- Persisted `dicePerArea` in `createReplay`/`createReplayFromState` so non-default
+  dice games round-trip losslessly.
+- New determinism test (16 cases, node env, **seed-pure bots only** —
+  Strategist/Lookahead/Expectimax/Defensive): same seed → identical game; different
+  seeds diverge; `history.length === 0` under `recordHistory:false` with identical
+  play; explicit-seed gate (incl. null/NaN); replay round-trip with **and without**
+  `dicePerArea`.
+
+**Learned / decided:**
+
+- Ran a 20-agent adversarial review of the diff before declaring done; verdict
+  **ship-ready, no blockers**. It validated the "production paths unaffected" claim
+  against the actual callers (arena/tournament always pass integer seeds).
+- Real gap the review surfaced and we fixed: the seed gate tested `=== undefined`
+  while the fallback used `??`, so `seed:null`/`seed:NaN` silently slipped past into
+  a random seed — defeating training-mode reproducibility. Fixed to
+  `== null || Number.isNaN`, with tests.
+
+**Dead ends / surprises:**
+
+- The `dicePerArea` round-trip's deeper rngState/board assertions are never reached
+  on the _true_ bug path (reconstruction throws mid-replay when the recorded dice-5
+  actions hit a wrongly-owned territory on a default-3 map). Added an explicit
+  negative case that pins the consequence rather than leaning on those lines.
+
+**Gates:** determinism 16/16; full `npm test` **763/763** (54 files); ESLint clean;
+`npm run build` ok.
+
+**Next:**
+
+- **PR 2** — trajectory export (`src/arena/trajectoryExport.js`, task 4).
+- **PR 3** — committed parallel self-play harness (`scripts/selfplay.mjs`) +
+  per-move alloc trims + before/after throughput numbers (tasks 5, 3).
+
+---
+
 ## 2026-06-22 — Phase 1 kicked off: verified surface-map + scope correction ([D-12])
 
 **Phase:** 1 · **Who:** Ivan + Claude

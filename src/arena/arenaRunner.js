@@ -41,6 +41,8 @@ import { updateEloRatings, DEFAULT_RATING } from './elo.js';
  * @param {number} [config.maxTurns=500]     - Max turns per game
  * @param {Function} [config.onGameComplete] - Callback: (gameIndex, matchResult) after each game
  * @param {Object<string, number>} [config.initialRatings] - Starting ELO ratings by bot name
+ * @param {boolean} [config.recordHistory] - Forwarded to each match; pass `false` for
+ *   training-mode self-play (skips per-move history). Omit for default (history on).
  * @returns {ArenaResult}
  */
 export function runArena(config) {
@@ -51,6 +53,7 @@ export function runArena(config) {
     maxTurns = 500,
     onGameComplete,
     initialRatings,
+    recordHistory,
   } = config;
 
   const names = new Set(bots.map(b => b.name));
@@ -91,6 +94,7 @@ export function runArena(config) {
         bots,
         seed: baseSeed + i,
         maxTurns,
+        recordHistory,
       });
     } catch (err) {
       console.error(`[Arena] Match ${i} failed (seed ${baseSeed + i}):`, err.message);

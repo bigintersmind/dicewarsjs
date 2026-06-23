@@ -147,8 +147,8 @@ _parallel_ self-play environment. No learning yet.
 
 **Tasks.**
 
-- [ ] **(1) Training-mode `recordHistory` flag.** Read `state.config.recordHistory
-    !== false` inside `applyAttack`/`applyEndTurn` (`StateManager.js:199,244`) — no
+- [x] **(1) Training-mode `recordHistory` flag.** Read `state.config.recordHistory
+  !== false` inside `applyAttack`/`applyEndTurn` (`StateManager.js:199,244`) — no
       signature change, stays pure. Add to the `createGame` config allowlist
       (`GameRunner.js:32-39`, default on) and forward it through `runMatch`
       (`matchRunner.js:153`, which currently drops unknown config) and `arenaRunner`.
@@ -156,7 +156,7 @@ _parallel_ self-play environment. No learning yet.
       `history[last].result` for animation, `:398/:572`) and replay/tournament
       persistence (`createReplay`, `run-online-tournament.mjs:178`) are unaffected.
       A memory / asymptotic-safety win, **not** a throughput one.
-- [ ] **(2) Explicit seeds end-to-end + determinism test.** Gate a "require explicit
+- [x] **(2) Explicit seeds end-to-end + determinism test.** Gate a "require explicit
       seed (throw if missing)" behind training-mode so the production UI keeps its
       random seed (`GameRunner.js:38` `Math.random` fallback). Add
       `tests/engine/determinism.test.js` (node env, **no** jsdom): same seed →
@@ -184,13 +184,13 @@ _parallel_ self-play environment. No learning yet.
       directly and never touches this chain ([D-13]).
 - [ ] **(4) Trajectory export** (`src/arena/trajectoryExport.js`, beside
       `replayFormat.js`). Per-step `{observation: BotState, legalMoves (getValidMoves
-    + an explicit STOP), chosenMove, outcome}` + terminal `{winner, placements,
-    turnCount}`. Hook via an `onStep`/`recordTrajectory` option threaded
-      `runMatch → runBotTurn`: capture the observation **before** `applyAction`,
-      outcome after, **skip rejected moves**, emit a STOP tuple on `null`. Record the
-      action list **independently of `state.history`** so it survives
-      `recordHistory:false`. Version-stamp the observation schema (encoding finalized
-      in Phase 2 — [D-Encoding]).
+  - an explicit STOP), chosenMove, outcome}`+ terminal`{winner, placements,
+    turnCount}`. Hook via an `onStep`/`recordTrajectory`option threaded
+ `runMatch → runBotTurn`: capture the observation **before** `applyAction`,
+  outcome after, **skip rejected moves**, emit a STOP tuple on `null`. Record the
+  action list **independently of `state.history`** so it survives
+  `recordHistory:false`. Version-stamp the observation schema (encoding finalized
+    in Phase 2 — [D-Encoding]).
 - [ ] **(5) Committed parallel self-play harness** (`scripts/selfplay.mjs` +
       `npm run selfplay` — [D-12]). `worker_threads` pool (default ~50% cores, to
       respect the test-lock machine policy in CLAUDE.md). **Pass bot identifiers, not

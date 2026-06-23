@@ -140,10 +140,13 @@ function runBotTurn(state, botFn, botName, stats) {
  * @param {number}  [config.seed]        - RNG seed (random if omitted)
  * @param {number}  [config.maxTurns=500] - Max turns before stalemate
  * @param {Function} [config.onTurn]     - Callback after each turn: (turnNumber, state)
+ * @param {boolean} [config.recordHistory] - Forwarded to the engine; pass `false` for
+ *   training mode (skips the per-move history append — see GameRunner.createGame).
+ *   Leave undefined for the default (history on) so replay creation still works.
  * @returns {MatchResult}
  */
 export function runMatch(config) {
-  const { bots, seed, maxTurns = DEFAULT_MAX_TURNS, onTurn } = config;
+  const { bots, seed, maxTurns = DEFAULT_MAX_TURNS, onTurn, recordHistory } = config;
 
   const names = new Set(bots.map(b => b.name));
   if (names.size !== bots.length) {
@@ -153,6 +156,7 @@ export function runMatch(config) {
   const gameState = createGame({
     seed,
     playerCount: bots.length,
+    recordHistory,
   });
 
   /*

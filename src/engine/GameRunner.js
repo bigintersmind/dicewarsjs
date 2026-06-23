@@ -25,16 +25,36 @@ import {
 /**
  * Create a new game with the given config and seed.
  *
+ * Training mode (`recordHistory: false`, used by the self-play harness) requires
+ * an explicit `seed` and throws without one — a self-play run that isn't
+ * reproducible is a bug, not a convenience. The production UI keeps the
+ * `Math.random` seed fallback because it leaves `recordHistory` at its default
+ * (on), so its games are never gated.
+ *
  * @param {import('./types.js').GameConfig} config
  * @returns {import('./types.js').GameState}
  */
 export function createGame(config = {}) {
+  const recordHistory = config.recordHistory ?? true;
+
+  /*
+   * Use the same nullish notion the seed fallback below does (`?? `), and reject
+   * NaN — otherwise `seed:null`/`seed:NaN` would slip past the gate and silently
+   * get a random/meaningless seed, defeating training-mode reproducibility.
+   */
+  if (recordHistory === false && (config.seed == null || Number.isNaN(config.seed))) {
+    throw new Error(
+      'createGame: training mode (recordHistory:false) requires an explicit numeric config.seed for reproducibility'
+    );
+  }
+
   const fullConfig = {
     mapWidth: config.mapWidth ?? DEFAULT_XMAX,
     mapHeight: config.mapHeight ?? DEFAULT_YMAX,
     maxAreas: config.maxAreas ?? DEFAULT_AREA_MAX,
     playerCount: config.playerCount ?? DEFAULT_PLAYER_COUNT,
     dicePerArea: config.dicePerArea ?? DEFAULT_DICE_PER_AREA,
+    recordHistory,
     seed: config.seed ?? Math.floor(Math.random() * 0xffffffff),
   };
 

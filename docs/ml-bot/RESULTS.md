@@ -313,3 +313,55 @@ learner rollout path gets directly.
 `createInitialState`→`applyAction` games under a trivial seeded policy with
 `recordHistory:false`, timed before/after the trims via `git stash` (scratch
 microbenchmark; the committed harness number is the gate deliverable).
+
+---
+
+### 2026-06-23 — Phase 2 corpus-field validation ([D-15])
+
+**Question.** Which self-play field generates the best `ai_lookahead` imitation corpus?
+[D-15] killed the pure-mirror recipe (turtle equilibrium); the corpus must be a
+heterogeneous decisive field, imitating Lookahead's seat. Measured **decisive rate**
+(non-stalemate games — stalemates are low-value, all-turtle, no terminal winner) and
+**teacher-seat label density** (Lookahead steps/game, attack/STOP balance) across
+candidates.
+
+**Decisive-rate screen (80 games/field, `--no-write`):**
+
+| Field (player count)                                                        | Decisive (Σwins/clean) |
+| --------------------------------------------------------------------------- | ---------------------- |
+| **Full 7-bot arena field** (Look,Strat,Expect,Def,Default,Example,Adaptive) | **85%**                |
+| 2×Look,2×Strat,2×Expect,Defensive (7p, seed-pure)                           | 65%                    |
+| 3×Lookahead (3p)                                                            | 51%                    |
+| 3×Lookahead,Default,Example,Adaptive (6p)                                   | 48%                    |
+| 4×Lookahead,Default,Example,Adaptive (7p)                                   | 39%                    |
+| 4×Lookahead (4p)                                                            | 18%                    |
+| 7×Lookahead (7p)                                                            | ~0–3% (turtle, [D-15]) |
+
+The symmetry-breaker is field _diversity_; piling on patient Lookahead seats — even with
+the `Math.random` bots mixed in — stays turtle-prone.
+
+**Label density (300-game shards, fat steps re-derived via `trajectoryFromReplay`):**
+
+| Field                       | Decisive | Teacher seats/game | Teacher steps/game  | Attack% of teacher steps | Throughput (4w) |
+| --------------------------- | -------- | ------------------ | ------------------- | ------------------------ | --------------- |
+| **Full 7-bot arena**        | 85.3%    | 1                  | 80.8 (18.7% of all) | **55.2%** (balanced)     | 63 g/s          |
+| 2×Look,2×Strat,2×Expect,Def | 63.7%    | 2                  | 156.3 (31.7%)       | 39.6% (STOP-heavy)       | 43 g/s          |
+
+**Decision — the full 7-bot arena field is the corpus generator.** It wins on every axis
+that matters: highest decisive rate (85%, fewest stalemates), the **exact eval
+distribution** (the clone is gated on this 7-bot FFA), and a **balanced 55%-attack label
+split** (Lookahead plays actively here, not turtling). The 2× seed-pure field's extra
+steps are disproportionately turtling STOPs. Ample volume: 80.8 teacher steps/game →
+~8M `(obs, move)` pairs from 100k games (≈26 min at 63 g/s on one 8-core box;
+< 1 hour across the fleet). **Cost:** 3 `Math.random` bots make games non-reproducible
+from seed (the cross-machine seed-merge _dedup_ is lost) — acceptable because (a) shards
+use disjoint seed ranges (games are distinct anyway), (b) recorded moves are valid and
+replayable (D-13), (c) we never need to regenerate an identical dataset. The seed-pure
+2× field is the **reproducible fallback** if that ever matters. Stalemate games (~15%)
+are kept — Lookahead's move is a valid label regardless of outcome, and `placements` is a
+full ranking even when `winner` is null (so the aux value head still has a target).
+
+**Repro.** `npm run selfplay -- --no-write --seed-count 80 --bots "<field>"` for the
+decisive screen; `--seed-count 300 --out <shard>` then re-derive fat steps per record and
+tally steps where `playerId` is a Lookahead seat (base name, `#n` stripped) for label
+density.

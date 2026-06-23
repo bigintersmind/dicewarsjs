@@ -15,6 +15,9 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_FIELD,
   resolveBotsByName,
+  expandFieldTokens,
+  assignSeatNames,
+  resolveSeats,
   forcedEndReason,
   generateShard,
   aggregateStats,
@@ -81,6 +84,99 @@ describe('resolveBotsByName', () => {
     // The message names the valid options so the operator can self-correct.
     expect(() => resolveBotsByName(['NotABot'])).toThrow(/Available:.*Strategist/);
   });
+});
+
+describe('duplicate-seat support (D-Encoding: N×Lookahead mirror self-play)', () => {
+  describe('expandFieldTokens', () => {
+    it('expands an <count>x<Bot> multiplier into N seats', () => {
+      expect(expandFieldTokens(['7xLookahead'])).toEqual(Array(7).fill('Lookahead'));
+    });
+
+    it('mixes multipliers with plain tokens, preserving seat order', () => {
+      expect(expandFieldTokens(['Lookahead', '3xStrategist'])).toEqual([
+        'Lookahead',
+        'Strategist',
+        'Strategist',
+        'Strategist',
+      ]);
+    });
+
+    it('passes plain tokens through unchanged (including names containing "x")', () => {
+      // "Expectimax" has no LEADING <digits>x, so it is never mistaken for a multiplier.
+      expect(expandFieldTokens(['Expectimax', 'Defensive'])).toEqual(['Expectimax', 'Defensive']);
+    });
+
+    it('accepts a case-insensitive multiplier marker', () => {
+      expect(expandFieldTokens(['2XLookahead'])).toEqual(['Lookahead', 'Lookahead']);
+    });
+
+    it('rejects a zero-count multiplier', () => {
+      expect(() => expandFieldTokens(['0xLookahead'])).toThrow(/count must be >= 1/);
+    });
+  });
+
+  describe('assignSeatNames', () => {
+    it('suffixes only the names that occupy more than one seat', () => {
+      expect(assignSeatNames(['Lookahead', 'Lookahead', 'Strategist'])).toEqual([
+        'Lookahead#1',
+        'Lookahead#2',
+        'Strategist',
+      ]);
+    });
+
+    it('leaves an all-distinct field unchanged', () => {
+      expect(assignSeatNames(['A', 'B', 'C'])).toEqual(['A', 'B', 'C']);
+    });
+
+    it('numbers every seat of a pure mirror and stays distinct', () => {
+      const names = assignSeatNames(Array(7).fill('Lookahead'));
+      expect(names).toEqual(['#1', '#2', '#3', '#4', '#5', '#6', '#7'].map(s => `Lookahead${s}`));
+      expect(new Set(names).size).toBe(7);
+    });
+  });
+
+  describe('resolveSeats', () => {
+    it('resolves a mirror field to distinct display names sharing one policy fn', () => {
+      const { bots, displayNames } = resolveSeats(['Lookahead', 'Lookahead']);
+      expect(displayNames).toEqual(['Lookahead#1', 'Lookahead#2']);
+      expect(bots.map(b => b.name)).toEqual(['Lookahead#1', 'Lookahead#2']);
+      expect(bots.map(b => b.baseName)).toEqual(['Lookahead', 'Lookahead']);
+      // Same policy in both seats — the whole point of mirror self-play.
+      expect(bots[0].fn).toBe(bots[1].fn);
+      expect(typeof bots[0].fn).toBe('function');
+    });
+
+    it('produces names aggregateStats accepts (the matchRunner unique-name contract)', () => {
+      const { displayNames } = resolveSeats(expandFieldTokens(['7xLookahead']));
+      // Distinct names → aggregateStats does not throw its duplicate-name guard.
+      expect(() => aggregateStats([], displayNames)).not.toThrow();
+    });
+
+    it('throws on an unknown name (validation via resolveBotsByName)', () => {
+      expect(() => resolveSeats(['Lookahead', 'NotABot'])).toThrow(/Unknown bot "NotABot"/);
+    });
+  });
+
+  it('runs a real mirror field through generateShard and tags seats #1.. in the trajectory', () => {
+    /*
+     * The seam this whole feature exists for: a duplicate-policy field must NOT trip
+     * matchRunner's "Bot names must be unique" guard, and the lean record must carry the
+     * per-seat display names.
+     */
+    const { bots } = resolveSeats(expandFieldTokens(['3xLookahead']));
+    const lines = [];
+    const { summaries, written } = generateShard({
+      bots,
+      seeds: [1, 2],
+      write: l => lines.push(l),
+    });
+
+    expect(summaries).toHaveLength(2);
+    expect(written).toBeGreaterThan(0); // Lookahead is decisive — games resolve, none quarantined
+    const record = deserializeTrajectory(lines[0]);
+    expect(record.metadata.bots).toEqual(['Lookahead#1', 'Lookahead#2', 'Lookahead#3']);
+    expect(record.config.playerCount).toBe(3);
+  }, 30_000);
 });
 
 describe('chunkSeeds / rangeToSeeds (D-13 seed-range sharding)', () => {
@@ -507,6 +603,42 @@ describe('selfplay CLI end-to-end (worker pool)', () => {
     expect(seeds.every(s => s >= 1 && s <= 6)).toBe(true);
 
     // Shard part-files are cleaned up after a successful merge (none orphaned).
+    expect(fs.readdirSync(tmpDir).filter(f => f.includes('.part'))).toHaveLength(0);
+  }, 60_000);
+
+  it('runs a duplicate-policy mirror field (--bots 3xLookahead) end-to-end through workers', () => {
+    /*
+     * Proves the worker boundary derives the same #n display names as the main thread,
+     * so a mirror field neither trips the unique-name guard nor collides ELO seats.
+     */
+    const out = path.join(tmpDir, 'mirror.jsonl');
+    execFileSync(
+      'node',
+      [
+        'scripts/selfplay.mjs',
+        '--workers',
+        '2',
+        '--seed-count',
+        '2',
+        '--out',
+        out,
+        '--bots',
+        '3xLookahead',
+      ],
+      { cwd: REPO_ROOT, stdio: 'pipe' }
+    );
+
+    const records = fs
+      .readFileSync(out, 'utf-8')
+      .trim()
+      .split('\n')
+      .map(line => deserializeTrajectory(line));
+
+    expect(records.length).toBeGreaterThan(0);
+    for (const r of records) {
+      expect(r.config.playerCount).toBe(3);
+      expect(r.metadata.bots).toEqual(['Lookahead#1', 'Lookahead#2', 'Lookahead#3']);
+    }
     expect(fs.readdirSync(tmpDir).filter(f => f.includes('.part'))).toHaveLength(0);
   }, 60_000);
 

@@ -516,20 +516,175 @@ list pure and the round-trip intact — is preferred over per-action flags. Not 
 
 ---
 
-## D-Encoding — MDP / state / action / reward shape · Proposed (2026-06-21)
+## D-15 — Duplicate-seat support landed, but a pure Lookahead mirror is a turtle equilibrium; the Phase-2 corpus uses a heterogeneous decisive field · Accepted (2026-06-23) · refines the [D-Encoding](#d-encoding--mdp--state--action--reward-shape--accepted-2026-06-23--finalizes-the-2026-06-21-proposal) teacher-data sub-decision
 
-**Proposed (finalize in Phase 2).**
+**Context.** [D-Encoding]'s teacher-data sub-decision recommended **option (a)**: add
+duplicate-seat support to `scripts/selfplay.mjs` so an `N×Lookahead` pure self-play
+field is expressible (most label-dense, on-policy, reproducible). The support was built
+this session — a `<count>x<Bot>` multiplier (`expandFieldTokens`) plus `#n`
+seat-display-name uniquification (`assignSeatNames`/`resolveSeats`) in
+`scripts/lib/selfplay-core.mjs`. `matchRunner` rejects a duplicate-name field and ELO is
+keyed by name, so the unique `#n` names let one policy fill many seats while each seat is
+tracked independently (e.g. `Lookahead#1..#7`). Tests cover the multiplier, uniquifier,
+resolver, a direct `generateShard` mirror, and a CLI worker-pool e2e. Then we ran it.
 
-- **State:** graph over ≤31 territory nodes (adjacency from `neighborAreaIds`);
-  node features = owner, dice (1–8), is-mine, is-border, per-edge win-prob from
-  `WIN_TABLE`; per-player globals dominated by largest-connected-group income.
-- **Action:** policy head over legal `(from,to)` border edges **plus an explicit
-  STOP**, masked by `getValidMoves` (a turn is a _sequence_ of single attacks, not
-  one batched move). Edge/pointer head, not a flat 31×31 head.
-- **Reward:** terminal win/placement + dense shaping (Δlargest-group income,
-  territory/dice deltas, eliminations).
-- **Self-play:** a single shared stateless policy over the per-player view; the
-  engine handles whose-turn via `turnOrder`/`currentPlayerIndex`.
+**Finding (empirical).** A pure `7×Lookahead` mirror **stalemates ~100% of games** — a
+true symmetric-turtle equilibrium, not a turn-cap artifact:
 
-**Status:** to be validated empirically in Phase 2 (if a net can't _clone_
-`ai_strategist` under this encoding, the encoding is wrong).
+| Field (7p)                        | Decisive (winner≠null) | Notes                                    |
+| --------------------------------- | ---------------------- | ---------------------------------------- |
+| 7×Lookahead, maxTurns 500         | ~3% (4/150)            | mean ~553 actions                        |
+| 7×Lookahead, maxTurns 2000        | **0% (0/24)**          | mean ~2046 actions — just turtles longer |
+| 6×Lookahead,Strategist            | ~12% (10/80)           | one odd seat doesn't break it            |
+| 5×Lookahead,Strategist,Expectimax | ~12% (10/80)           | nor two                                  |
+
+Lookahead is _patient_ (`BASE_THRESHOLD` 2.2): in a balanced symmetric N-way standoff no
+bot gets dominant enough to trigger its PRESS posture, so all hold and the game never
+resolves. (Contrast: the default 4-bot heterogeneous field is 100% decisive; the
+canonical 7-bot arena resolves because its weak/aggressive members — incl. the
+`Math.random` bots — break symmetry and get eliminated, concentrating territory until
+someone wins.) Raising `maxTurns` only lengthens the turtle.
+
+**Why it matters.** A non-decisive game is poor imitation data: almost every step is a
+turtling STOP, `winner` is null (no terminal reward for the aux value head), and the
+"policy" being imitated is a degenerate mutual hold. Pure-mirror data would teach the
+clone to turtle.
+
+**Decision.** Keep the duplicate-seat feature — it is correct, tested, and useful as
+harness infrastructure (controlled / low-player-count mirror experiments) — **but the
+Phase-2 teacher corpus does NOT use a pure Lookahead mirror.** Generate it from a
+**heterogeneous, decisive field that includes Lookahead, imitating Lookahead's seat**
+(the trajectory stamps `playerId` per step, so filtering to the teacher seat is trivial).
+This is ADR option (b)/(c), now empirically favored over (a). Validate the decisive rate
+of the chosen field before the big run; to raise teacher-label density, add Lookahead
+seats only up to the point the field still resolves — _aggressive_ opponents, not more
+patient mirrors, are what break the turtle.
+
+**Validated (2026-06-23) — the corpus generator is the full 7-bot arena field**
+(`Lookahead,Strategist,Expectimax,Defensive,Default,Example,Adaptive`), imitating
+Lookahead's seat (seat 0). It wins the corpus-field screen on every axis (see RESULTS):
+**85% decisive** (highest; fewest stalemates), the **exact eval distribution** (the gate
+is this 7-bot FFA), and a **balanced 55%-attack label split** (Lookahead plays actively,
+not turtling) — vs the seed-pure `2×Look,2×Strat,2×Expect,Defensive` alternative's 64% /
+40%-attack. Yields ~80.8 teacher steps/game (~8M `(obs,move)` pairs per 100k games).
+**Cost:** the 3 `Math.random` bots make games non-reproducible from seed (cross-machine
+_dedup_ lost) — fine under disjoint seed ranges; recorded moves stay valid/replayable
+(D-13). The seed-pure 2× field is the reproducible fallback. Stalemate games (~15%) are
+kept (valid labels; `placements` is a full ranking even when `winner` is null).
+
+**Rejected.** (a) A pure / heavy `N×Lookahead` mirror corpus — ~0% decisive (turtle
+equilibrium). Raising `maxTurns` to salvage it — confirmed 0% at 2000. (b) The seed-pure
+2× heterogeneous field as the _primary_ corpus — reproducible, but lower decisive rate
+(64%) and more STOP-heavy labels (40% attacks); kept as the fallback, not the default.
+
+---
+
+## D-Encoding — MDP / state / action / reward shape · **Accepted (2026-06-23)** · finalizes the 2026-06-21 proposal
+
+**Status.** The 2026-06-21 proposal (graph nodes; masked edge+STOP action head;
+terminal+shaped reward; one shared per-player policy) is **finalized and accepted**
+unchanged in substance, now made concrete and grounded against the code at the start
+of Phase 2. The original proposal targeted cloning `ai_strategist`; per [D-7] the
+**teacher is `ai_lookahead`** (the field-strongest bot, pinned `596f781`). The encoding
+gate is unchanged: _if a net cannot clone the teacher under this encoding, the encoding
+is wrong — fix it before any RL._
+
+**Information-completeness (why this gate is well-posed).** Verified against
+`src/ai/ai_lookahead.js`: the teacher reads only per-area `owner`/`dice`/adjacency,
+per-player `territories`/`dice`/`largestGroup`/`stock` (and `cohesion =
+largestGroup/territories`), and per-edge win-prob from `WIN_TABLE`. Every one of those
+is present in `BotState` (`src/arena/botState.js`) or computable from `getValidMoves`
+(which returns `{from, to, attackerDice, defenderDice}`). So the encoding below is a
+**lossless view of the teacher's own inputs** — a net that fails to clone is limited by
+capacity/optimization or the encoding's _shape_, not missing information.
+
+### State — graph over a fixed territory-id node space
+
+- **Nodes.** Territory ids `1 .. maxAreas-1` (`DEFAULT_AREA_MAX = 32`; id 0 is the
+  unused sentinel → ≤31 real nodes). Pad the node tensor to `config.maxAreas` with a
+  **present-mask** (`area.size > 0`). **Topology is fixed for the whole game** — which
+  ids exist and the adjacency never change; only `owner`/`dice` change per step (exactly
+  what `ai_lookahead` exploits by precomputing neighbors once). Build adjacency once per
+  game, share across all its steps.
+- **Per-node features** (present nodes; absent ids masked):
+  - `dice / MAX_DICE` (8) — scalar (an 8-way one-hot is a fallback if the scalar
+    under-fits).
+  - `is_mine` (`owner === me`), `is_enemy` (present & `owner !== me`), `is_border`
+    (`BotState.isBorder`).
+  - Owner is encoded **relationally** (`is_mine`/`is_enemy` + per-player globals), **not**
+    as an absolute seat one-hot — a symmetric policy must not depend on seat identity.
+    (Revisit per-owner node grouping only if the clone misses parity; the gate decides.)
+- **Per-player globals** (≤ `playerCount`, default 7), each normalized and relative to me
+  where natural: `territories`, `totalDice`, `connectedTerritories` (largestGroup),
+  `reinforcements` (stock), `eliminated`, `is_me`; plus board scalars **my dice-share**
+  (= my `totalDice` / Σ `totalDice`), `activePlayers`, and `gamePhase`. These directly
+  feed the teacher's posture (PRESS/WEAK/BASE bar keys off dice-share & active count) and
+  its leader/field terms — including them is what lets a feed-forward net reproduce the
+  posture-adaptive policy without re-deriving the search.
+
+### Action — masked edge head + explicit STOP
+
+- One logit per legal directed attack edge `(from,to)` from `getValidMoves`, **plus one
+  explicit STOP logit**; softmax over `[legal edges…, STOP]`, masked **exactly** by
+  `getValidMoves` (the engine's free legal-action mask). An **edge/pointer head** over the
+  variable-length legal set — **not** a flat 31×31 head (sparse, wasteful).
+- **Per-edge features (the engineered crux — "don't make the net learn dice math"):**
+  `winProb = WIN_TABLE[attackerDice][defenderDice]`, `attackerDice/8`, `defenderDice/8`,
+  plus the from/to node representations. (Defender exposure / capture-threat is derivable;
+  let the net/message-passing infer it before adding it explicitly.)
+- A turn is a **sequence of single attacks ended by STOP** — the net is queried once per
+  applied action, matching the trajectory's one-step-per-action record (the
+  `fatSteps ≡ actions` invariant in `trajectoryExport.js`).
+
+### Labels & reward
+
+- **BC label:** the teacher's `chosenMove` per step (chosen-edge index or STOP),
+  cross-entropy over the masked legal set. Imitate **only the teacher's seat** — filter
+  steps to `step.playerId === <teacher seat>` (the record stamps `playerId` per step).
+- **Reward (recorded now, shaping deferred to Phase 3):** terminal `winner`+`placements`
+  are already in the lean record. An **auxiliary value head** regressing terminal
+  placement/win is optional for BC but **recommended** (multi-task; the same architecture
+  warm-starts Phase-3 PPO). Dense shaping (Δlargest-group income, dice/territory deltas,
+  eliminations) is a Phase-3 concern.
+
+### Padding / batching / offline expansion
+
+- Fixed node width = `maxAreas` (+ present-mask); fixed globals width = `playerCount`;
+  ragged legal-edge sets via a padded edge tensor + action mask. Everything is
+  seed-deterministic, so the one-time **tensor-expansion pass reuses
+  `trajectoryFromReplay`** (`src/arena/trajectoryExport.js`) to reproduce identical
+  observations offline from the lean dataset (D-13's "expand lean → packed `.npz`").
+
+### Net architecture (guidance, not part of the encoding contract)
+
+The gate constrains the **encoding**, not the net. Start with the simplest learner that
+can clone — a masked per-edge MLP over node+global+edge features — and **escalate to a
+1–2 layer GNN** (message passing over the static adjacency) only if the MLP can't reach
+parity, since the teacher's value leans on `largestGroup` (a global graph property). The
+clone need only reproduce the policy mapping (obs → move), not the depth-2 search itself.
+
+### Sub-decision — teacher-data field & player count (decide before the big corpus run)
+
+- The clone is gated on the canonical **7-player FFA** `arena:sweep`. The teacher is
+  player-count- and posture-sensitive (thresholds key off `activePlayers`/dice-share;
+  `DUEL_LEADER_WEIGHT` at 2p), so the corpus should be **7-player games in which
+  `ai_lookahead` plays**, imitating only its seat.
+- **Harness gap (found 2026-06-23):** the committed `scripts/selfplay.mjs` requires
+  **distinct** bot names (ELO/wins are keyed by name; `matchRunner` rejects duplicates),
+  and only **4 seed-pure built-ins** exist (Strategist/Expectimax/Lookahead/Defensive) —
+  so neither an `N×Lookahead` pure-self-play field nor any reproducible 7-distinct-seed
+  field is expressible today. Resolution options for the corpus:
+  - **(a) Add duplicate-seat support** (seat-suffixed names) → `N×Lookahead` pure
+    self-play: most label-dense, on-policy, keeps seed-reproducibility. _Was recommended;
+    **built and then retired as the corpus recipe by [D-15]** — a pure Lookahead mirror is
+    a turtle equilibrium (~0% decisive), so the corpus uses a heterogeneous decisive field
+    (b/c) instead. The duplicate-seat feature itself stays as harness infrastructure._
+  - **(b) Full 7-bot arena field** incl. the 3 `Math.random` bots: matches the eval field
+    but games aren't reproducible-from-seed (recorded moves are still valid/replayable —
+    we store actual moves, D-13 — only the cross-machine seed-merge guarantee weakens).
+  - **(c)** A mix of the above.
+- **This tracer shard uses the committed harness unchanged** — the default 4-bot seed-pure
+  decisive field (4-player, fully reproducible, 100% clean) — solely to exercise the
+  encoding/tensor-expansion pipeline and round-trip tests. It is **not** the training
+  corpus; the 4p-vs-7p mismatch is fine for pipeline development and is flagged here so the
+  shard isn't mistaken for final data.

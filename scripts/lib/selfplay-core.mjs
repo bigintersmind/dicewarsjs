@@ -90,6 +90,91 @@ export function resolveBotsByName(names) {
 }
 
 /**
+ * Expand a raw `--bots` field, honoring an `<count>x<BotName>` multiplier per token
+ * so a duplicate / mirror field is ergonomic (`7xLookahead` → seven Lookahead seats)
+ * without typing the name seven times — the natural way to ask for `N`-player pure
+ * self-play of one policy (D-Encoding sub-decision). A token without the leading
+ * `<digits>x` prefix is passed through unchanged; literal repeats
+ * (`Lookahead,Lookahead`) work too (the uniquification in {@link resolveSeats}
+ * handles the resulting duplicate seats). The built-in bot names contain no leading
+ * `<digits>x`, so there is no ambiguity with the multiplier.
+ *
+ * @param {string[]} tokens - Trimmed, non-empty field tokens (post comma-split)
+ * @returns {string[]} The per-seat base-name list, multipliers expanded (repeats kept)
+ * @throws {Error} On a multiplier whose count is < 1 or whose name is blank.
+ */
+export function expandFieldTokens(tokens) {
+  const seats = [];
+  for (const token of tokens) {
+    const m = /^(\d+)x(.+)$/i.exec(token);
+    if (!m) {
+      seats.push(token);
+      continue;
+    }
+    const count = parseInt(m[1], 10);
+    const base = m[2].trim();
+    if (count < 1) throw new Error(`Invalid field multiplier "${token}": count must be >= 1.`);
+    if (!base) throw new Error(`Invalid field multiplier "${token}": missing bot name.`);
+    for (let i = 0; i < count; i++) seats.push(base);
+  }
+  return seats;
+}
+
+/**
+ * Assign a unique display name per seat. A bot occupying a single seat keeps its
+ * plain name; a bot occupying multiple seats gets a `#<n>` suffix per occurrence
+ * (`Lookahead#1`, `Lookahead#2`, …). Distinct names are required because
+ * `matchRunner` rejects a duplicate-name field and ELO/wins are keyed by name — the
+ * suffix lets one policy fill many seats (mirror self-play) while each seat stays an
+ * independently-tracked competitor. Deterministic in input order, so the main thread
+ * and each worker (which both call this on the same per-seat list) derive identical
+ * names without coordinating.
+ *
+ * @param {string[]} names - Per-seat (canonical) bot names, repeats allowed
+ * @returns {string[]} Per-seat display names, all distinct
+ */
+export function assignSeatNames(names) {
+  const total = new Map();
+  for (const n of names) total.set(n, (total.get(n) ?? 0) + 1);
+  const seen = new Map();
+  return names.map(n => {
+    if (total.get(n) === 1) return n;
+    const k = (seen.get(n) ?? 0) + 1;
+    seen.set(n, k);
+    return `${n}#${k}`;
+  });
+}
+
+/**
+ * Resolve a per-seat base-name list (already multiplier-expanded by
+ * {@link expandFieldTokens}) into the `{ name, fn }` seats `generateShard` / `runMatch`
+ * consume, assigning unique display names ({@link assignSeatNames}) so a duplicate /
+ * mirror field is legal. `bots[i]` maps to player `i` (seat order preserved). Both the
+ * CLI and each worker call this on the same list, so they agree on seat names without
+ * passing a second array across the worker boundary.
+ *
+ * @param {string[]} baseNames - Per-seat bot names (repeats allowed)
+ * @returns {{
+ *   bots: Array<{ id: string, baseName: string, name: string, fn: Function }>,
+ *   displayNames: string[],
+ *   resolved: Array<{ id: string, name: string, fn: Function }>
+ * }} `bots` for the match (name = unique display name), `displayNames` for the ELO
+ *   post-pass, `resolved` (one per seat, canonical name) for field diagnostics.
+ * @throws {Error} If any name is unknown (via {@link resolveBotsByName}).
+ */
+export function resolveSeats(baseNames) {
+  const resolved = resolveBotsByName(baseNames);
+  const displayNames = assignSeatNames(resolved.map(r => r.name));
+  const bots = resolved.map((r, i) => ({
+    id: r.id,
+    baseName: r.name,
+    name: displayNames[i],
+    fn: r.fn,
+  }));
+  return { bots, displayNames, resolved };
+}
+
+/**
  * Build a contiguous seed range `[start, start+count)` as an array.
  *
  * @param {number} start - First seed

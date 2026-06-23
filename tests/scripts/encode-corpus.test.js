@@ -157,6 +157,47 @@ describe('encode-corpus CLI end-to-end', () => {
     expect(stderr).toMatch(/No teacher steps/);
   }, 60_000);
 
+  it('exits non-zero on a corpus that mixes field dimensions', () => {
+    /*
+     * Records with different player counts can't pack into one fixed-width blob;
+     * the CLI must reject the mixed corpus rather than emit a corrupt artifact.
+     */
+    const lineFor = names => {
+      const { bots } = resolveSeats(names);
+      const out = [];
+      generateShard({
+        bots: bots.map(b => ({ name: b.name, fn: b.fn })),
+        seeds: rangeToSeeds(1, 5),
+        maxTurns: 500,
+        write: s => out.push(s),
+      });
+      expect(out.length).toBeGreaterThan(0);
+      return out[0]; // serialized line already carries its trailing newline
+    };
+    const corpus = path.join(tmpDir, 'mixed.jsonl');
+    // A 4-player game then a 3-player game → differing playerCount.
+    fs.writeFileSync(
+      corpus,
+      lineFor(['Lookahead', 'Strategist', 'Lookahead', 'Defensive']) +
+        lineFor(['Lookahead', 'Strategist', 'Defensive'])
+    );
+
+    let threw = false;
+    let stderr = '';
+    try {
+      execFileSync(
+        'node',
+        ['scripts/encode-corpus.mjs', '--in', corpus, '--out', path.join(tmpDir, 'mixed-out')],
+        { cwd: REPO_ROOT, stdio: 'pipe' }
+      );
+    } catch (err) {
+      threw = true;
+      stderr = String(err.stderr);
+    }
+    expect(threw).toBe(true);
+    expect(stderr).toMatch(/dimension mismatch/);
+  }, 60_000);
+
   it('exits non-zero when --in is missing', () => {
     let threw = false;
     let stderr = '';

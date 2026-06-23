@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { runMatch } from '../../src/arena/matchRunner.js';
 import { adaptLegacyBot } from '../../src/arena/legacyBotAdapter.js';
@@ -109,6 +110,24 @@ describe('encodeObservation — feature-name contract', () => {
     ]);
     expect(EDGE_FEATURES).toEqual(['winProb', 'atkNorm', 'defNorm', 'isStop']);
   });
+
+  it('binds ENCODING_VERSION to the on-disk column layout (bump the version if columns change)', () => {
+    /*
+     * Single assertion tying the tensor layout to its version. If you intentionally
+     * change any feature column, BUMP ENCODING_VERSION and update both fields below in
+     * the same commit — a silent column change under a stale version would let the
+     * Python trainer mis-read an old corpus as the new layout. The runtime
+     * assertShapeContract guard catches in-process drift; this guards the contract at CI.
+     */
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify([NODE_FEATURES, PLAYER_FEATURES, BOARD_FEATURES, EDGE_FEATURES]))
+      .digest('hex')
+      .slice(0, 16);
+    expect({ version: ENCODING_VERSION, fingerprint }).toEqual({
+      version: 1,
+      fingerprint: '58f1a8654ac9fe34',
+    });
+  });
 });
 
 describe('encodeStep — node tensor', () => {
@@ -133,6 +152,21 @@ describe('encodeStep — node tensor', () => {
     expect(enc.nodes[3]).toEqual([1, 1 / 8, 1, 0, 0]);
     // id 4: enemy, dice 5, border
     expect(enc.nodes[4]).toEqual([1, 5 / 8, 0, 1, 1]);
+  });
+
+  it('throws when an area id falls outside the node range [0, maxAreas)', () => {
+    /*
+     * An id >= maxAreas (config.maxAreas too small for this board) must fail loud,
+     * not silently overflow the fixed-width node tensor.
+     */
+    const over = syntheticStep();
+    over.observation.allAreas.push({ id: 99, owner: 0, dice: 1, neighbors: [], isBorder: false });
+    expect(() => encodeStep(over, SYNTH_CTX)).toThrow(/area id 99 out of node range/);
+
+    // A negative id is equally out of range.
+    const under = syntheticStep();
+    under.observation.allAreas.push({ id: -1, owner: 0, dice: 1, neighbors: [], isBorder: false });
+    expect(() => encodeStep(under, SYNTH_CTX)).toThrow(/out of node range/);
   });
 });
 
@@ -159,6 +193,18 @@ describe('encodeStep — per-player globals and board scalars', () => {
     expect(enc.board[0]).toBeCloseTo(4 / 11, 12); // my dice share
     expect(enc.board[1]).toBeCloseTo(3 / 3, 12); // active fraction
     expect(enc.board.slice(2)).toEqual([0, 1, 0]); // phase = mid
+  });
+
+  it('throws when the acting seat is absent from the players list', () => {
+    const step = syntheticStep();
+    step.playerId = 99; // a seat with no entry in obs.players
+    expect(() => encodeStep(step, SYNTH_CTX)).toThrow(/acting seat 99 is not among/);
+  });
+
+  it('throws on an unknown gamePhase instead of silently bucketing it as mid', () => {
+    const step = syntheticStep();
+    step.observation.gamePhase = 'twilight';
+    expect(() => encodeStep(step, SYNTH_CTX)).toThrow(/unknown gamePhase "twilight"/);
   });
 });
 

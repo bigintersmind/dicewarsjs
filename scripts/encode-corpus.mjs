@@ -92,18 +92,44 @@ console.log(
 
 fs.mkdirSync(outDir, { recursive: true });
 
-// One write stream per packed blob (see manifest for shapes/dtypes/layout).
-const streams = {
-  nodes: fs.createWriteStream(path.join(outDir, 'nodes.f32')),
-  players: fs.createWriteStream(path.join(outDir, 'players.f32')),
-  board: fs.createWriteStream(path.join(outDir, 'board.f32')),
-  edges: fs.createWriteStream(path.join(outDir, 'edges.f32')),
-  edgeIndex: fs.createWriteStream(path.join(outDir, 'edge_index.i32')),
-  edgeOffsets: fs.createWriteStream(path.join(outDir, 'edge_offsets.i32')),
-  labels: fs.createWriteStream(path.join(outDir, 'labels.i32')),
-  value: fs.createWriteStream(path.join(outDir, 'value.f32')),
-  meta: fs.createWriteStream(path.join(outDir, 'meta.i32')),
+/*
+ * One write stream per packed blob (see manifest for shapes/dtypes/layout). Each
+ * gets a fail-fast 'error' handler: a mid-stream disk failure (ENOSPC/EIO) would
+ * otherwise go unobserved — Node throws an unhandled 'error' (a non-diagnostic
+ * stack), or the backpressure 'drain' never fires and the writer hangs, and a
+ * smaller blob could keep succeeding so the run finishes a manifest claiming more
+ * steps than were durably flushed. Surfacing it here exits loudly, naming the
+ * blob, before any manifest is written (so no corrupt-but-complete artifact).
+ */
+const BLOB_FILES = {
+  nodes: 'nodes.f32',
+  players: 'players.f32',
+  board: 'board.f32',
+  edges: 'edges.f32',
+  edgeIndex: 'edge_index.i32',
+  edgeOffsets: 'edge_offsets.i32',
+  labels: 'labels.i32',
+  value: 'value.f32',
+  meta: 'meta.i32',
 };
+const streams = Object.fromEntries(
+  Object.entries(BLOB_FILES).map(([key, file]) => {
+    const stream = fs.createWriteStream(path.join(outDir, file));
+    /*
+     * Fail-fast on a mid-stream disk error (ENOSPC/EIO): exit loudly naming the
+     * blob, before any manifest is written (so no corrupt-but-complete artifact).
+     * Because this exits the process on any stream error, writeChunk's backpressure
+     * await can never hang on a 'drain' that an errored stream will never emit.
+     */
+    stream.on('error', err =>
+      fail(
+        `Write to ${file} failed: ${err.message}\n` +
+          `  Output is incomplete and unusable (no manifest written): ${displayPath(outDir)}`
+      )
+    );
+    return [key, stream];
+  })
+);
 
 let dims = null; // { maxAreas, playerCount } — captured from the first record, asserted uniform after
 let games = 0;
@@ -194,7 +220,11 @@ for await (const line of rl) {
   }
 }
 
-await Promise.all(Object.values(streams).map(closeStream));
+try {
+  await Promise.all(Object.values(streams).map(closeStream));
+} catch (err) {
+  fail(`Failed to flush packed blobs — output is incomplete: ${err.message}`);
+}
 
 if (steps === 0) {
   fail(
@@ -280,7 +310,12 @@ function i32(arr) {
   return Buffer.from(a.buffer, a.byteOffset, a.byteLength);
 }
 
-/** Write a chunk, awaiting backpressure so an 8M-step run can't outrun the fs. */
+/**
+ * Write a chunk, awaiting backpressure so an 8M-step run can't outrun the fs.
+ * A write error is handled by the stream's persistent 'error' handler (which
+ * exits the process), so we only ever wait on 'drain' here — no dangling
+ * 'error' listener to leak across millions of backpressure events.
+ */
 function writeChunk(stream, buf) {
   return stream.write(buf) ? Promise.resolve() : new Promise(res => stream.once('drain', res));
 }

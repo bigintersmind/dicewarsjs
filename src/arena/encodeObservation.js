@@ -45,7 +45,7 @@ export const ENCODING_VERSION = 1;
  * @type {readonly string[]}
  */
 export const NODE_FEATURES = Object.freeze([
-  'present', // 1 if a real area occupies this id (area.size > 0), else 0
+  'present', // 1 if a present area occupies this id; absent ids stay 0 (allAreas is pre-filtered upstream)
   'diceNorm', // dice / MAX_DICE
   'isMine', // owner === me
   'isEnemy', // present && owner !== me
@@ -174,8 +174,26 @@ function encodeGlobals(obs, me, totalTerritories) {
     p.reinforcements / STOCK_MAX,
   ]);
 
-  const myDice = obs.players.find(p => p.id === me)?.totalDice ?? 0;
-  const phase = PHASE_INDEX[obs.gamePhase] ?? PHASE_INDEX.mid;
+  /*
+   * Surface a corrupt step loudly rather than defaulting silently: the acting seat
+   * must appear among the per-seat globals, and gamePhase must be a known bucket.
+   * A silent `?? 0` / `?? mid` here would quietly poison `myDiceShare` / the phase
+   * one-hot for a whole game instead of flagging the contract break.
+   */
+  const self = obs.players.find(p => p.id === me);
+  if (!self) {
+    throw new Error(
+      `encodeObservation: acting seat ${me} is not among the step's ${obs.players.length} players.`
+    );
+  }
+  const myDice = self.totalDice;
+
+  const phase = PHASE_INDEX[obs.gamePhase];
+  if (phase === undefined) {
+    throw new Error(
+      `encodeObservation: unknown gamePhase "${obs.gamePhase}" (expected early|mid|late).`
+    );
+  }
   const board = [
     myDice / diceDen,
     obs.activePlayers / obs.totalPlayers,
@@ -243,6 +261,39 @@ function encodeActions(legalMoves, chosenMove) {
 }
 
 /**
+ * Assert the encoded tensors match their declared shapes before they are packed:
+ * each dense tensor as tall as its ctx dim, each row exactly as wide as its
+ * feature-name array. Converts a silent column/row drift (e.g. a feature name
+ * added to `NODE_FEATURES` without widening its row literal) into a loud,
+ * immediate throw — the on-disk `shape` in the manifest is derived from these
+ * same lengths, so a drift would otherwise pack a blob the Python loader silently
+ * mis-`reshape`s. O(1): rows are built uniformly, so the first of each is
+ * representative of its width.
+ *
+ * @param {{nodes:number[][], players:number[][], board:number[], edges:number[][]}} t
+ * @param {number} maxAreas
+ * @param {number} playerCount
+ */
+function assertShapeContract(t, maxAreas, playerCount) {
+  const checks = [
+    ['nodes height', t.nodes.length, maxAreas],
+    ['players height', t.players.length, playerCount],
+    ['nodes width', t.nodes[0]?.length, NODE_FEATURES.length],
+    ['players width', t.players[0]?.length, PLAYER_FEATURES.length],
+    ['board width', t.board.length, BOARD_FEATURES.length],
+    ['edges width', t.edges[0]?.length, EDGE_FEATURES.length],
+  ];
+  for (const [what, got, want] of checks) {
+    if (got !== want) {
+      throw new Error(
+        `encodeObservation: ${what} ${got} ≠ expected ${want} — a row builder drifted from its ` +
+          `feature-name array (or a dims mismatch); the packed tensor layout would be corrupt.`
+      );
+    }
+  }
+}
+
+/**
  * Encode one fat trajectory step into BC tensors per the D-Encoding contract.
  *
  * Pure: depends only on the step and the per-game context. The caller is
@@ -252,6 +303,10 @@ function encodeActions(legalMoves, chosenMove) {
  * @param {import('./trajectoryExport.js').TrajectoryStep} step
  * @param {EncodeContext} ctx
  * @returns {EncodedStep}
+ * @throws {Error} On a player-count mismatch, an acting seat absent from the
+ *   step's players, an unknown `gamePhase`, an area id outside `[0, maxAreas)`,
+ *   a `chosenMove` absent from `legalMoves`, or an encoded-tensor shape that
+ *   drifts from the declared feature-column counts.
  */
 export function encodeStep(step, ctx) {
   const { maxAreas, playerCount, winner, placements } = ctx;
@@ -275,6 +330,9 @@ export function encodeStep(step, ctx) {
    */
   const rank = placements.indexOf(me);
   const placement = playerCount > 1 && rank >= 0 ? 1 - rank / (playerCount - 1) : 0;
+
+  // Loud guard against a row builder drifting from its declared columns (see fn).
+  assertShapeContract({ nodes, players, board, edges }, maxAreas, playerCount);
 
   return {
     playerId: me,

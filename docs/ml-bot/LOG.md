@@ -21,6 +21,63 @@ Entry template:
 
 ---
 
+## 2026-06-23 — Phase-1 task 3: per-move allocation trims → Phase 1 DONE
+
+**Phase:** 1 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Landed the two per-move allocation trims ([D-12]'s "real perf lever") in
+  `src/engine/StateManager.js`, branch `ml-bot/perf-permove-trims`:
+  1. **No double-clone of `areas` per `END_TURN`.** `applyEndTurn` used to
+     `cloneAreas(state.areas)` and hand that to `distributeReinforcements`, which
+     deep-clones the board _again_ internally — two full clones per end-turn. Now it
+     passes `state.areas` through; `distributeReinforcements` is pure and already clones.
+  2. **`findLargestConnectedGroup` gated to dirty players.** `recalcPlayerStats` ran the
+     union-find pass for all 7 players every action; a player's largest group changes
+     only when their owned-territory set does, so it now recomputes only
+     `[attacker, former-owner]` on a capture and **nobody** on a failed attack / end-turn.
+     A new `dirtyLargestGroup` param (null = recompute all, for the initial build); the
+     cheap O(areas) territory/dice/eliminated scan stays universal; territoryCount===0 ⇒
+     largestGroup 0 without a pass.
+- Added a 5-seed per-action invariant fuzz test (`StateManager.test.js`) that, after
+  **every action**, asserts the maintained `territoryCount`/`diceCount`/`largestGroup`/
+  `eliminated` equal a from-scratch recompute — across captures, failed attacks,
+  eliminations and end-turns. Gates: **850 tests green**, lint + build clean.
+- Measured before/after (BEFORE captured on the unmodified branch; AFTER on the trims;
+  engine-only isolation via `git stash`). Recorded in `RESULTS.md`. Flipped task 3 + task
+  5 checkboxes, the Phase-1 heading, gate, and the README dashboard/status.
+
+**Learned / decided:**
+
+- **The engine win is ≈1.9× (≈215 → ≈414 games/s pure-engine), but the self-play field
+  only shows +3–5%** — that decisive field's wall-clock is dominated by the bots' own
+  depth-2 search, not `applyAction`. The honest framing: the committed-harness number is
+  the gate deliverable; the engine-only isolation is what the **bot-free learner
+  engine→tensor rollout path** (Phase 2/3) actually gets, and that's the ≈1.9×.
+- **Byte-identical games before/after** (same action-count distribution, same 230,918
+  actions over the 600-game bench) is the real correctness signal — the trims are pure
+  speed, zero behavior change. The fuzz test pins the per-action invariant directly.
+- **Bot-side `join`-matrix fast-path deferred** (the optional task-3 sub-item). It was
+  never isolated as a bottleneck, the field is search-dominated, and the learner never
+  touches the legacy-view chain ([D-13]) — so it stays a measured-and-only-if future
+  micro-opt, not a gate blocker.
+
+**Dead ends / surprises:**
+
+- First cut of the fuzz test asserted the game always reaches `gameOver`; seed 100 turtle-
+  stalemated under the mixed move-picker (6000 actions, no winner) — the **invariant still
+  held every action**, only my termination expectation was wrong. Switched to aggressive
+  attacking + asserting path coverage (captures + losses + eliminations all > 0) instead of
+  full resolution.
+
+**Next:**
+
+- **Phase 2 — imitation baseline.** Generate ~100k–1M `ai_lookahead` self-play games with
+  the committed harness (shardable by seed range across machines), pick the graph encoding
+  ([D-Encoding]), behavioral-clone a small masked policy/value net, export to ONNX, run
+  in-browser, and gate it at ~parity with Lookahead on `arena:sweep`.
+
 ## 2026-06-22 — Phase-1 task 5: parallel self-play harness scaffolded
 
 **Phase:** 1 · **Who:** Ivan + Claude

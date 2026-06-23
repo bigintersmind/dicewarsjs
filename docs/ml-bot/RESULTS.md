@@ -64,13 +64,15 @@ historical rows; new rows judge against Lookahead (noted inline)._
 Self-play and training throughput, so we can size compute. (Phase 1 fills the
 training-mode numbers.)
 
-| Date       | What                          | Config          | Throughput                                            | Notes                                                                                                                                                                                                         |
-| ---------- | ----------------------------- | --------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-06-21 | Pure engine, random policy    | 7p, single core | ~150 games/s (~6.6 ms/game, ~12 µs/step)              | From feasibility probe                                                                                                                                                                                        |
-| 2026-06-21 | Engine + Strategist heuristic | 7p, single core | ~77 games/s                                           | From feasibility probe                                                                                                                                                                                        |
-| 2026-06-21 | Engine + Strategist, parallel | 7p, 4 procs     | ~266 games/s aggregate (~3.4× the 77 g/s single core) | Near-linear scaling                                                                                                                                                                                           |
-| 2026-06-21 | Engine + Lookahead bot        | 7p, single core | ~4 games/s (~243 ms/game)                             | Search-heavy bot = "too slow" marker                                                                                                                                                                          |
-| 2026-06-21 | Phase 0 baseline sweep        | 7-bot FFA field | ~21 games/s single core (6000 games in 283 s)         | Full field incl. 2 search bots (Lookahead + depth-2 Expectimax). Expectimax depth-2 is comfortably in-browser-playable — far from the Lookahead "too slow" marker, which was a solo-bot-per-seat measurement. |
+| Date       | What                                                  | Config                                                                            | Throughput                                                    | Notes                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-06-21 | Pure engine, random policy                            | 7p, single core                                                                   | ~150 games/s (~6.6 ms/game, ~12 µs/step)                      | From feasibility probe                                                                                                                                                                                                                                                                                                                                                     |
+| 2026-06-21 | Engine + Strategist heuristic                         | 7p, single core                                                                   | ~77 games/s                                                   | From feasibility probe                                                                                                                                                                                                                                                                                                                                                     |
+| 2026-06-21 | Engine + Strategist, parallel                         | 7p, 4 procs                                                                       | ~266 games/s aggregate (~3.4× the 77 g/s single core)         | Near-linear scaling                                                                                                                                                                                                                                                                                                                                                        |
+| 2026-06-21 | Engine + Lookahead bot                                | 7p, single core                                                                   | ~4 games/s (~243 ms/game)                                     | Search-heavy bot = "too slow" marker                                                                                                                                                                                                                                                                                                                                       |
+| 2026-06-21 | Phase 0 baseline sweep                                | 7-bot FFA field                                                                   | ~21 games/s single core (6000 games in 283 s)                 | Full field incl. 2 search bots (Lookahead + depth-2 Expectimax). Expectimax depth-2 is comfortably in-browser-playable — far from the Lookahead "too slow" marker, which was a solo-bot-per-seat measurement.                                                                                                                                                              |
+| 2026-06-23 | **Engine-only, per-move trims (Phase 1 task 3)**      | 7p, single core, `recordHistory:false`, trivial seeded policy                     | **~215 → ~414 games/s (≈1.9×)**; ~82k → ~160k `applyAction`/s | Isolated pure-engine speed (no heuristic bot — i.e. the learner's engine→tensor data path). **Identical games before/after** (230,918 actions over 600 games, byte-for-byte). Trims: drop the redundant per-`END_TURN` `cloneAreas` (`distributeReinforcements` already clones) + gate `findLargestConnectedGroup` to the 0–2 players an action can change (was 7/action). |
+| 2026-06-23 | **Self-play harness, committed (`npm run selfplay`)** | Strategist/Expectimax/Lookahead/Defensive, 1500 games (seeds 1..1500), 8-core box | BEFORE→AFTER g/s: 1w 20.7→21.4 · 2w 38.5→40.3 · 4w 61.7→65.0  | This field is **bot-search-dominated**, so the engine trim surfaces as only +3–5% here (the engine itself is ≈1.9×, row above). 100% clean; action-count p50 252 / mean 309 **identical** before/after. **Near-linear scaling preserved:** 1→4 workers 2.98× (before) / 3.04× (after); 4 workers = the 50%-of-cores policy (CLAUDE.md).                                    |
 
 ---
 
@@ -263,3 +265,51 @@ ceiling, not a quota) — the answer is clear and reconfirming a dead pattern wa
 budget. **Earned signal: search valuation is tapped out at this structure → pivot to
 Track B (Phase 1).** Code reverted (the 3 dud params are not shipped); finding kept
 here + in DECISIONS.
+
+---
+
+### 2026-06-23 — Phase 1 task 3: per-move allocation trims (closes the Phase-1 gate)
+
+**What changed (engine only, `src/engine/StateManager.js`).** Two behavior-preserving
+trims to the per-action hot path:
+
+1. **No double-clone per `END_TURN`.** `applyEndTurn` used to `cloneAreas(state.areas)`
+   and then hand that copy to `distributeReinforcements`, which deep-clones the areas
+   array _again_ internally — so every end-turn deep-cloned the whole board twice. It
+   now passes `state.areas` straight through (`distributeReinforcements` is pure and
+   already clones), eliminating one full `areas` deep-clone per end-turn.
+2. **`findLargestConnectedGroup` gated to the players that can change.** `recalcPlayerStats`
+   ran the union-find pass for **all 7 players on every action**. A player's
+   largest-connected-group depends only on which territories they own (adjacency is
+   fixed), and a single action changes ownership for at most one territory — so it now
+   recomputes only `[attacker, former-owner]` on a successful attack and **nobody** on a
+   failed attack or an end-turn (territory/dice/eliminated counts are still refreshed by
+   the cheap O(areas) scan). Was 7 union-find passes/action → 0–2.
+
+**Correctness.** A new 5-seed fuzz test (`StateManager.test.js`,
+"player-stat invariants under the per-move trims") plays full games and asserts, after
+**every single action**, that the incrementally-maintained `territoryCount` / `diceCount`
+/ `largestGroup` / `eliminated` equal a from-scratch recompute — across captures, failed
+attacks, eliminations and end-turns. Self-play emits **byte-identical games** before vs
+after (identical action-count distribution + 230,918 actions over the 600-game engine
+bench). Full suite **850 passing**, lint + build green.
+
+**Numbers.** Engine-only (no heuristic bot — the learner's engine→tensor data path):
+**≈215 → ≈414 games/s (≈1.9×)**, ~82k → ~160k `applyAction`/s, two runs each, same games.
+On the committed `npm run selfplay` harness with the decisive seed-pure field the gain is
+only +3–5% — that field's wall-clock is dominated by the bots' own depth-2 search, not by
+`applyAction` — but near-linear worker scaling is preserved (1→4 workers 2.98× before /
+3.04× after, 100% clean, identical action distribution).
+
+**Why this closes the gate, not a single g/s number ([D-12]).** Phase-2 data-gen of the
+`ai_lookahead` teacher is **parallelism-bound** (~4 g/s/core regardless of engine
+micro-opts), so the gate is "near-linear scaling confirmed from committed code +
+before/after recorded" — both now satisfied. The ≈1.9× engine win is what the bot-free
+learner rollout path gets directly.
+
+**Repro.** Field-level + scaling:
+`npm run selfplay -- --no-write --seed-count 1500 --seed-start 1 --workers {1,2,4}`
+(default decisive field). Engine-only isolation: a pure-engine loop driving full
+`createInitialState`→`applyAction` games under a trivial seeded policy with
+`recordHistory:false`, timed before/after the trims via `git stash` (scratch
+microbenchmark; the committed harness number is the gate deliverable).

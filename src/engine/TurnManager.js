@@ -181,6 +181,13 @@ export function distributeReinforcements(state, playerId, rng) {
   let stock = Math.min(player.stock + reinforcements, STOCK_MAX);
 
   if (stock <= 0) {
+    /*
+     * Nothing to place: return a new array, but its elements are the SAME area
+     * objects as the input (shallow copy). Still "does not mutate the input" — we
+     * never write through them — but callers must keep treating areas as immutable
+     * (clone before mutating). Unreachable via applyEndTurn (an active player always
+     * has >= 1 territory ⇒ reinforcements >= 1 ⇒ stock >= 1).
+     */
     return { areas: [...state.areas], playerStock: stock };
   }
 

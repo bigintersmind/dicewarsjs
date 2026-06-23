@@ -89,8 +89,23 @@ function clonePlayers(players) {
 
 /**
  * Recalculate player stats from areas.
+ *
+ * territoryCount, diceCount and the eliminated flag are always refreshed (cheap
+ * O(areas) scans). The expensive largestGroup — a union-find pass per player — is
+ * recomputed only for the players listed in `dirtyLargestGroup`, because a
+ * player's largest connected group can change only when the set of territories
+ * they own changes. A single ATTACK changes ownership for at most one territory,
+ * so only the attacker and the captured territory's former owner are affected; a
+ * lost attack and an END_TURN change no ownership at all. Players that end up
+ * with no territories get largestGroup 0 without a union-find pass. Pass `null`
+ * (or omit) to recompute every player — used for the initial full build.
+ *
+ * @param {import('./types.js').Player[]} players
+ * @param {import('./types.js').Area[]} areas
+ * @param {number[]|null} [dirtyLargestGroup] - ids of players whose largestGroup
+ *   must be recomputed; null/omitted recomputes all.
  */
-function recalcPlayerStats(players, areas) {
+function recalcPlayerStats(players, areas, dirtyLargestGroup) {
   for (const p of players) {
     p.territoryCount = 0;
     p.diceCount = 0;
@@ -101,10 +116,18 @@ function recalcPlayerStats(players, areas) {
       players[areas[a].owner].diceCount += areas[a].dice;
     }
   }
+  const recomputeAll = dirtyLargestGroup == null;
+  const dirty = recomputeAll ? null : new Set(dirtyLargestGroup);
   for (const p of players) {
-    p.largestGroup = findLargestConnectedGroup(areas, p.id);
-    if (p.territoryCount === 0 && !p.eliminated) {
-      p.eliminated = true;
+    if (p.territoryCount === 0) {
+      /*
+       * No territories ⇒ empty group; also covers the just-eliminated defender
+       * (always in the dirty set) without a union-find pass.
+       */
+      p.largestGroup = 0;
+      if (!p.eliminated) p.eliminated = true;
+    } else if (recomputeAll || dirty.has(p.id)) {
+      p.largestGroup = findLargestConnectedGroup(areas, p.id);
     }
   }
 }
@@ -189,18 +212,25 @@ function applyAttack(state, action) {
 
   if (battle.success) {
     // Attacker wins: take over territory
+    const formerOwner = toArea.owner; // capture before overwriting
     toArea.owner = currentPlayer;
     toArea.dice = fromArea.dice - 1;
     fromArea.dice = 1;
 
-    // Recalculate stats
-    recalcPlayerStats(players, areas);
+    /*
+     * Only the attacker and the captured territory's former owner changed their
+     * owned-territory set, so only their largestGroup can have changed.
+     */
+    recalcPlayerStats(players, areas, [currentPlayer, formerOwner]);
   } else {
     // Attacker loses: lose all dice except 1
     fromArea.dice = 1;
 
-    // Recalculate attacker's dice count
-    recalcPlayerStats(players, areas);
+    /*
+     * A lost attack changes no ownership — no player's largestGroup changes;
+     * only the attacker's dice count drops (refreshed by the cheap scan).
+     */
+    recalcPlayerStats(players, areas, []);
   }
 
   // Check for game over
@@ -224,15 +254,19 @@ function applyAttack(state, action) {
  */
 function applyEndTurn(state) {
   const currentPlayer = state.turnOrder[state.currentPlayerIndex];
-  const areas = cloneAreas(state.areas);
   const players = clonePlayers(state.players);
 
   // Create RNG for deterministic reinforcement distribution
   const rng = createRng(state.rngState);
 
-  // Distribute reinforcements (calculates reinforcements + places dice randomly)
+  /*
+   * Distribute reinforcements (calculates reinforcements + places dice randomly).
+   * distributeReinforcements is pure — it clones areas internally before mutating —
+   * so pass state.areas directly. Pre-cloning here would deep-copy the whole areas
+   * array a second time only to discard it.
+   */
   const { areas: newAreas, playerStock } = distributeReinforcementsDice(
-    { areas, players },
+    { areas: state.areas, players },
     currentPlayer,
     rng
   );
@@ -242,8 +276,12 @@ function applyEndTurn(state) {
   // Update the player's stock after distribution
   players[currentPlayer].stock = playerStock;
 
-  // Recalculate stats with new areas
-  recalcPlayerStats(players, newAreas);
+  /*
+   * Reinforcement only adds dice to the current player's existing territories — no
+   * ownership changes — so every player's largestGroup is unchanged; refresh only
+   * the cheap territory/dice counts.
+   */
+  recalcPlayerStats(players, newAreas, []);
 
   // Advance turn
   const { currentPlayerIndex, turnNumber } = nextTurn({

@@ -182,15 +182,29 @@ _parallel_ self-play environment. No learning yet.
       fraction of that bot's cost, and **re-validate the bot's arena numbers** after
       (behavior must not shift). Not a blanket port — the learner reads engine→tensor
       directly and never touches this chain ([D-13]).
-- [ ] **(4) Trajectory export** (`src/arena/trajectoryExport.js`, beside
-      `replayFormat.js`). Per-step `{observation: BotState, legalMoves (getValidMoves
-  - an explicit STOP), chosenMove, outcome}`+ terminal`{winner, placements,
-    turnCount}`. Hook via an `onStep`/`recordTrajectory`option threaded
-`runMatch → runBotTurn`: capture the observation **before** `applyAction`,
- outcome after, **skip rejected moves**, emit a STOP tuple on `null`. Record the
- action list **independently of `state.history`** so it survives
- `recordHistory:false`. Version-stamp the observation schema (encoding finalized
-    in Phase 2 — [D-Encoding]).
+- [x] **(4) Trajectory export** (`src/arena/trajectoryExport.js`, beside
+      `replayFormat.js`). **Landed.** Per-step `{observation: BotState, legalMoves
+(getValidMoves + an explicit STOP), chosenMove, outcome}` + terminal
+      `{winner, placements, turnCount}`. Hooked via an `onStep`/`recordTrajectory`
+      option threaded `runMatch → runBotTurn`: observation captured **before**
+      `applyAction`, outcome after, **rejected/invalid moves skipped**, STOP tuple
+      emitted at the turn-ending `END_TURN`. **Decision (confirmed with Ivan):
+      lean is canonical on disk, fat is derived** (per [D-13]) — the recorder
+      records the **lean action list out-of-band from `state.history`** (so it
+      survives `recordHistory:false`, where the plain `createReplay` would yield
+      nothing — the crux), and the fat steps are re-derivable via
+      `createBotState(replayToState(replay, i))` (`trajectoryFromReplay` — also the
+      Phase-2 tensor-expansion pass). Invariant: **one fat step per applied action**
+      (`fatSteps ≡ lean action list`), so re-derivation reproduces live capture
+      step-for-step. The lean record reuses the replay envelope
+      (`createReplayFromActions`, extracted from `replayFormat.js`) + an
+      `observationSchemaVersion` stamp (encoding finalized in Phase 2 — [D-Encoding]).
+      Tests: `tests/arena/trajectoryExport.test.js` (36, incl. review hardening) with
+      the headline `rederived === live` round-trip under `recordHistory:false`; sample
+      `tests/fixtures/trajectories/sample.jsonl` (3 games) round-trips.
+      **Scope split (confirmed): `scripts/selfplay.mjs` + at-scale JSONL streaming
+      stay task 5.** `arenaRunner` forwards `recordTrajectory`/`onStep` but retains
+      `matches[]` — task 5's harness calls `runMatch` directly and streams.
 - [ ] **(5) Committed parallel self-play harness** (`scripts/selfplay.mjs` +
       `npm run selfplay` — [D-12]). `worker_threads` pool (default ~50% cores, to
       respect the test-lock machine policy in CLAUDE.md). **Pass bot identifiers, not
@@ -203,6 +217,15 @@ _parallel_ self-play environment. No learning yet.
       (`--seed-start`/`--seed-count`/`--out`) so the JSONL concatenates losslessly
       across machines — data-gen fans out across all cores on every available machine,
       not one box (engine determinism + game independence make the merge clean — [D-13]).
+      **Data-quality filter at consumption — this harness owns forced-end cleanup
+      ([D-14]).** Task-4 records every turn-end as a voluntary STOP (explicit-(c)); the
+      rare forced ends are dropped here, where the signals already live as first-class
+      per-bot counters on `botStats`: a game where a teacher's `errors`, `invalidMoves`,
+      or `maxMovesHit` is **> 0** is **quarantined** (teacher misbehaved or hit the move
+      cap — <0.1% of games for a well-behaved teacher). `maxMovesHit` is an explicit
+      counter (not derived from turn length), so the whole game is dropped uniformly
+      across all three signals. Keeps the lean record pure; no per-action markers in the
+      format.
 
 **Acceptance criteria.**
 

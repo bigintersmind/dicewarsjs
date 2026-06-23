@@ -177,7 +177,7 @@ The full suite forks many workers; running several copies at once can exhaust RA
 ## Gotchas
 
 - **Imports**: Source files use relative paths — the project configures no path aliases. (The old `@utils`/`@ai`/`@engine` Vite aliases were unused and have been removed.)
-- **Husky pre-commit hook**: Runs `lint-staged` automatically, which applies ESLint fixes and Prettier formatting to staged `.js` and `.jsx` files.
+- **Husky pre-commit hook**: Runs `lint-staged` automatically — `eslint --fix` + `prettier --write` on staged `.js`/`.jsx`/`.mjs` files, and `prettier --write` on staged `.json`/`.md`/`.yml`/`.yaml` files. Note it formats Markdown too, but it has occasionally failed to fully normalize a `.md` file (e.g. a multi-line inline-code span), so if CI's `format:check` (`prettier --check .`) flags a doc, run `npx prettier --write <file>` yourself.
 - **Vitest globals**: Tests use `globals: true` in vitest config, so `describe`, `it`, `expect`, `vi`, `beforeEach`, `afterEach` are available without imports. Use `import { vi } from 'vitest'` only if needed for explicit typing.
 - **Test environment is `node` by default**: To keep memory down, the suite runs under the lightweight Node environment, not jsdom. A test that touches `document`, `window`, `localStorage`, canvas, or renders a Preact component must declare `// @vitest-environment jsdom` as the first line of the file, or it will fail with `X is not defined`.
 

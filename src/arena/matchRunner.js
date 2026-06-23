@@ -13,12 +13,18 @@ import { ACTION_TYPES, GAME_PHASES } from '../engine/constants.js';
 import { createBotState } from './botState.js';
 import { validateMove } from './botValidator.js';
 import { runBotDirect } from './botRunner.js';
+import { STOP, buildStep, createTrajectoryRecorder } from './trajectoryExport.js';
 
-/** Maximum moves a single bot can make per turn */
-const MAX_MOVES_PER_TURN = 100;
+/**
+ * Maximum moves a single bot can make per turn. Exported as the single source of
+ * truth: the task-5 data-gen filter must know this cap to reason about cap-forced
+ * turns, and a per-bot `maxMovesHit` stat (below) is derived from it — so consumers
+ * read this constant rather than hard-coding `100` (D-14).
+ */
+export const MAX_MOVES_PER_TURN = 100;
 
 /** Maximum consecutive invalid moves before ending a bot's turn */
-const MAX_CONSECUTIVE_INVALID = 3;
+export const MAX_CONSECUTIVE_INVALID = 3;
 
 /** Maximum turns before declaring a stalemate */
 const DEFAULT_MAX_TURNS = 500;
@@ -40,6 +46,9 @@ const DEFAULT_MAX_TURNS = 500;
  * @property {number} attacksWon     - Total successful attacks
  * @property {number} errors         - Bot errors (exceptions) during turn
  * @property {number} invalidMoves   - Invalid moves attempted
+ * @property {number} maxMovesHit    - Turns force-ended by the MAX_MOVES_PER_TURN cap
+ *   (a forced-end signal alongside `errors`/`invalidMoves`; the task-5 filter quarantines
+ *   any game where a teacher's count is > 0 — see D-14)
  */
 
 /**
@@ -51,6 +60,8 @@ const DEFAULT_MAX_TURNS = 500;
  * @property {MatchBotStat[]} botStats   - Per-bot statistics
  * @property {{ seed: number, playerCount: number }} config - Game config used (for replay)
  * @property {import('../engine/types.js').GameState} finalState - Engine state at game end
+ * @property {import('./trajectoryExport.js').TrajectoryRecord} [trajectory] - Lean self-play
+ *   trajectory record (present only when `recordTrajectory` is set).
  */
 
 /**
@@ -61,14 +72,30 @@ const DEFAULT_MAX_TURNS = 500;
  * @param {Function} botFn - Bot function
  * @param {string}   botName - For logging
  * @param {Object}   stats - Mutable stats accumulator { attacks, wins }
+ * @param {(step: import('./trajectoryExport.js').TrajectoryStep) => void} [onStep] - Optional
+ *   per-decision callback. Fires once per *applied* ATTACK (with its outcome) and
+ *   exactly once at turn end with a STOP step — never for an individual rejected or
+ *   invalid attack. The turn-end STOP fires on *every* non-GAME_OVER exit of the move
+ *   loop, so it covers both a voluntary stop (bot returns null) and a forced end (bot
+ *   error / MAX_CONSECUTIVE_INVALID / MAX_MOVES_PER_TURN); all are recorded as a
+ *   voluntary STOP and are NOT distinguished here (see the `TrajectoryStep` typedef
+ *   for why, and the per-bot `stats` counters — errors/invalidMoves/maxMovesHit — for
+ *   how the planned task-5 filter drops forced-end games at consumption — D-14).
+ *   Captures the observation *before* the action, independently of `state.history`,
+ *   so it survives training mode.
  * @returns {import('../engine/types.js').GameState}
  */
-function runBotTurn(state, botFn, botName, stats) {
+function runBotTurn(state, botFn, botName, stats, onStep) {
   let currentState = state;
   const playerId = currentState.turnOrder[currentState.currentPlayerIndex];
   let consecutiveInvalid = 0;
 
-  for (let i = 0; i < MAX_MOVES_PER_TURN; i++) {
+  /*
+   * Hoisted so a post-loop `i === MAX_MOVES_PER_TURN` test can detect cap exhaustion
+   * (any break — null/error/invalid — leaves i < cap).
+   */
+  let i;
+  for (i = 0; i < MAX_MOVES_PER_TURN; i++) {
     if (currentState.phase === GAME_PHASES.GAME_OVER) return currentState;
 
     const botState = createBotState(currentState, playerId);
@@ -97,6 +124,7 @@ function runBotTurn(state, botFn, botName, stats) {
       continue;
     }
 
+    const preAttackState = currentState;
     try {
       currentState = applyAction(currentState, {
         type: ACTION_TYPES.ATTACK,
@@ -111,12 +139,55 @@ function runBotTurn(state, botFn, botName, stats) {
 
     consecutiveInvalid = 0;
     stats.attacks++;
-    if (currentState.areas[move.to].owner === playerId) {
-      stats.wins++;
+    const won = currentState.areas[move.to].owner === playerId;
+    if (won) stats.wins++;
+
+    if (onStep) {
+      /*
+       * Build via the shared producer. botState + validMoves were captured BEFORE
+       * applyAction (for the bot call + validation) — passing them as the cached
+       * observation/legal set means buildStep adds no extra engine work here.
+       */
+      onStep(
+        buildStep(
+          preAttackState,
+          { type: ACTION_TYPES.ATTACK, from: move.from, to: move.to },
+          currentState,
+          { observation: botState, legalMoves: [...validMoves, STOP] }
+        )
+      );
     }
   }
 
   if (currentState.phase !== GAME_PHASES.GAME_OVER) {
+    /*
+     * Cap-forced end: the loop ran all MAX_MOVES_PER_TURN iterations while the game was
+     * still going. This whole block is already gated on `phase !== GAME_OVER`, so a
+     * winning move (which flips the phase, even on the final iteration) is never counted
+     * here; among the remaining non-terminal exits, i === MAX_MOVES_PER_TURN holds iff the
+     * loop exhausted the cap (any break for null/error/invalid leaves i < cap). Surface it
+     * as a per-bot stat so the task-5 filter can quarantine cap-forced games without
+     * reconstructing per-turn action lengths (D-14). Tracked independently of onStep —
+     * a misbehavior signal regardless of capture.
+     */
+    if (i === MAX_MOVES_PER_TURN) stats.maxMovesHit = (stats.maxMovesHit || 0) + 1;
+
+    if (onStep) {
+      /*
+       * Turn ended short of GAME_OVER — emit the STOP training example. This fires
+       * for EVERY non-terminal exit of the loop above: a voluntary stop (move ===
+       * null) AND a forced end (bot error / MAX_CONSECUTIVE_INVALID / MAX_MOVES_PER_TURN).
+       * We deliberately record all of them as a single voluntary STOP label
+       * (explicit-(c), D-14): it keeps the lean action list pure and round-trippable,
+       * and matches the teacher's true behavior at the ~0% forced-end rate. Forced ends
+       * are NOT marked on the step; the planned task-5 self-play harness will filter them
+       * at consumption, where the signals already live — a teacher with
+       * botStats.errors/.invalidMoves/.maxMovesHit > 0 quarantines the whole game
+       * (maxMovesHit counts the cap-forced turns tallied just above). (See the
+       * TrajectoryStep typedef + PLAN task 5.)
+       */
+      onStep(buildStep(currentState, { type: ACTION_TYPES.END_TURN }, currentState));
+    }
     try {
       currentState = applyAction(currentState, { type: ACTION_TYPES.END_TURN });
     } catch (err) {
@@ -140,13 +211,26 @@ function runBotTurn(state, botFn, botName, stats) {
  * @param {number}  [config.seed]        - RNG seed (random if omitted)
  * @param {number}  [config.maxTurns=500] - Max turns before stalemate
  * @param {Function} [config.onTurn]     - Callback after each turn: (turnNumber, state)
+ * @param {(step: import('./trajectoryExport.js').TrajectoryStep) => void} [config.onStep] -
+ *   Per-decision callback (see runBotTurn). For custom streaming sinks.
+ * @param {boolean} [config.recordTrajectory] - When true, capture a self-play trajectory and
+ *   return it as `result.trajectory`. Pair with `recordHistory:false` for training-mode
+ *   self-play — the trajectory is recorded out-of-band so it survives the empty history.
  * @param {boolean} [config.recordHistory] - Forwarded to the engine; pass `false` for
  *   training mode (skips the per-move history append — see GameRunner.createGame).
  *   Leave undefined for the default (history on) so replay creation still works.
  * @returns {MatchResult}
  */
 export function runMatch(config) {
-  const { bots, seed, maxTurns = DEFAULT_MAX_TURNS, onTurn, recordHistory } = config;
+  const {
+    bots,
+    seed,
+    maxTurns = DEFAULT_MAX_TURNS,
+    onTurn,
+    onStep,
+    recordTrajectory,
+    recordHistory,
+  } = config;
 
   const names = new Set(bots.map(b => b.name));
   if (names.size !== bots.length) {
@@ -169,6 +253,19 @@ export function runMatch(config) {
   // Per-player attack stats
   const attackStats = bots.map(() => ({ attacks: 0, wins: 0 }));
 
+  /*
+   * Trajectory capture (opt-in). The recorder accumulates the lean action list
+   * independently of state.history; an external onStep can also tap the stream.
+   */
+  const recorder = recordTrajectory ? createTrajectoryRecorder() : null;
+  const stepHandler =
+    recorder || onStep
+      ? step => {
+          recorder?.onStep(step);
+          onStep?.(step);
+        }
+      : undefined;
+
   // Track elimination order for placement calculation
   const eliminationOrder = [];
 
@@ -178,8 +275,23 @@ export function runMatch(config) {
   while (state.phase !== GAME_PHASES.GAME_OVER && turnCount < maxTurns) {
     const currentPlayerId = state.turnOrder[state.currentPlayerIndex];
 
-    // Skip eliminated players (engine should handle this, but be safe)
+    /*
+     * Skip eliminated players. The engine's nextTurn already skips eliminated
+     * players, so this branch is defensive dead code in normal play. But this
+     * applyAction does NOT flow through runBotTurn's onStep, so if it fired with
+     * trajectory capture active it would advance the engine by an END_TURN that is
+     * absent from the recorded action list — silently desyncing re-derivation from
+     * live capture. Fail loudly in that case rather than corrupt training data; keep
+     * the harmless defensive skip for the no-recorder path. (See D-14.)
+     */
     if (state.players[currentPlayerId].eliminated) {
+      if (stepHandler) {
+        throw new Error(
+          `[Match] reached eliminated player ${currentPlayerId} mid-game with trajectory ` +
+            `recording active — engine turn-advance invariant violated; aborting to avoid a ` +
+            `desynced trajectory.`
+        );
+      }
       try {
         state = applyAction(state, { type: ACTION_TYPES.END_TURN });
       } catch (err) {
@@ -198,7 +310,8 @@ export function runMatch(config) {
       state,
       botFnByPlayer[currentPlayerId],
       botNameByPlayer[currentPlayerId],
-      attackStats[currentPlayerId]
+      attackStats[currentPlayerId],
+      stepHandler
     );
 
     // Track newly eliminated players
@@ -215,6 +328,10 @@ export function runMatch(config) {
   // Calculate placements
   const placements = calculatePlacements(state, eliminationOrder);
 
+  if (recorder) {
+    recorder.finalize({ winner: state.winner, placements, turnCount });
+  }
+
   // Build per-bot stats
   const botStats = bots.map((bot, playerIndex) => ({
     name: bot.name,
@@ -226,6 +343,7 @@ export function runMatch(config) {
     attacksWon: attackStats[playerIndex].wins,
     errors: attackStats[playerIndex].errors || 0,
     invalidMoves: attackStats[playerIndex].invalidMoves || 0,
+    maxMovesHit: attackStats[playerIndex].maxMovesHit || 0,
   }));
 
   return {
@@ -236,6 +354,9 @@ export function runMatch(config) {
     botStats,
     config: { seed: gameState.config.seed, playerCount: bots.length },
     finalState: state,
+    ...(recorder && {
+      trajectory: recorder.toRecord({ config: gameState.config, botNames: botNameByPlayer }),
+    }),
   };
 }
 

@@ -21,6 +21,113 @@ Entry template:
 
 ---
 
+## 2026-06-22 — PR #42 review hardening (boundary + forced-end signal)
+
+**Phase:** 1 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Acted on the multi-agent PR-#42 review. Three changes, all green (arena suite
+  213 passing; `trajectoryExport` 28 → 36 tests):
+  1. **Forced-end signal made first-class (D-14).** Exported `MAX_MOVES_PER_TURN`
+     (single source of truth) and added a `maxMovesHit` per-bot counter to
+     `MatchResult.botStats`, incremented when a turn exhausts the move cap. Replaces
+     the earlier "derive from turn length === cap" plan, which was ambiguous (recorded
+     run is `cap` ATTACKs **+** trailing STOP, and a legit 100-attack voluntary turn
+     looks identical). Task-5 now quarantines on `errors`/`invalidMoves`/`maxMovesHit > 0`
+     uniformly.
+  2. **Deserialize boundary hardening.** `deserializeTrajectory` now validates the
+     terminal reward label (`metadata.winner` null-or-in-range; `metadata.placements`
+     a full permutation) and the config fields that feed `createGame` (`playerCount`
+     ≥ 2; positive map/dice dims), not just `seed`. A poisoned label/config now fails
+     loudly at parse instead of detonating opaquely downstream.
+  3. **Tests.** Added a stalemate/null-winner case (winner null + valid placements
+     permutation, round-trips through validation) and an explicit "GAME_OVER ⇒ no
+     trailing STOP" assertion (was only covered implicitly by the seed-12345
+     coincidence), plus six deserialize-rejection tests.
+
+**Learned / decided:**
+
+- The reward label is what makes a record a _trajectory_ and not a plain replay, so
+  it belongs in boundary validation — the `toRecord` finalize-guard only covers the
+  write path; the read path needed the same protection.
+- A per-game integer counter beats per-turn length reconstruction for detecting
+  cap-forced ends: unambiguous, and consumers never have to re-segment the flat
+  action list.
+
+**Next:**
+
+- Task 5: `scripts/selfplay.mjs` + worker pool + JSONL streaming, consuming the
+  `botStats` forced-end counters as the quarantine filter.
+
+---
+
+## 2026-06-22 — PR 2 built: trajectory export (`src/arena/trajectoryExport.js`, task 4)
+
+**Phase:** 1 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Scoped task 4 with a verified surface-map (fan-out readers over `matchRunner`,
+  `replayFormat`, `StateManager`, bot adapters, `GameRunner`/`arenaRunner`) before
+  writing code, then built it TDD as 4 slices, all green:
+  1. **`replayFormat.js` refactor** — extracted `createReplayFromActions(actions,
+config, metadata)` (the two existing builders re-point at it) and hoisted
+     `REPLAY_VERSION` (was a hardcoded `1` in 3 spots).
+  2. **`src/arena/trajectoryExport.js`** — `OBSERVATION_SCHEMA_VERSION`, a `STOP`
+     sentinel (`{type:'END_TURN'}`), `createTrajectoryRecorder()`, the lean→fat
+     re-derivation (`trajectoryFromReplay`/`trajectoryStepFromReplay`), and
+     JSONL-oriented `serialize`/`deserializeTrajectory` with version gates.
+  3. **Hook plumbing** — `runMatch`/`runBotTurn` thread an `onStep`/`recordTrajectory`
+     option; ATTACK steps reuse the `botState`+`validMoves` already computed at the
+     decision point (zero extra engine calls on the hot path), STOP step recomputes;
+     all gated behind `if (onStep)`. `arenaRunner` forwards both options.
+  4. **Integration test + sample** — `tests/arena/trajectoryExport.test.js` (19
+     tests) incl. the headline round-trip; `tests/fixtures/trajectories/sample.jsonl`
+     (3 games, seeds 1/2/3).
+- Full suite **783 passing**, lint clean, `npm run build` green.
+
+**Learned / decided:**
+
+- **Crux:** under `recordHistory:false`, `createReplay` builds its action list from
+  `finalState.history` → **empty**, so the plain replay silently breaks in training
+  mode. That's the whole reason the `onStep` hook exists: it records the lean action
+  list **out-of-band from `state.history`**.
+- **Lean canonical, fat derived** (confirmed with Ivan; aligns [D-13]). On-disk = lean
+  (seed + actions + terminal label); fat steps re-derived via
+  `createBotState(replayToState(replay,i))` — which is also the Phase-2 tensor-expansion
+  pass. The headline test asserts `rederived === live` step-for-step under
+  `recordHistory:false`, proving lean is a lossless compression of fat.
+- **Invariant: one fat step per _applied_ action** (`fatSteps ≡ lean action list`).
+  Rejected/invalid moves and bot errors are skipped (never reach `applyAction`); the
+  turn-ending STOP is the `END_TURN` step. This keeps live capture and re-derivation in
+  lockstep.
+- `nextTurn` already skips eliminated players, so `runMatch`'s eliminated-skip
+  `END_TURN` (applied outside `runBotTurn`) is **defensive dead code** → the action list
+  is exactly the bot decisions and replays faithfully. The full-state round-trip test
+  guards against this assumption silently breaking.
+- A trajectory/replay is **self-contained** (seed + recorded actions, re-applied by the
+  engine — bots are _not_ called on replay), so the committed `sample.jsonl` is stable
+  across bot tuning; it only depends on engine determinism.
+- BotState is deeply frozen + freshly built per move → stored by reference, no clone.
+  The `replayToState` round-trip is robust to the `recordHistory` mismatch (it rebuilds
+  with history on, but `createBotState` drops history, so observations compare equal).
+
+**Dead ends / surprises:**
+
+- Planned to hoist `getValidMoves` to the loop top per the surface-map; turned out
+  unnecessary — the ATTACK step reuses the `validMoves` already computed at `:91`, so
+  no hot-path change.
+
+**Next:**
+
+- **Task 3** (per-move allocation trims — first-class [D-12]) and **task 5** (committed
+  parallel self-play harness `scripts/selfplay.mjs` + `npm run selfplay`, streaming
+  trajectories to JSONL, shardable by seed range — reuses this module's lean record).
+  Then the Phase-1 gate (scaling + before/after numbers) → Phase 2.
+
+---
+
 ## 2026-06-22 — PR 1 landed: training-mode `recordHistory` flag + determinism harness (tasks 1–2)
 
 **Phase:** 1 · **Who:** Ivan + Claude

@@ -11,9 +11,12 @@
 
 import { createGame, replayGame } from '../engine/GameRunner.js';
 
+/** Replay format version. Bump when the on-disk shape changes incompatibly. */
+export const REPLAY_VERSION = 1;
+
 /**
  * @typedef {Object} Replay
- * @property {number}         version  - Format version (currently 1)
+ * @property {number}         version  - Format version (REPLAY_VERSION)
  * @property {Object}         config   - Game config { seed, playerCount, mapWidth, mapHeight, maxAreas, dicePerArea }
  * @property {CompactAction[]} actions  - Ordered list of game actions
  * @property {ReplayMetadata}  metadata - Summary metadata
@@ -53,9 +56,13 @@ export function createReplay(matchResult, botNames) {
       : { type: 'END_TURN' }
   );
 
-  return {
-    version: 1,
-    config: {
+  return createReplayFromActions(
+    actions,
+    {
+      /*
+       * seed/playerCount are the caller's inputs; map params are the resolved
+       * (post-defaults) values on the engine state.
+       */
       seed: matchResult.config.seed,
       playerCount: matchResult.config.playerCount,
       mapWidth: matchResult.finalState.config.mapWidth,
@@ -63,14 +70,12 @@ export function createReplay(matchResult, botNames) {
       maxAreas: matchResult.finalState.config.maxAreas,
       dicePerArea: matchResult.finalState.config.dicePerArea,
     },
-    actions,
-    metadata: {
+    {
       bots: botNames,
       winner: matchResult.winner,
       turnCount: matchResult.turnCount,
-      timestamp: new Date().toISOString(),
-    },
-  };
+    }
+  );
 }
 
 /**
@@ -89,22 +94,44 @@ export function createReplayFromState(finalState, metadata) {
     return { type: 'END_TURN' };
   });
 
+  return createReplayFromActions(actions, finalState.config, {
+    bots: metadata.bots || [],
+    winner: metadata.winner ?? finalState.winner,
+    turnCount: metadata.turnCount ?? finalState.turnNumber,
+  });
+}
+
+/**
+ * Assemble a replay envelope from an already-extracted action list.
+ *
+ * The shared builder behind {@link createReplay} and
+ * {@link createReplayFromState}. Crucially, it does NOT touch `state.history`,
+ * so callers that record actions out-of-band (e.g. the self-play trajectory
+ * recorder running under `recordHistory:false`, where history is empty) can
+ * build a valid, replayable record.
+ *
+ * @param {CompactAction[]} actions - Ordered compact actions ({type, from?, to?})
+ * @param {Object} config - Resolved game config (seed + map/player params + dicePerArea)
+ * @param {Object} metadata - { bots?: string[], winner?, turnCount?, timestamp? }
+ * @returns {Replay}
+ */
+export function createReplayFromActions(actions, config, metadata = {}) {
   return {
-    version: 1,
+    version: REPLAY_VERSION,
     config: {
-      seed: finalState.config.seed,
-      playerCount: finalState.config.playerCount,
-      mapWidth: finalState.config.mapWidth,
-      mapHeight: finalState.config.mapHeight,
-      maxAreas: finalState.config.maxAreas,
-      dicePerArea: finalState.config.dicePerArea,
+      seed: config.seed,
+      playerCount: config.playerCount,
+      mapWidth: config.mapWidth,
+      mapHeight: config.mapHeight,
+      maxAreas: config.maxAreas,
+      dicePerArea: config.dicePerArea,
     },
     actions,
     metadata: {
       bots: metadata.bots || [],
-      winner: metadata.winner ?? finalState.winner,
-      turnCount: metadata.turnCount ?? finalState.turnNumber,
-      timestamp: new Date().toISOString(),
+      winner: metadata.winner ?? null,
+      turnCount: metadata.turnCount ?? 0,
+      timestamp: metadata.timestamp ?? new Date().toISOString(),
     },
   };
 }
@@ -147,7 +174,7 @@ export function deserializeReplay(encoded) {
     throw new Error('Invalid replay data: not an object');
   }
 
-  if (replay.version !== 1) {
+  if (replay.version !== REPLAY_VERSION) {
     throw new Error(`Unsupported replay version: ${replay.version}`);
   }
 

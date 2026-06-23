@@ -43,6 +43,13 @@ import { updateEloRatings, DEFAULT_RATING } from './elo.js';
  * @param {Object<string, number>} [config.initialRatings] - Starting ELO ratings by bot name
  * @param {boolean} [config.recordHistory] - Forwarded to each match; pass `false` for
  *   training-mode self-play (skips per-move history). Omit for default (history on).
+ * @param {boolean} [config.recordTrajectory] - Forwarded to each match; when true, each
+ *   MatchResult carries a `trajectory` record. NOTE: runArena retains every MatchResult in
+ *   `matches[]`, so this holds all trajectories in memory — fine for small sweeps, but the
+ *   at-scale self-play harness (scripts/selfplay.mjs, task 5) calls runMatch directly and
+ *   streams trajectories to JSONL rather than going through runArena.
+ * @param {(step: import('./trajectoryExport.js').TrajectoryStep) => void} [config.onStep] -
+ *   Forwarded per-decision callback (custom streaming sink).
  * @returns {ArenaResult}
  */
 export function runArena(config) {
@@ -54,6 +61,8 @@ export function runArena(config) {
     onGameComplete,
     initialRatings,
     recordHistory,
+    recordTrajectory,
+    onStep,
   } = config;
 
   const names = new Set(bots.map(b => b.name));
@@ -95,6 +104,8 @@ export function runArena(config) {
         seed: baseSeed + i,
         maxTurns,
         recordHistory,
+        recordTrajectory,
+        onStep,
       });
     } catch (err) {
       console.error(`[Arena] Match ${i} failed (seed ${baseSeed + i}):`, err.message);

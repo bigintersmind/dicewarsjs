@@ -13,6 +13,7 @@ import { ACTION_TYPES, GAME_PHASES } from '../engine/constants.js';
 import { createBotState } from './botState.js';
 import { validateMove } from './botValidator.js';
 import { runBotDirect } from './botRunner.js';
+import { STOP, createTrajectoryRecorder } from './trajectoryExport.js';
 
 /** Maximum moves a single bot can make per turn */
 const MAX_MOVES_PER_TURN = 100;
@@ -51,6 +52,8 @@ const DEFAULT_MAX_TURNS = 500;
  * @property {MatchBotStat[]} botStats   - Per-bot statistics
  * @property {{ seed: number, playerCount: number }} config - Game config used (for replay)
  * @property {import('../engine/types.js').GameState} finalState - Engine state at game end
+ * @property {import('./trajectoryExport.js').TrajectoryRecord} [trajectory] - Lean self-play
+ *   trajectory record (present only when `recordTrajectory` is set).
  */
 
 /**
@@ -61,9 +64,14 @@ const DEFAULT_MAX_TURNS = 500;
  * @param {Function} botFn - Bot function
  * @param {string}   botName - For logging
  * @param {Object}   stats - Mutable stats accumulator { attacks, wins }
+ * @param {(step: import('./trajectoryExport.js').TrajectoryStep) => void} [onStep] - Optional
+ *   per-decision callback. Fires once for every action actually applied — each
+ *   successful ATTACK (with its outcome) and the turn-ending STOP — and never
+ *   for rejected/invalid moves or bot errors. Captures the observation *before*
+ *   the action, independently of `state.history`, so it survives training mode.
  * @returns {import('../engine/types.js').GameState}
  */
-function runBotTurn(state, botFn, botName, stats) {
+function runBotTurn(state, botFn, botName, stats, onStep) {
   let currentState = state;
   const playerId = currentState.turnOrder[currentState.currentPlayerIndex];
   let consecutiveInvalid = 0;
@@ -111,12 +119,41 @@ function runBotTurn(state, botFn, botName, stats) {
 
     consecutiveInvalid = 0;
     stats.attacks++;
-    if (currentState.areas[move.to].owner === playerId) {
-      stats.wins++;
+    const won = currentState.areas[move.to].owner === playerId;
+    if (won) stats.wins++;
+
+    if (onStep) {
+      /*
+       * botState + validMoves were captured BEFORE applyAction — the observation
+       * and legal set at the decision point. Reused here at zero extra engine cost.
+       */
+      onStep({
+        playerId,
+        turnNumber: botState.turnNumber,
+        observation: botState,
+        legalMoves: [...validMoves, STOP],
+        chosenMove: { from: move.from, to: move.to },
+        outcome: { won },
+      });
     }
   }
 
   if (currentState.phase !== GAME_PHASES.GAME_OVER) {
+    if (onStep) {
+      /*
+       * The bot chose to stop (or the turn was force-ended) while attacks may
+       * still have been legal — the STOP training example.
+       */
+      const observation = createBotState(currentState, playerId);
+      onStep({
+        playerId,
+        turnNumber: observation.turnNumber,
+        observation,
+        legalMoves: [...getValidMoves(currentState), STOP],
+        chosenMove: STOP,
+        outcome: null,
+      });
+    }
     try {
       currentState = applyAction(currentState, { type: ACTION_TYPES.END_TURN });
     } catch (err) {
@@ -140,13 +177,26 @@ function runBotTurn(state, botFn, botName, stats) {
  * @param {number}  [config.seed]        - RNG seed (random if omitted)
  * @param {number}  [config.maxTurns=500] - Max turns before stalemate
  * @param {Function} [config.onTurn]     - Callback after each turn: (turnNumber, state)
+ * @param {(step: import('./trajectoryExport.js').TrajectoryStep) => void} [config.onStep] -
+ *   Per-decision callback (see runBotTurn). For custom streaming sinks.
+ * @param {boolean} [config.recordTrajectory] - When true, capture a self-play trajectory and
+ *   return it as `result.trajectory`. Pair with `recordHistory:false` for training-mode
+ *   self-play — the trajectory is recorded out-of-band so it survives the empty history.
  * @param {boolean} [config.recordHistory] - Forwarded to the engine; pass `false` for
  *   training mode (skips the per-move history append — see GameRunner.createGame).
  *   Leave undefined for the default (history on) so replay creation still works.
  * @returns {MatchResult}
  */
 export function runMatch(config) {
-  const { bots, seed, maxTurns = DEFAULT_MAX_TURNS, onTurn, recordHistory } = config;
+  const {
+    bots,
+    seed,
+    maxTurns = DEFAULT_MAX_TURNS,
+    onTurn,
+    onStep,
+    recordTrajectory,
+    recordHistory,
+  } = config;
 
   const names = new Set(bots.map(b => b.name));
   if (names.size !== bots.length) {
@@ -168,6 +218,19 @@ export function runMatch(config) {
 
   // Per-player attack stats
   const attackStats = bots.map(() => ({ attacks: 0, wins: 0 }));
+
+  /*
+   * Trajectory capture (opt-in). The recorder accumulates the lean action list
+   * independently of state.history; an external onStep can also tap the stream.
+   */
+  const recorder = recordTrajectory ? createTrajectoryRecorder() : null;
+  const stepHandler =
+    recorder || onStep
+      ? step => {
+          recorder?.onStep(step);
+          onStep?.(step);
+        }
+      : undefined;
 
   // Track elimination order for placement calculation
   const eliminationOrder = [];
@@ -198,7 +261,8 @@ export function runMatch(config) {
       state,
       botFnByPlayer[currentPlayerId],
       botNameByPlayer[currentPlayerId],
-      attackStats[currentPlayerId]
+      attackStats[currentPlayerId],
+      stepHandler
     );
 
     // Track newly eliminated players
@@ -214,6 +278,10 @@ export function runMatch(config) {
 
   // Calculate placements
   const placements = calculatePlacements(state, eliminationOrder);
+
+  if (recorder) {
+    recorder.finalize({ winner: state.winner, placements, turnCount });
+  }
 
   // Build per-bot stats
   const botStats = bots.map((bot, playerIndex) => ({
@@ -236,6 +304,9 @@ export function runMatch(config) {
     botStats,
     config: { seed: gameState.config.seed, playerCount: bots.length },
     finalState: state,
+    ...(recorder && {
+      trajectory: recorder.toRecord({ config: gameState.config, botNames: botNameByPlayer }),
+    }),
   };
 }
 

@@ -15,11 +15,16 @@ import { validateMove } from './botValidator.js';
 import { runBotDirect } from './botRunner.js';
 import { STOP, buildStep, createTrajectoryRecorder } from './trajectoryExport.js';
 
-/** Maximum moves a single bot can make per turn */
-const MAX_MOVES_PER_TURN = 100;
+/**
+ * Maximum moves a single bot can make per turn. Exported as the single source of
+ * truth: the task-5 data-gen filter must know this cap to reason about cap-forced
+ * turns, and a per-bot `maxMovesHit` stat (below) is derived from it — so consumers
+ * read this constant rather than hard-coding `100` (D-14).
+ */
+export const MAX_MOVES_PER_TURN = 100;
 
 /** Maximum consecutive invalid moves before ending a bot's turn */
-const MAX_CONSECUTIVE_INVALID = 3;
+export const MAX_CONSECUTIVE_INVALID = 3;
 
 /** Maximum turns before declaring a stalemate */
 const DEFAULT_MAX_TURNS = 500;
@@ -41,6 +46,9 @@ const DEFAULT_MAX_TURNS = 500;
  * @property {number} attacksWon     - Total successful attacks
  * @property {number} errors         - Bot errors (exceptions) during turn
  * @property {number} invalidMoves   - Invalid moves attempted
+ * @property {number} maxMovesHit    - Turns force-ended by the MAX_MOVES_PER_TURN cap
+ *   (a forced-end signal alongside `errors`/`invalidMoves`; the task-5 filter quarantines
+ *   any game where a teacher's count is > 0 — see D-14)
  */
 
 /**
@@ -71,7 +79,8 @@ const DEFAULT_MAX_TURNS = 500;
  *   loop, so it covers both a voluntary stop (bot returns null) and a forced end (bot
  *   error / MAX_CONSECUTIVE_INVALID / MAX_MOVES_PER_TURN); all are recorded as a
  *   voluntary STOP and are NOT distinguished here (see the `TrajectoryStep` typedef
- *   for why, and the task-5 data-gen filter for where forced ends are dropped — D-14).
+ *   for why, and the per-bot `stats` counters — errors/invalidMoves/maxMovesHit — for
+ *   how the planned task-5 filter drops forced-end games at consumption — D-14).
  *   Captures the observation *before* the action, independently of `state.history`,
  *   so it survives training mode.
  * @returns {import('../engine/types.js').GameState}
@@ -81,7 +90,12 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
   const playerId = currentState.turnOrder[currentState.currentPlayerIndex];
   let consecutiveInvalid = 0;
 
-  for (let i = 0; i < MAX_MOVES_PER_TURN; i++) {
+  /*
+   * Hoisted so a post-loop `i === MAX_MOVES_PER_TURN` test can detect cap exhaustion
+   * (any break — null/error/invalid — leaves i < cap).
+   */
+  let i;
+  for (i = 0; i < MAX_MOVES_PER_TURN; i++) {
     if (currentState.phase === GAME_PHASES.GAME_OVER) return currentState;
 
     const botState = createBotState(currentState, playerId);
@@ -146,6 +160,18 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
   }
 
   if (currentState.phase !== GAME_PHASES.GAME_OVER) {
+    /*
+     * Cap-forced end: the loop ran all MAX_MOVES_PER_TURN iterations while the game was
+     * still going. This whole block is already gated on `phase !== GAME_OVER`, so a
+     * winning move (which flips the phase, even on the final iteration) is never counted
+     * here; among the remaining non-terminal exits, i === MAX_MOVES_PER_TURN holds iff the
+     * loop exhausted the cap (any break for null/error/invalid leaves i < cap). Surface it
+     * as a per-bot stat so the task-5 filter can quarantine cap-forced games without
+     * reconstructing per-turn action lengths (D-14). Tracked independently of onStep —
+     * a misbehavior signal regardless of capture.
+     */
+    if (i === MAX_MOVES_PER_TURN) stats.maxMovesHit = (stats.maxMovesHit || 0) + 1;
+
     if (onStep) {
       /*
        * Turn ended short of GAME_OVER — emit the STOP training example. This fires
@@ -154,10 +180,11 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
        * We deliberately record all of them as a single voluntary STOP label
        * (explicit-(c), D-14): it keeps the lean action list pure and round-trippable,
        * and matches the teacher's true behavior at the ~0% forced-end rate. Forced ends
-       * are NOT marked on the step; the task-5 self-play harness filters them at
-       * consumption, where the signals already live — botStats.errors/.invalidMoves > 0
-       * quarantines the whole game, and a turn of length === MAX_MOVES_PER_TURN drops
-       * that turn's STOP label. (See the TrajectoryStep typedef + PLAN task 5.)
+       * are NOT marked on the step; the planned task-5 self-play harness will filter them
+       * at consumption, where the signals already live — a teacher with
+       * botStats.errors/.invalidMoves/.maxMovesHit > 0 quarantines the whole game
+       * (maxMovesHit counts the cap-forced turns tallied just above). (See the
+       * TrajectoryStep typedef + PLAN task 5.)
        */
       onStep(buildStep(currentState, { type: ACTION_TYPES.END_TURN }, currentState));
     }
@@ -316,6 +343,7 @@ export function runMatch(config) {
     attacksWon: attackStats[playerIndex].wins,
     errors: attackStats[playerIndex].errors || 0,
     invalidMoves: attackStats[playerIndex].invalidMoves || 0,
+    maxMovesHit: attackStats[playerIndex].maxMovesHit || 0,
   }));
 
   return {

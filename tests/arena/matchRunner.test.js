@@ -114,6 +114,12 @@ describe('runMatch', () => {
       expect(typeof stat.attacksMade).toBe('number');
       expect(typeof stat.attacksWon).toBe('number');
       expect(stat.attacksWon).toBeLessThanOrEqual(stat.attacksMade);
+      /*
+       * Forced-end signal: present, numeric, and 0 in normal play (no turn exhausts the
+       * MAX_MOVES_PER_TURN cap) — guards against the counter firing spuriously (D-14).
+       */
+      expect(typeof stat.maxMovesHit).toBe('number');
+      expect(stat.maxMovesHit).toBe(0);
     }
   });
 

@@ -74,13 +74,15 @@ export const isStopMove = move => move === STOP || move?.type === ACTION_TYPES.E
  * several reasons — the bot returning null (genuine stop), a bot error, repeated invalid
  * moves, or the `MAX_MOVES_PER_TURN` cap — and this record does NOT distinguish them
  * (there is no per-step forced-end marker). That keeps the lean action list pure and
- * exactly round-trippable. Forced ends are rare (~0%) for a well-behaved teacher and are
- * filtered at consumption by the task-5 self-play harness, which owns "is this game clean
- * enough to train on": a game with `botStats.errors`/`invalidMoves > 0` is quarantined,
- * and a turn whose length === `MAX_MOVES_PER_TURN` has its STOP label dropped. (If we ever
- * train on a noisier teacher and need the data to self-describe, the planned escape hatch
- * is a `metadata.forcedEndTurns: number[]` of action indices — still leaving the action
- * list pure — not per-action flags. See PLAN task 5 / D-14.)
+ * exactly round-trippable. Forced ends are rare (~0%) for a well-behaved teacher; each
+ * kind is surfaced as a per-bot counter on `MatchResult.botStats` — `errors`,
+ * `invalidMoves`, and `maxMovesHit` (turns force-ended by the cap). The planned task-5
+ * self-play harness (not yet implemented) — which owns "is this game clean enough to
+ * train on" — will quarantine any game where a teacher's counter is > 0, without
+ * inspecting per-step records. (If we ever train on a noisier teacher and need the data
+ * to self-describe, the planned escape hatch is a `metadata.forcedEndTurns: number[]` of
+ * action indices — still leaving the action list pure — not per-action flags. See PLAN
+ * task 5 / D-14.)
  */
 
 /**
@@ -302,7 +304,9 @@ export function serializeTrajectory(record) {
  *
  * @param {string} line
  * @returns {TrajectoryRecord}
- * @throws {Error} On malformed JSON, unsupported version, or missing fields
+ * @throws {Error} On malformed JSON, unsupported version, missing fields, an invalid
+ *   config (seed/playerCount/map dimensions) or an invalid terminal reward label
+ *   (metadata.winner / metadata.placements)
  */
 export function deserializeTrajectory(line) {
   let record;
@@ -329,12 +333,53 @@ export function deserializeTrajectory(line) {
     throw new Error('Invalid trajectory data: missing required fields');
   }
   /*
-   * A non-numeric seed deserializes fine but later throws opaquely inside createGame
-   * during re-derivation — reject it here, at the boundary, with a clear message.
+   * The config feeds createGame during re-derivation; an out-of-range field there throws
+   * opaquely deep in the engine. Reject the whole config at the boundary, not just seed:
+   * the seed must be a finite number, playerCount an integer >= 2, and the map/dice
+   * dimensions positive finite numbers.
    */
   if (!Number.isFinite(record.config.seed)) {
     throw new Error(
       `Invalid trajectory data: config.seed must be a finite number, got ${record.config.seed}`
+    );
+  }
+  if (!Number.isInteger(record.config.playerCount) || record.config.playerCount < 2) {
+    throw new Error(
+      `Invalid trajectory data: config.playerCount must be an integer >= 2, got ${record.config.playerCount}`
+    );
+  }
+  for (const field of ['mapWidth', 'mapHeight', 'maxAreas', 'dicePerArea']) {
+    const value = record.config[field];
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(
+        `Invalid trajectory data: config.${field} must be a positive number, got ${value}`
+      );
+    }
+  }
+
+  /*
+   * Validate the terminal reward labels — the fields that make this a *trajectory* rather
+   * than a plain replay. toRecord can emit `placements: null` (its `?? null` fallback), and
+   * a null/out-of-range reward label deserializes fine but silently poisons a training
+   * target downstream. Reject it here: winner is null (stalemate) or a valid player index,
+   * and placements is a full permutation of player indices.
+   */
+  const { winner, placements } = record.metadata;
+  const { playerCount } = record.config;
+  if (winner !== null && (!Number.isInteger(winner) || winner < 0 || winner >= playerCount)) {
+    throw new Error(
+      `Invalid trajectory data: metadata.winner must be null or an integer in [0, ${playerCount}), got ${winner}`
+    );
+  }
+  if (
+    !Array.isArray(placements) ||
+    placements.length !== playerCount ||
+    placements.some(p => !Number.isInteger(p) || p < 0 || p >= playerCount) ||
+    new Set(placements).size !== placements.length
+  ) {
+    throw new Error(
+      `Invalid trajectory data: metadata.placements must be a length-${playerCount} permutation ` +
+        `of player indices, got ${JSON.stringify(placements)}`
     );
   }
   /*

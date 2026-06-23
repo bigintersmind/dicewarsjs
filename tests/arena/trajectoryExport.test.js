@@ -47,7 +47,16 @@ function buildRecord(seed = 7) {
     winner: state.winner,
     turnCount: state.turnNumber,
   });
-  return { ...replay, observationSchemaVersion: OBSERVATION_SCHEMA_VERSION };
+  /*
+   * A real trajectory record carries the terminal reward label (placements) that
+   * toRecord adds beyond a plain replay; include a valid permutation so the record
+   * passes deserializeTrajectory's reward-label validation.
+   */
+  return {
+    ...replay,
+    observationSchemaVersion: OBSERVATION_SCHEMA_VERSION,
+    metadata: { ...replay.metadata, placements: [0, 1, 2] },
+  };
 }
 
 describe('isStopMove', () => {
@@ -318,6 +327,34 @@ describe('live capture + round-trip (integration)', () => {
     expect(liveSteps.every(s => s.legalMoves[s.legalMoves.length - 1] === STOP)).toBe(true);
   });
 
+  it('ends on the game-deciding ATTACK with no trailing STOP (GAME_OVER suppresses the end-turn step)', () => {
+    /*
+     * matchRunner gates the turn-end STOP on `phase !== GAME_OVER`, so the winning
+     * attack — which itself flips the phase to GAME_OVER — must be the final recorded
+     * decision, with NO STOP after it. Asserting this directly (rather than relying on
+     * the seed happening to end on an attack) locks in that invariant against future
+     * seed/RNG drift; if seed 12345 ever ends in a stalemate this fails loudly.
+     */
+    expect(result.finalState.winner).not.toBeNull();
+
+    const lastStep = liveSteps[liveSteps.length - 1];
+    expect(isStopMove(lastStep.chosenMove)).toBe(false);
+    expect(lastStep.outcome).toEqual({ won: true });
+    expect(result.trajectory.actions[result.trajectory.actions.length - 1].type).toBe(
+      ACTION_TYPES.ATTACK
+    );
+
+    /*
+     * Each STOP fat step corresponds to exactly one END_TURN in the lean action list
+     * (the winning turn contributes an ATTACK, not an END_TURN) — fat STOPs ≡ lean END_TURNs.
+     */
+    const stopCount = liveSteps.filter(s => isStopMove(s.chosenMove)).length;
+    const endTurnActions = result.trajectory.actions.filter(
+      a => a.type === ACTION_TYPES.END_TURN
+    ).length;
+    expect(endTurnActions).toBe(stopCount);
+  });
+
   it('serializes to a JSONL line that round-trips back to a replayable record', () => {
     const line = serializeTrajectory(result.trajectory);
     expect(line).not.toContain('\n');
@@ -414,5 +451,94 @@ describe('misbehaving bots & onStep wiring (D-14 / coverage gaps)', () => {
 
     expect(steps.length).toBeGreaterThan(0);
     expect(result.trajectory).toBeUndefined();
+  });
+});
+
+describe('stalemate / null-winner terminal label', () => {
+  /*
+   * Two passive bots that never attack → no eliminations → the match stalemates at
+   * maxTurns with winner === null. The terminal reward label (the only thing that makes
+   * a trajectory more than a replay) must still be a *valid* label for a stalemate —
+   * winner:null with a full placements permutation — distinguishable from an
+   * unfinalized/poisoned record, and it must survive the deserialize boundary.
+   */
+  const passiveA = { name: 'PassiveA', fn: () => null };
+  const passiveB = { name: 'PassiveB', fn: () => null };
+
+  it('records winner:null with a full placements permutation, and round-trips through validation', () => {
+    const steps = [];
+    const result = runMatch({
+      bots: [passiveA, passiveB],
+      seed: 999,
+      maxTurns: 4,
+      recordTrajectory: true,
+      onStep: s => steps.push(s),
+    });
+
+    expect(result.winner).toBeNull();
+    expect(result.trajectory.metadata.winner).toBeNull();
+
+    /*
+     * placements is a real, full permutation of player indices — NOT null — so a
+     * stalemate is a usable training label, not an ambiguous "unfinalized" sentinel.
+     */
+    const { placements } = result.trajectory.metadata;
+    expect([...placements].sort((a, b) => a - b)).toEqual([0, 1]);
+
+    // Passive bots only ever STOP; the lean action list is all END_TURN.
+    expect(steps.length).toBeGreaterThan(0);
+    expect(steps.every(s => s.chosenMove === STOP)).toBe(true);
+    expect(result.trajectory.actions.every(a => a.type === ACTION_TYPES.END_TURN)).toBe(true);
+
+    /*
+     * The null-winner record passes the deserialize boundary (winner:null is allowed)
+     * and re-derives the live capture step-for-step.
+     */
+    const back = deserializeTrajectory(serializeTrajectory(result.trajectory));
+    expect(back.metadata.winner).toBeNull();
+    expect(trajectoryFromReplay(back)).toEqual(steps);
+  });
+});
+
+describe('deserializeTrajectory reward-label & config validation (boundary hardening)', () => {
+  it('rejects a null placements reward label', () => {
+    const record = buildRecord();
+    const bad = { ...record, metadata: { ...record.metadata, placements: null } };
+    expect(() => deserializeTrajectory(serializeTrajectory(bad))).toThrow(/placements/);
+  });
+
+  it('rejects a placements array of the wrong length', () => {
+    const record = buildRecord();
+    const bad = { ...record, metadata: { ...record.metadata, placements: [0, 1] } };
+    expect(() => deserializeTrajectory(serializeTrajectory(bad))).toThrow(/placements/);
+  });
+
+  it('rejects a placements array that is not a permutation (duplicate/out-of-range index)', () => {
+    const record = buildRecord();
+    const dup = { ...record, metadata: { ...record.metadata, placements: [0, 0, 1] } };
+    expect(() => deserializeTrajectory(serializeTrajectory(dup))).toThrow(/permutation/);
+    const oob = { ...record, metadata: { ...record.metadata, placements: [0, 1, 9] } };
+    expect(() => deserializeTrajectory(serializeTrajectory(oob))).toThrow(/permutation/);
+  });
+
+  it('rejects an out-of-range winner but accepts null (stalemate)', () => {
+    const record = buildRecord();
+    const bad = { ...record, metadata: { ...record.metadata, winner: 9 } };
+    expect(() => deserializeTrajectory(serializeTrajectory(bad))).toThrow(/winner/);
+
+    const stalemate = { ...record, metadata: { ...record.metadata, winner: null } };
+    expect(() => deserializeTrajectory(serializeTrajectory(stalemate))).not.toThrow();
+  });
+
+  it('rejects an invalid playerCount', () => {
+    const record = buildRecord();
+    const bad = { ...record, config: { ...record.config, playerCount: 1 } };
+    expect(() => deserializeTrajectory(serializeTrajectory(bad))).toThrow(/playerCount/);
+  });
+
+  it('rejects a non-positive map/dice dimension', () => {
+    const record = buildRecord();
+    const bad = { ...record, config: { ...record.config, maxAreas: 0 } };
+    expect(() => deserializeTrajectory(serializeTrajectory(bad))).toThrow(/maxAreas/);
   });
 });

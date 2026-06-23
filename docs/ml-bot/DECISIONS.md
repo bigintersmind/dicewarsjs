@@ -482,22 +482,30 @@ review (three independent reviewers) flagged that the code was _silently_ doing 
 
 **Decision — explicit-(c) now, filter at the data-gen boundary later.**
 
-- **PR #42 (task 4): explicit, comment-only.** Keep recording every `END_TURN` as a
-  voluntary STOP (option (c)), but say so loudly — at the STOP emit site, in the
-  `runBotTurn` `onStep` JSDoc, and in the `TrajectoryStep` typedef. No behavior change;
-  the lean action list stays pure and the `rederived === live` round-trip is untouched.
+- **PR #42 (task 4): explicit labeling + a forced-end signal.** Keep recording every
+  `END_TURN` as a voluntary STOP (option (c)), but say so loudly — at the STOP emit site,
+  in the `runBotTurn` `onStep` JSDoc, and in the `TrajectoryStep` typedef — and surface the
+  one forced-end case the existing stats couldn't see: a `maxMovesHit` per-bot counter on
+  `MatchResult.botStats`, with `MAX_MOVES_PER_TURN` now exported as the single source of
+  truth. No change to the lean action list; the `rederived === live` round-trip is untouched.
 - **Task 5 (self-play harness): filter at consumption**, because every problematic case
-  is detectable there without touching the per-step record:
-  - bot-error / repeated-invalid (cases 2–3) → `MatchResult.botStats[teacher].errors`
+  is now a first-class per-bot counter on `MatchResult.botStats`, detectable without
+  touching the per-step record:
+  - bot-error / repeated-invalid (cases 2–3) → `botStats[teacher].errors`
     or `.invalidMoves > 0` ⇒ **quarantine the whole game** (loses <0.1% of games for a
     well-behaved teacher).
-  - force-end at the cap (case 4) → derivable from turn length === `MAX_MOVES_PER_TURN`
-    ⇒ **drop/flag that turn's STOP label**.
+  - force-end at the cap (case 4) → `botStats[teacher].maxMovesHit > 0` (incremented when a
+    turn exhausts the `MAX_MOVES_PER_TURN` cap) ⇒ **quarantine the whole game**, uniformly
+    with cases 2–3. (An earlier draft proposed deriving this from "turn length ===
+    `MAX_MOVES_PER_TURN`"; rejected — the recorded run is `cap` ATTACKs **plus** the trailing
+    STOP, and a legitimate 100-attack voluntary turn is indistinguishable by length. An
+    explicit counter is unambiguous and needs no per-turn action-length reconstruction.)
 
 **Why.** The signals already live at the data-gen boundary, which is the layer that
 actually owns "is this game clean enough to train on." Pushing enforcement there keeps
 the canonical lean format pure and exactly round-trippable, matches the real ~0%
-frequency, and adds zero moving parts to the recorder / matchRunner / re-derivation.
+frequency, and adds only a single integer stat to `matchRunner` — no change to the
+recorder, the lean format, or re-derivation.
 
 **Rejected.** (d) A per-action forced-end marker in the lean record — the "correct,"
 self-describing fix, but it bloats the canonical format and adds coordinated changes

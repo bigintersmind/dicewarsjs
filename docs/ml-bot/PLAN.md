@@ -199,8 +199,8 @@ _parallel_ self-play environment. No learning yet.
       step-for-step. The lean record reuses the replay envelope
       (`createReplayFromActions`, extracted from `replayFormat.js`) + an
       `observationSchemaVersion` stamp (encoding finalized in Phase 2 — [D-Encoding]).
-      Tests: `tests/arena/trajectoryExport.test.js` (19) incl. the headline
-      `rederived === live` round-trip under `recordHistory:false`; sample
+      Tests: `tests/arena/trajectoryExport.test.js` (36, incl. review hardening) with
+      the headline `rederived === live` round-trip under `recordHistory:false`; sample
       `tests/fixtures/trajectories/sample.jsonl` (3 games) round-trips.
       **Scope split (confirmed): `scripts/selfplay.mjs` + at-scale JSONL streaming
       stay task 5.** `arenaRunner` forwards `recordTrajectory`/`onStep` but retains
@@ -219,10 +219,13 @@ _parallel_ self-play environment. No learning yet.
       not one box (engine determinism + game independence make the merge clean — [D-13]).
       **Data-quality filter at consumption — this harness owns forced-end cleanup
       ([D-14]).** Task-4 records every turn-end as a voluntary STOP (explicit-(c)); the
-      rare forced ends are dropped here, where the signals already live: a game with
-      `botStats.errors`/`invalidMoves > 0` is **quarantined** (teacher misbehaved — <0.1%
-      of games), and a turn whose length === `MAX_MOVES_PER_TURN` has its STOP label
-      **flagged/dropped**. Keeps the lean record pure; no per-action markers in the format.
+      rare forced ends are dropped here, where the signals already live as first-class
+      per-bot counters on `botStats`: a game where a teacher's `errors`, `invalidMoves`,
+      or `maxMovesHit` is **> 0** is **quarantined** (teacher misbehaved or hit the move
+      cap — <0.1% of games for a well-behaved teacher). `maxMovesHit` is an explicit
+      counter (not derived from turn length), so the whole game is dropped uniformly
+      across all three signals. Keeps the lean record pure; no per-action markers in the
+      format.
 
 **Acceptance criteria.**
 

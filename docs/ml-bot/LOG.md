@@ -21,6 +21,47 @@ Entry template:
 
 ---
 
+## 2026-06-22 — PR #42 review hardening (boundary + forced-end signal)
+
+**Phase:** 1 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Acted on the multi-agent PR-#42 review. Three changes, all green (arena suite
+  213 passing; `trajectoryExport` 28 → 36 tests):
+  1. **Forced-end signal made first-class (D-14).** Exported `MAX_MOVES_PER_TURN`
+     (single source of truth) and added a `maxMovesHit` per-bot counter to
+     `MatchResult.botStats`, incremented when a turn exhausts the move cap. Replaces
+     the earlier "derive from turn length === cap" plan, which was ambiguous (recorded
+     run is `cap` ATTACKs **+** trailing STOP, and a legit 100-attack voluntary turn
+     looks identical). Task-5 now quarantines on `errors`/`invalidMoves`/`maxMovesHit > 0`
+     uniformly.
+  2. **Deserialize boundary hardening.** `deserializeTrajectory` now validates the
+     terminal reward label (`metadata.winner` null-or-in-range; `metadata.placements`
+     a full permutation) and the config fields that feed `createGame` (`playerCount`
+     ≥ 2; positive map/dice dims), not just `seed`. A poisoned label/config now fails
+     loudly at parse instead of detonating opaquely downstream.
+  3. **Tests.** Added a stalemate/null-winner case (winner null + valid placements
+     permutation, round-trips through validation) and an explicit "GAME_OVER ⇒ no
+     trailing STOP" assertion (was only covered implicitly by the seed-12345
+     coincidence), plus six deserialize-rejection tests.
+
+**Learned / decided:**
+
+- The reward label is what makes a record a _trajectory_ and not a plain replay, so
+  it belongs in boundary validation — the `toRecord` finalize-guard only covers the
+  write path; the read path needed the same protection.
+- A per-game integer counter beats per-turn length reconstruction for detecting
+  cap-forced ends: unambiguous, and consumers never have to re-segment the flat
+  action list.
+
+**Next:**
+
+- Task 5: `scripts/selfplay.mjs` + worker pool + JSONL streaming, consuming the
+  `botStats` forced-end counters as the quarantine filter.
+
+---
+
 ## 2026-06-22 — PR 2 built: trajectory export (`src/arena/trajectoryExport.js`, task 4)
 
 **Phase:** 1 · **Who:** Ivan + Claude

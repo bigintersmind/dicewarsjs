@@ -560,8 +560,22 @@ of the chosen field before the big run; to raise teacher-label density, add Look
 seats only up to the point the field still resolves — _aggressive_ opponents, not more
 patient mirrors, are what break the turtle.
 
+**Validated (2026-06-23) — the corpus generator is the full 7-bot arena field**
+(`Lookahead,Strategist,Expectimax,Defensive,Default,Example,Adaptive`), imitating
+Lookahead's seat (seat 0). It wins the corpus-field screen on every axis (see RESULTS):
+**85% decisive** (highest; fewest stalemates), the **exact eval distribution** (the gate
+is this 7-bot FFA), and a **balanced 55%-attack label split** (Lookahead plays actively,
+not turtling) — vs the seed-pure `2×Look,2×Strat,2×Expect,Defensive` alternative's 64% /
+40%-attack. Yields ~80.8 teacher steps/game (~8M `(obs,move)` pairs per 100k games).
+**Cost:** the 3 `Math.random` bots make games non-reproducible from seed (cross-machine
+_dedup_ lost) — fine under disjoint seed ranges; recorded moves stay valid/replayable
+(D-13). The seed-pure 2× field is the reproducible fallback. Stalemate games (~15%) are
+kept (valid labels; `placements` is a full ranking even when `winner` is null).
+
 **Rejected.** (a) A pure / heavy `N×Lookahead` mirror corpus — ~0% decisive (turtle
-equilibrium). Raising `maxTurns` to salvage it — confirmed 0% at 2000.
+equilibrium). Raising `maxTurns` to salvage it — confirmed 0% at 2000. (b) The seed-pure
+2× heterogeneous field as the _primary_ corpus — reproducible, but lower decisive rate
+(64%) and more STOP-heavy labels (40% attacks); kept as the fallback, not the default.
 
 ---
 

@@ -21,6 +21,42 @@ Entry template:
 
 ---
 
+## 2026-06-23 — Corpus field validated: the full 7-bot arena field ([D-15], RESULTS)
+
+**Phase:** 2 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Committed the duplicate-seat feature (`5dcdd51`), then **validated the corpus field**
+  with a decisive-rate screen (7 candidate fields, 80 games each) + a label-density pass
+  (300-game shards, fat steps re-derived via `trajectoryFromReplay`, tallying Lookahead-seat
+  steps).
+- **Chose the full 7-bot arena field** (`Look,Strat,Expect,Def,Default,Example,Adaptive`),
+  imitating Lookahead's seat. Numbers in RESULTS + recorded in [D-15].
+
+**Learned / decided:**
+
+- **Decisive rate is driven by field diversity, not Lookahead count.** Full field **85%**;
+  seed-pure `2×Look,2×Strat,2×Expect,Def` 65%; `3×Look` 51%; `4×Look,3 random` 39%;
+  `4×Look` 18%. Piling on patient Lookahead seats (even with `Math.random` bots) stays
+  turtle-prone — only genuine diversity (incl. the weak/aggressive arena bots) breaks it.
+- **The full field also gives the best _labels_, not just the most decisive games:** 80.8
+  Lookahead steps/game, **55% attacks** (balanced). The seed-pure 2× field has more steps
+  (156/game, 2 seats) but they're **40% attacks** — disproportionately turtling STOPs from
+  its lower decisive rate. Balanced labels + exact eval-distribution match settled it.
+- **Cost accepted:** the 3 `Math.random` bots make games non-reproducible from seed
+  (cross-machine dedup lost), fine under disjoint seed ranges (D-13); recorded moves stay
+  valid. Seed-pure 2× is the reproducible fallback. Stalemates (~15%) kept (valid labels;
+  `placements` is a full ranking even when `winner` is null → aux value head still trains).
+- Volume: ~8M `(obs,move)` teacher pairs per 100k games; 63 g/s on one 8-core box →
+  100k ≈ 26 min, < 1 hr across the fleet.
+
+**Next:**
+
+- **Tensor-expansion pass** over the lean corpus (reuse `trajectoryFromReplay`), emitting
+  masked node/global/edge tensors + the Lookahead-seat label per D-Encoding; assert the
+  action mask matches `getValidMoves`. Then BC train → ONNX → in-browser bot.
+
 ## 2026-06-23 — Duplicate-seat support built; pure Lookahead mirror is a turtle equilibrium ([D-15])
 
 **Phase:** 2 · **Who:** Ivan + Claude

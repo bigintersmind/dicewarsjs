@@ -28,7 +28,8 @@
     "validate-bot": "node scripts/validate-bot.mjs",
     "benchmark-bot": "node scripts/benchmark-bot.mjs",
     "validate-community-bots": "node scripts/validate-community-bots.mjs",
-    "tournament": "node scripts/run-online-tournament.mjs"
+    "tournament": "node scripts/run-online-tournament.mjs",
+    "selfplay": "node scripts/selfplay.mjs"
   },
   "keywords": [
     "game",

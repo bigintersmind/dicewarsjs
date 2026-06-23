@@ -38,11 +38,14 @@ export function createGame(config = {}) {
   const recordHistory = config.recordHistory ?? true;
 
   /*
-   * Use the same nullish notion the seed fallback below does (`?? `), and reject
-   * NaN — otherwise `seed:null`/`seed:NaN` would slip past the gate and silently
-   * get a random/meaningless seed, defeating training-mode reproducibility.
+   * Require a finite numeric seed. `Number.isFinite` rejects null/undefined/NaN
+   * *and* non-numeric strings (it never coerces) — so a bad seed can't slip past
+   * the gate and either fall back to a random seed (via `?? ` below) or coerce to
+   * the degenerate 0 (via `seed >>> 0` in createRng), both of which would defeat
+   * training-mode reproducibility. This makes the runtime check honour the
+   * "numeric" promise in the error message below.
    */
-  if (recordHistory === false && (config.seed == null || Number.isNaN(config.seed))) {
+  if (recordHistory === false && !Number.isFinite(config.seed)) {
     throw new Error(
       'createGame: training mode (recordHistory:false) requires an explicit numeric config.seed for reproducibility'
     );

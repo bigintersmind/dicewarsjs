@@ -142,6 +142,18 @@ describe('createGame — training-mode explicit-seed gate', () => {
     expect(() => createGame({ recordHistory: false, seed: NaN })).toThrow(/seed/i);
   });
 
+  it('throws when recordHistory:false and seed is a non-numeric/string value (must be a real number)', () => {
+    /*
+     * `Number.isNaN('foo')` is false and `'foo' == null` is false, so a string seed
+     * would slip past a `== null || Number.isNaN` gate and then coerce to 0 via
+     * `seed >>> 0` — making distinct string seeds collide on the same game and
+     * storing a non-numeric `config.seed`. The `Number.isFinite` gate rejects any
+     * non-finite seed (incl. numeric-looking strings) so the "numeric" promise holds.
+     */
+    expect(() => createGame({ recordHistory: false, seed: 'foo' })).toThrow(/seed/i);
+    expect(() => createGame({ recordHistory: false, seed: '42' })).toThrow(/seed/i);
+  });
+
   it('allows recordHistory:false with an explicit seed', () => {
     const state = createGame({ recordHistory: false, seed: 1 });
     expect(state.config.recordHistory).toBe(false);

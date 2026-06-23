@@ -12,6 +12,8 @@
  * @property {number} [playerCount=7]        - Number of players
  * @property {number} [dicePerArea=3]        - Average starting dice per territory
  * @property {number} [seed]                 - RNG seed (random if omitted)
+ * @property {boolean} [recordHistory=true]  - When false (training mode), suppresses the
+ *                                             per-move history append; requires an explicit seed.
  */
 
 /**

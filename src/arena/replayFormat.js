@@ -14,7 +14,7 @@ import { createGame, replayGame } from '../engine/GameRunner.js';
 /**
  * @typedef {Object} Replay
  * @property {number}         version  - Format version (currently 1)
- * @property {Object}         config   - Game config { seed, playerCount, mapWidth, mapHeight, maxAreas }
+ * @property {Object}         config   - Game config { seed, playerCount, mapWidth, mapHeight, maxAreas, dicePerArea }
  * @property {CompactAction[]} actions  - Ordered list of game actions
  * @property {ReplayMetadata}  metadata - Summary metadata
  */
@@ -61,6 +61,7 @@ export function createReplay(matchResult, botNames) {
       mapWidth: matchResult.finalState.config.mapWidth,
       mapHeight: matchResult.finalState.config.mapHeight,
       maxAreas: matchResult.finalState.config.maxAreas,
+      dicePerArea: matchResult.finalState.config.dicePerArea,
     },
     actions,
     metadata: {
@@ -96,6 +97,7 @@ export function createReplayFromState(finalState, metadata) {
       mapWidth: finalState.config.mapWidth,
       mapHeight: finalState.config.mapHeight,
       maxAreas: finalState.config.maxAreas,
+      dicePerArea: finalState.config.dicePerArea,
     },
     actions,
     metadata: {

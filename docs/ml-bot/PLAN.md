@@ -129,35 +129,101 @@ default and the Phase-0 headline gate is finally **met**. Otherwise → Track B.
 
 ---
 
-## Phase 1 — Harness hardening for self-play · ⬜ Not started · ~3–5 days
+## Phase 1 — Harness hardening for self-play · 🟨 In progress · ~3–5 days
 
-**Objective.** Turn the headless arena into a fast, reproducible, _instrumented_
-self-play environment. No learning yet.
+> **Scope corrected 2026-06-22 after a verified surface-map ([D-12]).** Two PLAN
+> assumptions were wrong: (a) the O(n²) `history` append is **not** the throughput
+> lever — it is ~1–2% of per-move cost at realistic game lengths (~378 actions);
+> the per-move `cloneAreas` + `clonePlayers` + 7× `findLargestConnectedGroup`
+> (~19× the history cost) dominates. (b) Parallel self-play is **greenfield** —
+> there is zero worker/process code in the repo; the "~266 g/s on 4 procs" figure
+> came from a deleted, uncommitted probe. Decisions: **optimize per-move allocation
+> now** (task 3 promoted to first-class) and **build a committed, reusable self-play
+> harness** (`scripts/selfplay.mjs`) that Phase 2 reuses to generate its 100k–1M
+> games. Work branch: `ml-bot/selfplay-harness`.
+
+**Objective.** Turn the headless arena into a fast, reproducible, _instrumented_,
+_parallel_ self-play environment. No learning yet.
 
 **Tasks.**
 
-- [ ] Add a self-play/training mode flag that **disables the O(n²) `history`
-      append** (`StateManager.js:199,244`) — pure overhead for training.
-- [ ] Force explicit seeds end-to-end; add a determinism regression test
-      (same seed → identical winner/turns/placements).
-- [ ] (Optional, only if profiling says so) trim per-move allocation in
-      `cloneAreas`/`clonePlayers`/`recalcPlayerStats`.
-- [ ] Add a thin **trajectory export**: one game emits
-      `(BotState, legal-mask, chosen-move, outcome)` tuples, plus terminal
-      win/placement. This is the training-data and replay substrate.
-- [ ] Confirm parallel self-play across Node workers/processes (the engine is
-      pure — near-linear scaling already measured).
+- [x] **(1) Training-mode `recordHistory` flag.** Read `state.config.recordHistory
+!== false` inside `applyAttack`/`applyEndTurn` (`StateManager.js:199,244`) — no
+      signature change, stays pure. Add to the `createGame` config allowlist
+      (`GameRunner.js:32-39`, default on) and forward it through `runMatch`
+      (`matchRunner.js:153`, which currently drops unknown config) and `arenaRunner`.
+      **Defaults ON (history recorded); training opts out via `recordHistory:false`** so the browser `GameController` (reads
+      `history[last].result` for animation, `:398/:572`) and replay/tournament
+      persistence (`createReplay`, `run-online-tournament.mjs:178`) are unaffected.
+      A memory / asymptotic-safety win, **not** a throughput one.
+- [x] **(2) Explicit seeds end-to-end + determinism test.** Gate a "require explicit
+      seed (throw if missing)" behind training-mode so the production UI keeps its
+      random seed (`GameRunner.js:38` `Math.random` fallback). Add
+      `tests/engine/determinism.test.js` (node env, **no** jsdom): same seed →
+      identical winner/turns/placements using **seed-pure bots only** (Strategist,
+      Lookahead, Expectimax, Defensive — never the 3 `Math.random` bots
+      default/example/adaptive); assert `history.length === 0` under
+      `recordHistory:false`. Fix: persist `dicePerArea` in the replay config
+      (`replayFormat.js:58-64`) so round-trip doesn't silently diverge on non-default
+      dice.
+- [ ] **(3) Per-move allocation trims — first-class ([D-12]).** The real per-move
+      lever. Eliminate the **double-clone of `areas` per end-turn**
+      (`StateManager.js:208` + `TurnManager.distributeReinforcements`); reduce/cache
+      the 7× `findLargestConnectedGroup` per `applyAction` (`recalcPlayerStats`).
+      Validate with before/after numbers from the harness (task 5). Watch the
+      `clonePlayers` shallow-share landmine (safe only while Player fields stay
+      primitive). **Bot-side per-move cost too:** every built-in bot runs through
+      `adaptLegacyBot` → `createLegacyViewFromBotState`, which rebuilds an O(areas²)
+      `join` adjacency matrix _every move_ (engine→BotState→legacy-view double
+      translation); the strong bots (strategist/lookahead/expectimax) read that legacy
+      view, not `BotState`. For the heuristic bots actually used in the self-play
+      field, a **modern fast-path** (`adaptModernBot`, bot reads `BotState` directly)
+      skips the rebuild — land it _only_ if measurement shows the rebuild is a real
+      fraction of that bot's cost, and **re-validate the bot's arena numbers** after
+      (behavior must not shift). Not a blanket port — the learner reads engine→tensor
+      directly and never touches this chain ([D-13]).
+- [ ] **(4) Trajectory export** (`src/arena/trajectoryExport.js`, beside
+      `replayFormat.js`). Per-step `{observation: BotState, legalMoves (getValidMoves
+  - an explicit STOP), chosenMove, outcome}`+ terminal`{winner, placements,
+    turnCount}`. Hook via an `onStep`/`recordTrajectory`option threaded
+`runMatch → runBotTurn`: capture the observation **before** `applyAction`,
+ outcome after, **skip rejected moves**, emit a STOP tuple on `null`. Record the
+ action list **independently of `state.history`** so it survives
+ `recordHistory:false`. Version-stamp the observation schema (encoding finalized
+    in Phase 2 — [D-Encoding]).
+- [ ] **(5) Committed parallel self-play harness** (`scripts/selfplay.mjs` +
+      `npm run selfplay` — [D-12]). `worker_threads` pool (default ~50% cores, to
+      respect the test-lock machine policy in CLAUDE.md). **Pass bot identifiers, not
+      closures** (bot fns aren't structured-cloneable — workers import bots
+      themselves). **Stream trajectories to JSONL** — never retain
+      `matches[]`/`finalState` (a RAM blow-up at 100k+ games). Aggregate ELO/stats in a
+      single-threaded post-pass (`runArena`'s ELO update is path-dependent). Measure on
+      a **heterogeneous / decisive field** — NOT identical Strategist, which 0-attacks
+      and stalemates to `maxTurns` every game. **Design it shardable by seed range**
+      (`--seed-start`/`--seed-count`/`--out`) so the JSONL concatenates losslessly
+      across machines — data-gen fans out across all cores on every available machine,
+      not one box (engine determinism + game independence make the merge clean — [D-13]).
 
 **Acceptance criteria.**
 
-- Determinism test green.
-- Measured self-play throughput recorded in `RESULTS.md` (games/s with the
-  history fix vs without).
-- A sample exported trajectory file exists and round-trips (can replay a game
-  from its recorded actions).
+- Determinism test green; lean replay round-trips a full game to an identical final
+  state (already works — `GameRunner.test.js:205` — extended through the arena path),
+  and each fat trajectory step is replay-derivable
+  (`createBotState(replayToState(replay, i)) === step.observation`).
+- A sample exported `.jsonl` trajectory exists and round-trips.
+- `RESULTS.md` records self-play throughput **before vs after** the per-move trims,
+  single-core vs N-worker (near-linear scaling re-established from committed code, not
+  the lost probe), plus the action-count distribution and completion rate of the
+  measured field.
 
-**Go/No-Go gate.** Reproducible + instrumented + fast enough (target: ≥100 g/s/core
-heuristic self-play) → proceed to Phase 2.
+**Go/No-Go gate.** Reproducible + instrumented + parallel (near-linear scaling
+confirmed) + per-move trims landed with recorded before/after numbers → proceed to
+Phase 2. **Gate reframed ([D-12]):** the old "≥100 g/s/core" absolute is only
+meaningful for a _cheap_ heuristic field; `ai_lookahead` (the Phase-2 clone target) is
+~4 g/s/core and no engine micro-opt changes that — Phase-2 data-gen is
+**parallelism-bound** (≈ minutes-to-hours across cores), which is exactly what the
+committed harness delivers. The gate is "scaling confirmed + numbers recorded," not a
+single absolute g/s.
 
 ---
 

@@ -110,6 +110,25 @@ function recalcPlayerStats(players, areas) {
 }
 
 /**
+ * Append an entry to the action history unless training mode is active.
+ *
+ * Training mode is signalled by `config.recordHistory === false` (default is
+ * record). When off, `state.history` is returned unchanged so it stays the
+ * empty array from `createInitialState` — saving the O(n²) growing-copy and the
+ * memory it holds across a long self-play run. Any other value (true/absent)
+ * preserves the full log the browser `GameController` and replay/tournament
+ * persistence depend on, so production paths are unaffected.
+ *
+ * @param {import('./types.js').GameState} state
+ * @param {Object} entry - History entry to append
+ * @returns {Object[]} The new history array (or the unchanged one when off)
+ */
+function appendHistory(state, entry) {
+  if (state.config?.recordHistory === false) return state.history;
+  return [...state.history, entry];
+}
+
+/**
  * Apply an action to the game state, returning a new state.
  *
  * @param {import('./types.js').GameState} state
@@ -196,7 +215,7 @@ function applyAttack(state, action) {
     phase,
     winner,
     rngState: newRngState,
-    history: [...state.history, { ...action, result: battle }],
+    history: appendHistory(state, { ...action, result: battle }),
   });
 }
 
@@ -241,7 +260,7 @@ function applyEndTurn(state) {
     currentPlayerIndex,
     turnNumber,
     rngState: newRngState,
-    history: [...state.history, { type: ACTION_TYPES.END_TURN }],
+    history: appendHistory(state, { type: ACTION_TYPES.END_TURN }),
   });
 }
 

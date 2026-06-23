@@ -25,16 +25,39 @@ import {
 /**
  * Create a new game with the given config and seed.
  *
+ * Training mode (`recordHistory: false`, used by the self-play harness) requires
+ * an explicit `seed` and throws without one — a self-play run that isn't
+ * reproducible is a bug, not a convenience. The production UI keeps the
+ * `Math.random` seed fallback because it leaves `recordHistory` at its default
+ * (on), so its games are never gated.
+ *
  * @param {import('./types.js').GameConfig} config
  * @returns {import('./types.js').GameState}
  */
 export function createGame(config = {}) {
+  const recordHistory = config.recordHistory ?? true;
+
+  /*
+   * Require a finite numeric seed. `Number.isFinite` rejects null/undefined/NaN
+   * *and* non-numeric strings (it never coerces) — so a bad seed can't slip past
+   * the gate and either fall back to a random seed (via `?? ` below) or coerce to
+   * the degenerate 0 (via `seed >>> 0` in createRng), both of which would defeat
+   * training-mode reproducibility. This makes the runtime check honour the
+   * "numeric" promise in the error message below.
+   */
+  if (recordHistory === false && !Number.isFinite(config.seed)) {
+    throw new Error(
+      'createGame: training mode (recordHistory:false) requires an explicit numeric config.seed for reproducibility'
+    );
+  }
+
   const fullConfig = {
     mapWidth: config.mapWidth ?? DEFAULT_XMAX,
     mapHeight: config.mapHeight ?? DEFAULT_YMAX,
     maxAreas: config.maxAreas ?? DEFAULT_AREA_MAX,
     playerCount: config.playerCount ?? DEFAULT_PLAYER_COUNT,
     dicePerArea: config.dicePerArea ?? DEFAULT_DICE_PER_AREA,
+    recordHistory,
     seed: config.seed ?? Math.floor(Math.random() * 0xffffffff),
   };
 

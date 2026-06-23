@@ -18,6 +18,7 @@ import {
   forcedEndReason,
   generateShard,
   aggregateStats,
+  isUnusableRun,
   makeFileWriter,
   chunkSeeds,
   rangeToSeeds,
@@ -355,6 +356,98 @@ describe('aggregateStats (deterministic ELO/stats post-pass)', () => {
     // ELO/wins are keyed by name; a duplicate would skew the ranking. Fail loud.
     expect(() => aggregateStats([], ['A', 'B', 'A'])).toThrow(/distinct bot names/);
   });
+
+  it('keeps a stalemate (winner null) as a clean game that credits no win but still moves ELO', () => {
+    /*
+     * A maxTurns stalemate is clean (not a forced-end quarantine) and a real engine outcome;
+     * it must rank by placement without crediting anyone a win.
+     */
+    const withStalemate = [
+      {
+        seed: 1,
+        placements: [0, 1, 2],
+        winner: 0,
+        turnCount: 10,
+        actionCount: 50,
+        quarantined: false,
+      },
+      {
+        seed: 2,
+        placements: [1, 0, 2],
+        winner: null,
+        turnCount: 500,
+        actionCount: 999,
+        quarantined: false,
+      },
+    ];
+    const stats = aggregateStats(withStalemate, botNames);
+    expect(stats.cleanGames).toBe(2);
+    // Only the decisive game (seed 1, winner A) credits a win.
+    expect(stats.bots.reduce((n, b) => n + b.wins, 0)).toBe(1);
+    // The stalemate still updated ratings by placement, so not everyone sits at the default.
+    expect(stats.bots.some(b => b.elo !== 1200)).toBe(true);
+  });
+
+  it('labels a blank runMatch-throw message as "unknown error" instead of grouping on ""', () => {
+    /*
+     * `new Error()` yields an empty message; `??` keeps '' (only null/undefined fall through),
+     * so the report must use `||` to surface a usable label.
+     */
+    const stats = aggregateStats(
+      [{ seed: 4, quarantined: true, failed: true, error: '' }],
+      botNames
+    );
+    expect(stats.failedGames).toBe(1);
+    expect(stats.failureSamples).toEqual([{ error: 'unknown error', count: 1, firstSeed: 4 }]);
+  });
+
+  it('reports an all-zero action-count distribution when no games are clean (no NaN/throw)', () => {
+    const allDirty = [
+      { seed: 1, quarantined: true, quarantineSignal: 'errors' },
+      { seed: 2, quarantined: true, failed: true, error: 'boom' },
+    ];
+    const stats = aggregateStats(allDirty, botNames);
+    expect(stats.cleanGames).toBe(0);
+    expect(stats.cleanRate).toBe(0);
+    expect(stats.actionCounts).toEqual({ min: 0, p50: 0, mean: 0, p95: 0, max: 0 });
+    // Every bot is reported at the default rating with a zero win rate.
+    expect(stats.bots.every(b => b.elo === 1200 && b.winRate === 0)).toBe(true);
+  });
+
+  it('interpolates the p95 action-count over clean games', () => {
+    // actionCounts 0..100 (101 values): p95 rank = 0.95 * 100 = 95 → value 95.
+    const many = Array.from({ length: 101 }, (_, i) => ({
+      seed: i,
+      placements: [0, 1, 2],
+      winner: 0,
+      turnCount: 1,
+      actionCount: i,
+      quarantined: false,
+    }));
+    const stats = aggregateStats(many, botNames);
+    expect(stats.actionCounts.min).toBe(0);
+    expect(stats.actionCounts.max).toBe(100);
+    expect(stats.actionCounts.p95).toBe(95);
+  });
+});
+
+describe('isUnusableRun (CLI non-zero-exit policy)', () => {
+  it('flags an aborted run regardless of output mode or clean count', () => {
+    expect(isUnusableRun({ aborted: true, wroteOutput: true, cleanGames: 100 })).toBe(true);
+    expect(isUnusableRun({ aborted: true, wroteOutput: false, cleanGames: 0 })).toBe(true);
+  });
+
+  it('flags a write run that produced zero clean games', () => {
+    expect(isUnusableRun({ aborted: false, wroteOutput: true, cleanGames: 0 })).toBe(true);
+  });
+
+  it('passes a write run with at least one clean game', () => {
+    expect(isUnusableRun({ aborted: false, wroteOutput: true, cleanGames: 1 })).toBe(false);
+  });
+
+  it('does not flag a --no-write throughput run on clean-count alone', () => {
+    expect(isUnusableRun({ aborted: false, wroteOutput: false, cleanGames: 0 })).toBe(false);
+  });
 });
 
 describe('makeFileWriter', () => {
@@ -485,4 +578,80 @@ describe('selfplay worker error plumbing', () => {
     expect(typeof msg.stack).toBe('string');
     expect(msg.stack.length).toBeGreaterThan(0);
   }, 30_000);
+});
+
+describe('selfplay CLI argument validation', () => {
+  /** Run the CLI and capture exit code + stderr (execFileSync throws on non-zero exit). */
+  const runCli = args => {
+    try {
+      execFileSync('node', ['scripts/selfplay.mjs', ...args], { cwd: REPO_ROOT, stdio: 'pipe' });
+      return { code: 0, stderr: '' };
+    } catch (err) {
+      return { code: err.status ?? 1, stderr: String(err.stderr ?? '') };
+    }
+  };
+
+  it('rejects a non-positive --seed-count with a helpful message', () => {
+    const { code, stderr } = runCli(['--seed-count', '0']);
+    expect(code).not.toBe(0);
+    expect(stderr).toMatch(/--seed-count .* must be a positive integer/);
+  }, 30_000);
+
+  it('rejects a non-positive --workers', () => {
+    const { code, stderr } = runCli(['--workers', '0', '--seed-count', '2']);
+    expect(code).not.toBe(0);
+    expect(stderr).toMatch(/--workers must be a positive integer/);
+  }, 30_000);
+
+  it('rejects a field of fewer than two bots', () => {
+    const { code, stderr } = runCli(['--bots', 'Strategist', '--seed-count', '2']);
+    expect(code).not.toBe(0);
+    expect(stderr).toMatch(/Need at least 2 bots/);
+  }, 30_000);
+
+  it('rejects an unknown bot name and lists the available bots', () => {
+    const { code, stderr } = runCli(['--bots', 'NotABot,Strategist', '--seed-count', '2']);
+    expect(code).not.toBe(0);
+    expect(stderr).toMatch(/Unknown bot "NotABot"/);
+    expect(stderr).toMatch(/Available:.*Strategist/);
+  }, 30_000);
+});
+
+describe('selfplay CLI end-to-end (single-core inline path)', () => {
+  it('runs the --workers 1 inline path and writes seed-ordered JSONL with no part-files', () => {
+    const out = path.join(tmpDir, 'inline.jsonl');
+    execFileSync(
+      'node',
+      [
+        'scripts/selfplay.mjs',
+        '--workers',
+        '1',
+        '--seed-count',
+        '4',
+        '--out',
+        out,
+        '--bots',
+        DEFAULT_FIELD.join(','),
+      ],
+      { cwd: REPO_ROOT, stdio: 'pipe' }
+    );
+
+    expect(fs.existsSync(out)).toBe(true);
+    const records = fs
+      .readFileSync(out, 'utf-8')
+      .trim()
+      .split('\n')
+      .map(line => deserializeTrajectory(line));
+
+    expect(records.length).toBeGreaterThan(0);
+    expect(records.length).toBeLessThanOrEqual(4);
+
+    // Inline output is strictly seed-ordered over the requested range.
+    const seeds = records.map(r => r.config.seed);
+    expect(seeds).toEqual([...seeds].sort((a, b) => a - b));
+    expect(seeds.every(s => s >= 1 && s <= 4)).toBe(true);
+
+    // The inline path writes outPath directly — it must NOT create any .part shard files.
+    expect(fs.readdirSync(tmpDir).filter(f => f.includes('.part'))).toHaveLength(0);
+  }, 60_000);
 });

@@ -236,8 +236,9 @@ _parallel_ self-play environment. No learning yet.
       not closures). CLI is shardable by seed range (`--seed-start`/`--seed-count`/`--out`,
       contiguous blocks concatenated in seed order), defaults to a seed-pure heterogeneous
       decisive field, warns on `Math.random` bots, and reports throughput + clean-rate +
-      action-count distribution + ELO. Tests: `tests/scripts/selfplay.test.js` (16, incl. a
-      worker-pool e2e that round-trips seed-ordered JSONL). **Still open before the checkbox
+      action-count distribution + ELO. Tests: `tests/scripts/selfplay.test.js` (covers the
+      core, worker plumbing, CLI validation, the single-core inline path, and a worker-pool
+      e2e that round-trips seed-ordered JSONL). **Still open before the checkbox
       flips:** the before/after-trims and single-core-vs-N-worker throughput numbers in
       `RESULTS.md` (gated on task 3's per-move trims) and the near-linear-scaling
       confirmation.

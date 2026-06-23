@@ -54,5 +54,13 @@ try {
 } catch (err) {
   parentPort.postMessage({ type: 'error', workerId, message: err.message, stack: err.stack });
 } finally {
-  writer?.close();
+  /*
+   * fd-leak backstop only. A flush-throw here (e.g. disk full) must not escape and
+   * mask the real failure already posted as {type:error} above, so swallow it.
+   */
+  try {
+    writer?.close();
+  } catch {
+    // original cause already reported; nothing actionable in cleanup
+  }
 }

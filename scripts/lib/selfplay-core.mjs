@@ -262,7 +262,7 @@ export function generateShard({
       quarantined: reason !== null,
       quarantineSignal: reason?.signal ?? null,
     });
-    // `result` (with finalState + trajectory) drops out of scope here — not retained.
+    // `result` (with finalState + trajectory) is overwritten next iteration, never collected into an array — not retained.
 
     if (progressEvery && onProgress && (idx + 1) % progressEvery === 0) {
       onProgress({ done: idx + 1, total: seeds.length, written, quarantined, failed });
@@ -358,7 +358,7 @@ export function aggregateStats(summaries, botNames) {
     if (s.failed) {
       failedGames++;
       quarantineBySignal.failed++;
-      const msg = s.error ?? 'unknown error';
+      const msg = s.error || 'unknown error'; // a blank '' message must still be labeled (|| not ??)
       const prev = failureMessages.get(msg);
       if (prev) {
         prev.count++;
@@ -433,6 +433,21 @@ export function aggregateStats(summaries, botNames) {
     },
     bots,
   };
+}
+
+/**
+ * The CLI's non-zero-exit policy, factored out as a pure predicate so the exit contract
+ * is unit-testable without spawning the CLI. A run is "unusable" — and the process should
+ * exit non-zero so an unattended/pipeline caller doesn't consume it as success — when it
+ * aborted (excessive game failures), or it was meant to write data (`wroteOutput`) but
+ * produced zero clean games. A `--no-write` throughput probe (`wroteOutput:false`) is never
+ * unusable on the clean-count alone.
+ *
+ * @param {{ aborted: boolean, wroteOutput: boolean, cleanGames: number }} run
+ * @returns {boolean}
+ */
+export function isUnusableRun({ aborted, wroteOutput, cleanGames }) {
+  return aborted || (wroteOutput && cleanGames === 0);
 }
 
 /**

@@ -34,6 +34,9 @@
  *   npm run selfplay -- --workers 1                    # single-core baseline
  *   npm run selfplay -- --no-write --seed-count 2000   # throughput only (no JSONL)
  *
+ * Exit code: 0 on a usable run; non-zero if the run aborts (excessive game failures) or a
+ * write run produces zero clean games — so a pipeline caller can trust it.
+ *
  * @module scripts/selfplay
  */
 
@@ -48,6 +51,7 @@ import {
   resolveBotsByName,
   generateShard,
   aggregateStats,
+  isUnusableRun,
   makeFileWriter,
   chunkSeeds,
   rangeToSeeds,
@@ -182,7 +186,27 @@ if (aborted) {
   );
 }
 
-report(aggregateStats(summaries, botNames), { elapsed, workers: effectiveWorkers });
+const runStats = aggregateStats(summaries, botNames);
+report(runStats, { elapsed, workers: effectiveWorkers });
+
+const wroteOutput = Boolean(outPath);
+if (wroteOutput && runStats.cleanGames === 0) {
+  console.error(
+    `${colors.red}No clean games were produced — nothing usable was written.${colors.reset}`
+  );
+}
+
+/*
+ * Exit non-zero so unattended/pipeline callers don't treat a failed run as success: an
+ * aborted run (excessive game failures) or a write run with zero clean games means the
+ * output JSONL is empty/garbage. Reporting already ran, so the full breakdown above is
+ * still visible. This deliberately differs from the interactive `arena` CLI — this
+ * generator feeds a downstream training pipeline that must be able to trust its exit code.
+ * The policy lives in the pure isUnusableRun predicate so it's unit-tested without a subprocess.
+ */
+if (isUnusableRun({ aborted, wroteOutput, cleanGames: runStats.cleanGames })) {
+  process.exit(1);
+}
 
 // --- Execution paths ---
 
@@ -288,7 +312,7 @@ async function runPool() {
   } finally {
     // terminate() on an already-exited worker is a harmless no-op.
     await Promise.allSettled(spawned.map(w => w.terminate()));
-    // Parts are merged into `dest` on success; on any failure they'd be orphaned. Remove either way.
+    // Parts are merged into the output file on success; on any failure they'd be orphaned. Remove either way.
     cleanupParts(partPaths);
   }
 }
@@ -427,6 +451,9 @@ Options:
   --out <path>          Output JSONL (default: data/selfplay/selfplay-seed-<start>-<end>.jsonl)
   --no-write            Run games for throughput only; write no JSONL
   --help                Show this help
+
+Exit code: non-zero if the run aborts (excessive game failures) or a write run produces
+zero clean games — so pipeline callers can trust it.
 
 Shard across machines by giving each a disjoint --seed-start/--seed-count and a
 distinct --out; the resulting JSONL files concatenate losslessly.`);

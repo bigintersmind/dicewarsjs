@@ -1,0 +1,21 @@
+# DiceWarsJS ml-bot — behavioral-cloning trainer (Phase 2).
+#
+# CPU-friendly defaults (fine for tests + small-corpus dev runs on a laptop/Mac).
+# On the GPU box (shodan / WSL2 Ubuntu, RTX 4070 Ti — see docs/ml-bot DECISIONS D-13),
+# install the CUDA build of torch INSTEAD of the line below, e.g.:
+#
+#     pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# then `pip install -r requirements.txt` (numpy/onnx/onnxruntime) — or just
+# `pip install -e .[onnx,dev]` which resolves the same set from pyproject.toml.
+
+numpy>=1.24
+torch>=2.1
+
+# ONNX export + the in-Python parity check (export_onnx.py).
+onnx>=1.15
+onnxruntime>=1.17
+
+# Tests / lint.
+pytest>=7.4
+ruff>=0.4

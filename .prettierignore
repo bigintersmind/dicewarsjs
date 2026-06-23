@@ -16,3 +16,7 @@ src/utils/config.js
 
 # Generated files
 *.min.js
+
+# Python BC-trainer subproject (ml-bot Phase 2) — owns its own tooling (ruff).
+# Keep Prettier out so it doesn't reformat the Python-adjacent docs/JSON/TOML.
+ml/

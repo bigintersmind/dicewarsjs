@@ -1,0 +1,16 @@
+# Python venv / caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Training artifacts — checkpoints, exported models, logs (regenerate from a corpus).
+checkpoints/
+runs/
+*.pt
+*.ckpt
+*.onnx
+*.onnx.json

@@ -688,3 +688,74 @@ clone need only reproduce the policy mapping (obs → move), not the depth-2 sea
   encoding/tensor-expansion pipeline and round-trip tests. It is **not** the training
   corpus; the 4p-vs-7p mismatch is fine for pipeline development and is flagged here so the
   shard isn't mistaken for final data.
+
+---
+
+## D-16 — The BC trainer lives in-repo at `ml/`; logits-only single-step ONNX is the inference contract · Accepted (2026-06-23) · follows [D-3](#d-3--js-engine-is-the-single-source-of-truth-python-for-training-only) / [D-4](#d-4--deploy-via-onnx-runtime-web)
+
+**Context.** Phase 2's data pipeline is done (encoder + `npm run encode-corpus` →
+packed tensors + `manifest.json`). The next milestone is the behavioral-cloning
+trainer **(Python) → ONNX → in-browser bot**. The one genuinely open fork was
+**where the Python training code lives**; the net/framework/target were already
+fixed by [D-Encoding] (masked per-edge MLP, escalate to GNN only if needed),
+[D-4] (PyTorch → ONNX → ONNX Runtime Web), and [D-13] (train on the GPU box).
+
+**Decision — in-repo `ml/`.** A self-contained Python package `ml/dicewars_bc/`
+(`pyproject.toml`, own venv, `pip install -e .[onnx,dev]`), excluded from the JS
+toolchain (`ml/` added to `.prettierignore`; ESLint's `--ext .js,.jsx,.mjs`
+already skips it; training artifacts gitignored via `ml/.gitignore`, corpora
+already gitignored under `data/selfplay/`).
+
+- **Why in-repo (over a separate repo / local-only).** The **encoding contract**
+  is the coupling point: `manifest.json`, `ENCODING_VERSION`, and the
+  feature-column order all live in `src/arena/encodeObservation.js`. Keeping the
+  trainer beside it means an encoding change and the matching trainer change land
+  in **one commit**, and the version coupling is enforceable
+  (`dicewars_bc.manifest.EXPECTED_ENCODING_VERSION` is asserted against every
+  corpus at load). `docs/ml-bot/` already tracks ML work in-repo; a separate repo
+  would split the contract across two histories and invite silent drift. Local-only
+  on the GPU box was rejected outright — it contradicts the "survives across
+  sessions" ethos.
+- **Package shape.** `manifest.py` (load + validate the contract), `dataset.py`
+  (memmap-backed `Dataset`, CSR-aware `collate`, **game-level** train/val split to
+  avoid same-game leakage), `model.py` (`EdgePolicyNet`: per-node + per-player
+  encoders, **mean-pool over seats** for seat-symmetry, context MLP, per-edge head,
+  aux value head), `losses.py` (**segmented** cross-entropy / accuracy over the CSR
+  edge slices), `train.py`, `export_onnx.py`. Hermetic pytest suite builds a tiny
+  synthetic corpus (no real data needed). The masked-softmax is **per step** over
+  its `getValidMoves` + STOP slice — never across steps.
+
+**Inference contract (the crux for the in-browser bot).** The exported ONNX graph
+is **logits-only for one decision step**: inputs `nodes [B,maxAreas,Fn]`,
+`players [B,P,Fp]`, `board [B,Fb]`, and the flat edge tensors `edge_feat [E,Fe]` /
+`edge_from [E]` / `edge_to [E]` / `edge_batch [E]`; output `edge_logits [E]` (+ aux
+`value [B,2]`). The `edges` and `batch` axes are **dynamic**; at inference B=1 and
+`edge_batch` is all-zeros. **Every edge is legal** (the set is `getValidMoves` +
+STOP), so the bot just `argmax`es the logits — `argmax → {from,to}` from
+`edge_index`, or the STOP edge → `null`. **No masking, no softmax, no scatter in
+the graph** — the segment/softmax math stays Python-side (training loss only), so
+the export is portable to ONNX Runtime Web. The segmented softmax never appears in
+ONNX, sidestepping `scatter_reduce`-opset concerns. A sidecar `<model>.onnx.json`
+stamps `encodingVersion` + the I/O contract so the JS wrapper asserts compatibility
+before trusting the model. Export self-checks PyTorch-vs-onnxruntime parity
+(observed max |Δlogits| ≈ 5e-7 on the 300-game sample).
+
+**Validated (2026-06-23).** Trained on the real 300-game sample corpus (24,254
+Lookahead-seat steps): val move-match climbed 33% → 47% in 8 untuned CPU epochs
+(random baseline ≈14% over ~6.9 edges/step) — the trainer learns; ONNX export +
+ORT parity + dynamic-edge inference all green (27-test pytest suite). This is a
+**pipeline smoke test, not the parity gate** — that needs the 100k–1M-game corpus
+([D-13]) + tuning on the GPU box, evaluated on `arena:sweep`.
+
+**Rejected.** (a) A separate `dicewarsjs-ml` repo — clean toolchain split, but the
+encoding contract drifts across two histories. (b) Local-only on `shodan` — not
+versioned/reproducible. (c) Putting the masked softmax/argmax **inside** the ONNX
+graph — couples the export to `scatter_reduce` opset support and gains nothing
+(argmax over all-legal logits is one JS line).
+
+**Next slice (not built here).** The in-browser bot: add `onnxruntime-web` to the
+JS deps and write a `src/ai` wrapper that builds the input tensors from a live
+`BotState` the **same way** `encodeObservation.js` does — which needs a **label-free
+encoder** extracted from `encodeStep` (it currently requires a `chosenMove` to
+compute the BC label). Then run the session and `argmax`. Evaluate on
+`arena:sweep` vs `ai_lookahead` (the Phase-2 parity gate).

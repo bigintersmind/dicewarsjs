@@ -21,6 +21,66 @@ Entry template:
 
 ---
 
+## 2026-06-23 — BC trainer scaffolded (Python `ml/`) — trains on real tensors, exports ONNX
+
+**Phase:** 2 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Decided where the Python lives ([D-16]):** in-repo at `ml/` (vs a separate repo
+  or local-only on the GPU box) — Ivan picked it so the **encoding contract**
+  (`manifest.json` / `ENCODING_VERSION` / feature-column order in
+  `encodeObservation.js`) and the trainer that reads it stay co-versioned in one
+  commit. `ml/` excluded from the JS toolchain (`.prettierignore`; ESLint `--ext`
+  already skips `.py`); artifacts gitignored.
+- **Scaffolded `ml/dicewars_bc/`** — a runnable PyTorch BC trainer reading the packed
+  tensors: `manifest.py` (loads + validates the contract, asserts
+  `EXPECTED_ENCODING_VERSION`), `dataset.py` (memmap-backed `Dataset`, CSR-aware
+  `collate`, **game-level** train/val split — no same-game leakage), `model.py`
+  (`EdgePolicyNet`: per-node + per-player encoders, **seat-symmetric** mean-pool over
+  seats, context MLP, per-edge head + aux value head — the masked per-edge MLP
+  [D-Encoding] starts with), `losses.py` (**segmented** CE/accuracy over the CSR edge
+  slices), `train.py`, `export_onnx.py`. Plus `pyproject.toml`, `requirements.txt`,
+  `README.md`, and a **hermetic 27-test pytest suite** (builds a tiny synthetic corpus
+  — no real data needed; torch/onnxruntime tests skip if absent).
+- **Verified end-to-end on the real 300-game sample corpus** (24,254 Lookahead-seat
+  steps): val move-match climbed **33% → 47% in 8 untuned CPU epochs** (random
+  baseline ≈14% over ~6.9 edges/step). ONNX export → **ORT parity max |Δlogits| ≈
+  5e-7**, dynamic-edge inference confirmed, sidecar contract written. 27/27 green;
+  repo `prettier --check` still clean.
+
+**Learned / decided:**
+
+- **The ONNX inference contract is logits-only, single-step ([D-16]).** Inputs
+  `nodes/players/board` + flat edges (`edge_feat/from/to/batch`); output
+  `edge_logits [E]` (+ `value`). `edges`/`batch` dynamic; at inference B=1,
+  `edge_batch` all-zeros. Every edge is legal → the bot just `argmax`es (`→{from,to}`
+  or STOP→`null`). **The segmented softmax stays Python-side (loss only)** so the
+  export is portable — no `scatter` in the graph, no masking needed in JS.
+- **Seat-symmetry is enforced by mean-pooling player embeddings** (permutation-
+  invariant); `isMe`/`isMine` carry owner identity relationally. A unit test asserts
+  permuting seat rows leaves the output unchanged.
+- Python 3.9 is the only local interpreter; the code targets 3.10+ but uses
+  `from __future__ import annotations` throughout so it runs on 3.9 for local dev too.
+
+**Dead ends / surprises:**
+
+- None structural. (A hand-computed expected value in one loss test had a sign slip;
+  the cross-check against `torch.cross_entropy` caught it — implementation was right.)
+
+**Next:**
+
+- **The parity run, on the GPU box.** Generate the 100k–1M-game corpus ([D-13],
+  full 7-bot field per [D-15]) → `encode-corpus` → train on `shodan` (CUDA) with
+  tuning → export ONNX.
+- **The in-browser bot slice:** add `onnxruntime-web`, extract a **label-free
+  encoder** from `encodeStep` (it needs a `chosenMove` today), wrap as a
+  `(BotState)→{from,to}|null` bot, and evaluate on `arena:sweep` vs `ai_lookahead`
+  (the Phase-2 gate). Escalate the net to a 1–2 layer GNN only if the MLP can't reach
+  parity.
+
+---
+
 ## 2026-06-23 — Tensor-expansion pass landed: lean corpus → packed BC tensors
 
 **Phase:** 2 · **Who:** Ivan + Claude

@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dicewars-bc"
+version = "0.1.0"
+description = "Behavioral-cloning trainer for the DiceWarsJS ml-bot (Phase 2): clone ai_lookahead from packed self-play tensors → ONNX."
+readme = "README.md"
+requires-python = ">=3.10"
+# Pinned loosely; install the CUDA build of torch on the GPU box (see README).
+dependencies = [
+  "numpy>=1.24",
+  "torch>=2.1",
+]
+
+[project.optional-dependencies]
+onnx = [
+  "onnx>=1.15",
+  "onnxruntime>=1.17",
+]
+dev = [
+  "pytest>=7.4",
+  "ruff>=0.4",
+]
+
+[project.scripts]
+# Convenience entry points once `pip install -e .` is run.
+dicewars-bc-train = "dicewars_bc.train:main"
+dicewars-bc-export = "dicewars_bc.export_onnx:main"
+
+[tool.setuptools]
+packages = ["dicewars_bc"]
+
+[tool.pytest.ini_options]
+# Make `dicewars_bc` importable when running `pytest` from ml/ without installing.
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

@@ -182,13 +182,22 @@ export function distributeReinforcements(state, playerId, rng) {
 
   if (stock <= 0) {
     /*
-     * Nothing to place: return a new array, but its elements are the SAME area
-     * objects as the input (shallow copy). Still "does not mutate the input" — we
-     * never write through them — but callers must keep treating areas as immutable
-     * (clone before mutating). Unreachable via applyEndTurn (an active player always
-     * has >= 1 territory ⇒ reinforcements >= 1 ⇒ stock >= 1).
+     * Nothing to place, but still return a fresh deep clone (same shape as the main
+     * path below) so this function ALWAYS hands back independently-owned area objects.
+     * Callers — e.g. applyEndTurn, which now passes state.areas straight through — never
+     * have to rely on this branch being unreachable to preserve immutability. (It is in
+     * fact unreachable via applyEndTurn: an active player always has >= 1 territory ⇒
+     * reinforcements >= 1 ⇒ stock >= 1; the clone here is cheap insurance for any future
+     * caller.)
      */
-    return { areas: [...state.areas], playerStock: stock };
+    return {
+      areas: state.areas.map(a => ({
+        ...a,
+        neighborAreaIds: [...a.neighborAreaIds],
+        cells: [...a.cells],
+      })),
+      playerStock: stock,
+    };
   }
 
   // Clone areas so we don't mutate the original

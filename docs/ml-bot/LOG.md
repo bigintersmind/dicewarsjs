@@ -44,6 +44,12 @@ Entry template:
   **every action**, asserts the maintained `territoryCount`/`diceCount`/`largestGroup`/
   `eliminated` equal a from-scratch recompute — across captures, failed attacks,
   eliminations and end-turns. Gates: **850 tests green**, lint + build clean.
+- **Scratch (uncommitted) extra verification, recorded here for traceability:** ran an
+  out-of-tree differential fuzz of the dirty-set recalc against a reimplementation of the
+  _old_ always-full-recompute algorithm — zero divergences. Like the engine-only
+  microbench, this is a scratch check, not a committed artifact; the committed safety net
+  is the 5-seed per-action fuzz test above plus 850-green. (A later multi-agent adversarial
+  review re-confirmed zero divergence over ~880k actions across 205 seeds × 5 move-policies.)
 - Measured before/after (BEFORE captured on the unmodified branch; AFTER on the trims;
   engine-only isolation via `git stash`). Recorded in `RESULTS.md`. Flipped task 3 + task
   5 checkboxes, the Phase-1 heading, gate, and the README dashboard/status.

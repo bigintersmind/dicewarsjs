@@ -318,6 +318,32 @@ describe('applyAction — END_TURN', () => {
     applyAction(state, { type: 'END_TURN' });
     expect(state.currentPlayerIndex).toBe(origIdx);
   });
+
+  it('does not mutate the prior state areas (Change-1 immutability seam)', () => {
+    /*
+     * applyEndTurn passes state.areas straight into distributeReinforcements instead
+     * of pre-cloning, so the prior state's immutability now rests entirely on that
+     * function cloning internally. Pin that invariant here at the StateManager seam —
+     * the previous "does not mutate original state" test only checked a frozen
+     * top-level primitive (currentPlayerIndex), never the areas objects.
+     */
+    const state = createTestState();
+    const before = JSON.parse(JSON.stringify(state.areas));
+
+    const newState = applyAction(state, { type: 'END_TURN' });
+
+    // The prior state's areas must be byte-identical afterward (nothing written through).
+    expect(state.areas).toEqual(before);
+    // The new state owns a fresh areas array, not the same reference.
+    expect(newState.areas).not.toBe(state.areas);
+    /*
+     * Reinforcement actually placed dice — so we exercised the real cloning path, not
+     * the no-op early return — and the changed area is a distinct object, not an alias.
+     */
+    const changed = newState.areas.findIndex((a, i) => a.dice > before[i].dice);
+    expect(changed).toBeGreaterThan(0);
+    expect(newState.areas[changed]).not.toBe(state.areas[changed]);
+  });
 });
 
 describe('getValidMoves', () => {

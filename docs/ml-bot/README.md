@@ -124,9 +124,11 @@ Verified against the code during the 2026-06-21 analysis:
   cores (the Strategist run hit ~266 g/s on 4 procs ≈ 3.4× its 77 g/s single
   core). 1M engine-bound games ≈ 14–28 min on 8 cores. **Inference, not the
   engine, will be the bottleneck.**
-- **Training-mode perf fixes:** disable the O(n²) `history` append
-  (`StateManager.js:199,244`); per-move `cloneAreas`/`recalcPlayerStats`
-  trimmable later if needed.
+- **Training-mode perf (landed in Phase 1):** the O(n²) `history` append is skipped
+  under `config.recordHistory:false` (the `appendHistory` guard in `StateManager.js`) —
+  though [D-12] found that append was never the real throughput bottleneck. The actual
+  lever, the per-move `cloneAreas`/`recalcPlayerStats` cost, was trimmed in Phase-1 task 3
+  (≈1.9× engine-only; see `RESULTS.md`).
 - **A turn is a _sequence_ of single attacks** ended by STOP (returning `null`) —
   model an explicit STOP action, not one batched move per turn.
 - **Reward:** terminal win/placement; free dense shaping available =

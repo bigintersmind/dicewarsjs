@@ -21,6 +21,66 @@ Entry template:
 
 ---
 
+## 2026-06-22 — Phase-1 task 5: parallel self-play harness scaffolded
+
+**Phase:** 1 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Built the committed parallel self-play harness (D-12) on branch
+  `ml-bot/selfplay-harness`. Three files + a test + `npm run selfplay`:
+  - `scripts/lib/selfplay-core.mjs` — worker-agnostic core. `generateShard` runs a
+    seed block through `runMatch` in training mode (`recordHistory:false` +
+    `recordTrajectory:true`), streams each **clean** lean trajectory via an injected
+    `write` callback, and keeps only tiny per-game summaries — the heavy
+    `MatchResult`/`finalState`/`trajectory` drop out of scope each iteration (the
+    RAM-safety crux at 100k–1M games). `forcedEndReason` is the D-14 quarantine
+    predicate (drop any game where a bot's `errors`/`invalidMoves`/`maxMovesHit > 0`).
+    `aggregateStats` is the single-threaded, path-dependent ELO post-pass replayed over
+    summaries sorted by seed (scheduler-independent). `makeFileWriter` is a
+    backpressure-free batched `fs.writeSync` JSONL sink.
+  - `scripts/lib/selfplay-worker.mjs` — `worker_threads` entry; receives bot **names**,
+    not closures (D-12), resolves them itself, streams its shard to its own part-file.
+  - `scripts/selfplay.mjs` — CLI. Seed-range sharding
+    (`--seed-start`/`--seed-count`/`--out`), worker pool (default ~50% cores) or an
+    inline single-core baseline (`--workers 1`), `--no-write` throughput-only mode,
+    contiguous seed blocks concatenated in seed order. Defaults to the seed-pure
+    heterogeneous decisive field (Strategist/Expectimax/Lookahead/Defensive); warns on
+    `Math.random` bots (break the same-seed→same-game sharding guarantee). Prints
+    throughput, clean-rate + per-signal quarantine breakdown, action-count distribution,
+    and ELO.
+  - `tests/scripts/selfplay.test.js` — 18 tests (all green): round-trip per clean game,
+    determinism modulo timestamp, the D-14 quarantine for all three signals (throw →
+    `errors`; repeated invalid → `invalidMoves`; cap → `maxMovesHit`), the abort-on-failure
+    guard, order-independent ELO aggregation, writer flush boundary, and a worker-pool
+    **e2e** that asserts seed-ordered, round-trippable JSONL with no orphaned part-files.
+- Ran an adversarial multi-agent review of the scaffold (17 agents; 12 findings → 7
+  confirmed, 5 refuted) and fixed all 7: hardened the worker-pool error path (terminate
+  stragglers + clean up `.partN` files in a `finally`; `concatParts` destroys its stream
+  on error and no longer owns deletion), made `writer.close()` idempotent and
+  `finally`-guarded in the worker and inline paths (no fd leak on a `generateShard` throw),
+  and added a `runMatchFn` test seam so the `maxMovesHit` and abort paths (not triggerable
+  with real games) are deterministically tested. Full suite **821 passing**, lint clean,
+  build green.
+
+**Learned / decided:**
+
+- Used `fs.writeSync` (batched), not a `WriteStream`: `generateShard` is a tight sync
+  loop that never yields, so a stream's `'drain'` backpressure can't run mid-shard and
+  its buffer could grow unbounded on a fast/cheap field. Blocking writes from a worker
+  sidestep that and keep the core synchronous + unit-testable.
+- The lean record carries a wall-clock `metadata.timestamp`, so the determinism test
+  compares games with the timestamp stripped — game _content_ (seed/actions/outcome) is
+  deterministic; the stamp isn't. Harmless for the merge story (no collisions).
+- Smoke numbers (tiny N, overhead-dominated): ~10 g/s 1-worker vs ~22 g/s 3-worker on
+  the decisive seed-pure field. Real scaling numbers belong in `RESULTS.md` once task 3's
+  trims land — deferred per the gate.
+
+**Next:**
+
+- Task 3 (per-move allocation trims), then record before/after + single-core-vs-N-worker
+  throughput and the action-count distribution in `RESULTS.md` to close the Phase-1 gate.
+
 ## 2026-06-22 — PR #42 review hardening (boundary + forced-end signal)
 
 **Phase:** 1 · **Who:** Ivan + Claude

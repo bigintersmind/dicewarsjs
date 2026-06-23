@@ -226,6 +226,22 @@ _parallel_ self-play environment. No learning yet.
       counter (not derived from turn length), so the whole game is dropped uniformly
       across all three signals. Keeps the lean record pure; no per-action markers in the
       format.
+      **Scaffold landed (2026-06-22):** committed `scripts/selfplay.mjs` + `npm run selfplay`,
+      with the worker-agnostic core split into `scripts/lib/selfplay-core.mjs`
+      (`generateShard` streams clean trajectories via an injected writer and never retains
+      `MatchResult`/`finalState`; `forcedEndReason` is the D-14 quarantine predicate;
+      `aggregateStats` is the single-threaded path-dependent ELO post-pass over seeds;
+      `makeFileWriter` is a backpressure-free `fs.writeSync` JSONL sink) and the
+      `worker_threads` entry in `scripts/lib/selfplay-worker.mjs` (receives bot **names**,
+      not closures). CLI is shardable by seed range (`--seed-start`/`--seed-count`/`--out`,
+      contiguous blocks concatenated in seed order), defaults to a seed-pure heterogeneous
+      decisive field, warns on `Math.random` bots, and reports throughput + clean-rate +
+      action-count distribution + ELO. Tests: `tests/scripts/selfplay.test.js` (covers the
+      core, worker plumbing, CLI validation, the single-core inline path, and a worker-pool
+      e2e that round-trips seed-ordered JSONL). **Still open before the checkbox
+      flips:** the before/after-trims and single-core-vs-N-worker throughput numbers in
+      `RESULTS.md` (gated on task 3's per-move trims) and the near-linear-scaling
+      confirmation.
 
 **Acceptance criteria.**
 

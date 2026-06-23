@@ -184,7 +184,7 @@ _parallel_ self-play environment. No learning yet.
       directly and never touches this chain ([D-13]).
 - [x] **(4) Trajectory export** (`src/arena/trajectoryExport.js`, beside
       `replayFormat.js`). **Landed.** Per-step `{observation: BotState, legalMoves
-  (getValidMoves + an explicit STOP), chosenMove, outcome}` + terminal
+(getValidMoves + an explicit STOP), chosenMove, outcome}` + terminal
       `{winner, placements, turnCount}`. Hooked via an `onStep`/`recordTrajectory`
       option threaded `runMatch → runBotTurn`: observation captured **before**
       `applyAction`, outcome after, **rejected/invalid moves skipped**, STOP tuple

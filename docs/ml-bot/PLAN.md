@@ -148,11 +148,11 @@ _parallel_ self-play environment. No learning yet.
 **Tasks.**
 
 - [x] **(1) Training-mode `recordHistory` flag.** Read `state.config.recordHistory
-  !== false` inside `applyAttack`/`applyEndTurn` (`StateManager.js:199,244`) — no
+!== false` inside `applyAttack`/`applyEndTurn` (`StateManager.js:199,244`) — no
       signature change, stays pure. Add to the `createGame` config allowlist
       (`GameRunner.js:32-39`, default on) and forward it through `runMatch`
       (`matchRunner.js:153`, which currently drops unknown config) and `arenaRunner`.
-      **Defaults OFF (history on)** so the browser `GameController` (reads
+      **Defaults ON (history recorded); training opts out via `recordHistory:false`** so the browser `GameController` (reads
       `history[last].result` for animation, `:398/:572`) and replay/tournament
       persistence (`createReplay`, `run-online-tournament.mjs:178`) are unaffected.
       A memory / asymptotic-safety win, **not** a throughput one.
@@ -186,10 +186,10 @@ _parallel_ self-play environment. No learning yet.
       `replayFormat.js`). Per-step `{observation: BotState, legalMoves (getValidMoves
   - an explicit STOP), chosenMove, outcome}`+ terminal`{winner, placements,
     turnCount}`. Hook via an `onStep`/`recordTrajectory`option threaded
- `runMatch → runBotTurn`: capture the observation **before** `applyAction`,
-  outcome after, **skip rejected moves**, emit a STOP tuple on `null`. Record the
-  action list **independently of `state.history`** so it survives
-  `recordHistory:false`. Version-stamp the observation schema (encoding finalized
+`runMatch → runBotTurn`: capture the observation **before** `applyAction`,
+ outcome after, **skip rejected moves**, emit a STOP tuple on `null`. Record the
+ action list **independently of `state.history`** so it survives
+ `recordHistory:false`. Version-stamp the observation schema (encoding finalized
     in Phase 2 — [D-Encoding]).
 - [ ] **(5) Committed parallel self-play harness** (`scripts/selfplay.mjs` +
       `npm run selfplay` — [D-12]). `worker_threads` pool (default ~50% cores, to

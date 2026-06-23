@@ -380,8 +380,9 @@ Three of the five load-bearing claims the PLAN rested on came back refuted or pa
   "confirm."
 - **The history flag has real non-arena consumers** — the browser `GameController`
   (`:398/:572`, battle animation) and replay/tournament persistence (`createReplay`,
-  `run-online-tournament.mjs:178`) read `state.history` — so the flag must default OFF
-  and stay engine/arena-only. The arena hot loop itself never reads history (safe).
+  `run-online-tournament.mjs:178`) read `state.history` — so `recordHistory` must default
+  ON (history recorded), with the training harness opting out via `recordHistory:false` to
+  stay engine/arena-only. The arena hot loop itself never reads history (safe).
 - **Confirmed:** seeding is fully deterministic except the `createGame` `Math.random`
   seed-fallback + the 3 known `Math.random` bots (default/example/adaptive); round-trip
   replay already works today (`replayGame` re-applies _recorded_ actions, proven by

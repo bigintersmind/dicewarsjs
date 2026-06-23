@@ -93,8 +93,9 @@ Entry template:
 - **Parallel self-play is greenfield** — no worker/process code exists; the "266 g/s on
   4 procs" number was a deleted, uncommitted probe. Building a **committed
   `scripts/selfplay.mjs`** (Ivan's call) that Phase 2 reuses for its 100k–1M games.
-- **`recordHistory` flag must default OFF** — the browser `GameController` + replay
-  persistence read `state.history`; the arena hot loop doesn't (safe to skip there).
+- **`recordHistory` must default ON (history recorded)** — the browser `GameController`
+  and replay persistence read `state.history`; only the training harness opts out via
+  `recordHistory:false`, and the arena hot loop doesn't read history (safe to skip there).
 - **Round-trip already works** (`replayGame`, `GameRunner.test.js:205`); enabling
   precondition is just explicit-seed capture + persisting `dicePerArea` in the replay
   config.

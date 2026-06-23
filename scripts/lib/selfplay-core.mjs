@@ -320,10 +320,25 @@ const FAILURE_SAMPLE_LIMIT = 5;
  * got them dropped.
  *
  * @param {GameSummary[]} summaries - All per-game summaries (any order)
- * @param {string[]} botNames - Bot names by player index (constant across self-play games)
+ * @param {string[]} botNames - Bot names by player index (constant across self-play games);
+ *   must be distinct (ELO/wins are keyed by name, so duplicates would collide two seats)
  * @returns {SelfPlayStats}
+ * @throws {Error} If `botNames` contains a duplicate.
  */
 export function aggregateStats(summaries, botNames) {
+  /*
+   * ELO/wins are keyed by bot name below, so two seats sharing a name would
+   * silently collapse into one rating and skew the result. The CLI can't reach
+   * this (matchRunner rejects a duplicate-name field before any game runs), but
+   * this is an exported, independently-callable function — fail loud rather than
+   * return a quietly-wrong ranking.
+   */
+  if (new Set(botNames).size !== botNames.length) {
+    throw new Error(
+      `aggregateStats requires distinct bot names (ELO/wins are keyed by name); got [${botNames.join(', ')}]`
+    );
+  }
+
   const totalGames = summaries.length;
   const clean = summaries.filter(s => !s.quarantined);
   // Deterministic ELO order: replay clean games by ascending seed.

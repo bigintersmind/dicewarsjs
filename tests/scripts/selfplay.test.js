@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -24,6 +25,7 @@ import {
 import { deserializeTrajectory } from '../../src/arena/trajectoryExport.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const WORKER_PATH = path.join(REPO_ROOT, 'scripts', 'lib', 'selfplay-worker.mjs');
 
 let tmpDir;
 beforeEach(() => {
@@ -348,6 +350,11 @@ describe('aggregateStats (deterministic ELO/stats post-pass)', () => {
     const shuffled = [summaries[2], summaries[0], summaries[4], summaries[1], summaries[3]];
     expect(aggregateStats(shuffled, botNames)).toEqual(aggregateStats(summaries, botNames));
   });
+
+  it('throws on duplicate bot names rather than silently collapsing two seats', () => {
+    // ELO/wins are keyed by name; a duplicate would skew the ranking. Fail loud.
+    expect(() => aggregateStats([], ['A', 'B', 'A'])).toThrow(/distinct bot names/);
+  });
 });
 
 describe('makeFileWriter', () => {
@@ -409,4 +416,73 @@ describe('selfplay CLI end-to-end (worker pool)', () => {
     // Shard part-files are cleaned up after a successful merge (none orphaned).
     expect(fs.readdirSync(tmpDir).filter(f => f.includes('.part'))).toHaveLength(0);
   }, 60_000);
+
+  it('cleans up shard part-files when the merge fails (no orphans on error)', () => {
+    /*
+     * Point --out at an existing *directory* so the final concat
+     * (createWriteStream) fails with EISDIR *after* the workers have written
+     * their part-files — exercising the runPool finally cleanup + concatParts
+     * error path, which the success-path e2e above can't reach.
+     */
+    const outDir = path.join(tmpDir, 'out-is-a-dir');
+    fs.mkdirSync(outDir);
+
+    let threw = false;
+    let stderr = '';
+    try {
+      execFileSync(
+        'node',
+        [
+          'scripts/selfplay.mjs',
+          '--workers',
+          '2',
+          '--seed-count',
+          '4',
+          '--out',
+          outDir,
+          '--bots',
+          DEFAULT_FIELD.join(','),
+        ],
+        { cwd: REPO_ROOT, stdio: 'pipe' }
+      );
+    } catch (err) {
+      threw = true;
+      stderr = String(err.stderr ?? '');
+    }
+
+    expect(threw).toBe(true); // non-zero exit
+    expect(stderr).toMatch(/Self-play run failed/);
+    // The finally removed both .part files even though the merge threw — no orphans.
+    expect(fs.readdirSync(tmpDir).filter(f => f.includes('.part'))).toHaveLength(0);
+  }, 60_000);
+});
+
+describe('selfplay worker error plumbing', () => {
+  it('posts {type:error} carrying the message and in-worker stack on a failure', async () => {
+    /*
+     * Drive the worker's catch → postMessage({type:error}) path directly: an
+     * unknown bot name makes resolveBotsByName throw inside the worker. This
+     * verifies the worker reports the failure as a message (not a crash) and
+     * forwards the stack the main thread now surfaces.
+     */
+    const msg = await new Promise((resolve, reject) => {
+      const worker = new Worker(WORKER_PATH, {
+        workerData: {
+          workerId: 3,
+          botNames: ['NotARealBot'],
+          seeds: [1],
+          maxTurns: 500,
+          outPath: null,
+        },
+      });
+      worker.on('message', resolve);
+      worker.on('error', reject); // a real crash (not the expected error message) fails the test
+    });
+
+    expect(msg.type).toBe('error');
+    expect(msg.workerId).toBe(3);
+    expect(msg.message).toMatch(/Unknown bot "NotARealBot"/);
+    expect(typeof msg.stack).toBe('string');
+    expect(msg.stack.length).toBeGreaterThan(0);
+  }, 30_000);
 });

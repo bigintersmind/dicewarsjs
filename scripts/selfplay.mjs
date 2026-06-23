@@ -164,6 +164,12 @@ try {
   }
 } catch (err) {
   console.error(`\n${colors.red}Self-play run failed: ${err.message}${colors.reset}`);
+  /*
+   * Print the trace for diagnosability — the in-worker stack for a worker failure
+   * (the original site, in another thread), else this error's own stack.
+   */
+  const trace = err.workerStack ?? err.stack;
+  if (trace) console.error(trace);
   process.exit(1);
 }
 
@@ -221,6 +227,26 @@ async function runPool() {
       shards.map(
         (seeds, w) =>
           new Promise((resolve, reject) => {
+            /*
+             * Settle exactly once. A worker emits several terminal-ish events
+             * (a 'done'/'error' message, then an 'exit'); a Promise ignores all
+             * but the first settle, but we gate explicitly so the 'exit' guard
+             * below can reject a worker that dies *without* delivering a result
+             * (any exit code) instead of leaving Promise.all to hang forever.
+             */
+            let settled = false;
+            const ok = msg => {
+              if (!settled) {
+                settled = true;
+                resolve(msg);
+              }
+            };
+            const bad = err => {
+              if (!settled) {
+                settled = true;
+                reject(err);
+              }
+            };
             const worker = new Worker(WORKER_URL, {
               workerData: { workerId: w, seeds, botNames, maxTurns, outPath: partPaths[w] },
             });
@@ -230,14 +256,21 @@ async function runPool() {
                 done.set(msg.workerId, msg.done);
                 printCombined();
               } else if (msg.type === 'done') {
-                resolve(msg);
+                ok(msg);
               } else if (msg.type === 'error') {
-                reject(new Error(`worker ${msg.workerId}: ${msg.message}`));
+                // Carry the in-worker stack so the top-level catch can print it.
+                const err = new Error(`worker ${msg.workerId}: ${msg.message}`);
+                err.workerStack = msg.stack;
+                bad(err);
               }
             });
-            worker.on('error', reject);
+            worker.on('error', bad);
             worker.on('exit', code => {
-              if (code !== 0) reject(new Error(`worker ${w} exited with code ${code}`));
+              /*
+               * No-op once 'done'/'error' has settled; otherwise a premature exit
+               * (e.g. an OOM kill that posts nothing) becomes a loud failure, not a hang.
+               */
+              bad(new Error(`worker ${w} exited before completing (code ${code})`));
             });
           })
       )

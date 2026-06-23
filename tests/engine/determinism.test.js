@@ -204,12 +204,23 @@ describe('replay round-trip persists dicePerArea', () => {
     delete stripped.config.dicePerArea;
 
     let diverged = false;
+    let err;
     try {
       const reconstructed = replayToState(stripped, replay.actions.length);
       diverged = reconstructed.rngState !== final.rngState;
-    } catch {
+    } catch (e) {
+      err = e;
       diverged = true;
     }
     expect(diverged).toBe(true);
+    /*
+     * If it diverged by throwing, pin that it failed for the dicePerArea reason — a
+     * replay/ownership mismatch — not some unrelated future error. Without this, an
+     * unrelated throw from replayToState (a createGame regression, a new validation
+     * error) would still flip `diverged` and let this guard pass green while silently
+     * no longer testing the fix. The no-throw branch needs no message check: an
+     * rngState divergence is itself the dicePerArea-driven consequence.
+     */
+    if (err) expect(err.message).toMatch(/Replay failed|not owned/i);
   });
 });

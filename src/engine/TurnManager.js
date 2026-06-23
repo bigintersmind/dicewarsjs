@@ -181,7 +181,23 @@ export function distributeReinforcements(state, playerId, rng) {
   let stock = Math.min(player.stock + reinforcements, STOCK_MAX);
 
   if (stock <= 0) {
-    return { areas: [...state.areas], playerStock: stock };
+    /*
+     * Nothing to place, but still return a fresh deep clone (same shape as the main
+     * path below) so this function ALWAYS hands back independently-owned area objects.
+     * Callers — e.g. applyEndTurn, which now passes state.areas straight through — never
+     * have to rely on this branch being unreachable to preserve immutability. (It is in
+     * fact unreachable via applyEndTurn: an active player always has >= 1 territory ⇒
+     * reinforcements >= 1 ⇒ stock >= 1; the clone here is cheap insurance for any future
+     * caller.)
+     */
+    return {
+      areas: state.areas.map(a => ({
+        ...a,
+        neighborAreaIds: [...a.neighborAreaIds],
+        cells: [...a.cells],
+      })),
+      playerStock: stock,
+    };
   }
 
   // Clone areas so we don't mutate the original

@@ -6,7 +6,7 @@ import {
   deserializeState,
 } from '../../src/engine/StateManager.js';
 import { generateMap } from '../../src/engine/MapGenerator.js';
-import { createTurnOrder } from '../../src/engine/TurnManager.js';
+import { createTurnOrder, findLargestConnectedGroup } from '../../src/engine/TurnManager.js';
 import { createRng } from '../../src/engine/rng.js';
 
 const DEFAULT_CONFIG = {
@@ -318,6 +318,32 @@ describe('applyAction — END_TURN', () => {
     applyAction(state, { type: 'END_TURN' });
     expect(state.currentPlayerIndex).toBe(origIdx);
   });
+
+  it('does not mutate the prior state areas (Change-1 immutability seam)', () => {
+    /*
+     * applyEndTurn passes state.areas straight into distributeReinforcements instead
+     * of pre-cloning, so the prior state's immutability now rests entirely on that
+     * function cloning internally. Pin that invariant here at the StateManager seam —
+     * the previous "does not mutate original state" test only checked a frozen
+     * top-level primitive (currentPlayerIndex), never the areas objects.
+     */
+    const state = createTestState();
+    const before = JSON.parse(JSON.stringify(state.areas));
+
+    const newState = applyAction(state, { type: 'END_TURN' });
+
+    // The prior state's areas must be byte-identical afterward (nothing written through).
+    expect(state.areas).toEqual(before);
+    // The new state owns a fresh areas array, not the same reference.
+    expect(newState.areas).not.toBe(state.areas);
+    /*
+     * Reinforcement actually placed dice — so we exercised the real cloning path, not
+     * the no-op early return — and the changed area is a distinct object, not an alias.
+     */
+    const changed = newState.areas.findIndex((a, i) => a.dice > before[i].dice);
+    expect(changed).toBeGreaterThan(0);
+    expect(newState.areas[changed]).not.toBe(state.areas[changed]);
+  });
 });
 
 describe('getValidMoves', () => {
@@ -470,5 +496,97 @@ describe('full game lifecycle', () => {
     }
 
     expect(state.history.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Recompute every player's stats from scratch — the slow, obviously-correct
+ * reference the incremental recalcPlayerStats must always agree with.
+ */
+function referenceStats(areas, playerCount) {
+  const ref = Array.from({ length: playerCount }, (_, id) => ({
+    id,
+    territoryCount: 0,
+    diceCount: 0,
+    largestGroup: 0,
+  }));
+  for (let a = 1; a < areas.length; a++) {
+    const ar = areas[a];
+    if (ar.size > 0 && ar.owner >= 0 && ar.owner < playerCount) {
+      ref[ar.owner].territoryCount++;
+      ref[ar.owner].diceCount += ar.dice;
+    }
+  }
+  for (const r of ref) r.largestGroup = findLargestConnectedGroup(areas, r.id);
+  return ref;
+}
+
+describe('player-stat invariants under the per-move trims', () => {
+  /*
+   * The per-move allocation trims only recompute largestGroup for the players an
+   * action could have changed. These tests pin that the maintained stats are
+   * byte-identical to a from-scratch recompute after every single action, across
+   * wins, losses, eliminations and end-turns — the safety net for the optimization.
+   */
+  const SEEDS = [1, 7, 42, 100, 2024];
+  const config = {
+    mapWidth: 20,
+    mapHeight: 22,
+    maxAreas: 24,
+    playerCount: 4,
+    dicePerArea: 3,
+    seed: 0,
+  };
+
+  it.each(SEEDS)('maintained stats match a full recompute after every action (seed %i)', seed => {
+    const rng = createRng(seed);
+    const cfg = { ...config, seed };
+    const mapData = generateMap(cfg, rng);
+    const turnOrder = createTurnOrder(cfg.playerCount, rng);
+    let state = createInitialState(cfg, mapData, turnOrder, rng.state());
+
+    let captures = 0;
+    let losses = 0;
+    let eliminations = 0;
+    let guard = 0;
+    /*
+     * Attack whenever possible (the current player END_TURNs only when it has no
+     * legal attack) so the game drives toward eliminations rather than stalling.
+     */
+    while (state.phase !== 'gameOver' && guard < 6000) {
+      guard++;
+      const moves = getValidMoves(state);
+      const wasEliminated = state.players.map(p => p.eliminated);
+
+      if (moves.length > 0) {
+        const m = moves[guard % moves.length];
+        const prevOwner = state.areas[m.to].owner;
+        state = applyAction(state, { type: 'ATTACK', from: m.from, to: m.to });
+        if (state.areas[m.to].owner === prevOwner) losses++;
+        else captures++;
+      } else {
+        state = applyAction(state, { type: 'END_TURN' });
+      }
+      eliminations += state.players.filter((p, id) => p.eliminated && !wasEliminated[id]).length;
+
+      const ref = referenceStats(state.areas, cfg.playerCount);
+      for (let id = 0; id < cfg.playerCount; id++) {
+        const p = state.players[id];
+        expect(p.territoryCount).toBe(ref[id].territoryCount);
+        expect(p.diceCount).toBe(ref[id].diceCount);
+        expect(p.largestGroup).toBe(ref[id].largestGroup);
+        // eliminated is sticky and equivalent to "currently owns nothing".
+        expect(p.eliminated).toBe(ref[id].territoryCount === 0);
+      }
+    }
+
+    /*
+     * The run exercised every branch the trims touch: successful captures (attacker
+     * + former-owner dirty), failed attacks (empty dirty set) and eliminations
+     * (the territoryCount === 0 path).
+     */
+    expect(captures).toBeGreaterThan(0);
+    expect(losses).toBeGreaterThan(0);
+    expect(eliminations).toBeGreaterThan(0);
   });
 });

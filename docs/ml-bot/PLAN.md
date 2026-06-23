@@ -129,7 +129,7 @@ default and the Phase-0 headline gate is finally **met**. Otherwise → Track B.
 
 ---
 
-## Phase 1 — Harness hardening for self-play · 🟨 In progress · ~3–5 days
+## Phase 1 — Harness hardening for self-play · ✅ Done (2026-06-23) · ~3–5 days
 
 > **Scope corrected 2026-06-22 after a verified surface-map ([D-12]).** Two PLAN
 > assumptions were wrong: (a) the O(n²) `history` append is **not** the throughput
@@ -166,22 +166,26 @@ _parallel_ self-play environment. No learning yet.
       `recordHistory:false`. Fix: persist `dicePerArea` in the replay config
       (`replayFormat.js:58-64`) so round-trip doesn't silently diverge on non-default
       dice.
-- [ ] **(3) Per-move allocation trims — first-class ([D-12]).** The real per-move
-      lever. Eliminate the **double-clone of `areas` per end-turn**
-      (`StateManager.js:208` + `TurnManager.distributeReinforcements`); reduce/cache
-      the 7× `findLargestConnectedGroup` per `applyAction` (`recalcPlayerStats`).
-      Validate with before/after numbers from the harness (task 5). Watch the
-      `clonePlayers` shallow-share landmine (safe only while Player fields stay
-      primitive). **Bot-side per-move cost too:** every built-in bot runs through
-      `adaptLegacyBot` → `createLegacyViewFromBotState`, which rebuilds an O(areas²)
-      `join` adjacency matrix _every move_ (engine→BotState→legacy-view double
-      translation); the strong bots (strategist/lookahead/expectimax) read that legacy
-      view, not `BotState`. For the heuristic bots actually used in the self-play
-      field, a **modern fast-path** (`adaptModernBot`, bot reads `BotState` directly)
-      skips the rebuild — land it _only_ if measurement shows the rebuild is a real
-      fraction of that bot's cost, and **re-validate the bot's arena numbers** after
-      (behavior must not shift). Not a blanket port — the learner reads engine→tensor
-      directly and never touches this chain ([D-13]).
+- [x] **(3) Per-move allocation trims — first-class ([D-12]). DONE (2026-06-23).**
+      Two behavior-preserving trims to `src/engine/StateManager.js`: (a) dropped the
+      redundant **double-clone of `areas` per end-turn** — `applyEndTurn` no longer
+      pre-clones; it passes `state.areas` straight to `distributeReinforcements`, which
+      is pure and already clones internally; (b) **gated `findLargestConnectedGroup`**
+      in `recalcPlayerStats` to the only players an action can change — the attacker
+      and the captured territory's former owner on a capture, nobody on a failed attack
+      or end-turn — down from a union-find pass for all 7 players every action. Result:
+      **≈1.9× pure-engine
+      throughput** (≈215 → ≈414 games/s; the learner's engine→tensor path gets this
+      directly), +3–5% on the bot-search-dominated self-play field, byte-identical
+      games. Guarded by a 5-seed per-action invariant fuzz test
+      (`StateManager.test.js`); 850 tests green. The `clonePlayers` shallow-share
+      landmine still holds (Player fields stay primitive). **Bot-side `join`-matrix
+      fast-path: NOT pursued (deferred).** The strong bots route through
+      `adaptLegacyBot` → `createLegacyViewFromBotState`, rebuilding an O(areas²) `join`
+      matrix per move, but it was never isolated as a bottleneck — the field is
+      depth-2-search-dominated, and the learner reads engine→tensor and never touches
+      that chain ([D-13]), so this stays a measured-and-only-if future micro-opt, not a
+      gate blocker.
 - [x] **(4) Trajectory export** (`src/arena/trajectoryExport.js`, beside
       `replayFormat.js`). **Landed.** Per-step `{observation: BotState, legalMoves
 (getValidMoves + an explicit STOP), chosenMove, outcome}` + terminal
@@ -205,7 +209,7 @@ _parallel_ self-play environment. No learning yet.
       **Scope split (confirmed): `scripts/selfplay.mjs` + at-scale JSONL streaming
       stay task 5.** `arenaRunner` forwards `recordTrajectory`/`onStep` but retains
       `matches[]` — task 5's harness calls `runMatch` directly and streams.
-- [ ] **(5) Committed parallel self-play harness** (`scripts/selfplay.mjs` +
+- [x] **(5) Committed parallel self-play harness** (`scripts/selfplay.mjs` +
       `npm run selfplay` — [D-12]). `worker_threads` pool (default ~50% cores, to
       respect the test-lock machine policy in CLAUDE.md). **Pass bot identifiers, not
       closures** (bot fns aren't structured-cloneable — workers import bots
@@ -238,10 +242,10 @@ _parallel_ self-play environment. No learning yet.
       decisive field, warns on `Math.random` bots, and reports throughput + clean-rate +
       action-count distribution + ELO. Tests: `tests/scripts/selfplay.test.js` (covers the
       core, worker plumbing, CLI validation, the single-core inline path, and a worker-pool
-      e2e that round-trips seed-ordered JSONL). **Still open before the checkbox
-      flips:** the before/after-trims and single-core-vs-N-worker throughput numbers in
-      `RESULTS.md` (gated on task 3's per-move trims) and the near-linear-scaling
-      confirmation.
+      e2e that round-trips seed-ordered JSONL). **Closed (2026-06-23):** the
+      before/after-trims and single-core-vs-N-worker throughput numbers are in
+      `RESULTS.md` and near-linear scaling is confirmed from the committed harness (1→4
+      workers 3.04× on 8 cores), not the lost probe.
 
 **Acceptance criteria.**
 
@@ -255,9 +259,10 @@ _parallel_ self-play environment. No learning yet.
   the lost probe), plus the action-count distribution and completion rate of the
   measured field.
 
-**Go/No-Go gate.** Reproducible + instrumented + parallel (near-linear scaling
-confirmed) + per-move trims landed with recorded before/after numbers → proceed to
-Phase 2. **Gate reframed ([D-12]):** the old "≥100 g/s/core" absolute is only
+**Go/No-Go gate — ✅ MET (2026-06-23).** Reproducible + instrumented + parallel
+(near-linear scaling confirmed: 1→4 workers 3.04×) + per-move trims landed with recorded
+before/after numbers (≈1.9× engine-only) → **proceed to Phase 2 (imitation baseline).**
+**Gate reframed ([D-12]):** the old "≥100 g/s/core" absolute is only
 meaningful for a _cheap_ heuristic field; `ai_lookahead` (the Phase-2 clone target) is
 ~4 g/s/core and no engine micro-opt changes that — Phase-2 data-gen is
 **parallelism-bound** (≈ minutes-to-hours across cores), which is exactly what the

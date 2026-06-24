@@ -1,0 +1,52 @@
+name: ML CI
+
+# Python CI for the behavioral-cloning trainer (ml/). Separate from the JS `CI`
+# workflow and scoped to ml/** so it only runs when the Python package changes.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'ml/**'
+      - '.github/workflows/ml-ci.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'ml/**'
+      - '.github/workflows/ml-ci.yml'
+
+jobs:
+  ml-test:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ml
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'ml/pyproject.toml'
+
+      # Install the CPU torch wheel explicitly first: the default PyPI linux wheel
+      # is the multi-GB CUDA build we don't need on a CPU runner. The editable
+      # install below then sees torch>=2.1 already satisfied and only adds the rest.
+      - name: Install CPU PyTorch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install package + ONNX + dev extras
+        run: pip install -e '.[onnx,dev]'
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      # REQUIRE_ONNX=1 turns a missing onnx/onnxruntime into a hard failure rather
+      # than a silent skip, so the ONNX↔PyTorch parity tests can't quietly go green.
+      - name: Test (with ONNX parity gate)
+        run: pytest
+        env:
+          REQUIRE_ONNX: '1'

@@ -71,6 +71,14 @@ succeeds but warns and stamps `parityChecked: false` (the model is UNVERIFIED).
 Pass `--require-parity` to make a missing onnxruntime a hard failure instead —
 use it for the acceptance-gate run so an unverified model can't slip through.
 
+The export pins the **legacy TorchScript exporter** (`dynamo=False`, feature-detected
+so the floor stays torch 2.1) so it keeps the stable `dynamic_axes` graph contract
+across torch versions — torch ≥ 2.9 otherwise defaults to the dynamo exporter, which
+needs `onnxscript` and a different dynamic-shape API. (Exports stay numerically
+identical to the parity tolerance, asserted by the ONNX↔PyTorch check; the raw protobuf
+may still differ across torch versions.) Expect a deprecation warning; migrating to the
+dynamo exporter is future work.
+
 ## The architecture (per D-Encoding)
 
 A **masked per-edge MLP** — the simplest learner that can clone; escalate to a
@@ -118,9 +126,14 @@ run the session, and `argmax`. The sidecar `bc_policy.onnx.json` carries
 
 ```bash
 cd ml && pytest          # hermetic — builds a tiny synthetic corpus, no real data needed
+cd ml && ruff check .    # lint (ruff is pinned in the dev extra for a reproducible gate)
 ```
 
 Tests that need `torch` / `onnxruntime` skip automatically if those aren't installed.
 Set `REQUIRE_ONNX=1` to turn a missing `onnx`/`onnxruntime` into a hard failure
 instead of a skip — use it in CI so the ONNX↔PyTorch parity gate can't silently
 pass by being skipped.
+
+CI runs both on every PR that touches `ml/**`: [`.github/workflows/ml-ci.yml`](../.github/workflows/ml-ci.yml)
+installs CPU torch + `.[onnx,dev]` on Python 3.11 and runs `ruff check` then
+`REQUIRE_ONNX=1 pytest`. (Requires Python ≥ 3.10 — the code uses `zip(strict=…)`.)

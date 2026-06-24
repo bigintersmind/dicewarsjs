@@ -16,7 +16,9 @@ import numpy as np
 # Feature widths are part of the v1 encoding contract — keep these at the real
 # widths so the model code paths are identical to production; only A and P shrink.
 NODE_FEATURES = ["present", "diceNorm", "isMine", "isEnemy", "isBorder"]
-PLAYER_FEATURES = ["isMe", "eliminated", "territoriesFrac", "diceFrac", "connectedFrac", "stockNorm"]
+PLAYER_FEATURES = [
+    "isMe", "eliminated", "territoriesFrac", "diceFrac", "connectedFrac", "stockNorm",
+]
 BOARD_FEATURES = ["myDiceShare", "activeFrac", "phaseEarly", "phaseMid", "phaseLate"]
 EDGE_FEATURES = ["winProb", "atkNorm", "defNorm", "isStop"]
 

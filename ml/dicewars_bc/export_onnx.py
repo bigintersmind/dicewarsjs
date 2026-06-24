@@ -22,6 +22,7 @@ status so the JS wrapper can refuse — or at least warn on — an unverified mo
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 from pathlib import Path
 
@@ -72,7 +73,10 @@ def _make_example(config: ModelConfig, edge_counts, n_seats=None, seed: int = 0)
 def export(
     ckpt_path: str | Path, out_path: str | Path, opset: int = 17, require_parity: bool = False
 ) -> Path:
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    # weights_only=True: our checkpoints are tensors + plain dict/list/str/num/None
+    # (state_dict, config, feature_names, metadata) — no pickled classes — so the
+    # restricted unpickler loads them and we never execute arbitrary pickle payloads.
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     config = ModelConfig(**ckpt["config"])
     model = EdgePolicyNet(config)
     model.load_state_dict(ckpt["state_dict"])
@@ -97,16 +101,31 @@ def export(
         "value": {0: "batch"},
     }
 
-    torch.onnx.export(
-        model,
-        example,
-        str(out_path),
+    export_kwargs = dict(
         input_names=INPUT_NAMES,
         output_names=OUTPUT_NAMES,
         dynamic_axes=dynamic_axes,
         opset_version=opset,
         do_constant_folding=True,
     )
+    # torch>=2.9 defaults `torch.onnx.export` to the dynamo exporter, which needs
+    # onnxscript and consumes `dynamic_shapes` rather than the `dynamic_axes` contract
+    # above. Pin the legacy TorchScript exporter so the export keeps the same
+    # `dynamic_axes` contract across torch versions (and pulls no onnxscript, and stays
+    # numerically identical to the parity tol below — the raw protobuf may still differ).
+    # We FEATURE-DETECT the `dynamo` kwarg from the signature rather than version-gate
+    # (more robust than parsing torch.__version__): the kwarg first appears in torch 2.5,
+    # and our floor is 2.1. The eventual migration is to the dynamo exporter +
+    # dynamic_shapes.
+    if "dynamo" in inspect.signature(torch.onnx.export).parameters:
+        export_kwargs["dynamo"] = False
+    torch.onnx.export(model, example, str(out_path), **export_kwargs)
+    # Positively confirm the legacy exporter was the one that ran: the dynamo exporter
+    # ignores `dynamic_axes` and would freeze the edge/seat dims to constants. Inspect
+    # the written graph and fail loudly if any declared-dynamic input axis came out
+    # static — this also covers the onnxruntime-absent path, where the B=2 parity check
+    # below can't run.
+    _assert_dynamic_axes(out_path, dynamic_axes)
     print(f"Exported ONNX → {out_path}")
 
     # Check parity at B=1 (the inference shape) AND B=2 — the latter is the only
@@ -123,6 +142,45 @@ def export(
     )
     _write_sidecar(out_path, ckpt, config, opset, parity)
     return out_path
+
+
+def _assert_dynamic_axes(out_path: Path, dynamic_axes: dict) -> None:
+    """Confirm the exported graph kept its declared-dynamic INPUT axes as symbolic dims.
+
+    The legacy TorchScript exporter encodes each ``dynamic_axes`` entry as a named dim
+    (a ``dim_param``); the dynamo exporter ignores ``dynamic_axes`` and emits a fixed
+    ``dim_value`` instead — silently freezing the edge/seat axes. Reading the graph back
+    catches that regardless of *why* it happened (a future ``torch.onnx.export`` signature
+    change, a dropped ``dynamo=False``). Best-effort: no-op when the ``onnx`` package isn't
+    importable (it ships only in the ``onnx`` extra), mirroring the parity check's handling
+    of a missing onnxruntime."""
+    try:
+        import onnx
+    except ImportError:
+        return
+    graph = onnx.load(str(out_path)).graph
+    inputs = {vi.name: vi for vi in graph.input}
+    # A renamed/dropped input is itself a red flag: the dynamo/FX exporter can rename or
+    # reorder graph I/O (not just freeze axes), which would otherwise let the per-axis
+    # loop below skip every input and pass vacuously. Require our named inputs to exist.
+    missing = [n for n in INPUT_NAMES if n not in inputs]
+    if missing:
+        raise RuntimeError(
+            f"Exported ONNX is missing expected input(s) {missing} — the legacy "
+            f"TorchScript exporter was not used (did torch.onnx.export change?)."
+        )
+    for name, axes in dynamic_axes.items():
+        vi = inputs.get(name)
+        if vi is None:
+            continue  # output axes (edge_logits/value) aren't graph inputs
+        dims = vi.type.tensor_type.shape.dim
+        for axis in axes:
+            if not dims[axis].dim_param:
+                raise RuntimeError(
+                    f"Exported ONNX froze input '{name}' axis {axis} to a constant "
+                    f"({dims[axis].dim_value}) — expected a dynamic dim. The legacy "
+                    f"TorchScript exporter was not used (did torch.onnx.export change?)."
+                )
 
 
 def _check_parity(model, out_path: Path, examples, strict: bool = False) -> dict:
@@ -153,7 +211,7 @@ def _check_parity(model, out_path: Path, examples, strict: bool = False) -> dict
     for label, example in examples:
         with torch.no_grad():
             torch_logits, torch_value = model(*example)
-        feeds = {name: t.numpy() for name, t in zip(INPUT_NAMES, example)}
+        feeds = {name: t.numpy() for name, t in zip(INPUT_NAMES, example, strict=True)}
         ort_logits, ort_value = sess.run(OUTPUT_NAMES, feeds)
 
         logit_err = float(np.abs(ort_logits - torch_logits.numpy()).max())
@@ -165,7 +223,10 @@ def _check_parity(model, out_path: Path, examples, strict: bool = False) -> dict
                 f"ONNX/PyTorch parity FAILED on {label}: max |Δlogits|={logit_err:.2e}, "
                 f"max |Δvalue|={value_err:.2e} (tol {tol:.0e})."
             )
-        print(f"ORT parity OK ({label}): max |Δlogits|={logit_err:.2e}, max |Δvalue|={value_err:.2e}")
+        print(
+            f"ORT parity OK ({label}): max |Δlogits|={logit_err:.2e}, "
+            f"max |Δvalue|={value_err:.2e}"
+        )
     return {
         "checked": True,
         "tol": tol,
@@ -182,6 +243,10 @@ def _write_sidecar(
     ``parityChecked`` records whether the ONNX↔PyTorch parity gate actually ran
     (it no-ops when onnxruntime is absent), so the JS wrapper can refuse — or at
     least warn on — a model whose numerics were never verified."""
+
+    def spec(name: str, dtype: str, shape: list) -> dict:
+        return {"name": name, "dtype": dtype, "shape": shape}
+
     sidecar = {
         "encodingVersion": ckpt.get("encoding_version"),
         "teacher": ckpt.get("teacher"),
@@ -192,17 +257,17 @@ def _write_sidecar(
         "featureNames": ckpt.get("feature_names"),
         "io": {
             "inputs": [
-                {"name": "nodes", "dtype": "float32", "shape": ["batch", config.max_areas, config.node_features]},
-                {"name": "players", "dtype": "float32", "shape": ["batch", "players", config.player_features]},
-                {"name": "board", "dtype": "float32", "shape": ["batch", config.board_features]},
-                {"name": "edge_feat", "dtype": "float32", "shape": ["edges", config.edge_features]},
-                {"name": "edge_from", "dtype": "int64", "shape": ["edges"]},
-                {"name": "edge_to", "dtype": "int64", "shape": ["edges"]},
-                {"name": "edge_batch", "dtype": "int64", "shape": ["edges"]},
+                spec("nodes", "float32", ["batch", config.max_areas, config.node_features]),
+                spec("players", "float32", ["batch", "players", config.player_features]),
+                spec("board", "float32", ["batch", config.board_features]),
+                spec("edge_feat", "float32", ["edges", config.edge_features]),
+                spec("edge_from", "int64", ["edges"]),
+                spec("edge_to", "int64", ["edges"]),
+                spec("edge_batch", "int64", ["edges"]),
             ],
             "outputs": [
-                {"name": "edge_logits", "dtype": "float32", "shape": ["edges"]},
-                {"name": "value", "dtype": "float32", "shape": ["batch", 2]},
+                spec("edge_logits", "float32", ["edges"]),
+                spec("value", "float32", ["batch", 2]),
             ],
         },
         "notes": [

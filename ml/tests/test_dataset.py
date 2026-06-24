@@ -1,8 +1,9 @@
 """Dataset memmap reads, CSR slicing, collation, and game-level split."""
 
+from dataclasses import fields
+
 import numpy as np
 import pytest
-
 from _fixtures import default_corpus
 
 torch = pytest.importorskip("torch")
@@ -90,6 +91,73 @@ def test_integrity_rejects_empty_segment(tmp_path):
     offsets.tofile(corpus / "edge_offsets.i32")
     with pytest.raises(ValueError, match=">=1"):
         CorpusDataset(corpus)
+
+
+def test_integrity_rejects_out_of_range_edge_index(tmp_path):
+    corpus = default_corpus(tmp_path / "c")  # max_areas == 6
+    ei = np.fromfile(corpus / "edge_index.i32", dtype="<i4")
+    ei[0] = 999  # a territory id far past max_areas
+    ei.tofile(corpus / "edge_index.i32")
+    with pytest.raises(ValueError, match="out of range"):
+        CorpusDataset(corpus)
+
+
+def test_integrity_rejects_negative_edge_index(tmp_path):
+    # The lower half of the `ei_min < 0 or ei_max >= max_areas` guard: a negative id
+    # would index backwards into the previous step's node block (edge_batch * A + id),
+    # a silent mis-gather rather than an error — so it must be rejected at the seam.
+    corpus = default_corpus(tmp_path / "c")  # max_areas == 6
+    ei = np.fromfile(corpus / "edge_index.i32", dtype="<i4")
+    ei[0] = -1
+    ei.tofile(corpus / "edge_index.i32")
+    with pytest.raises(ValueError, match="out of range"):
+        CorpusDataset(corpus)
+
+
+def test_integrity_rejects_edge_index_equal_to_max_areas(tmp_path):
+    # Off-by-one boundary: the range is half-open [0, max_areas), so id == max_areas
+    # is the first INVALID value and must raise. Pins the `>=` (vs `>`) in the guard.
+    corpus = default_corpus(tmp_path / "c")  # max_areas == 6
+    ei = np.fromfile(corpus / "edge_index.i32", dtype="<i4")
+    ei[0] = 6  # == max_areas
+    ei.tofile(corpus / "edge_index.i32")
+    with pytest.raises(ValueError, match="out of range"):
+        CorpusDataset(corpus)
+
+
+def test_integrity_accepts_max_in_range_edge_index(tmp_path):
+    # Positive boundary: max_areas - 1 is the highest valid node row and must NOT be
+    # rejected — guards against an over-eager check that would flag the top of range.
+    corpus = default_corpus(tmp_path / "c")  # max_areas == 6
+    ei = np.fromfile(corpus / "edge_index.i32", dtype="<i4")
+    ei[0] = 5  # max_areas - 1
+    ei.tofile(corpus / "edge_index.i32")
+    ds = CorpusDataset(corpus)  # must construct without raising
+    assert len(ds) == 7
+
+
+def test_integrity_rejects_nan_in_float_blob(tmp_path):
+    # A NaN in any f32 feature blob is corruption that would otherwise surface as a
+    # silent `nan` loss deep in training — reject it at load, like the integer checks.
+    corpus = default_corpus(tmp_path / "c")
+    nodes = np.fromfile(corpus / "nodes.f32", dtype="<f4")
+    nodes[0] = np.nan
+    nodes.tofile(corpus / "nodes.f32")
+    with pytest.raises(ValueError, match="NaN/inf"):
+        CorpusDataset(corpus)
+
+
+def test_batch_to_moves_every_field(tmp_path):
+    # Batch.to() rebuilds generically over dataclass fields; the result must be a Batch
+    # whose every field is a tensor on the target device. A non-tensor field added later
+    # would raise here — the regression the generic rewrite is meant to guard against.
+    corpus = default_corpus(tmp_path / "c")
+    ds = CorpusDataset(corpus)
+    batch = collate([ds[i] for i in range(len(ds))]).to("cpu")
+    for f in fields(batch):
+        t = getattr(batch, f.name)
+        assert isinstance(t, torch.Tensor)
+        assert t.device.type == "cpu"
 
 
 def test_split_val_frac_zero(tmp_path):

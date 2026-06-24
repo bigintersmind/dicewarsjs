@@ -21,7 +21,9 @@ onnx = [
 ]
 dev = [
   "pytest>=7.4",
-  "ruff>=0.4",
+  # Pinned exact so the lint gate is reproducible: an unpinned ruff adds/retires
+  # rules on new releases and would break CI with no code change. Bump deliberately.
+  "ruff==0.15.18",
 ]
 
 [project.scripts]

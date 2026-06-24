@@ -18,7 +18,7 @@ highly correlated (same board, adjacent turns), so a per-step split would leak.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import numpy as np
 import torch
@@ -29,6 +29,19 @@ from .manifest import CorpusManifest, load_manifest
 
 def _memmap(m: CorpusManifest, name: str) -> np.memmap:
     return np.memmap(m.file_path(name), dtype=m.dtype(name), mode="r", shape=m.shape(name))
+
+
+def _all_finite(arr, chunk: int = 1 << 24) -> bool:
+    """True iff every element is finite (no NaN/inf), checked in fixed-size chunks.
+
+    A flat ``np.isfinite(arr).all()`` would materialize a bool array the size of the
+    whole blob — defeating the point of memmapping a tens-of-GB corpus. Chunking keeps
+    peak memory flat (~16M elems/chunk) and short-circuits on the first bad chunk."""
+    flat = np.asarray(arr).reshape(-1)
+    for i in range(0, flat.size, chunk):
+        if not np.isfinite(flat[i : i + chunk]).all():
+            return False
+    return True
 
 
 class CorpusDataset(Dataset):
@@ -64,12 +77,15 @@ class CorpusDataset(Dataset):
         self._validate_integrity()
 
     def _validate_integrity(self) -> None:
-        """One-time corpus sanity checks at load — cheap (only the small i32 index
-        arrays are read fully). Turns a contract break (a dropped STOP edge, an
-        out-of-range label, a truncated/non-CSR offset array) into a loud error at
-        the seam, rather than an ``-inf`` loss or a silent neighbor-row read deep in
-        training (the segmented loss assumes every step has >=1 edge and a
-        per-slice-local label)."""
+        """One-time corpus sanity checks at load. The CSR/label checks read only the
+        small per-step i32 arrays; the edge_index range check and the float-finiteness
+        check each make a single O(N) pass over the larger blobs (negligible next to a
+        multi-hour training run). Turns a contract break (a dropped STOP edge, an
+        out-of-range label, an out-of-range territory id, a non-finite float feature,
+        a truncated/non-CSR offset array) into a loud error at the seam, rather than an
+        ``-inf``/``nan`` loss or a silent neighbor-row read deep in training (the
+        segmented loss assumes every step has >=1 edge and a per-slice-local label; the
+        model gathers node embeddings by ``edge_batch * max_areas + id``)."""
         offsets = np.asarray(self.edge_offsets, dtype=np.int64)
         labels = np.asarray(self.labels, dtype=np.int64)
         total_edges = self.edges.shape[0]
@@ -78,7 +94,8 @@ class CorpusDataset(Dataset):
             raise ValueError(f"edge_offsets[0] must be 0, got {offsets[0]}.")
         if offsets[-1] != total_edges:
             raise ValueError(
-                f"edge_offsets[-1]={offsets[-1]} != edges row count {total_edges} — truncated/corrupt corpus."
+                f"edge_offsets[-1]={offsets[-1]} != edges row count {total_edges} — "
+                f"truncated/corrupt corpus."
             )
         counts = np.diff(offsets)
         if counts.size and counts.min() < 1:
@@ -94,6 +111,39 @@ class CorpusDataset(Dataset):
                 f"label {int(labels[bad])} at step {bad} is out of range [0, {int(counts[bad])}) "
                 f"for its edge slice — labels must be LOCAL chosen-edge indices."
             )
+
+        # edge_index ids must address a real node row [0, max_areas). The model
+        # gathers from/to node embeddings by `edge_batch * max_areas + id`, so an
+        # out-of-range id would silently index a neighbouring step's node block
+        # instead of erroring (an id past the very last block would instead trip
+        # torch's own index bounds-check — caught, but far from this seam). The JS
+        # encoder guarantees in-range ids; this catches a corrupt/hand-built corpus.
+        # STOP edges use sentinel id 0, which is in range.
+        max_areas = self.manifest.max_areas
+        ei_min = int(self.edge_index.min())
+        ei_max = int(self.edge_index.max())
+        if ei_min < 0 or ei_max >= max_areas:
+            raise ValueError(
+                f"edge_index id out of range [0, {max_areas}): min={ei_min}, max={ei_max}. "
+                f"Ids must address a territory node row (STOP uses sentinel 0)."
+            )
+
+        # Float feature blobs must be finite. A NaN/inf would sail through the integer
+        # checks above and surface as a silent `nan` loss deep in training (the same
+        # fail-at-the-seam rationale, for the f32 inputs). Chunked so a tens-of-GB blob
+        # never lands fully in RAM (see _all_finite).
+        for blob_name, arr in (
+            ("nodes", self.nodes),
+            ("players", self.players),
+            ("board", self.board),
+            ("edges", self.edges),
+            ("value", self.value),
+        ):
+            if not _all_finite(arr):
+                raise ValueError(
+                    f"{blob_name}.f32 contains NaN/inf — corrupt corpus; "
+                    f"float features must be finite."
+                )
 
     def __len__(self) -> int:
         return self.manifest.steps
@@ -144,19 +194,11 @@ class Batch:
     def batch_size(self) -> int:
         return self.nodes.shape[0]
 
-    def to(self, device) -> "Batch":
-        return Batch(
-            nodes=self.nodes.to(device),
-            players=self.players.to(device),
-            board=self.board.to(device),
-            edge_feat=self.edge_feat.to(device),
-            edge_from=self.edge_from.to(device),
-            edge_to=self.edge_to.to(device),
-            edge_batch=self.edge_batch.to(device),
-            edge_offsets=self.edge_offsets.to(device),
-            labels=self.labels.to(device),
-            value=self.value.to(device),
-        )
+    def to(self, device) -> Batch:
+        # Every field is a tensor; move them generically so adding a field can't
+        # silently leave it on the wrong device (the hand-written version had to be
+        # kept in sync by hand).
+        return Batch(**{f.name: getattr(self, f.name).to(device) for f in fields(self)})
 
 
 def collate(items: list[dict[str, torch.Tensor]]) -> Batch:
@@ -206,6 +248,8 @@ def split_by_game(
         n_val = min(n_val, len(games) - 1)
     val_games = set(games[:n_val].tolist())
 
-    is_val = np.fromiter((g in val_games for g in game_of_step), dtype=bool, count=len(game_of_step))
+    is_val = np.fromiter(
+        (g in val_games for g in game_of_step), dtype=bool, count=len(game_of_step)
+    )
     all_steps = np.arange(len(game_of_step))
     return all_steps[~is_val], all_steps[is_val]

@@ -9,11 +9,14 @@ slice, ONNX Runtime Web) argmaxes the edge logits — every edge is legal (the
 legal set is ``getValidMoves`` + STOP), so no masking is needed at inference;
 ``argmax → {from, to}`` or STOP→``null``.
 
-We export with dynamic ``batch`` and ``edges`` axes, then run the graph under
-onnxruntime in Python and assert it agrees with PyTorch (the cross-bridge
-parity the Phase-2 acceptance criteria call for). A sidecar ``<out>.json``
-records the I/O contract + encoding version so the JS wrapper can assert
-compatibility before trusting the model.
+We export with dynamic ``batch`` and ``edges`` axes, then — when onnxruntime is
+installed — run the graph under it and assert it agrees with PyTorch (the
+cross-bridge parity the Phase-2 acceptance criteria call for). If onnxruntime is
+absent the parity check cannot run: by default we warn loudly and stamp
+``parityChecked: false`` (so the model is marked UNVERIFIED), and
+``--require-parity`` turns that into a hard failure for an acceptance-gate run. A
+sidecar ``<out>.json`` records the I/O contract, encoding version, and the parity
+status so the JS wrapper can refuse — or at least warn on — an unverified model.
 """
 
 from __future__ import annotations

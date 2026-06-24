@@ -63,9 +63,13 @@ checkpoint is written to `checkpoints/bc_model.pt`. Train/val split is **by game
 python -m dicewars_bc.export_onnx --ckpt checkpoints/bc_model.pt --out bc_policy.onnx
 ```
 
-This writes `bc_policy.onnx` + `bc_policy.onnx.json` (the contract sidecar) and
-asserts the exported graph reproduces PyTorch's outputs under onnxruntime (the
-cross-bridge parity the Phase-2 acceptance criteria require).
+This writes `bc_policy.onnx` + `bc_policy.onnx.json` (the contract sidecar). When
+onnxruntime is installed it asserts the exported graph reproduces PyTorch's
+outputs (the cross-bridge parity the Phase-2 acceptance criteria require) and
+records `parityChecked: true` in the sidecar; if it is absent the export still
+succeeds but warns and stamps `parityChecked: false` (the model is UNVERIFIED).
+Pass `--require-parity` to make a missing onnxruntime a hard failure instead —
+use it for the acceptance-gate run so an unverified model can't slip through.
 
 ## The architecture (per D-Encoding)
 

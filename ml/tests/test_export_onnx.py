@@ -4,6 +4,7 @@ and the edges axis is genuinely dynamic."""
 import importlib
 import json
 import os
+import sys
 
 import numpy as np
 import pytest
@@ -68,6 +69,31 @@ def test_export_writes_model_and_sidecar(tmp_path):
     assert meta["parityChecked"] is True
     assert meta["parity"]["checked"] is True
     assert meta["parity"]["maxLogitErr"] <= meta["parity"]["tol"]
+
+
+def test_export_without_onnxruntime_marks_model_unverified(tmp_path, monkeypatch):
+    """FIX #1: a missing onnxruntime must NOT silently pass the parity gate.
+
+    Simulate ort being absent (setting sys.modules['onnxruntime'] = None makes
+    ``import onnxruntime`` raise ImportError inside ``_check_parity``). The export
+    still produces a model, but the sidecar must record it as UNVERIFIED; and
+    ``require_parity=True`` (the --require-parity flag) must turn that into a hard
+    failure. onnx itself stays present so ``torch.onnx.export`` still traces.
+    """
+    monkeypatch.setitem(sys.modules, "onnxruntime", None)
+    ckpt_path, _ = _make_checkpoint(tmp_path)
+    onnx_path = tmp_path / "bc_policy.onnx"
+
+    # Non-strict: export succeeds but stamps the model as unverified.
+    export(ckpt_path, onnx_path)
+    meta = json.loads(onnx_path.with_suffix(".onnx.json").read_text())
+    assert meta["parityChecked"] is False
+    assert meta["parity"]["checked"] is False
+    assert meta["parity"]["reason"] == "onnxruntime-not-installed"
+
+    # Strict: a parity gate that can't run is a hard failure.
+    with pytest.raises(RuntimeError, match="require-parity"):
+        export(ckpt_path, onnx_path, require_parity=True)
 
 
 def test_onnx_dynamic_edges_axis(tmp_path):

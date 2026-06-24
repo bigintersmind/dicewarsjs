@@ -41,12 +41,12 @@ Entry template:
   seats, context MLP, per-edge head + aux value head — the masked per-edge MLP
   [D-Encoding] starts with), `losses.py` (**segmented** CE/accuracy over the CSR edge
   slices), `train.py`, `export_onnx.py`. Plus `pyproject.toml`, `requirements.txt`,
-  `README.md`, and a **hermetic 31-test pytest suite** (builds a tiny synthetic corpus
+  `README.md`, and a **hermetic 32-test pytest suite** (builds a tiny synthetic corpus
   — no real data needed; torch/onnxruntime tests skip if absent).
 - **Verified end-to-end on the real 300-game sample corpus** (24,254 Lookahead-seat
   steps): val move-match climbed **33% → 47% in 8 untuned CPU epochs** (random
   baseline ≈14% over ~6.9 edges/step). ONNX export → **ORT parity max |Δlogits| ≈
-  5e-7**, dynamic-edge inference confirmed, sidecar contract written. 31/31 green;
+  5e-7**, dynamic-edge inference confirmed, sidecar contract written. 32/32 green;
   repo `prettier --check` still clean.
 
 **Learned / decided:**

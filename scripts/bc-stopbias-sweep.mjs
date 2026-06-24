@@ -3,8 +3,9 @@
 /**
  * BC STOP-bias sweep (ml-bot Phase 2 — STOP-de-bias diagnostic, Step 0).
  *
- * The trained BC clone over-predicts STOP (~68% of decisions vs ~45% for the teacher)
- * and so turtles to a 0% win rate (docs/ml-bot/RESULTS.md). Before paying for a
+ * The trained BC clone over-predicts STOP (~68% of decisions in Python-val, ~71% realized
+ * in-arena, vs ~45% for the teacher) and so plays too passively to win — the corrected
+ * `stopBias = 0` control wins only ~3.6% (docs/ml-bot/RESULTS.md). Before paying for a
  * class-weighted/focal-CE retrain on the GPU box, this script answers — for free, with
  * NO retraining, over the already-exported weights — whether that failure is just a
  * miscalibrated STOP threshold.
@@ -13,10 +14,10 @@
  * for each bias it runs the SAME field as the parity run (the 7 heuristic built-ins +
  * one BC variant) over identical seed blocks, and reports BC's win% (with 95% CI) and
  * its realized STOP rate, with Lookahead's win% as a stable yardstick. `stopBias = 0`
- * reproduces the 0%-win control.
+ * reproduces the corrected control (~3.6% win).
  *
  * How to read it:
- *   - If some bias lifts BC's win% materially off 0 AND pushes its STOP rate from ~68%
+ *   - If some bias lifts BC's win% materially off 0 AND pushes its STOP rate from ~71%
  *     toward the teacher's ~45% → the failure is STOP-threshold miscalibration; GREEN-LIGHT
  *     the retrain and target that STOP rate.
  *   - If no bias moves win% off ~0 (attacks/game climbs but attack-win-rate collapses, i.e.
@@ -136,7 +137,7 @@ console.log(
 );
 console.log(`Field (${baseField.length + 1}): ${baseField.map(b => b.name).join(', ')}, BC<bias>`);
 console.log(
-  `Yardstick: ${YARDSTICK}.  STOP-rate target ≈ 45% (teacher); the clone sits at ~68%.\n`
+  `Yardstick: ${YARDSTICK}.  STOP-rate target ≈ 45% (teacher); the untuned clone sits at ~71%.\n`
 );
 
 const startTime = Date.now();
@@ -174,14 +175,41 @@ for (const bias of biases) {
         baseSeed: (seedBase + run) * STRIDE + 1,
       });
     } catch (err) {
-      console.error(`\nSweep failed (bias ${bias}, run ${run + 1}): ${err.message}`);
+      console.error(`\nSweep failed (bias ${bias}, run ${run + 1}):`);
+      console.error(err); // full stack + cause, not just .message
+      if (rows.length) {
+        console.error('\nCompleted rows before the failure:');
+        console.table(rows);
+      }
+      process.exit(1);
+    }
+
+    /*
+     * Refuse to fold a degraded run into the averaged diagnostic. runArena does NOT throw
+     * on the abort path — it returns normally with aborted:true (plus any per-match failures
+     * in failedGames), so the try/catch above never sees it. A diagnostic whose entire signal
+     * lives in the 0–6% win band must not silently average a 0% that means "the arena fell
+     * over" together with a 0% that means "the clone turtled" — fail loud instead.
+     */
+    if (result.aborted || result.failedGames > 0) {
+      console.error(
+        `\nSweep run degraded (bias ${bias}, run ${run + 1}): ${result.failedGames} game(s) ` +
+          `failed, aborted=${result.aborted}. Refusing to average a partial run into the diagnostic.`
+      );
       process.exit(1);
     }
 
     const bc = result.bots.find(b => b.name === 'BC');
     const look = result.bots.find(b => b.name === YARDSTICK);
-    bcWin.push(bc.gamesPlayed > 0 ? (bc.wins / bc.gamesPlayed) * 100 : 0);
-    lookWin.push(look.gamesPlayed > 0 ? (look.wins / look.gamesPlayed) * 100 : 0);
+    if (bc.gamesPlayed !== gamesPerRun || look.gamesPlayed !== gamesPerRun) {
+      console.error(
+        `\nUnexpected gamesPlayed (bias ${bias}, run ${run + 1}): BC=${bc.gamesPlayed}, ` +
+          `${YARDSTICK}=${look.gamesPlayed}, expected ${gamesPerRun}.`
+      );
+      process.exit(1);
+    }
+    bcWin.push((bc.wins / bc.gamesPlayed) * 100);
+    lookWin.push((look.wins / look.gamesPlayed) * 100);
     bcElo.push(bc.elo);
     bcPlace.push(bc.avgPlacement);
     bcAtk.push(bc.avgAttacks);

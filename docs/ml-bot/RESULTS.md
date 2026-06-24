@@ -365,3 +365,36 @@ full ranking even when `winner` is null (so the aux value head still has a targe
 decisive screen; `--seed-count 300 --out <shard>` then re-derive fat steps per record and
 tally steps where `playerId` is a Lookahead seat (base name, `#n` stripped) for label
 density.
+
+---
+
+## Phase 2 — imitation parity run (100k corpus, MLP clone) · 2026-06-23
+
+**Corpus.** Full 7-bot arena field, `Lookahead` teacher, seeds 1–100,000 (generated on
+`shodan`, foreground-sharded 4×25k). **100,000 games · 8,591,769 teacher steps · 59.4M
+edges · 8.2 GB packed.** 100% clean (no forced-end quarantine).
+
+**Training.** `EdgePolicyNet` (masked per-edge MLP + aux value head), **102,211 params**,
+CUDA (RTX 4070 Ti), 15 epochs (~67 s/epoch, `--num-workers 12`, batch 4096). Best
+**val move-match 57.6%** (by-game split). Plateaued ~57% by epoch 11.
+
+**Eval — `npm run arena:sweep --runs 20 --games 150` (3000 games, seat-fair):**
+
+| Rank | Bot        | Win% (95% CI) | ELO (95% CI) |
+| ---: | ---------- | ------------- | ------------ |
+|    1 | Lookahead  | 18.8 ± 1.2    | 1303 ± 16    |
+|    2 | Expectimax | 17.0 ± 1.3    | 1301 ± 16    |
+|    3 | **BC**     | **0.0 ± 0.0** | 1275 ± 8     |
+|    4 | Strategist | 13.6 ± 1.4    | 1228 ± 10    |
+|    5 | Defensive  | 14.6 ± 1.2    | 1190 ± 11    |
+|    6 | Example    | 0.6 ± 0.4     | 1140 ± 15    |
+|    7 | Adaptive   | 2.6 ± 0.8     | 1123 ± 16    |
+|    8 | Default    | 3.4 ± 0.6     | 1039 ± 16    |
+
+**Verdict — parity NOT reached (gate not met).** BC **never wins (0.0%)** yet holds
+rank-3 ELO (1275): the clone is **STOP-biased** (predicts STOP ~68% vs ~45% true), so it
+plays passively → survives for middling placement (ELO) but can't conquer a board to win.
+**Move-match accuracy (57.6%) is a misleading proxy** — the misses are systematically
+"STOP instead of attack," which is competitively fatal. Per [D-Encoding] the simple MLP
+plateaus; the objective/encoding (not RL) is the gap. **Next levers:** STOP-class de-bias
+(class-weighted / focal CE) on the same corpus → if it plateaus, a 1–2 layer GNN.

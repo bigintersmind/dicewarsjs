@@ -349,6 +349,58 @@ export function encodeStep(step, ctx) {
 }
 
 /**
+ * Encode a live {@link import('./types.js').BotState} into the model's input
+ * tensors for **inference** — the label-free counterpart of {@link encodeStep}.
+ *
+ * The in-browser BC bot only has a `BotState` (no `GameState`), so it can't call
+ * `getValidMoves`; this reconstructs the exact same legal set from `allAreas`
+ * (each present, dice>1 area attacking each present enemy neighbour — mirroring
+ * `getValidMoves` in `StateManager.js`) and appends the explicit STOP. Edge order
+ * is irrelevant at inference: the net emits one logit per edge and the caller
+ * argmaxes, mapping the winning index back to its move via the returned `moves`.
+ *
+ * Returns the same node/player/board/edge tensors `encodeStep` builds (reusing the
+ * identical encoders, so train and inference can't drift) plus a parallel `moves`
+ * array: `{from,to}` for an attack, `null` for STOP.
+ *
+ * @param {import('./types.js').BotState} botState
+ * @param {{ maxAreas: number }} ctx - node-tensor width (the model's config.maxAreas)
+ * @returns {{ nodes:number[][], players:number[][], board:number[], edges:number[][],
+ *   edgeIndex:number[][], moves:Array<{from:number,to:number}|null> }}
+ */
+export function encodeObservationForInference(botState, ctx) {
+  const me = botState.myPlayer;
+  const nodes = encodeNodes(botState, me, ctx.maxAreas);
+  const { players, board } = encodeGlobals(botState, me, botState.allAreas.length);
+
+  const areaById = new Map(botState.allAreas.map(a => [a.id, a]));
+  const edges = [];
+  const edgeIndex = [];
+  const moves = [];
+  for (const area of botState.allAreas) {
+    if (area.owner !== me || area.dice <= 1) continue;
+    for (const adjId of area.neighbors) {
+      const adj = areaById.get(adjId); // present (in allAreas) ...
+      if (!adj || adj.owner === me) continue; // ... and enemy-owned
+      edges.push([
+        winProbability(area.dice, adj.dice),
+        area.dice / MAX_DICE,
+        adj.dice / MAX_DICE,
+        0,
+      ]);
+      edgeIndex.push([area.id, adj.id]);
+      moves.push({ from: area.id, to: adj.id });
+    }
+  }
+  // Trailing STOP — the legal set is exactly getValidMoves + STOP.
+  edges.push([0, 0, 0, 1]);
+  edgeIndex.push([0, 0]);
+  moves.push(null);
+
+  return { nodes, players, board, edges, edgeIndex, moves };
+}
+
+/**
  * The teacher seats of a trajectory record: seats whose bot's base name (the
  * `#n` duplicate-seat suffix stripped) equals `teacherName`.
  *

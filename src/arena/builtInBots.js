@@ -8,7 +8,6 @@
  */
 
 import { adaptLegacyBot } from './legacyBotAdapter.js';
-import { adaptModernBot } from './modernBotAdapter.js';
 import { ai_example } from '../ai/ai_example.js';
 import { ai_default } from '../ai/ai_default.js';
 import { ai_defensive } from '../ai/ai_defensive.js';
@@ -26,6 +25,12 @@ export const BUILT_IN_BOTS = [
   { id: 'ai_strategist', name: 'Strategist', fn: adaptLegacyBot(ai_strategist, 'Strategist') },
   { id: 'ai_lookahead', name: 'Lookahead', fn: adaptLegacyBot(ai_lookahead, 'Lookahead') },
   { id: 'ai_expectimax', name: 'Expectimax', fn: adaptLegacyBot(ai_expectimax, 'Expectimax') },
-  // BC — the behavioral-cloning net (modern bot), runs a synchronous pure-JS forward.
-  { id: 'ai_bc', name: 'BC', fn: adaptModernBot(ai_bc, 'BC') },
+  /*
+   * BC — the behavioral-cloning net. Already a modern `(BotState) => move` bot, so it
+   * registers RAW: every BUILT_IN_BOTS consumer (the CLI scripts, ArenaScreen,
+   * TournamentScreen) runs bots through runMatch/runBotDirect, which calls `fn(botState)`
+   * — exactly ai_bc's contract. (adaptModernBot is for the in-game `runAI` loop, which
+   * passes a GameState and does NOT use this list; wrapping here made BC throw every turn.)
+   */
+  { id: 'ai_bc', name: 'BC', fn: ai_bc },
 ];

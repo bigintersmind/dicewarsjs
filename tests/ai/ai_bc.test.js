@@ -12,6 +12,8 @@ import { ai_bc } from '../../src/ai/ai_bc.js';
 import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
 import { createBotState } from '../../src/arena/botState.js';
 import { encodeObservationForInference } from '../../src/arena/encodeObservation.js';
+import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
+import { runMatch } from '../../src/arena/matchRunner.js';
 
 const moveKey = m => `${m.from}->${m.to}`;
 
@@ -126,5 +128,31 @@ describe('ai_bc bot', () => {
      * A full-game forward-pass drive runs ~10x slower under CI coverage (v8)
      * instrumentation, exceeding vitest's 5s default — hence the explicit timeout.
      */
+  }, 30_000);
+});
+
+describe('BC built-in arena registration', () => {
+  it('actually plays in the arena (called with a BotState, not a GameState)', () => {
+    /*
+     * Regression: BC was registered as `adaptModernBot(ai_bc)`, whose wrapper expects a
+     * GameState — but every BUILT_IN_BOTS consumer (CLI scripts, ArenaScreen,
+     * TournamentScreen) runs bots via runMatch → runBotDirect, which calls `fn(botState)`.
+     * So BC threw on every turn (0 attacks, all errors) and never ran its policy. It must
+     * register raw, taking a BotState directly.
+     */
+    const bcEntry = BUILT_IN_BOTS.find(b => b.name === 'BC');
+    expect(bcEntry).toBeDefined();
+
+    const field = BUILT_IN_BOTS.map(b => ({ name: b.name, fn: b.fn }));
+    let bcErrors = 0;
+    let bcAttacks = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const res = runMatch({ bots: field, seed });
+      const bc = res.botStats.find(s => s.name === 'BC');
+      bcErrors += bc.errors;
+      bcAttacks += bc.attacksMade;
+    }
+    expect(bcErrors).toBe(0); // the adapter-mismatch bug would make this == every BC turn
+    expect(bcAttacks).toBeGreaterThan(0); // BC ran its policy and attacked at least once
   }, 30_000);
 });

@@ -37,18 +37,59 @@ if (BC_POLICY.encodingVersion !== ENCODING_VERSION) {
 const CTX = { maxAreas: BC_POLICY.config.maxAreas };
 
 /**
- * The BC bot move function.
+ * Build a BC bot, optionally with an inference-time STOP-logit bias.
+ *
+ * `stopBias` is subtracted from the trailing STOP edge's logit *before* the argmax,
+ * so a positive value makes the bot less willing to end its turn (more aggressive);
+ * `stopBias = 0` is the plain clone. This is a **no-retrain** calibration knob for the
+ * ml-bot Phase-2 STOP-bias diagnostic: the trained clone over-predicts STOP (~68% of
+ * decisions vs ~45% for the teacher) and so turtles to a 0% win rate. Sweeping this
+ * knob over the *existing* exported weights tells us whether the failure is just a
+ * miscalibrated STOP threshold — and what STOP rate to target — before paying for a
+ * class-weighted/focal-CE retrain on the GPU box. See `scripts/bc-stopbias-sweep.mjs`.
+ *
+ * NB: a constant additive penalty, **not** a softmax temperature — a single global
+ * temperature is argmax-invariant and would have no effect on the deployed argmax.
+ *
+ * @param {Object} [opts]
+ * @param {number} [opts.stopBias=0] - Subtracted from the STOP logit before argmax.
+ * @param {(stopped: boolean) => void} [opts.onDecision] - Called once per decision with
+ *   whether the bot chose STOP — lets a sweep tally the realized STOP rate.
+ * @returns {(botState: import('../arena/types.js').BotState) => ({ from: number, to: number } | null)}
+ */
+export function makeBC({ stopBias = 0, onDecision } = {}) {
+  return function bc(botState) {
+    const encoded = encodeObservationForInference(botState, CTX);
+    const { logits } = forward(BC_POLICY, encoded);
+
+    /*
+     * The encoder appends exactly one trailing STOP edge (moves[last] === null), so the
+     * STOP logit is the last one. Assert that invariant before shifting it, so a future
+     * encoder change biases nothing silently rather than mis-steering a real attack edge.
+     */
+    const stopIdx = logits.length - 1;
+    if (encoded.moves[stopIdx] !== null) {
+      throw new Error(
+        'makeBC: trailing edge is not STOP (moves[last] !== null) — encoder layout changed.'
+      );
+    }
+    logits[stopIdx] -= stopBias;
+
+    /*
+     * moves[i] is {from,to} for an attack, null for the STOP edge — so argmax → STOP
+     * naturally returns null (end turn). No masking needed: every edge is legal.
+     */
+    const choice = argmax(logits);
+    if (onDecision) onDecision(choice === stopIdx);
+    return encoded.moves[choice];
+  };
+}
+
+/**
+ * The BC bot move function — the plain clone (`makeBC()`, i.e. `stopBias = 0`).
  * @param {import('../arena/types.js').BotState} botState
  * @returns {{ from: number, to: number } | null} An attack, or null to end the turn.
  */
-export function ai_bc(botState) {
-  const encoded = encodeObservationForInference(botState, CTX);
-  const { logits } = forward(BC_POLICY, encoded);
-  /*
-   * moves[i] is {from,to} for an attack, null for the STOP edge — so argmax → STOP
-   * naturally returns null (end turn). No masking needed: every edge is legal.
-   */
-  return encoded.moves[argmax(logits)];
-}
+export const ai_bc = makeBC();
 
 export default ai_bc;

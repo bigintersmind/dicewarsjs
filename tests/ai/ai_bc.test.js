@@ -8,7 +8,7 @@
  */
 import { createGame } from '../../src/engine/GameRunner.js';
 import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
-import { ai_bc } from '../../src/ai/ai_bc.js';
+import { ai_bc, makeBC } from '../../src/ai/ai_bc.js';
 import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
 import { createBotState } from '../../src/arena/botState.js';
 import { encodeObservationForInference } from '../../src/arena/encodeObservation.js';
@@ -163,4 +163,27 @@ describe('BC built-in arena registration', () => {
     expect(bcErrors).toBe(0); // the adapter-mismatch bug would make this == every BC turn
     expect(bcAttacks).toBeGreaterThan(0); // BC ran its policy and attacked at least once
   }, 30_000);
+});
+
+describe('makeBC stopBias hook', () => {
+  it('makeBC() is the plain clone — identical to ai_bc', () => {
+    const state = firstStateWithMoves();
+    const botState = createBotState(state, state.turnOrder[state.currentPlayerIndex]);
+    expect(makeBC()(botState)).toEqual(ai_bc(botState));
+  });
+
+  it('a large stopBias suppresses STOP (always attacks when an attack exists) and reports it', () => {
+    const state = firstStateWithMoves(); // current player has >= 1 legal attack
+    const botState = createBotState(state, state.turnOrder[state.currentPlayerIndex]);
+
+    let lastStopped = null;
+    const move = makeBC({ stopBias: 1e9, onDecision: stopped => (lastStopped = stopped) })(
+      botState
+    );
+
+    expect(move).not.toBeNull(); // never ends the turn while an attack is on the board
+    expect(lastStopped).toBe(false); // onDecision fires, reporting "did not STOP"
+    const legal = new Set(getValidMoves(state).map(moveKey));
+    expect(legal.has(moveKey(move))).toBe(true);
+  });
 });

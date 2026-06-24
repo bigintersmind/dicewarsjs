@@ -24,6 +24,7 @@
     "prepare": "husky install",
     "arena": "node scripts/arena.mjs",
     "arena:sweep": "node scripts/arena-sweep.mjs",
+    "arena:bc-stopbias": "node scripts/bc-stopbias-sweep.mjs",
     "new-bot": "node scripts/new-bot.mjs",
     "validate-bot": "node scripts/validate-bot.mjs",
     "benchmark-bot": "node scripts/benchmark-bot.mjs",

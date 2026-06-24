@@ -100,6 +100,40 @@ def test_integrity_rejects_out_of_range_edge_index(tmp_path):
         CorpusDataset(corpus)
 
 
+def test_integrity_rejects_negative_edge_index(tmp_path):
+    # The lower half of the `ei_min < 0 or ei_max >= max_areas` guard: a negative id
+    # would index backwards into the previous step's node block (edge_batch * A + id),
+    # a silent mis-gather rather than an error — so it must be rejected at the seam.
+    corpus = default_corpus(tmp_path / "c")  # max_areas == 6
+    ei = np.fromfile(corpus / "edge_index.i32", dtype="<i4")
+    ei[0] = -1
+    ei.tofile(corpus / "edge_index.i32")
+    with pytest.raises(ValueError, match="out of range"):
+        CorpusDataset(corpus)
+
+
+def test_integrity_rejects_edge_index_equal_to_max_areas(tmp_path):
+    # Off-by-one boundary: the range is half-open [0, max_areas), so id == max_areas
+    # is the first INVALID value and must raise. Pins the `>=` (vs `>`) in the guard.
+    corpus = default_corpus(tmp_path / "c")  # max_areas == 6
+    ei = np.fromfile(corpus / "edge_index.i32", dtype="<i4")
+    ei[0] = 6  # == max_areas
+    ei.tofile(corpus / "edge_index.i32")
+    with pytest.raises(ValueError, match="out of range"):
+        CorpusDataset(corpus)
+
+
+def test_integrity_accepts_max_in_range_edge_index(tmp_path):
+    # Positive boundary: max_areas - 1 is the highest valid node row and must NOT be
+    # rejected — guards against an over-eager check that would flag the top of range.
+    corpus = default_corpus(tmp_path / "c")  # max_areas == 6
+    ei = np.fromfile(corpus / "edge_index.i32", dtype="<i4")
+    ei[0] = 5  # max_areas - 1
+    ei.tofile(corpus / "edge_index.i32")
+    ds = CorpusDataset(corpus)  # must construct without raising
+    assert len(ds) == 7
+
+
 def test_split_val_frac_zero(tmp_path):
     corpus = default_corpus(tmp_path / "c")
     ds = CorpusDataset(corpus)

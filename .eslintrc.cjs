@@ -101,6 +101,8 @@ module.exports = {
     'dist/',
     'node_modules/',
     'coverage/',
+    // Generated BC model weights (compact single-line array dump; do not lint/format)
+    'src/ai/bcPolicyWeights.js',
 
     // Config files
     '.prettierrc.cjs',

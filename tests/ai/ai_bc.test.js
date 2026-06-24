@@ -122,5 +122,9 @@ describe('ai_bc bot', () => {
       }
     }
     expect(state).toBeDefined();
-  });
+    /*
+     * A full-game forward-pass drive runs ~10x slower under CI coverage (v8)
+     * instrumentation, exceeding vitest's 5s default — hence the explicit timeout.
+     */
+  }, 30_000);
 });

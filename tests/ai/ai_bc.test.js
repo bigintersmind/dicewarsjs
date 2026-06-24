@@ -186,4 +186,23 @@ describe('makeBC stopBias hook', () => {
     const legal = new Set(getValidMoves(state).map(moveKey));
     expect(legal.has(moveKey(move))).toBe(true);
   });
+
+  it('a large negative stopBias forces STOP even when an attack exists (pins sign + onDecision(true))', () => {
+    const state = firstStateWithMoves(); // current player has >= 1 legal attack
+    const botState = createBotState(state, state.turnOrder[state.currentPlayerIndex]);
+
+    let lastStopped = null;
+    const move = makeBC({ stopBias: -1e9, onDecision: stopped => (lastStopped = stopped) })(
+      botState
+    );
+
+    /*
+     * stopBias is *subtracted*, so a large negative bias adds +1e9 to the STOP logit →
+     * argmax picks STOP despite a legal attack on the board. This is the converse of the
+     * suppression test above: together they pin the subtraction's sign, and this one
+     * exercises the onDecision(true) branch (the +1e9 suppression test only sees `false`).
+     */
+    expect(move).toBeNull();
+    expect(lastStopped).toBe(true);
+  });
 });

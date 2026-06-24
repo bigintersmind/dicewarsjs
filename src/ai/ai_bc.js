@@ -43,7 +43,8 @@ const CTX = { maxAreas: BC_POLICY.config.maxAreas };
  * so a positive value makes the bot less willing to end its turn (more aggressive);
  * `stopBias = 0` is the plain clone. This is a **no-retrain** calibration knob for the
  * ml-bot Phase-2 STOP-bias diagnostic: the trained clone over-predicts STOP (~68% of
- * decisions vs ~45% for the teacher) and so turtles to a 0% win rate. Sweeping this
+ * decisions vs ~45% for the teacher) and so plays too passively to win (the corrected
+ * `stopBias = 0` control wins only ~3.6% vs the teacher's ~18%). Sweeping this
  * knob over the *existing* exported weights tells us whether the failure is just a
  * miscalibrated STOP threshold — and what STOP rate to target — before paying for a
  * class-weighted/focal-CE retrain on the GPU box. See `scripts/bc-stopbias-sweep.mjs`.

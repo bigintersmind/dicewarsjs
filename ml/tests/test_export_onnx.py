@@ -185,3 +185,54 @@ def test_onnx_matches_torch_on_a_real_step(tmp_path):
     o_logits, o_value = sess.run(OUTPUT_NAMES, feeds)
     np.testing.assert_allclose(o_logits, t_logits.numpy(), atol=1e-4)
     np.testing.assert_allclose(o_value, t_value.numpy(), atol=1e-4)
+
+
+def test_export_graph_has_symbolic_dynamic_axes(tmp_path):
+    """The exported graph keeps its dynamic input axes as symbolic dims rather than
+    freezing them — checked at the graph level (onnx only), so it holds even on the
+    onnxruntime-absent path. This is the regression guard that the legacy TorchScript
+    exporter (not the dynamo exporter, which ignores dynamic_axes) produced the graph."""
+    import onnx
+
+    ckpt_path, _ = _make_checkpoint(tmp_path)
+    onnx_path = tmp_path / "bc_policy.onnx"
+    export(ckpt_path, onnx_path)
+
+    inputs = {vi.name: vi for vi in onnx.load(str(onnx_path)).graph.input}
+    # edge_feat: dynamic edge count on axis 0; players: dynamic seat count on axis 1;
+    # nodes: dynamic batch on axis 0. A frozen axis would carry dim_value, not dim_param.
+    assert inputs["edge_feat"].type.tensor_type.shape.dim[0].dim_param
+    assert inputs["players"].type.tensor_type.shape.dim[1].dim_param
+    assert inputs["nodes"].type.tensor_type.shape.dim[0].dim_param
+
+
+def test_assert_dynamic_axes_rejects_frozen_and_renamed(tmp_path):
+    """The post-export guard must fire on both ways the dynamo/FX exporter would break
+    the dynamic_axes contract: a frozen (static) input axis, and a renamed/dropped input
+    (which would otherwise let the per-axis loop skip everything and pass vacuously)."""
+    import onnx
+
+    from dicewars_bc.export_onnx import _assert_dynamic_axes
+
+    ckpt_path, _ = _make_checkpoint(tmp_path)
+    onnx_path = tmp_path / "bc_policy.onnx"
+    export(ckpt_path, onnx_path)
+    axes = {"nodes": {0: "batch"}, "edge_feat": {0: "edges"}}
+
+    # (a) freeze edge_feat axis 0 to a constant -> rejected.
+    frozen = tmp_path / "frozen.onnx"
+    m = onnx.load(str(onnx_path))
+    dim = next(v for v in m.graph.input if v.name == "edge_feat").type.tensor_type.shape.dim[0]
+    dim.ClearField("dim_param")
+    dim.dim_value = 6
+    onnx.save(m, str(frozen))
+    with pytest.raises(RuntimeError, match="froze input"):
+        _assert_dynamic_axes(frozen, axes)
+
+    # (b) rename an expected input -> rejected (not silently skipped).
+    renamed = tmp_path / "renamed.onnx"
+    m = onnx.load(str(onnx_path))
+    next(v for v in m.graph.input if v.name == "edge_feat").name = "edge_feat_X"
+    onnx.save(m, str(renamed))
+    with pytest.raises(RuntimeError, match="missing expected input"):
+        _assert_dynamic_axes(renamed, axes)

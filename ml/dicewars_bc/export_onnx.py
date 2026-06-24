@@ -109,14 +109,23 @@ def export(
         do_constant_folding=True,
     )
     # torch>=2.9 defaults `torch.onnx.export` to the dynamo exporter, which needs
-    # onnxscript and consumes `dynamic_shapes` rather than the `dynamic_axes`
-    # contract above. Pin the legacy TorchScript exporter so the export is identical
-    # across torch versions (and pulls no onnxscript) — but only pass the flag on
-    # torch>=2.5, which is where the `dynamo` kwarg first exists (the floor is 2.1).
-    # The eventual migration is to the dynamo exporter + dynamic_shapes.
+    # onnxscript and consumes `dynamic_shapes` rather than the `dynamic_axes` contract
+    # above. Pin the legacy TorchScript exporter so the export keeps the same
+    # `dynamic_axes` contract across torch versions (and pulls no onnxscript, and stays
+    # numerically identical to the parity tol below — the raw protobuf may still differ).
+    # We FEATURE-DETECT the `dynamo` kwarg from the signature rather than version-gate
+    # (more robust than parsing torch.__version__): the kwarg first appears in torch 2.5,
+    # and our floor is 2.1. The eventual migration is to the dynamo exporter +
+    # dynamic_shapes.
     if "dynamo" in inspect.signature(torch.onnx.export).parameters:
         export_kwargs["dynamo"] = False
     torch.onnx.export(model, example, str(out_path), **export_kwargs)
+    # Positively confirm the legacy exporter was the one that ran: the dynamo exporter
+    # ignores `dynamic_axes` and would freeze the edge/seat dims to constants. Inspect
+    # the written graph and fail loudly if any declared-dynamic input axis came out
+    # static — this also covers the onnxruntime-absent path, where the B=2 parity check
+    # below can't run.
+    _assert_dynamic_axes(out_path, dynamic_axes)
     print(f"Exported ONNX → {out_path}")
 
     # Check parity at B=1 (the inference shape) AND B=2 — the latter is the only
@@ -133,6 +142,45 @@ def export(
     )
     _write_sidecar(out_path, ckpt, config, opset, parity)
     return out_path
+
+
+def _assert_dynamic_axes(out_path: Path, dynamic_axes: dict) -> None:
+    """Confirm the exported graph kept its declared-dynamic INPUT axes as symbolic dims.
+
+    The legacy TorchScript exporter encodes each ``dynamic_axes`` entry as a named dim
+    (a ``dim_param``); the dynamo exporter ignores ``dynamic_axes`` and emits a fixed
+    ``dim_value`` instead — silently freezing the edge/seat axes. Reading the graph back
+    catches that regardless of *why* it happened (a future ``torch.onnx.export`` signature
+    change, a dropped ``dynamo=False``). Best-effort: no-op when the ``onnx`` package isn't
+    importable (it ships only in the ``onnx`` extra), mirroring the parity check's handling
+    of a missing onnxruntime."""
+    try:
+        import onnx
+    except ImportError:
+        return
+    graph = onnx.load(str(out_path)).graph
+    inputs = {vi.name: vi for vi in graph.input}
+    # A renamed/dropped input is itself a red flag: the dynamo/FX exporter can rename or
+    # reorder graph I/O (not just freeze axes), which would otherwise let the per-axis
+    # loop below skip every input and pass vacuously. Require our named inputs to exist.
+    missing = [n for n in INPUT_NAMES if n not in inputs]
+    if missing:
+        raise RuntimeError(
+            f"Exported ONNX is missing expected input(s) {missing} — the legacy "
+            f"TorchScript exporter was not used (did torch.onnx.export change?)."
+        )
+    for name, axes in dynamic_axes.items():
+        vi = inputs.get(name)
+        if vi is None:
+            continue  # output axes (edge_logits/value) aren't graph inputs
+        dims = vi.type.tensor_type.shape.dim
+        for axis in axes:
+            if not dims[axis].dim_param:
+                raise RuntimeError(
+                    f"Exported ONNX froze input '{name}' axis {axis} to a constant "
+                    f"({dims[axis].dim_value}) — expected a dynamic dim. The legacy "
+                    f"TorchScript exporter was not used (did torch.onnx.export change?)."
+                )
 
 
 def _check_parity(model, out_path: Path, examples, strict: bool = False) -> dict:

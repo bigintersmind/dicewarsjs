@@ -72,10 +72,12 @@ Pass `--require-parity` to make a missing onnxruntime a hard failure instead —
 use it for the acceptance-gate run so an unverified model can't slip through.
 
 The export pins the **legacy TorchScript exporter** (`dynamo=False`, feature-detected
-so the floor stays torch 2.1) so the `dynamic_axes` graph is byte-for-byte the same
+so the floor stays torch 2.1) so it keeps the stable `dynamic_axes` graph contract
 across torch versions — torch ≥ 2.9 otherwise defaults to the dynamo exporter, which
-needs `onnxscript` and a different dynamic-shape API. Expect a deprecation warning;
-migrating to the dynamo exporter is future work.
+needs `onnxscript` and a different dynamic-shape API. (Exports stay numerically
+identical to the parity tolerance, asserted by the ONNX↔PyTorch check; the raw protobuf
+may still differ across torch versions.) Expect a deprecation warning; migrating to the
+dynamo exporter is future work.
 
 ## The architecture (per D-Encoding)
 

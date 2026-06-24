@@ -271,7 +271,7 @@ single absolute g/s.
 
 ---
 
-## Phase 2 — Imitation baseline (de-risk learning before RL) · ⬜ Not started · ~1–2 weeks
+## Phase 2 — Imitation baseline (de-risk learning before RL) · 🟨 In progress · ~1–2 weeks
 
 **Objective.** Prove the **entire** JS → train → ONNX → in-browser pipeline on an
 _easy_ objective: clone `ai_strategist` with a small neural net. This de-risks
@@ -282,15 +282,24 @@ everything technical before we gamble on RL.
 - [ ] Generate ~100k–1M self-play games of the **strongest heuristic to imitate —
       `ai_lookahead`** (per [D-7]; cloning the field leader both de-risks the
       pipeline and yields a stronger starting policy than cloning Strategist would);
-      export trajectories (minutes-to-hours on 8 cores).
-- [ ] Decide the encoding (see `DECISIONS.md` D-Encoding): graph over ≤31
-      territory nodes (features: owner, dice, is-mine, is-border, per-edge
-      win-prob from `WIN_TABLE`); policy head over legal `(from,to)` edges + an
-      explicit STOP; masked by `getValidMoves`.
-- [ ] Train a small masked policy/value net (GNN or per-edge MLP) by behavioral
-      cloning to predict `ai_lookahead`'s move.
-- [ ] Export to ONNX; load in-browser via ONNX Runtime Web; wrap as a normal bot.
-- [ ] Evaluate the in-browser net on `arena:sweep` vs `ai_strategist`.
+      export trajectories (minutes-to-hours on 8 cores). _A 300-game sample exists
+      (`corpus-fullfield-300`, used to validate the trainer); the parity-run corpus is
+      still to generate on the fleet ([D-13], full 7-bot field per [D-15])._
+- [x] Decide the encoding — **[D-Encoding] Accepted**: graph over ≤31 territory
+      nodes (relational owner, dice, is-mine/is-enemy, is-border, per-edge win-prob
+      from `WIN_TABLE`); masked edge head over legal `(from,to)` + explicit STOP;
+      shipped as `encodeObservation.js` + `encode-corpus.mjs` (packed tensors + manifest).
+- [~] Train a small masked policy/value net (GNN or per-edge MLP) by behavioral
+  cloning — **trainer scaffolded ([D-16]): `ml/dicewars_bc/` (masked per-edge MLP + aux value head, segmented CE, game-level split, hermetic test suite).** Smoke-tested
+  on the 300-game sample (val move-match 33%→47%, 8 untuned CPU epochs). _The
+  parity-grade run (big corpus + tuning on the GPU box) is pending._
+- [~] Export to ONNX; load in-browser via ONNX Runtime Web; wrap as a normal bot —
+  **ONNX export done** (`ml/dicewars_bc/export_onnx.py`: logits-only single-step
+  graph, dynamic edges, ORT parity ≈5e-7, contract sidecar). _In-browser
+  ONNX-RT-Web wrapper not built yet — needs `onnxruntime-web` + a label-free
+  encoder extracted from `encodeStep` (see [D-16] "Next slice")._
+- [ ] Evaluate the in-browser net on `arena:sweep` vs **`ai_lookahead`** (the bar,
+      per [D-7]; Strategist as secondary reference).
 
 **Acceptance criteria.**
 

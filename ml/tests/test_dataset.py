@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-
 from _fixtures import default_corpus
 
 torch = pytest.importorskip("torch")
@@ -89,6 +88,15 @@ def test_integrity_rejects_empty_segment(tmp_path):
     offsets[1] = offsets[0]  # step 0 now owns zero edges (no STOP)
     offsets.tofile(corpus / "edge_offsets.i32")
     with pytest.raises(ValueError, match=">=1"):
+        CorpusDataset(corpus)
+
+
+def test_integrity_rejects_out_of_range_edge_index(tmp_path):
+    corpus = default_corpus(tmp_path / "c")  # max_areas == 6
+    ei = np.fromfile(corpus / "edge_index.i32", dtype="<i4")
+    ei[0] = 999  # a territory id far past max_areas
+    ei.tofile(corpus / "edge_index.i32")
+    with pytest.raises(ValueError, match="out of range"):
         CorpusDataset(corpus)
 
 

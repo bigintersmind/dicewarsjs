@@ -30,7 +30,7 @@ belongs to). The same ``forward`` runs at B=1 for the single-step ONNX export.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import torch
 from torch import nn
@@ -57,7 +57,7 @@ class ModelConfig:
     edge_hidden: int = 128
 
     @classmethod
-    def from_manifest(cls, m: CorpusManifest, **overrides) -> "ModelConfig":
+    def from_manifest(cls, m: CorpusManifest, **overrides) -> ModelConfig:
         return cls(
             max_areas=m.max_areas,
             node_features=m.node_features,
@@ -69,7 +69,9 @@ class ModelConfig:
         )
 
     def to_dict(self) -> dict:
-        return self.__dict__.copy()
+        # asdict() is the canonical dataclass→dict (round-trips via ModelConfig(**d))
+        # and, unlike __dict__, won't leak any non-field attribute set on the instance.
+        return asdict(self)
 
 
 def _mlp(sizes: list[int]) -> nn.Sequential:

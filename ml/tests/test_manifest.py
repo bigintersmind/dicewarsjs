@@ -3,8 +3,8 @@
 import json
 
 import pytest
-
 from _fixtures import default_corpus
+
 from dicewars_bc.manifest import EXPECTED_ENCODING_VERSION, load_manifest
 
 

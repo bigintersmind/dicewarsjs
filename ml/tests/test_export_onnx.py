@@ -157,7 +157,7 @@ def test_onnx_matches_torch_on_a_real_step(tmp_path):
     export(ckpt_path, onnx_path)
 
     model = EdgePolicyNet(config)
-    model.load_state_dict(torch.load(ckpt_path, weights_only=False)["state_dict"])
+    model.load_state_dict(torch.load(ckpt_path, weights_only=True)["state_dict"])
     model.eval()
 
     a = config.max_areas
@@ -179,6 +179,7 @@ def test_onnx_matches_torch_on_a_real_step(tmp_path):
         zip(
             INPUT_NAMES,
             [t.numpy() for t in (nodes, players, board, edge_feat, edge_from, edge_to, edge_batch)],
+            strict=True,
         )
     )
     o_logits, o_value = sess.run(OUTPUT_NAMES, feeds)

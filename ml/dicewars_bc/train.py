@@ -183,8 +183,12 @@ def train(args: argparse.Namespace) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Behavioral-cloning trainer (DiceWarsJS ml-bot Phase 2)")
-    p.add_argument("--corpus", required=True, help="Packed-corpus dir (output of npm run encode-corpus)")
+    p = argparse.ArgumentParser(
+        description="Behavioral-cloning trainer (DiceWarsJS ml-bot Phase 2)"
+    )
+    p.add_argument(
+        "--corpus", required=True, help="Packed-corpus dir (output of npm run encode-corpus)"
+    )
     p.add_argument("--out", default="checkpoints", help="Checkpoint output dir")
     p.add_argument("--epochs", type=int, default=20)
     p.add_argument("--batch-size", type=int, default=512)

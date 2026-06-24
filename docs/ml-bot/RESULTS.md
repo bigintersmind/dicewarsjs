@@ -64,15 +64,16 @@ historical rows; new rows judge against Lookahead (noted inline)._
 Self-play and training throughput, so we can size compute. (Phase 1 fills the
 training-mode numbers.)
 
-| Date       | What                                                  | Config                                                                            | Throughput                                                    | Notes                                                                                                                                                                                                                                                                                                                                                                      |
-| ---------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-06-21 | Pure engine, random policy                            | 7p, single core                                                                   | ~150 games/s (~6.6 ms/game, ~12 µs/step)                      | From feasibility probe                                                                                                                                                                                                                                                                                                                                                     |
-| 2026-06-21 | Engine + Strategist heuristic                         | 7p, single core                                                                   | ~77 games/s                                                   | From feasibility probe                                                                                                                                                                                                                                                                                                                                                     |
-| 2026-06-21 | Engine + Strategist, parallel                         | 7p, 4 procs                                                                       | ~266 games/s aggregate (~3.4× the 77 g/s single core)         | Near-linear scaling                                                                                                                                                                                                                                                                                                                                                        |
-| 2026-06-21 | Engine + Lookahead bot                                | 7p, single core                                                                   | ~4 games/s (~243 ms/game)                                     | Search-heavy bot = "too slow" marker                                                                                                                                                                                                                                                                                                                                       |
-| 2026-06-21 | Phase 0 baseline sweep                                | 7-bot FFA field                                                                   | ~21 games/s single core (6000 games in 283 s)                 | Full field incl. 2 search bots (Lookahead + depth-2 Expectimax). Expectimax depth-2 is comfortably in-browser-playable — far from the Lookahead "too slow" marker, which was a solo-bot-per-seat measurement.                                                                                                                                                              |
-| 2026-06-23 | **Engine-only, per-move trims (Phase 1 task 3)**      | 7p, single core, `recordHistory:false`, trivial seeded policy                     | **~215 → ~414 games/s (≈1.9×)**; ~82k → ~160k `applyAction`/s | Isolated pure-engine speed (no heuristic bot — i.e. the learner's engine→tensor data path). **Identical games before/after** (230,918 actions over 600 games, byte-for-byte). Trims: drop the redundant per-`END_TURN` `cloneAreas` (`distributeReinforcements` already clones) + gate `findLargestConnectedGroup` to the 0–2 players an action can change (was 7/action). |
-| 2026-06-23 | **Self-play harness, committed (`npm run selfplay`)** | Strategist/Expectimax/Lookahead/Defensive, 1500 games (seeds 1..1500), 8-core box | BEFORE→AFTER g/s: 1w 20.7→21.4 · 2w 38.5→40.3 · 4w 61.7→65.0  | This field is **bot-search-dominated**, so the engine trim surfaces as only +3–5% here (the engine itself is ≈1.9×, row above). 100% clean; action-count p50 252 / mean 309 **identical** before/after. **Near-linear scaling preserved:** 1→4 workers 2.98× (before) / 3.04× (after); 4 workers = the 50%-of-cores policy (CLAUDE.md).                                    |
+| Date       | What                                                  | Config                                                                                     | Throughput                                                    | Notes                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-06-21 | Pure engine, random policy                            | 7p, single core                                                                            | ~150 games/s (~6.6 ms/game, ~12 µs/step)                      | From feasibility probe                                                                                                                                                                                                                                                                                                                                                     |
+| 2026-06-21 | Engine + Strategist heuristic                         | 7p, single core                                                                            | ~77 games/s                                                   | From feasibility probe                                                                                                                                                                                                                                                                                                                                                     |
+| 2026-06-21 | Engine + Strategist, parallel                         | 7p, 4 procs                                                                                | ~266 games/s aggregate (~3.4× the 77 g/s single core)         | Near-linear scaling                                                                                                                                                                                                                                                                                                                                                        |
+| 2026-06-21 | Engine + Lookahead bot                                | 7p, single core                                                                            | ~4 games/s (~243 ms/game)                                     | Search-heavy bot = "too slow" marker                                                                                                                                                                                                                                                                                                                                       |
+| 2026-06-21 | Phase 0 baseline sweep                                | 7-bot FFA field                                                                            | ~21 games/s single core (6000 games in 283 s)                 | Full field incl. 2 search bots (Lookahead + depth-2 Expectimax). Expectimax depth-2 is comfortably in-browser-playable — far from the Lookahead "too slow" marker, which was a solo-bot-per-seat measurement.                                                                                                                                                              |
+| 2026-06-23 | **Engine-only, per-move trims (Phase 1 task 3)**      | 7p, single core, `recordHistory:false`, trivial seeded policy                              | **~215 → ~414 games/s (≈1.9×)**; ~82k → ~160k `applyAction`/s | Isolated pure-engine speed (no heuristic bot — i.e. the learner's engine→tensor data path). **Identical games before/after** (230,918 actions over 600 games, byte-for-byte). Trims: drop the redundant per-`END_TURN` `cloneAreas` (`distributeReinforcements` already clones) + gate `findLargestConnectedGroup` to the 0–2 players an action can change (was 7/action). |
+| 2026-06-23 | **Self-play harness, committed (`npm run selfplay`)** | Strategist/Expectimax/Lookahead/Defensive, 1500 games (seeds 1..1500), 8-core box          | BEFORE→AFTER g/s: 1w 20.7→21.4 · 2w 38.5→40.3 · 4w 61.7→65.0  | This field is **bot-search-dominated**, so the engine trim surfaces as only +3–5% here (the engine itself is ≈1.9×, row above). 100% clean; action-count p50 252 / mean 309 **identical** before/after. **Near-linear scaling preserved:** 1→4 workers 2.98× (before) / 3.04× (after); 4 workers = the 50%-of-cores policy (CLAUDE.md).                                    |
+| 2026-06-24 | **BC STOP-de-bias retrain (full 100k corpus)**        | EdgePolicyNet (102k params), CPU, `--num-workers 4 --batch-size 512`, Mac mini (M4, 16 GB) | **~27 min/epoch** (1582–1667 s/epoch)                         | **Memory-bound, not compute-bound:** random-access memmap over the 8.3 GB corpus on a 16 GB box (swap ~6 GB, load ~3, stable across an 8-epoch unattended run). `shodan` (128 GB + GPU + 12 workers) does ~67 s/epoch (~30×) but was offline. `--num-workers > 4` swap-locks the mini — keep it at 4. Faster than the earlier ~34 min/epoch estimate.                      |
 
 ---
 
@@ -472,3 +473,65 @@ STOP-rate calibration (target ~45%) or an arena-win probe, or the retrain re-int
 `(seedbase + r) · STRIDE + 1` (STRIDE = max(1e6, games·1000)), independent of `b`, so every
 bias sees identical maps (paired across the column). STOP% is the realized rate aggregated
 over every BC decision in the config via the `onDecision` hook.
+
+---
+
+## Phase 2 — STOP-de-bias retrain (weighted segmented CE) · 2026-06-24
+
+**What.** Executed the retrain the inference sweep green-lit. The fix is **loss-only +
+selection-only** (no encoding/arch change): `segmented_cross_entropy` gained a `stop_weight`
+that down-weights teacher-STOP steps (`label == count-1`), and `train.py` gained
+`--select-by stop-cal`, which checkpoints the epoch whose **realized argmax STOP rate** is
+closest to the teacher's — NOT val move-match, the proxy that rewards the STOP bias. Reused
+the fixed 100k corpus, re-exported unchanged ([D-16]). Ran on the **Mac mini** (CPU,
+`--num-workers 4`, ~27 min/epoch; `shodan` was offline — see throughput row + memory).
+
+**Training scan** — `stop_weight ∈ {1.0, 0.5, 0.25, 0.125}`, 2 epochs each, `--select-by
+stop-cal` (auto target = teacher val STOP ≈ 0.448):
+
+| stop_weight | selected val STOP |   val acc | sel. epoch |
+| ----------: | ----------------: | --------: | ---------: |
+|  1.0 (ctrl) |             0.541 |     0.564 |          1 |
+|  **0.5** ◀ |         **0.436** | **0.556** |          2 |
+|        0.25 |             0.325 |     0.512 |          1 |
+|       0.125 |             0.299 |     0.500 |          1 |
+
+Clean monotonic curve; `w=0.5` lands STOP within 1.2 pp of the teacher at ≈baseline accuracy.
+The **control's STOP rate _grew_ with training** (ep1 0.541 → ep2 0.603) — the overfit-toward-
+STOP that move-match selection would have rewarded — and stop-cal correctly took ep1. Lower
+weights overshoot (STOP below target) and shed accuracy. **Shipped `w=0.5`.**
+
+**Arena validation of the de-biased weights** (`arena:bc-stopbias` sweeping the _residual_
+inference bias over the NEW weights; 20×150, seedbase 0 — same protocol as the inference
+sweep, so `stopBias 0` here is directly comparable to the 3.6% control there):
+
+| stopBias | BC win% (95% CI) | BC STOP% | BC atk/g | BC atk-win% | Lookahead win% (CI) |
+| -------: | ---------------- | -------: | -------: | ----------: | ------------------- |
+|       −1 | 2.8 ± 0.6        |     74.8 |     13.4 |        90.0 | 18.2 ± 1.4          |
+|     −0.5 | 4.8 ± 0.5        |     61.4 |     20.5 |        88.6 | 19.0 ± 1.4          |
+| **0** ◀ | **6.4 ± 0.9**    | **48.6** |     26.7 |        86.4 | 19.7 ± 1.4          |
+|      0.5 | 6.8 ± 1.0        |     39.9 |     30.5 |        84.8 | 20.8 ± 1.6          |
+|        1 | 5.7 ± 0.8        |     35.8 |     30.5 |        83.9 | 20.8 ± 1.1          |
+|        2 | 5.2 ± 1.0        |     31.7 |     32.3 |        82.7 | 23.9 ± 1.6          |
+
+**Verdict — the de-bias worked; ship at native `stopBias 0`; the parity gap is unchanged
+(Phase-3).**
+
+- **STOP calibrated in-weights.** Native (`stopBias 0`) realized STOP fell **70.8% → 48.6%**
+  (teacher ~45%), no inference crutch. The predicted val→arena shift held (val 0.436 → arena
+  0.486).
+- **Win% nearly doubled at the honest operating point.** Native win **3.6% → 6.4%** (CIs
+  disjoint: [3.0, 4.2] → [5.5, 7.3]). The de-biased native model (6.4%) **beats the old
+  model's _tuned_ peak** (5.9% at bias 1) — the inverted-U shifted left to center on bias
+  0–0.5. Win% peaks marginally at bias 0.5 (6.8%, STOP ~40%, a hair more aggressive than the
+  teacher) but within CI of bias 0; native bias 0 is the teacher-faithful, crutch-free pick.
+- **Still NOT parity — as predicted.** Best BC ~6.8% vs Lookahead ~20% (~⅓). The residual
+  ~13 pt gap is the per-edge-MLP **encoding/architecture ceiling** ([D-Encoding]), not STOP
+  calibration; closing it is the GNN/PPO escalation. Pure BC's role stands as the **PPO
+  warm-start**, now a _calibrated_ one.
+
+**Shipped.** `src/ai/bcPolicyWeights.js` (+ JS↔Python parity fixture) regenerated from
+`ml/checkpoints/focal-sweep/w0.5/bc_model.pt`; `ai_bc = makeBC()` (stopBias 0) is the deployed
+de-biased bot; forward parity green (16/16). **Repro:** train with `--stop-weight 0.5
+--select-by stop-cal`, then `python -m dicewars_bc.export_weights --ckpt <w0.5 ckpt>
+--out ../src/ai/bcPolicyWeights.js --fixture ../tests/fixtures/bc/forwardCases.json`.

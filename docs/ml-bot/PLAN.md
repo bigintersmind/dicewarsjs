@@ -319,7 +319,8 @@ everything technical before we gamble on RL.
 ## Phase 3 — Self-play RL (PPO) · ⬜ Not started · ~3–6 weeks (real plateau risk)
 
 **Objective.** Train a self-play policy that is _genuinely stronger_ than
-`ai_strategist` — the ambitious, uncertain part.
+**`ai_lookahead`** (the bar, per [D-7]; `ai_strategist` is only a secondary
+reference) — the ambitious, uncertain part.
 
 **Tasks.**
 
@@ -341,7 +342,9 @@ everything technical before we gamble on RL.
 **Acceptance criteria.**
 
 - Training is reproducible (seeded) and logged.
-- Gated on `arena:sweep` ELO vs `ai_strategist` with CIs at each checkpoint.
+- Gated on `arena:sweep` **win%** vs **`ai_lookahead`** (pinned `596f781`, per
+  [D-7]) with 95% CIs at each checkpoint. Judge on **win%, not ELO** — ELO is a
+  trap for this bot (it rewards survival/placement; see `RESULTS.md`).
 
 **Go/No-Go gate (and kill criterion).**
 

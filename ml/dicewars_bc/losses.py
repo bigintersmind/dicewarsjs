@@ -45,7 +45,8 @@ def segmented_cross_entropy(
             (the trailing edge of the segment, ``label == count-1``). ``<1`` down-
             weights STOP to counter the clone's STOP over-prediction (the Phase-2
             de-bias lever — the training analog of the inference-time ``stopBias``
-            knob in ``ai_bc.js``). ``1.0`` (default) is plain CE. When ``!= 1.0`` the
+            knob in ``ai_bc.js``). ``1.0`` (default) leaves the STOP class un-reweighted
+            (and with ``focal_gamma=0`` is plain CE). When ``!= 1.0`` the
             reduction is a weight-normalized mean (matches ``F.cross_entropy(weight=)``
             semantics, so the loss scale stays comparable across weights).
         focal_gamma: focal-loss exponent. ``>0`` multiplies each step's NLL by
@@ -154,7 +155,8 @@ def predicted_stop_rate(
     This is the realized STOP rate of the deployed bot (which argmaxes the legal
     edges with ``stopBias=0`` once the de-bias is baked into the weights), so it is
     the calibration target for checkpoint selection in the STOP-de-bias retrain —
-    NOT val move-match, which the broken Phase-2 run showed is a STOP-biased proxy.
+    NOT val move-match, which the Phase-2 results showed is a STOP-biased proxy
+    (see ``docs/ml-bot/RESULTS.md`` — move-match is a misleading proxy).
     """
     pred = segmented_argmax_local(edge_logits, edge_offsets)
     return _is_stop_segment(edge_offsets, pred).float().mean()
@@ -171,7 +173,7 @@ def value_loss(value_pred: torch.Tensor, value_target: torch.Tensor) -> torch.Te
 
     ``value_pred`` is [B, 2] raw outputs: column 0 a ``won`` logit, column 1 a
     ``placement`` logit (sigmoid → [0,1] regression target). Recommended,
-    multi-task, warm-starts Phase-3 PPO (D-Encoding).
+    multi-task, warm-starts Phase-3 PPO (see [D-Encoding] in ``docs/ml-bot/DECISIONS.md``).
     """
     won_loss = F.binary_cross_entropy_with_logits(value_pred[:, 0], value_target[:, 0])
     placement_loss = F.mse_loss(torch.sigmoid(value_pred[:, 1]), value_target[:, 1])

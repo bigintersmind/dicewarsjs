@@ -129,7 +129,34 @@ def test_focal_gamma_downweights_confident_steps():
     plain = segmented_cross_entropy(edge_logits, edge_offsets, labels)
     focal = segmented_cross_entropy(edge_logits, edge_offsets, labels, focal_gamma=2.0)
     assert focal.item() < plain.item()
+
+    # Pin the exact (1 - p)^gamma * nll modulation, not just the inequality.
+    nll0 = math.log(1 + math.exp(-10))  # chosen logit 10 vs 0
+    nll1 = math.log(1 + math.exp(0.5))  # chosen logit 0 vs 0.5
+
+    def focal_step(nll, gamma=2.0):
+        # Mirror the code's clamp(1e-6, 1.0) on (1-p) so the pin stays exact even if the
+        # logits above are later changed to where (1-p) would dip past the clamp floor.
+        one_minus_p = min(max(1 - math.exp(-nll), 1e-6), 1.0)
+        return one_minus_p**gamma * nll
+
+    expected = (focal_step(nll0) + focal_step(nll1)) / 2
+    assert focal.item() == pytest.approx(expected, abs=1e-6)
+
     focal.backward()
+    assert torch.isfinite(edge_logits.grad).all()
+
+
+def test_focal_clamp_keeps_gradient_finite_at_the_boundary():
+    # A near-certain step (p→1) with a FRACTIONAL gamma would drive pow()'s gradient to
+    # infinity at the (1-p)=0 boundary; the clamp(1e-6, 1.0) is exactly what bounds it.
+    # Guard that intentional clamp: loss and gradient must stay finite.
+    edge_logits = torch.tensor([50.0, 0.0, 0.0, 0.0], requires_grad=True)
+    edge_offsets = torch.tensor([0, 2, 4], dtype=torch.int64)
+    labels = torch.tensor([0, 0], dtype=torch.int64)
+    loss = segmented_cross_entropy(edge_logits, edge_offsets, labels, focal_gamma=0.5)
+    assert torch.isfinite(loss).all()
+    loss.backward()
     assert torch.isfinite(edge_logits.grad).all()
 
 

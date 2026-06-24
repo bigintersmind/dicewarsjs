@@ -9,7 +9,8 @@ accuracy model is checkpointed and ``export_onnx.py`` turns it into the in-brows
 model.
 
 **STOP-de-bias retrain (``--select-by stop-cal``).** The vanilla clone over-predicts
-STOP (~68% vs the teacher's ~45%) and turtles. Move-match accuracy is a *misleading*
+STOP (~68% on val vs the teacher's ~45%; ~71% realized in the arena) and turtles.
+Move-match accuracy is a *misleading*
 proxy there — it rewards the STOP-biased model. So the de-bias retrain (a) down-
 weights the STOP class in the loss (``--stop-weight`` / ``--focal-gamma``) and
 (b) selects the checkpoint whose **realized argmax STOP rate** lands closest to the
@@ -119,7 +120,49 @@ def _run_epoch(
     return {k: v / max(n_steps, 1) for k, v in totals.items()}
 
 
+def _validate_args(args: argparse.Namespace) -> None:
+    """Fail fast on nonsensical knob values before any training happens.
+
+    Argparse accepts any float, but several values silently train or select a garbage
+    model instead of erroring: a negative ``--stop-weight`` inverts the STOP objective
+    (gradient *ascent* on STOP), a negative ``--focal-gamma`` up-weights easy steps, an
+    out-of-[0,1] ``--target-stop-rate`` or a negative ``--stop-band`` make every epoch
+    score out-of-band (silently disabling calibration), and ``--epochs < 1`` would save
+    no checkpoint yet still print a "saved" line. Catch them up front.
+    """
+    if args.epochs < 1:
+        raise ValueError(f"--epochs must be >= 1 (got {args.epochs})")
+    if args.stop_weight < 0:
+        raise ValueError(
+            f"--stop-weight must be >= 0 (got {args.stop_weight}); <1 down-weights STOP, "
+            "a negative weight would invert the objective"
+        )
+    if args.focal_gamma < 0:
+        raise ValueError(f"--focal-gamma must be >= 0 (got {args.focal_gamma})")
+    if not 0.0 <= args.target_stop_rate <= 1.0:
+        raise ValueError(
+            f"--target-stop-rate must be in [0, 1] (got {args.target_stop_rate}); 0 = auto"
+        )
+    if args.stop_band < 0:
+        raise ValueError(f"--stop-band must be >= 0 (got {args.stop_band})")
+
+
+def _selection_score(stop_rate: float, acc: float, target: float, stop_band: float) -> float:
+    """Checkpoint score for ``--select-by stop-cal`` (higher is better).
+
+    Two tiers, so calibration dominates accuracy: an in-band epoch
+    (``|stop_rate - target| <= stop_band``) scores ``1000 + acc`` and *always* outranks
+    any out-of-band epoch (which scores ``-dist`` ≤ 0). The ``1000`` offset is safe
+    because ``acc`` and ``dist`` are both rates in ``[0, 1]``, so the tiers can never
+    overlap. Among in-band epochs the higher move-match wins; among out-of-band epochs
+    the closer STOP rate wins.
+    """
+    dist = abs(stop_rate - target)
+    return (1000.0 + acc) if dist <= stop_band else -dist
+
+
 def train(args: argparse.Namespace) -> Path:
+    _validate_args(args)
     device = _resolve_device(args.device)
     torch.manual_seed(args.seed)
 
@@ -217,18 +260,29 @@ def train(args: argparse.Namespace) -> Path:
 
         if target is None:  # auto: lock onto the teacher's STOP rate (epoch-invariant)
             target = eval_stats["tstop"]
+            if stop_cal and target in (0.0, 1.0):
+                # A 0%/100% teacher STOP rate (usually a tiny/pathological split) makes
+                # auto calibration meaningless — every epoch is either trivially in-band
+                # or hopelessly out. Warn, don't crash: an explicit --target-stop-rate or
+                # a wider --val-frac is the fix. (A *raise* here would break the default
+                # toy-corpus test, whose 2-step val split is all-STOP → target 1.0.)
+                print(
+                    f"WARNING: auto --target-stop-rate captured a degenerate "
+                    f"{target:.0%} teacher STOP rate on the {split} split — calibration "
+                    f"is meaningless. Pass an explicit --target-stop-rate or widen "
+                    f"--val-frac."
+                )
 
         if stop_cal:
-            dist = abs(eval_stats["stop"] - target)
-            # In-band (well-calibrated) epochs always outrank out-of-band ones; among
-            # in-band, higher move-match wins; among out-of-band, the closest STOP rate.
-            score = (1000.0 + eval_stats["acc"]) if dist <= args.stop_band else -dist
+            in_band = abs(eval_stats["stop"] - target) <= args.stop_band
+            score = _selection_score(eval_stats["stop"], eval_stats["acc"], target, args.stop_band)
         else:
+            in_band = None  # the calibration band is meaningless for acc selection
             score = eval_stats["acc"]
 
         if best_score is None or score > best_score:
             best_score = score
-            best = {**eval_stats, "epoch": epoch, "score": score}
+            best = {**eval_stats, "epoch": epoch, "score": score, "in_band": in_band}
             torch.save(
                 {
                     "state_dict": model.state_dict(),
@@ -254,13 +308,26 @@ def train(args: argparse.Namespace) -> Path:
                     "teacher_stop_rate": eval_stats["tstop"],
                     "stop_weight": args.stop_weight,
                     "focal_gamma": args.focal_gamma,
+                    # Did the SELECTED epoch's STOP rate land inside ±stop_band of the
+                    # target? None for acc selection (no band). False means the run
+                    # shipped the closest checkpoint but never reached calibration.
+                    "stop_cal_in_band": in_band,
                 },
                 ckpt_path,
             )
 
     if stop_cal:
+        if not best.get("in_band", False):
+            print(
+                f"\nWARNING: no epoch reached the STOP-cal band "
+                f"(best |stop - target| = {abs(best['stop'] - target):.3f} > "
+                f"band {args.stop_band:.3f}). Saved the CLOSEST checkpoint, but it is "
+                f"NOT STOP-calibrated — strengthen --stop-weight/--focal-gamma, widen "
+                f"--stop-band, or train longer."
+            )
         print(
-            f"\nSelected epoch {best.get('epoch')} by STOP-calibration: "
+            f"\nSelected epoch {best.get('epoch')} by STOP-calibration"
+            f"{'' if best.get('in_band') else ' (OUT OF BAND)'}: "
             f"{split} stop {best.get('stop', float('nan')):.3f} "
             f"(target {target:.3f}, teacher {best.get('tstop', float('nan')):.3f}), "
             f"{split} acc {best.get('acc', float('nan')):.4f}  →  saved {ckpt_path}"

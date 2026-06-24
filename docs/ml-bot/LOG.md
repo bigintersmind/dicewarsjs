@@ -21,6 +21,56 @@ Entry template:
 
 ---
 
+## 2026-06-23 — Phase-2 parity run: 100k corpus + MLP clone → passive (STOP-biased), no win parity
+
+**Phase:** 2 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Wired the in-browser BC bot (PR #50).** Pure-JS **synchronous** forward pass
+  (`src/ai/bcForward.js`) instead of ONNX Runtime Web — the bot contract is sync
+  everywhere in the arena (`botRunner`, `runAI`, self-play workers) while ORT's
+  `session.run` is async; for this tiny per-edge MLP a hand-written forward is
+  trivially fast and keeps the contract. Label-free `encodeObservationForInference`
+  reuses the training encoders and reconstructs `getValidMoves` from a `BotState`. A
+  JS↔Python parity test asserts the forward reproduces PyTorch logits (≤2e-3,
+  identical argmax). `ml/dicewars_bc/export_weights.py` dumps a checkpoint → a JS
+  weights module + the parity fixture.
+- **Ran the full parity pipeline on `shodan` (RTX 4070 Ti, WSL).** Generated the
+  **100k-game full-7-bot corpus** (8,591,769 teacher steps, 59.4M edges, 8.2 GB
+  packed), encoded it, and trained the MLP on CUDA (15 epochs, ~67 s/epoch).
+- **Hardening + Python CI** landed separately (PR #49: `weights_only`, dynamo-export
+  robustness, `edge_index` range check, ruff pin, `.github/workflows/ml-ci.yml`).
+
+**Learned / decided:**
+
+- **The MLP clone does NOT reach win-rate parity — the headline Phase-2 result.**
+  `arena:sweep` (20×150, seat-fair): **BC 0.0% win / ELO 1275** vs **Lookahead 18.8%
+  / 1303**. Best val move-match was **57.6%**, but the errors are systematically
+  _STOP-when-it-should-attack_ (the net predicts STOP ~68% vs ~45% true). Net effect:
+  BC plays passively → survives for middling placement (so ELO looks rank-3) but
+  **never conquers a board to win**. **Move-match accuracy is a misleading proxy** — a
+  STOP-biased 57% clone is competitively dead.
+- Per [D-Encoding], the simplest MLP plateaus: the **objective/encoding, not RL, is
+  the gap** — fix before any Phase-3 PPO.
+
+**Dead ends / surprises:**
+
+- `shodan`'s WSL tears down detached jobs ~25 s after SSH disconnect (no systemd);
+  tmux, `setsid`, and a Windows-side `Start-Process` keepalive all failed. **Windows
+  Scheduled Tasks (`schtasks`) survive** — the working pattern for long jobs (encode,
+  train). Corpus gen ran foreground-sharded (4×25k, ~314 s each, under the 600 s call cap).
+- DataLoader `--num-workers 0` starved the GPU (epoch > 5 min); `--num-workers 12` → ~67 s/epoch.
+
+**Next (decision pending with Ivan):**
+
+- **De-bias the STOP class** (class-weighted / focal CE, or down-weight STOP) — the
+  cheapest high-value lever to turn the passive clone into an active player; retrain on
+  the same corpus (still on `shodan`). If that plateaus → escalate to a **1–2 layer GNN**.
+- Bundle: production weights are 2.1 MB as JSON-in-JS; a base64 Float32 binary ≈ 410 KB.
+
+---
+
 ## 2026-06-23 — BC trainer scaffolded (Python `ml/`) — trains on real tensors, exports ONNX
 
 **Phase:** 2 · **Who:** Ivan + Claude

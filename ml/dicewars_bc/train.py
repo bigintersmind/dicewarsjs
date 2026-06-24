@@ -3,10 +3,18 @@
     python -m dicewars_bc.train --corpus ../data/selfplay/encoded/corpus-fullfield-300
     python -m dicewars_bc.train --corpus <dir> --epochs 20 --batch-size 512 --device cuda
 
-The headline metric is **policy accuracy** (top-1 move-match with the teacher):
-that is the imitation-fidelity proxy that the Phase-2 gate ("clone ai_lookahead
-to ~parity") ultimately rests on. We checkpoint the best-val-accuracy model;
-``export_onnx.py`` turns that checkpoint into the in-browser model.
+The default headline metric is **policy accuracy** (top-1 move-match with the
+teacher), the imitation-fidelity proxy the Phase-2 gate rests on; the best-val-
+accuracy model is checkpointed and ``export_onnx.py`` turns it into the in-browser
+model.
+
+**STOP-de-bias retrain (``--select-by stop-cal``).** The vanilla clone over-predicts
+STOP (~68% vs the teacher's ~45%) and turtles. Move-match accuracy is a *misleading*
+proxy there — it rewards the STOP-biased model. So the de-bias retrain (a) down-
+weights the STOP class in the loss (``--stop-weight`` / ``--focal-gamma``) and
+(b) selects the checkpoint whose **realized argmax STOP rate** lands closest to the
+teacher's (``--select-by stop-cal``, target band ``--target-stop-rate``/``--stop-band``)
+instead of best move-match — otherwise selection silently re-introduces the bias.
 """
 
 from __future__ import annotations
@@ -19,7 +27,13 @@ import torch
 from torch.utils.data import DataLoader, Subset
 
 from .dataset import Batch, CorpusDataset, collate, split_by_game
-from .losses import policy_accuracy, segmented_cross_entropy, value_loss
+from .losses import (
+    policy_accuracy,
+    predicted_stop_rate,
+    segmented_cross_entropy,
+    teacher_stop_rate,
+    value_loss,
+)
 from .manifest import load_manifest
 from .model import EdgePolicyNet, ModelConfig
 
@@ -36,12 +50,22 @@ def _run_epoch(
     device: torch.device,
     value_weight: float,
     optimizer: torch.optim.Optimizer | None,
+    *,
+    stop_weight: float = 1.0,
+    focal_gamma: float = 0.0,
 ) -> dict[str, float]:
-    """One pass. ``optimizer=None`` ⇒ eval (no grad, no step)."""
+    """One pass. ``optimizer=None`` ⇒ eval (no grad, no step).
+
+    The backward objective uses the (optionally) STOP-reweighted / focal CE, but the
+    reported ``ce`` is always the PLAIN segmented CE so it stays comparable across
+    runs and splits. ``stop``/``tstop`` are the model's argmax STOP rate and the
+    teacher's STOP rate — the de-bias calibration diagnostics.
+    """
     train = optimizer is not None
     model.train(train)
+    reweight = train and (stop_weight != 1.0 or focal_gamma > 0.0)
 
-    totals = {"loss": 0.0, "ce": 0.0, "value": 0.0, "acc": 0.0}
+    totals = {"loss": 0.0, "ce": 0.0, "value": 0.0, "acc": 0.0, "stop": 0.0, "tstop": 0.0}
     n_steps = 0  # decision steps, for sample-weighted means
 
     grad_ctx = torch.enable_grad() if train else torch.no_grad()
@@ -58,8 +82,20 @@ def _run_epoch(
                 batch.edge_batch,
             )
             ce = segmented_cross_entropy(edge_logits, batch.edge_offsets, batch.labels)
+            # Optimize the reweighted objective; report the plain CE for comparability.
+            ce_opt = (
+                segmented_cross_entropy(
+                    edge_logits,
+                    batch.edge_offsets,
+                    batch.labels,
+                    stop_weight=stop_weight,
+                    focal_gamma=focal_gamma,
+                )
+                if reweight
+                else ce
+            )
             vl = value_loss(value_pred, batch.value)
-            loss = ce + value_weight * vl
+            loss = ce_opt + value_weight * vl
 
             if train:
                 optimizer.zero_grad(set_to_none=True)
@@ -68,12 +104,16 @@ def _run_epoch(
 
             with torch.no_grad():
                 acc = policy_accuracy(edge_logits, batch.edge_offsets, batch.labels)
+                stop = predicted_stop_rate(edge_logits, batch.edge_offsets)
+                tstop = teacher_stop_rate(batch.edge_offsets, batch.labels)
 
             bs = batch.batch_size
             totals["loss"] += loss.item() * bs
             totals["ce"] += ce.item() * bs
             totals["value"] += vl.item() * bs
             totals["acc"] += acc.item() * bs
+            totals["stop"] += stop.item() * bs
+            totals["tstop"] += tstop.item() * bs
             n_steps += bs
 
     return {k: v / max(n_steps, 1) for k, v in totals.items()}
@@ -139,24 +179,56 @@ def train(args: argparse.Namespace) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = out_dir / "bc_model.pt"
 
-    best_metric = -1.0  # best val acc (or train acc if no val set)
+    split = "val" if has_val else "train"
+    stop_cal = args.select_by == "stop-cal"
+    if args.stop_weight != 1.0 or args.focal_gamma > 0.0:
+        print(f"STOP de-bias: stop_weight={args.stop_weight}  focal_gamma={args.focal_gamma}")
+    # The calibration target: a fixed --target-stop-rate, else (0 ⇒ auto) the teacher's
+    # own STOP rate measured on the eval split (constant across epochs, captured below).
+    target = args.target_stop_rate if args.target_stop_rate > 0 else None
+
+    best_score = None  # higher is better; meaning depends on --select-by
+    best = {}  # snapshot of the selected epoch's stats, for the summary line
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
-        tr = _run_epoch(model, train_loader, device, args.value_weight, optimizer)
+        tr = _run_epoch(
+            model,
+            train_loader,
+            device,
+            args.value_weight,
+            optimizer,
+            stop_weight=args.stop_weight,
+            focal_gamma=args.focal_gamma,
+        )
         line = (
             f"epoch {epoch:>3}  train: loss {tr['loss']:.4f}  ce {tr['ce']:.4f}  "
-            f"acc {tr['acc']:.4f}"
+            f"acc {tr['acc']:.4f}  stop {tr['stop']:.3f}(t{tr['tstop']:.3f})"
         )
-        metric = tr["acc"]
+        eval_stats = tr
         if val_loader is not None:
             va = _run_epoch(model, val_loader, device, args.value_weight, optimizer=None)
-            line += f"  |  val: ce {va['ce']:.4f}  acc {va['acc']:.4f}"
-            metric = va["acc"]
+            line += (
+                f"  |  val: ce {va['ce']:.4f}  acc {va['acc']:.4f}  "
+                f"stop {va['stop']:.3f}(t{va['tstop']:.3f})"
+            )
+            eval_stats = va
         line += f"  ({time.time() - t0:.1f}s)"
         print(line)
 
-        if metric > best_metric:
-            best_metric = metric
+        if target is None:  # auto: lock onto the teacher's STOP rate (epoch-invariant)
+            target = eval_stats["tstop"]
+
+        if stop_cal:
+            dist = abs(eval_stats["stop"] - target)
+            # In-band (well-calibrated) epochs always outrank out-of-band ones; among
+            # in-band, higher move-match wins; among out-of-band, the closest STOP rate.
+            score = (1000.0 + eval_stats["acc"]) if dist <= args.stop_band else -dist
+        else:
+            score = eval_stats["acc"]
+
+        if best_score is None or score > best_score:
+            best_score = score
+            best = {**eval_stats, "epoch": epoch, "score": score}
             torch.save(
                 {
                     "state_dict": model.state_dict(),
@@ -165,20 +237,38 @@ def train(args: argparse.Namespace) -> Path:
                     "feature_names": manifest.feature_names,
                     "teacher": manifest.teacher,
                     "epoch": epoch,
-                    # Be honest about what "best" was selected on: with no val set we
-                    # fall back to TRAIN accuracy (overfitting-biased). `val_accuracy`
-                    # is None in that case so downstream tooling can't mistake a train
-                    # number for a held-out one.
-                    "selection_metric": "val_acc" if has_val else "train_acc",
-                    "selection_accuracy": best_metric,
-                    "val_accuracy": best_metric if has_val else None,
+                    # Be honest about what "best" was selected on. With no val set the
+                    # accuracy figure is TRAIN (overfitting-biased) — `val_accuracy` is
+                    # None so downstream tooling can't mistake it for a held-out number.
+                    "selection_metric": (
+                        ("val_stop_cal" if has_val else "train_stop_cal")
+                        if stop_cal
+                        else ("val_acc" if has_val else "train_acc")
+                    ),
+                    "selection_score": best_score,
+                    "selection_accuracy": eval_stats["acc"],
+                    "val_accuracy": eval_stats["acc"] if has_val else None,
+                    # STOP-calibration provenance (the lever + where it landed).
+                    "stop_rate": eval_stats["stop"],
+                    "target_stop_rate": target,
+                    "teacher_stop_rate": eval_stats["tstop"],
+                    "stop_weight": args.stop_weight,
+                    "focal_gamma": args.focal_gamma,
                 },
                 ckpt_path,
             )
 
-    print(
-        f"\nBest {'val' if has_val else 'train'} accuracy: {best_metric:.4f}  →  saved {ckpt_path}"
-    )
+    if stop_cal:
+        print(
+            f"\nSelected epoch {best.get('epoch')} by STOP-calibration: "
+            f"{split} stop {best.get('stop', float('nan')):.3f} "
+            f"(target {target:.3f}, teacher {best.get('tstop', float('nan')):.3f}), "
+            f"{split} acc {best.get('acc', float('nan')):.4f}  →  saved {ckpt_path}"
+        )
+    else:
+        print(
+            f"\nBest {split} accuracy: {best.get('acc', float('nan')):.4f}  →  saved {ckpt_path}"
+        )
     return ckpt_path
 
 
@@ -197,6 +287,39 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--value-weight", type=float, default=0.5, help="Aux value-loss weight")
     p.add_argument("--val-frac", type=float, default=0.1, help="Fraction of GAMES held out for val")
     p.add_argument("--seed", type=int, default=0)
+    # --- STOP-de-bias retrain knobs (Phase 2) -------------------------------------
+    p.add_argument(
+        "--stop-weight",
+        type=float,
+        default=1.0,
+        help="Loss weight on teacher-STOP steps (<1 down-weights STOP; 1.0 = plain CE)",
+    )
+    p.add_argument(
+        "--focal-gamma",
+        type=float,
+        default=0.0,
+        help="Focal-loss exponent on the policy CE (0 = off; >0 damps easy/STOP steps)",
+    )
+    p.add_argument(
+        "--select-by",
+        choices=["acc", "stop-cal"],
+        default="acc",
+        help="Checkpoint selection: 'acc' (best move-match) or 'stop-cal' "
+        "(STOP rate closest to teacher — required for the de-bias retrain)",
+    )
+    p.add_argument(
+        "--target-stop-rate",
+        type=float,
+        default=0.0,
+        help="Target argmax STOP rate for --select-by stop-cal (0 = auto: the "
+        "teacher's measured STOP rate on the eval split)",
+    )
+    p.add_argument(
+        "--stop-band",
+        type=float,
+        default=0.02,
+        help="Half-width of the in-band STOP-rate window around the target (stop-cal)",
+    )
     p.add_argument("--device", default="auto", help="auto | cpu | cuda")
     p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--node-hidden", type=int, default=64)

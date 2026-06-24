@@ -290,7 +290,7 @@ everything technical before we gamble on RL.
       from `WIN_TABLE`); masked edge head over legal `(from,to)` + explicit STOP;
       shipped as `encodeObservation.js` + `encode-corpus.mjs` (packed tensors + manifest).
 - [~] Train a small masked policy/value net (GNN or per-edge MLP) by behavioral
-  cloning — **trainer scaffolded ([D-16]): `ml/dicewars_bc/` (masked per-edge MLP + aux value head, segmented CE, game-level split, 32-test suite).** Smoke-tested
+  cloning — **trainer scaffolded ([D-16]): `ml/dicewars_bc/` (masked per-edge MLP + aux value head, segmented CE, game-level split, hermetic test suite).** Smoke-tested
   on the 300-game sample (val move-match 33%→47%, 8 untuned CPU epochs). _The
   parity-grade run (big corpus + tuning on the GPU box) is pending._
 - [~] Export to ONNX; load in-browser via ONNX Runtime Web; wrap as a normal bot —

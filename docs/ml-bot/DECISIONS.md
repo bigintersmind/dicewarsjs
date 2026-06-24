@@ -743,7 +743,7 @@ before trusting the model. Export self-checks PyTorch-vs-onnxruntime parity
 **Validated (2026-06-23).** Trained on the real 300-game sample corpus (24,254
 Lookahead-seat steps): val move-match climbed 33% → 47% in 8 untuned CPU epochs
 (random baseline ≈14% over ~6.9 edges/step) — the trainer learns; ONNX export +
-ORT parity + dynamic-edge inference all green (32-test pytest suite). This is a
+ORT parity + dynamic-edge inference all green (hermetic pytest suite). This is a
 **pipeline smoke test, not the parity gate** — that needs the 100k–1M-game corpus
 ([D-13]) + tuning on the GPU box, evaluated on `arena:sweep`.
 

@@ -61,7 +61,9 @@ def _dump_mlp(seq: nn.Sequential) -> list[dict]:
     return layers
 
 
-def _make_fixture(model: EdgePolicyNet, config: ModelConfig, n_cases: int = 6, seed: int = 0) -> dict:
+def _make_fixture(
+    model: EdgePolicyNet, config: ModelConfig, n_cases: int = 6, seed: int = 0
+) -> dict:
     """Reference (input → logits/value) cases the JS forward is cross-checked against.
 
     Random but structurally valid single steps (present-mask, in-range ids, a trailing
@@ -71,7 +73,7 @@ def _make_fixture(model: EdgePolicyNet, config: ModelConfig, n_cases: int = 6, s
     g = torch.Generator().manual_seed(seed)
     a = config.max_areas
     cases = []
-    for k in range(n_cases):
+    for _ in range(n_cases):
         p = int(torch.randint(2, 8, (1,), generator=g).item())
         n_attacks = int(torch.randint(0, 6, (1,), generator=g).item())
         e = n_attacks + 1  # + trailing STOP
@@ -107,7 +109,9 @@ def _make_fixture(model: EdgePolicyNet, config: ModelConfig, n_cases: int = 6, s
     return {"seed": seed, "cases": cases}
 
 
-def export(ckpt_path: str | Path, out_path: str | Path, fixture_path: str | Path | None = None) -> Path:
+def export(
+    ckpt_path: str | Path, out_path: str | Path, fixture_path: str | Path | None = None
+) -> Path:
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     config = ModelConfig(**ckpt["config"])
     model = EdgePolicyNet(config)
@@ -148,7 +152,9 @@ def export(ckpt_path: str | Path, out_path: str | Path, fixture_path: str | Path
         "/* eslint-disable */\n"
         f"export const BC_POLICY = {body};\n"
     )
-    print(f"Wrote JS weights → {out_path}  ({n_params:,} params, {out_path.stat().st_size:,} bytes)")
+    print(
+        f"Wrote JS weights → {out_path}  ({n_params:,} params, {out_path.stat().st_size:,} bytes)"
+    )
 
     if fixture_path is not None:
         fixture = {"config": payload["config"], **_make_fixture(model, config)}

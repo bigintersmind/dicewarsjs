@@ -30,7 +30,8 @@ export const BUILT_IN_BOTS = [
    * registers RAW: every BUILT_IN_BOTS consumer (the CLI scripts, ArenaScreen,
    * TournamentScreen) runs bots through runMatch/runBotDirect, which calls `fn(botState)`
    * — exactly ai_bc's contract. (adaptModernBot is for the in-game `runAI` loop, which
-   * passes a GameState and does NOT use this list; wrapping here made BC throw every turn.)
+   * passes a GameState and does NOT use this list; wrapping here made BC throw every turn —
+   * its wrapper dereferences `state.turnOrder`, a field a BotState lacks.)
    */
   { id: 'ai_bc', name: 'BC', fn: ai_bc },
 ];

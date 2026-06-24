@@ -143,6 +143,14 @@ describe('BC built-in arena registration', () => {
     const bcEntry = BUILT_IN_BOTS.find(b => b.name === 'BC');
     expect(bcEntry).toBeDefined();
 
+    /*
+     * Sum across seeds on purpose — do NOT tighten this to a per-seed assertion. Three
+     * opponents in the field (ai_default, ai_adaptive, ai_example) pick moves with unseeded
+     * Math.random, so the engine seed fixes only the map/dice, not the board trajectory:
+     * on any single seed BC can legitimately make 0 attacks (it over-predicts STOP). The
+     * cross-seed sum is what keeps `bcAttacks > 0` non-flaky. (`bcErrors === 0` is
+     * seed-independent — errors come only from the adapter mismatch, never legitimate play.)
+     */
     const field = BUILT_IN_BOTS.map(b => ({ name: b.name, fn: b.fn }));
     let bcErrors = 0;
     let bcAttacks = 0;

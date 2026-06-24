@@ -66,7 +66,9 @@ def _make_example(config: ModelConfig, edge_counts, n_seats=None, seed: int = 0)
     return (nodes, players, board, edge_feat, edge_from, edge_to, edge_batch)
 
 
-def export(ckpt_path: str | Path, out_path: str | Path, opset: int = 17) -> Path:
+def export(
+    ckpt_path: str | Path, out_path: str | Path, opset: int = 17, require_parity: bool = False
+) -> Path:
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     config = ModelConfig(**ckpt["config"])
     model = EdgePolicyNet(config)
@@ -107,29 +109,44 @@ def export(ckpt_path: str | Path, out_path: str | Path, opset: int = 17) -> Path
     # Check parity at B=1 (the inference shape) AND B=2 — the latter is the only
     # case that exercises the cross-step `edge_batch * A` gather offset (it
     # vanishes at B=1) and confirms the dynamic batch/seat axes re-resolve.
-    _check_parity(
+    parity = _check_parity(
         model,
         out_path,
         [
             ("B=1 single step", example),
             ("B=2 multi-step", _make_example(config, [4, 5], seed=1)),
         ],
+        strict=require_parity,
     )
-    _write_sidecar(out_path, ckpt, config, opset)
+    _write_sidecar(out_path, ckpt, config, opset, parity)
     return out_path
 
 
-def _check_parity(model, out_path: Path, examples) -> None:
+def _check_parity(model, out_path: Path, examples, strict: bool = False) -> dict:
     """Assert onnxruntime reproduces PyTorch's outputs (the cross-bridge gate),
-    across each labeled (name, inputs) example."""
+    across each labeled (name, inputs) example.
+
+    Returns a status dict that ``_write_sidecar`` stamps into the contract, so a
+    consumer (and a human) can tell a verified model from an unverified one. If
+    onnxruntime is unavailable the check cannot run: with ``strict`` we raise (an
+    acceptance-gate run must fail loudly rather than ship an unverified model);
+    otherwise we warn loudly and report ``checked=False``."""
     try:
         import onnxruntime as ort
-    except ImportError:
-        print("onnxruntime not installed — skipping the ORT parity check (install ml[onnx]).")
-        return
+    except ImportError as exc:
+        msg = (
+            "onnxruntime not installed — CANNOT verify ONNX↔PyTorch parity "
+            "(install ml[onnx]); the exported model is UNVERIFIED."
+        )
+        if strict:
+            raise RuntimeError(f"{msg} (--require-parity was set)") from exc
+        print(f"WARNING: {msg}")
+        return {"checked": False, "reason": "onnxruntime-not-installed"}
 
     sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
     tol = 1e-4
+    max_logit_err = 0.0
+    max_value_err = 0.0
     for label, example in examples:
         with torch.no_grad():
             torch_logits, torch_value = model(*example)
@@ -138,20 +155,36 @@ def _check_parity(model, out_path: Path, examples) -> None:
 
         logit_err = float(np.abs(ort_logits - torch_logits.numpy()).max())
         value_err = float(np.abs(ort_value - torch_value.numpy()).max())
+        max_logit_err = max(max_logit_err, logit_err)
+        max_value_err = max(max_value_err, value_err)
         if logit_err > tol or value_err > tol:
             raise RuntimeError(
                 f"ONNX/PyTorch parity FAILED on {label}: max |Δlogits|={logit_err:.2e}, "
                 f"max |Δvalue|={value_err:.2e} (tol {tol:.0e})."
             )
         print(f"ORT parity OK ({label}): max |Δlogits|={logit_err:.2e}, max |Δvalue|={value_err:.2e}")
+    return {
+        "checked": True,
+        "tol": tol,
+        "maxLogitErr": max_logit_err,
+        "maxValueErr": max_value_err,
+    }
 
 
-def _write_sidecar(out_path: Path, ckpt: dict, config: ModelConfig, opset: int) -> None:
-    """Write ``<out>.json`` — the contract the JS bot asserts against."""
+def _write_sidecar(
+    out_path: Path, ckpt: dict, config: ModelConfig, opset: int, parity: dict
+) -> None:
+    """Write ``<out>.json`` — the contract the JS bot asserts against.
+
+    ``parityChecked`` records whether the ONNX↔PyTorch parity gate actually ran
+    (it no-ops when onnxruntime is absent), so the JS wrapper can refuse — or at
+    least warn on — a model whose numerics were never verified."""
     sidecar = {
         "encodingVersion": ckpt.get("encoding_version"),
         "teacher": ckpt.get("teacher"),
         "opset": opset,
+        "parityChecked": parity.get("checked", False),
+        "parity": parity,
         "modelConfig": config.to_dict(),
         "featureNames": ckpt.get("feature_names"),
         "io": {
@@ -187,12 +220,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ckpt", required=True, help="Trained checkpoint (.pt from train.py)")
     p.add_argument("--out", default="bc_policy.onnx", help="Output .onnx path")
     p.add_argument("--opset", type=int, default=17)
+    p.add_argument(
+        "--require-parity",
+        action="store_true",
+        help="Fail (don't warn) if onnxruntime is unavailable to verify ONNX↔PyTorch parity",
+    )
     return p
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    export(args.ckpt, args.out, opset=args.opset)
+    export(args.ckpt, args.out, opset=args.opset, require_parity=args.require_parity)
 
 
 if __name__ == "__main__":

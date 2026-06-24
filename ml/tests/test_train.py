@@ -35,7 +35,12 @@ def test_train_one_epoch_writes_checkpoint(tmp_path):
     assert ckpt["config"]["max_areas"] == 6
     assert ckpt["config"]["player_count"] == 2  # carried from the manifest for the ONNX export
     assert "state_dict" in ckpt
+    # This run has a val set (--val-frac 0.34), so selection is by val accuracy and
+    # val_accuracy is a real held-out number.
+    assert ckpt["selection_metric"] == "val_acc"
+    assert ckpt["val_accuracy"] is not None
     assert 0.0 <= ckpt["val_accuracy"] <= 1.0
+    assert ckpt["selection_accuracy"] == ckpt["val_accuracy"]
 
 
 def test_train_overfits_tiny_corpus(tmp_path):
@@ -55,7 +60,11 @@ def test_train_overfits_tiny_corpus(tmp_path):
         ]
     )
     ckpt_path = train(args)
-    # With val_frac=0 the saved metric is train accuracy. Random-guess baseline on
-    # ~3.9 edges/step is ≈0.26; clearing 0.7 shows the policy head actually learns.
+    # With val_frac=0 there is no val set, so the saved metric is TRAIN accuracy —
+    # recorded honestly as such (selection_metric="train_acc", val_accuracy=None).
+    # Random-guess baseline on ~3.9 edges/step is ≈0.26; clearing 0.7 shows the
+    # policy head actually learns.
     ckpt = torch.load(ckpt_path, weights_only=False)
-    assert ckpt["val_accuracy"] >= 0.7
+    assert ckpt["selection_metric"] == "train_acc"
+    assert ckpt["val_accuracy"] is None
+    assert ckpt["selection_accuracy"] >= 0.7

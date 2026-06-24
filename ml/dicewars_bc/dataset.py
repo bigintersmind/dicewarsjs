@@ -199,6 +199,11 @@ def split_by_game(
     rng.shuffle(games)
 
     n_val = int(round(len(games) * val_frac))
+    if val_frac > 0:
+        # Never empty the training set: keep at least one game in train even when
+        # rounding (or a tiny corpus) would otherwise route every game to val. An
+        # empty train split silently trains on nothing — see the guard in train().
+        n_val = min(n_val, len(games) - 1)
     val_games = set(games[:n_val].tolist())
 
     is_val = np.fromiter((g in val_games for g in game_of_step), dtype=bool, count=len(game_of_step))

@@ -89,6 +89,12 @@ def train(args: argparse.Namespace) -> Path:
 
     train_idx, val_idx = split_by_game(dataset, args.val_frac, seed=args.seed)
     print(f"Steps: {len(dataset)}  →  train {len(train_idx)} / val {len(val_idx)} (by game)")
+    if len(train_idx) == 0:
+        raise ValueError(
+            f"Training split is empty ({len(train_idx)} train / {len(val_idx)} val steps) — "
+            f"--val-frac {args.val_frac} is too high for this {manifest.games}-game corpus. "
+            f"Lower --val-frac."
+        )
 
     train_loader = DataLoader(
         Subset(dataset, train_idx.tolist()),
@@ -109,6 +115,12 @@ def train(args: argparse.Namespace) -> Path:
         if len(val_idx) > 0
         else None
     )
+    has_val = val_loader is not None
+    if not has_val:
+        print(
+            "WARNING: no validation games (--val-frac too small for this corpus) — "
+            "selecting the best checkpoint by TRAIN accuracy (overfitting risk)."
+        )
 
     config = ModelConfig.from_manifest(
         manifest,
@@ -153,12 +165,20 @@ def train(args: argparse.Namespace) -> Path:
                     "feature_names": manifest.feature_names,
                     "teacher": manifest.teacher,
                     "epoch": epoch,
-                    "val_accuracy": best_metric,
+                    # Be honest about what "best" was selected on: with no val set we
+                    # fall back to TRAIN accuracy (overfitting-biased). `val_accuracy`
+                    # is None in that case so downstream tooling can't mistake a train
+                    # number for a held-out one.
+                    "selection_metric": "val_acc" if has_val else "train_acc",
+                    "selection_accuracy": best_metric,
+                    "val_accuracy": best_metric if has_val else None,
                 },
                 ckpt_path,
             )
 
-    print(f"\nBest accuracy: {best_metric:.4f}  →  saved {ckpt_path}")
+    print(
+        f"\nBest {'val' if has_val else 'train'} accuracy: {best_metric:.4f}  →  saved {ckpt_path}"
+    )
     return ckpt_path
 
 

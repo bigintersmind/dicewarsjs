@@ -98,3 +98,16 @@ def test_split_val_frac_zero(tmp_path):
     train_idx, val_idx = split_by_game(ds, val_frac=0.0)
     assert len(val_idx) == 0
     assert len(train_idx) == len(ds)
+
+
+def test_split_by_game_keeps_train_nonempty(tmp_path):
+    """A val_frac that would round every game into val must still leave >=1 game
+    (and thus >=1 step) in train — an empty train split is a silent no-op run."""
+    corpus = default_corpus(tmp_path / "c")  # 3 games
+    ds = CorpusDataset(corpus)
+    train_idx, val_idx = split_by_game(ds, val_frac=0.99, seed=0)
+    assert len(train_idx) > 0  # the clamp keeps >=1 game in train
+    games = ds.game_indices()
+    assert len(set(games[train_idx].tolist())) == 1  # exactly one game stays in train
+    assert len(set(games[val_idx].tolist())) == 2
+    assert set(train_idx).isdisjoint(set(val_idx))

@@ -1,14 +1,31 @@
 """ONNX export: it traces, the sidecar contract is written, ORT matches torch,
 and the edges axis is genuinely dynamic."""
 
+import importlib
 import json
+import os
 
 import numpy as np
 import pytest
 
-torch = pytest.importorskip("torch")
-pytest.importorskip("onnx")
-ort = pytest.importorskip("onnxruntime")
+_REQUIRE_ONNX = os.environ.get("REQUIRE_ONNX") == "1"
+
+
+def _require(modname: str):
+    """Import ``modname``; skip this module if it's missing — unless REQUIRE_ONNX=1,
+    in which case a missing module is a hard failure, so a CI job meant to verify
+    the ONNX↔PyTorch parity gate can't silently go green by skipping it."""
+    try:
+        return importlib.import_module(modname)
+    except ImportError:
+        if _REQUIRE_ONNX:
+            raise
+        pytest.skip(f"{modname} not installed (set REQUIRE_ONNX=1 to make this a failure)")
+
+
+torch = _require("torch")
+_require("onnx")
+ort = _require("onnxruntime")
 
 from dicewars_bc.export_onnx import INPUT_NAMES, OUTPUT_NAMES, export  # noqa: E402
 from dicewars_bc.model import EdgePolicyNet, ModelConfig  # noqa: E402
@@ -46,6 +63,11 @@ def test_export_writes_model_and_sidecar(tmp_path):
     assert meta["teacher"] == "Lookahead"
     assert [i["name"] for i in meta["io"]["inputs"]] == INPUT_NAMES
     assert [o["name"] for o in meta["io"]["outputs"]] == OUTPUT_NAMES
+    # The parity gate ran (onnxruntime is present in this test module) and the
+    # sidecar records it so a downstream consumer can refuse an unverified model.
+    assert meta["parityChecked"] is True
+    assert meta["parity"]["checked"] is True
+    assert meta["parity"]["maxLogitErr"] <= meta["parity"]["tol"]
 
 
 def test_onnx_dynamic_edges_axis(tmp_path):

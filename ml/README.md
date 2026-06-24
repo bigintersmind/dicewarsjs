@@ -117,3 +117,6 @@ cd ml && pytest          # hermetic — builds a tiny synthetic corpus, no real 
 ```
 
 Tests that need `torch` / `onnxruntime` skip automatically if those aren't installed.
+Set `REQUIRE_ONNX=1` to turn a missing `onnx`/`onnxruntime` into a hard failure
+instead of a skip — use it in CI so the ONNX↔PyTorch parity gate can't silently
+pass by being skipped.

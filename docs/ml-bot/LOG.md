@@ -21,6 +21,71 @@ Entry template:
 
 ---
 
+## 2026-06-24 — STOP-de-bias Step 0: fixed an invalid parity row + ran the inference STOP-bias sweep → GREEN-LIGHT
+
+**Phase:** 2 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Found + fixed a critical latent bug from PR #50.** BC was registered in
+  `src/arena/builtInBots.js` as `adaptModernBot(ai_bc)` — but `adaptModernBot` produces a
+  `(GameState)→move` wrapper for the in-game `runAI` loop, while every `BUILT_IN_BOTS`
+  consumer (CLI scripts, **ArenaScreen, TournamentScreen**) calls bots via
+  `runMatch → runBotDirect` with a **`BotState`**. So BC **threw on every arena turn (0
+  attacks, all errors) and never ran its policy.** The merged "BC 0.0% win / rank-3 ELO 1275"
+  parity row in RESULTS measured a do-nothing seat that force-ends every turn, **not the
+  clone.** No test exercised BC through its registered arena fn, so it slipped through #50.
+  **Fix:** register BC **raw** (`fn: ai_bc`), drop the unused `adaptModernBot` import.
+- **Built the STOP-de-bias Step 0 tooling.** `makeBC({ stopBias, onDecision })` in
+  `src/ai/ai_bc.js` (subtracts a constant from the trailing STOP logit before argmax — an
+  additive logit penalty, **not** a softmax temperature, which is argmax-invariant);
+  `ai_bc = makeBC()` so there's one code path. New `scripts/bc-stopbias-sweep.mjs` +
+  `npm run arena:bc-stopbias`. Tests: an arena-registration regression (BC plays via its
+  built-in fn, 0 errors / >0 attacks — pins the bug fixed above) + `makeBC` hook tests. All
+  235 arena + 15 BC tests green; lint clean.
+- **Ran the full sweep** (6 biases × 20 runs × 150 games = 18,000 games, ~22 min single-core).
+  Numbers in RESULTS ("BC STOP-bias inference sweep" section); also flagged the now-invalid
+  parity row there with a correction banner.
+
+**Learned / decided:**
+
+- **GREEN-LIGHT the de-bias retrain — calibration hypothesis confirmed with tight CIs.**
+  Win% is a clean inverted-U **peaking exactly where STOP% hits the teacher's rate**:
+  `stopBias 1` → STOP 46.7% (teacher ~45%) → **win 5.9 ± 0.8**, statistically clear of the
+  3.6 ± 0.6 control (no CI overlap). Past the peak it goes suicidal as predicted (STOP keeps
+  dropping, attack-win% collapses 85→78, placement/ELO degrade). **Retrain target: STOP ~45%.**
+- **ELO is a trap for this bot — judge on win%.** ELO _decreases_ monotonically with bias
+  (1260→1105) even as win% _peaks_ at bias 1, because ELO rewards survival/placement and the
+  passive clone turtles to middling placement without winning. This is precisely the illusion
+  that made the broken-registration "rank-3 ELO 1275" row look like a near-miss.
+- **Inference biasing alone does NOT reach parity** (best BC 5.9% vs Lookahead 21.2%, ~¼).
+  The retrain is still worth it (cheap, loss-only, bakes calibration in honestly, right PPO
+  warm-start) but the residual ~15-pt gap is the encoding/architecture ceiling (GNN/PPO),
+  not STOP calibration.
+- **First valid arena read of the real policy:** `stopBias 0` (the true control) is **3.6%
+  win / STOP 70.8%**, not 0% — the clone does win occasionally; it just turtles. STOP 70.8%
+  matches the ~68% Python validation number, cross-confirming the encoder/forward path.
+
+**Dead ends / surprises:**
+
+- The 4×40 smoke read oversold bias-1 (~10%); the real 20×150 number is 5.9%. STOP rates
+  matched closely (calibration is stable) — win lift was small-sample noise. Lesson reinforced:
+  tight CIs before trusting a win% delta.
+- The teacher's own win% _rises_ with BC's bias (17.9→23.2) — a suicidal BC feeds territory to
+  the survivors (Lookahead chief among them), a seat-interaction effect, not BC strength.
+
+**Next:**
+
+- The bugfix likely deserves its own small PR — it fixes BC in the live Arena/Tournament
+  **screens** too, independent of the ml-bot retrain work.
+- **The retrain itself (on `shodan`):** weighted/focal segmented CE in `ml/dicewars_bc/losses.py`
+  (teacher-STOP = `label == counts-1`), reuse the fixed 100k corpus, re-export unchanged ([D-16]).
+  **`train.py` MUST switch checkpoint selection off val move-match** (rewards the STOP bias) onto
+  STOP-rate calibration (~45%) or an arena-win probe. Then re-run `arena:bc-stopbias` at bias 0 to
+  confirm the retrained clone sits near the teacher STOP rate without the inference hack.
+
+---
+
 ## 2026-06-23 — Phase-2 parity run: 100k corpus + MLP clone → passive (STOP-biased), no win parity
 
 **Phase:** 2 · **Who:** Ivan + Claude

@@ -370,6 +370,18 @@ density.
 
 ## Phase 2 — imitation parity run (100k corpus, MLP clone) · 2026-06-23
 
+> **⚠️ THE `BC` ROW IN THIS SECTION IS INVALID — it measured a broken registration,
+> not the clone (discovered 2026-06-24).** BC was registered in `builtInBots.js` as
+> `adaptModernBot(ai_bc)`, whose wrapper expects a `GameState`, but every
+> `BUILT_IN_BOTS` consumer (CLI scripts, ArenaScreen, TournamentScreen) calls bots via
+> `runMatch → runBotDirect` with a **`BotState`**. So BC **threw on every turn (0 attacks,
+> all errors) and never ran its policy** — a do-nothing bot that force-ends every turn.
+> Its "0.0% win / rank-3 ELO 1275" is the signature of a passive seat surviving to
+> middling placement, _not_ the trained net. The "STOP ~68%" figure was a separate
+> Python-validation number, not the arena. **For the real BC arena numbers, see the
+> STOP-bias sweep section below (`stopBias 0` is the corrected control: 3.6% win).**
+> The corpus / training / val-move-match numbers in this section are unaffected and stand.
+
 **Corpus.** Full 7-bot arena field, `Lookahead` teacher, seeds 1–100,000 (generated on
 `shodan`, foreground-sharded 4×25k). **100,000 games · 8,591,769 teacher steps · 59.4M
 edges · 8.2 GB packed.** 100% clean (no forced-end quarantine).
@@ -398,3 +410,65 @@ plays passively → survives for middling placement (ELO) but can't conquer a bo
 "STOP instead of attack," which is competitively fatal. Per [D-Encoding] the simple MLP
 plateaus; the objective/encoding (not RL) is the gap. **Next levers:** STOP-class de-bias
 (class-weighted / focal CE) on the same corpus → if it plateaus, a 1–2 layer GNN.
+
+---
+
+## Phase 2 — BC STOP-bias inference sweep (zero-retrain diagnostic) · 2026-06-24
+
+**What & why.** Before paying for a class-weighted/focal-CE retrain on the GPU box, a
+free oracle over the already-exported weights: sweep an **inference-time STOP-logit bias**
+(`makeBC({stopBias})`, subtract a constant from the trailing STOP logit before argmax) and
+watch BC's win% and realized STOP rate. If a bias lifts win% off the control while pushing
+STOP from ~71% toward the teacher's ~45% → the failure is STOP-threshold miscalibration
+(green-light the retrain, target that STOP rate). If win% stays flat while attacks climb
+and attack-win% collapses → passivity just becomes suicide (skip the retrain, escalate).
+**This run also produced the first VALID arena measurement of the trained policy** (the
+parity section above measured a broken registration — see its banner).
+
+**`npm run arena:bc-stopbias` — 6 biases × 20 runs × 150 games (18,000 games, seat-fair,
+same 7-bot field as the parity run, Lookahead as yardstick; 95% Student-t CIs):**
+
+| stopBias | BC win% (95% CI) | BC STOP% | BC ELO | BC place | BC atk/g | BC atk-win% | Lookahead win% (CI) |
+| -------: | ---------------- | -------: | -----: | -------: | -------: | ----------: | ------------------- |
+|        0 | 3.6 ± 0.6        |     70.8 |   1260 |     3.87 |     15.6 |        88.0 | 17.9 ± 1.3          |
+|      0.5 | 4.9 ± 0.8        |     59.3 |   1225 |     4.21 |     21.6 |        86.3 | 18.7 ± 1.3          |
+| **1** ◀ | **5.9 ± 0.8**    | **46.7** |   1184 |     4.68 |     27.4 |        84.8 | 21.2 ± 1.5          |
+|        2 | 5.4 ± 0.9        |     34.5 |   1144 |     5.14 |     30.7 |        83.2 | 22.8 ± 1.6          |
+|        3 | 5.0 ± 1.0        |     28.8 |   1125 |     5.24 |     31.8 |        80.5 | 23.1 ± 1.7          |
+|        4 | 4.2 ± 0.6        |     28.0 |   1105 |     5.46 |     30.5 |        77.9 | 23.2 ± 1.5          |
+
+**Verdict — GREEN-LIGHT the de-bias retrain (with a sharp caveat).**
+
+- **The calibration hypothesis is confirmed with tight, non-overlapping CIs.** Win% is a
+  clean inverted-U that **peaks exactly where STOP% hits the teacher's rate**: `stopBias 1`
+  → STOP 46.7% (teacher ~45%) → win 5.9 ± 0.8, statistically clear of the 3.6 ± 0.6 control
+  ([5.1, 6.7] vs [3.0, 4.2], no overlap). Past the peak it goes suicidal as predicted —
+  STOP keeps falling, attack-win% collapses 85→78, placement/ELO degrade monotonically.
+  **Retrain target STOP rate: ~45–47%.**
+- **ELO is the trap, not the gate.** ELO _decreases_ monotonically with bias (1260→1105)
+  even as win% _peaks_ at bias 1 — because ELO rewards survival/placement, and the passive
+  bias-0 clone turtles to middling placement (3.87) without ever winning. **This is exactly
+  the illusion the invalid parity row fell for** ("rank-3 ELO 1275"). Judge BC on **win%**.
+- **Inference biasing alone does NOT reach parity.** Best BC 5.9% vs Lookahead 21.2% at the
+  same bias (~¼ of the teacher). So the retrain is worth doing (cheap, loss-only, bakes the
+  calibration into the weights honestly, right PPO warm-start) but will **not** close the
+  full parity gap — the residual ~15 pts is the encoding/architecture ceiling ([D-Encoding]):
+  the GNN/PPO escalation, not this retrain. (The teacher's own win% _rises_ with BC's bias,
+  17.9→23.2, because a suicidal BC feeds territory to the survivors, Lookahead chief among
+  them — a seat-interaction effect, not BC strength.)
+- **Note vs. the early smoke read.** A tiny 4×40 pre-run had bias-1 at ~10% win; the real
+  number is **5.9%**. STOP rates matched closely (calibration is stable) — the win lift was
+  a small-sample fluctuation. The true lift is ~+2.3 pts absolute (~64% relative), real but
+  modest.
+
+**Retrain plumbing reminders** (for when it runs on `shodan`): the de-bias is loss-only in
+`ml/dicewars_bc/losses.py` (weighted/focal segmented CE; teacher-STOP = `label == counts-1`),
+reuse the fixed 100k corpus, re-export unchanged ([D-16]). **`train.py` MUST stop selecting
+checkpoints on val move-match** (the misleading proxy that rewards the STOP bias) — select on
+STOP-rate calibration (target ~45%) or an arena-win probe, or the retrain re-introduces the bias.
+
+**Repro.** `npm run arena:bc-stopbias` (defaults: `--runs 20 --games 150 --bias 0,0.5,1,2,3,4`);
+`--seedbase 100` for a disjoint replication. Run `r` for bias `b` uses base seed
+`(seedbase + r) · STRIDE + 1` (STRIDE = max(1e6, games·1000)), independent of `b`, so every
+bias sees identical maps (paired across the column). STOP% is the realized rate aggregated
+over every BC decision in the config via the `onDecision` hook.

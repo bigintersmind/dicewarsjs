@@ -21,6 +21,59 @@ Entry template:
 
 ---
 
+## 2026-06-24 — STOP-de-bias retrain: weighted-CE + stop-cal selection → calibrated (win 3.6→6.4%, still not parity)
+
+**Phase:** 2 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Implemented the two machine-independent retrain levers** (branch `ml-bot/bc-focal-retrain`):
+  `segmented_cross_entropy` gained `stop_weight` (down-weights teacher-STOP steps,
+  `label == count-1`; weight-normalized mean) + `focal_gamma`; defaults reproduce plain CE
+  exactly. `train.py` gained `--stop-weight`/`--focal-gamma` (training objective only — reported
+  `ce` stays plain) and **`--select-by stop-cal`**, which checkpoints the epoch whose realized
+  argmax STOP rate is closest to the teacher's (auto target = teacher val STOP) instead of best
+  move-match. New `predicted_stop_rate`/`teacher_stop_rate` helpers + per-epoch STOP logging. 15
+  new Py tests; full ml suite 22/22 on the mini (incl. ONNX parity).
+- **Ran the retrain as a `stop_weight` scan on the Mac mini** (`shodan` offline): {1.0, 0.5,
+  0.25, 0.125}, 2 epochs each, stop-cal, full 100k corpus. ~27 min/epoch, memory-bound but
+  stable at `nw=4`. `w=0.5` → val STOP 0.436 (teacher 0.448) at val acc 0.556 — the pick.
+- **Exported `w=0.5` → `src/ai/bcPolicyWeights.js` + regenerated the parity fixture; 16/16 JS
+  parity tests green.** Validated in-arena (`arena:bc-stopbias`, bias −1…2, 20×150, seedbase 0).
+
+**Learned / decided:**
+
+- **The de-bias worked, baked into the weights.** Native (`stopBias 0`) realized arena STOP
+  **70.8% → 48.6%** (teacher ~45%); native win **3.6% → 6.4%** (disjoint CIs [3.0,4.2]→[5.5,7.3]).
+  The de-biased native model beats the OLD model's _tuned_ peak (5.9% @ bias 1); the inverted-U
+  shifted left to center on bias 0–0.5. **Shipping native `stopBias 0`** (`ai_bc = makeBC()`) —
+  teacher-faithful, no inference crutch. (val→arena STOP shift ≈ +5 pp: 0.436 → 0.486.)
+- **stop-cal selection earned its keep:** the `w=1.0` control's STOP rate _grew_ with training
+  (ep1 0.541 → ep2 0.603), so move-match selection would have shipped the worse-calibrated epoch;
+  stop-cal took ep1. Confirms the "MUST switch checkpoint selection off move-match" warning.
+- **Still NOT parity — exactly as the inference sweep predicted.** Best BC ~6.8% vs Lookahead
+  ~20% (~⅓). Residual ~13 pt = the per-edge-MLP encoding/arch ceiling ([D-Encoding]), not STOP
+  calibration. **STOP-de-bias is now CLOSED; parity lives in Phase-3 (GNN / PPO).** Pure BC's
+  role stands as the PPO warm-start — now a _calibrated_ one.
+
+**Dead ends / surprises:**
+
+- **The STOP bias compounds with training epochs.** The `w=1.0` control hit val STOP 0.541 at
+  ep1 → 0.603 at ep2; the original 20-epoch run reached ~68%. So the over-prediction grows the
+  longer you train on plain CE — an extra reason move-match selection (which keeps the most-
+  trained epoch) is dangerous, and why "few epochs + stop-cal" is the right recipe.
+- The regenerated mini corpus (Default/Example/Adaptive use `Math.random`) is not byte-identical
+  to shodan's, but teacher (Lookahead) val STOP came out ~0.448 — consistent with the ~45% the
+  whole de-bias targets.
+
+**Next:**
+
+- Open the PR for `ml-bot/bc-focal-retrain` (losses/train + de-biased weights/fixture + docs).
+- **Phase 3:** GNN and/or PPO warm-started from this calibrated clone — where the ~13 pt parity
+  gap actually lives. Pure-BC STOP-de-bias is done.
+
+---
+
 ## 2026-06-24 — STOP-de-bias Step 0: fixed an invalid parity row + ran the inference STOP-bias sweep → GREEN-LIGHT
 
 **Phase:** 2 · **Who:** Ivan + Claude

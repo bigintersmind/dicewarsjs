@@ -28,6 +28,15 @@ const PLAYER_COUNT = 7;
 const MAX_AREAS = BC_POLICY.config.maxAreas;
 const MAX_TURNS = 500;
 
+/*
+ * Every test below simulates one or two full 7-FFA self-play matches (an ai_bc forward pass per
+ * decision). That runs ~1-2s locally, but under `--coverage` instrumentation on a resource-capped
+ * CI runner it is ~12x slower (~13-17s) — past vitest's 5s default, which timed these out in CI.
+ * Raise the per-test timeout file-wide (6x the observed CI worst case) so coverage runs don't
+ * flake, while still catching a genuine hang.
+ */
+vi.setConfig({ testTimeout: 30_000 });
+
 /** A learner that reproduces ai_bc: argmax over the same logits the BC bot uses. */
 const mimicAiBc = encoded => argmax(forward(BC_POLICY, encoded).logits);
 

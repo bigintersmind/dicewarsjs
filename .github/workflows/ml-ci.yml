@@ -41,6 +41,13 @@ jobs:
       - name: Install package + ONNX + dev extras
         run: pip install -e '.[onnx,dev]'
 
+      # gymnasium is pure-Python (no torch) and activates the hermetic DiceWarsEnv
+      # unit tests (tests/test_ppo_env_unit.py) in CI without the full `[rl]` stack
+      # (stable-baselines3 / sb3-contrib pull heavy deps). The live env-server smoke
+      # (tests/test_ppo_env.py) still skips here since `node` isn't installed.
+      - name: Install gymnasium (PPO env unit tests)
+        run: pip install 'gymnasium>=0.29'
+
       - name: Lint (ruff)
         run: ruff check .
 

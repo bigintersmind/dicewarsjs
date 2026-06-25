@@ -21,6 +21,66 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 env-server review hardening (PR #57 fixes) → [D-21]
+
+**Phase:** 3 · **Who:** Claude
+
+**Did:**
+
+- Reviewed the tracer slice (PR #57) with specialized agents + an adversarial verification workflow, then
+  fixed every finding. No engine/shipped-bot edits — all in `scripts/` + `tests/ml/`. Full suite 965 green;
+  CI green on `be126bc`.
+- **Disconnect (was: zombie loop).** The learner runs as a bot fn and `runBotDirect` swallows _every_ bot-fn
+  throw, so the `EnvClosed` from `chooseAction` was eaten → the `if (err instanceof EnvClosed) break` was dead
+  code; with `--episodes=0` a vanished client spun full matches forever. Fix: record the loss and re-raise on
+  the next turn boundary via a `failIfLost` **onTurn** guard (the one seam the engine's try/catch can't
+  swallow); the worker now **always** posts `closed` on socket loss.
+- **Watchdog (issue A — the unattended-training gate).** The main-side `Atomics.wait` had no timeout, so a
+  hard worker death (OOM/segfault — no JS throw, `failSafe` never runs) or a connected-but-silent learner
+  parked it forever. Added `--decision-timeout-ms` (default 120 s; 0 = off) → bounded loud abort (exit 1).
+- **Loud desync (issue B).** `decodeAction`'s out-of-range throw was _also_ dead (swallowed → silent
+  turn-forfeit → a stream of valid-looking, corrupt low-reward episodes). `chooseAction` now validates the
+  index and fails **fatal** (exit 1) with a `MAX_EDGES`/masking hint, instead of poisoning training data.
+- **Placement parity (corrects D-20's "exact").** `rank = #alive` was off by one on a same-turn
+  co-elimination: `runMatch` orders simultaneous deaths by ascending seat id and `calculatePlacements`
+  reverses that, so a co-eliminee with a HIGHER id than the learner finishes ABOVE it but isn't in `#alive`.
+  `eliminationOutcome` now uses `rank = aliveCount + (higher-id same-turn co-eliminees)`.
+- **Robustness/teardown.** `writeFramed` inside the `handleObs` try; worker `failSafe` (uncaught/unhandled →
+  wake main `ST_CLOSED`, now consumed by the parent); episode loop in `try/finally` that always reaps the
+  worker; `readExactly` re-entrancy guard; rejected 2nd connection gets a no-op error handler (no spurious
+  shutdown); CLI rejects unknown/non-finite flags; bind/worker failures exit 1.
+- **Tests (+22 → 965).** `tests/ml/obs-frame.test.js` (codec shape/size/type guards, `numEdges=0`);
+  co-elimination placement across seats 0/1/3 + a runner-up exact-parity case; the onTurn abort-seam
+  mechanism; `uniquifyNames`, `makeLearnerBot` validation, `mergeShards`, `decodeAction` STOP guard. New
+  `scripts/ppo-env-disconnect-smoke.mjs` (`npm run ppo:disconnect-smoke`): a 3-scenario lost-learner smoke —
+  disconnect → exit 0, watchdog → exit 1, desync → exit 1.
+
+**Learned / decided ([D-21]):**
+
+- **The control-plane constraint.** Because the learner is an ordinary bot fn, `runBotDirect` converts any
+  throw into a silent turn-forfeit. So _every_ env↔learner control signal — disconnect, timeout, desync — must
+  surface via the `onTurn` seam (which `runMatch` does NOT wrap in try/catch), never by throwing from
+  `chooseAction`. This is the load-bearing fact behind all four robustness fixes and the protocol the Python
+  client (steps 4–7) must respect: reply within the deadline, never send an out-of-range index; a clean
+  disconnect ⇒ exit 0, a timeout/desync ⇒ exit 1.
+- The adversarial workflow (4 verifiers + a completeness critic) confirmed the disconnect and placement fixes
+  sound and surfaced A & B — both deadlock/silent-corruption holes the green suite couldn't catch — which were
+  then fixed. The placement fix was reconfirmed by a 1,560-game oracle sweep, 0 mismatches.
+
+**Dead ends / surprises:**
+
+- `decodeAction`'s loud out-of-range throw and `chooseAction`'s `EnvClosed` look like working error paths but
+  are BOTH dead on the live path — the same `runBotDirect` swallow. That loud-by-design / silent-in-practice
+  asymmetry is exactly why a desync poisoned data with no signal. Resolved by routing both through the onTurn
+  channel + a boundary index check in `chooseAction`.
+
+**Next:**
+
+- Unchanged: tracer steps 4–7 (Python `[rl]` on shodan). The watchdog (issue A) was the prerequisite the
+  verification critic gated long unattended runs on — now in place.
+
+---
+
 ## 2026-06-25 — Phase-3 env-server early termination (the [D-20] step-1 follow-up)
 
 **Phase:** 3 · **Who:** Claude

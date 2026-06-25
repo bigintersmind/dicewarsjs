@@ -1013,6 +1013,9 @@ and the true per-decision action-count that sizes `MAX_EDGES`. Tracer step 3 (`s
    terminal there. Placement is exact, not approximate — a player's finishing rank is fixed the moment
    it dies (everyone still alive outlives it), so `rank = #alive` reproduces `calculatePlacements`'
    game-over value with no tail (asserted against the engine on a fixed seed in `tests/ml/ppo-env.test.js`).
+   **Refined by [D-21] (2026-06-25):** `rank = #alive` is exact only when the learner is the SOLE death that
+   turn; a same-turn co-elimination with a higher-seat-id player needs a `+co-eliminees` correction to match
+   `calculatePlacements` (it was off by one rank in ~4% of losing episodes).
    The env-server sets the flag (terminal frame at elimination: `won=0`, `winner=-1` while undecided,
    placement = locked-in rank); the throughput probe was refactored onto the same flag, dropping its
    bespoke sentinel-throw. ~2× free throughput on the env-server path + correct single-learner PPO
@@ -1023,3 +1026,49 @@ Lookahead ~0.3–0.4 ms, Expectimax ~0.16 ms (far cheaper than the solo-bot "too
 size + memoization), Strategist ~0.02 ms. Worker-pool scaling ~3× on 4 workers of an 8-core box
 (~75%/core) — a faithful CPU-bound proxy for SB3 `SubprocVecEnv`. Full numbers: `RESULTS.md`
 "Phase-3 PPO throughput probe" + `LOG.md` 2026-06-25.
+
+---
+
+## D-21 — Env↔learner control plane: signal via the `onTurn` seam, a per-decision watchdog, fail-loud on desync; placement gains a same-turn co-elimination correction · Accepted (2026-06-25) · hardens [D-19](#d-19--phase-3-ppo-architecture-in-process-self-play-env-over-a-nodepython-socket-edgepolicynet-trunk-policy-warm-started-from-v2-bc-pfsp-league-in-the-full-8-ffa--accepted-2026-06-25) / [D-20](#d-20-phase-3-throughput-proven-green--max_edges--64-episodes-terminate-at-learner-elimination--accepted-2026-06-25)
+
+**Context.** Review of the tracer slice (PR #57) surfaced that the learner runs as an ordinary bot fn, so
+`runBotDirect` (`src/arena/botRunner.js`) catches **every** throw it makes and converts it to a silent
+turn-forfeit. Two "error paths" written to fail loud were therefore **dead on the live path**:
+`chooseAction`'s `EnvClosed` on disconnect (so the `if (err instanceof EnvClosed) break` was dead code — a
+vanished client made the `--episodes=0` server spin full matches forever) and `decodeAction`'s out-of-range
+guard (a learner↔env action-space desync silently produced a stream of valid-looking, corrupt low-reward
+episodes). An adversarial verification workflow (4 verifiers + a completeness critic) then found two more
+deadlocks behind the JS-only `failSafe`: a hard worker death (OOM/segfault — no JS exception) or a
+connected-but-silent learner parked the main thread's `Atomics.wait` forever (its blocked event loop can't
+run `worker.on('error')`).
+
+**Decisions.**
+
+1. **All env↔learner control signals travel via the `onTurn` seam, never a `chooseAction` throw.** `runMatch`
+   does not wrap its `onTurn` callback in try/catch, so a throw there propagates out of `runSelfPlayEpisode` —
+   the one abort path the engine's bot-fn try/catch can't swallow. `chooseAction` records _why_ the learner
+   was lost (`lostError`) and a `failIfLost` onTurn guard re-raises it on the next turn boundary (≤1 forfeited
+   turn of slack); the worker always posts `closed` on socket loss.
+
+2. **A per-decision watchdog.** `--decision-timeout-ms` (default 120 s — inference is sub-second; 0 disables)
+   bounds the main-side `Atomics.wait`, so a hung learner or a hard worker death aborts loud instead of
+   deadlocking. This is the gate the verification critic put on long unattended training (shodan, steps 4–7).
+
+3. **A clean disconnect is exit 0; a timeout or an action-space desync is fatal (exit 1).** An out-of-range
+   action index is a trainer-side masking/`MAX_EDGES` bug, not a recoverable move — surface it loud with a
+   diagnostic rather than forfeit and poison the data. The protocol contract the Python client must honor:
+   reply within the deadline, never send an index outside `[0, numEdges)`.
+
+4. **Placement gains a same-turn co-elimination correction (refines [D-20] pt 3).** `runMatch` appends
+   simultaneous eliminations to `eliminationOrder` in ascending seat id and `calculatePlacements` reverses
+   that, so a co-eliminee with a HIGHER id than the learner finishes ABOVE it yet isn't counted in `#alive`.
+   `eliminationOutcome` now uses `rank = aliveCount + (higher-id same-turn co-eliminees)` — verified exact vs
+   `calculatePlacements` over a 1,560-game oracle sweep (0 mismatches; the naive `#alive` model was wrong in 19).
+
+**Rejected.** A heartbeat/bounded-retry protocol over the socket (more moving parts than a per-decision
+deadline buys for a single-learner env). Signaling the disconnect by throwing from `chooseAction` and
+"catching it later" — impossible, `runBotDirect` eats it first; that _was_ the original dead-code bug.
+
+**Notes.** No engine or shipped-bot changes — all in `scripts/` + `tests/ml/`. Regression coverage:
+`npm run ppo:disconnect-smoke` (disconnect → exit 0, watchdog → exit 1, desync → exit 1) + 22 new unit tests.
+Full suite 965 green; CI green on `be126bc`. Session: `LOG.md` 2026-06-25 "review hardening".

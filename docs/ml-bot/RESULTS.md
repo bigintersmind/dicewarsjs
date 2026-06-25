@@ -580,3 +580,63 @@ model size. Next: encoding-v2 (adjacency + richer features) to split feature-lim
 factorization-saturated ([D-17]) — and that enriched observation is reusable as the PPO
 input. Checkpoints + exports on `shodan` (`~/dicewarsjs/ml/checkpoints/probe/`,
 `~/probe-exports/`). **Repro:** `node scripts/_probe-capacity-arena.mjs --weights-dir <dir>`.
+
+## Phase 3 — encoding-v2 retrain (feature-limited vs factorization-saturated?) · 2026-06-25
+
+**Question.** Capacity is closed ([D-17]). Of the two remaining suspects — **features**
+(the v1 encoding lacked local board context) vs **factorization** (per-edge MLP, no message
+passing) — which caps the BC clone at ~6.4%? Test: add engineered local-neighbourhood
+features (NOT a raw adjacency blob — the per-edge MLP can't message-pass over one, and PPO
+builds its observation live), bump `ENCODING_VERSION 1→2`, re-encode the **same** 100k corpus,
+retrain the **same** 102k MLP with the **same** recipe (`--epochs 6 --stop-weight 0.5
+--select-by stop-cal`, seed 0), and arena-confirm. The v1 twin is the capacity-probe
+`c0_base` (identical net + recipe; the _only_ variable is the encoding).
+
+**v2 feature set.** Node 5→8 (`enemyNbrDiceMaxNorm`, `enemyNbrFrac`, `degreeNorm`); edge
+4→7 (`tgtRetakeThreatNorm`, `srcVacateThreatNorm`, `tgtEnemyNbrFrac`) — attack-consequence
+signals that mirror how the Lookahead teacher reasons. Re-encode on `shodan`: 8,591,769 steps
+/ 59,353,397 edges, byte-identical step/edge counts to v1 (only the feature widths changed).
+
+**Step 1 — proxy (val move-match). LARGE jump.** Same metric, same net, only the encoding
+differs:
+
+| encoding           | node/edge feats | best val acc | val STOP (teacher 0.448) |
+| ------------------ | --------------- | ------------ | ------------------------ |
+| v1 (`c0_base`)     | 5 / 4           | 0.5675       | 0.447                    |
+| **v2 (`v2-base`)** | **8 / 7**       | **0.7328**   | 0.414 (sel. ep3 0.418)   |
+
+**+16.5 pt** top-1 imitation accuracy from six engineered features — the teacher's moves
+became far more predictable. (No epoch reached the STOP-cal band; the closest, epoch 3, was
+saved. Irrelevant to deployment — see Step 2: arena STOP diverges from val STOP, and the bias
+sweep is ground truth.)
+
+**Step 2 — real metric (arena win% with 95% CIs). The proxy followed this time.**
+`npm run arena:bc-stopbias -- --runs 15 --games 130 --bias 0,0.5,1,2,3` — same 8-bot field
+and protocol as the `c0_base` baseline (only the deployed weights differ):
+
+| stopBias | BC win% (95% CI) | STOP% | BC ELO | place | atk/g | atk-win% | Lookahead win% |
+| -------- | ---------------- | ----- | ------ | ----- | ----- | -------- | -------------- |
+| **0** ◀ | **12.5 ± 1.9**   | 53.0  | 1281   | 3.66  | 36.1  | 83.5     | 17.0 ± 2.1     |
+| 0.5      | **12.5 ± 1.4**   | 47.7  | 1260   | 3.89  | 38.5  | 82.5     | 17.1 ± 1.7     |
+| 1        | 11.3 ± 1.1       | 44.5  | 1244   | 4.16  | 38.3  | 81.9     | 17.2 ± 2.0     |
+| 2        | 9.7 ± 1.6        | 37.7  | 1198   | 4.55  | 39.0  | 81.4     | 20.9 ± 1.9     |
+| 3        | 7.7 ± 1.2        | 31.3  | 1166   | 4.83  | 37.0  | 79.9     | 21.3 ± 1.6     |
+
+- **Win% nearly doubled.** Peak **6.7 ± 0.8 (v1 `c0_base`) → 12.5 ± 1.4/1.9 (v2)**, CIs fully
+  disjoint ([5.9, 7.5] vs [11.1, 13.9]). The +16.5 pt proxy gain **carried through to the
+  gate** — unlike the capacity sweep, where +0.58 pt proxy left win% flat. The per-edge MLP
+  was **feature-starved, not factorization-saturated**: given richer local signal it scores
+  edges far better with zero architecture change.
+- **Halves the gap to Lookahead.** Lookahead ~17% in this field; BC's native gap shrank from
+  ~13 pt (at 6.4%) to **~4.6 pt** (at 12.5%, still statistically below — BC has not _beaten_
+  the gate, nor was it expected to: BC's ceiling is parity-not-beat, [D-15]).
+- **v2 needs no STOP bias.** Peak is at **bias 0** (the deployed default): native STOP 53% vs
+  v1's untuned ~71% turtle. Win% _declines monotonically_ as positive bias suppresses STOP —
+  aggression now only hurts. Deploy at bias 0 (12.5%, no tuning). bias 0.5 ties on win% with
+  STOP closest to the teacher (47.7% vs 45%) and the tightest CI, an equally valid default.
+
+**Verdict: FEATURE-LIMITED.** Confirmed on both the proxy and the gating metric ([D-18]). The
+residual ~4.6 pt gap to Lookahead is the **imitation ceiling** (BC clones; Lookahead searches)
+— the lever PPO/RL pulls. The v2 observation is the durable artifact: it ships as the deployed
+BC _and_ feeds the PPO input. v2 checkpoint on `shodan` (`~/dicewarsjs/ml/checkpoints/v2-base/`).
+**Repro:** `npm run arena:bc-stopbias -- --runs 15 --games 130 --bias 0,0.5,1,2,3`.

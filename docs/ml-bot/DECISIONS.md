@@ -809,3 +809,45 @@ impoverished observation and re-discovering the same gap expensively. (b) A bigg
 out by this evidence. (c) A standalone GNN-BC probe instead of encoding-v2 — needs the adjacency
 blob anyway (same re-encode cost) _plus_ new architecture, and its result (parity at best) is
 lower-value than producing the reusable v2 observation.
+
+## D-18 — The BC gap was FEATURE-LIMITED, not factorization-saturated; encoding-v2 ships as the deployed BC and the PPO observation; fork to PPO for the residual · Accepted (2026-06-25) · resolves [D-17](#d-17--the-bc-gap-is-not-capacity-limited-localize-encoding-vs-factorization-before-the-ppo-fork)
+
+**Context.** [D-17] closed capacity and split the remaining gap into **features** vs
+**factorization**, to be decided by encoding-v2: same 102k MLP + same recipe, only the encoding
+enriched (engineered local-neighbourhood features, not a raw adjacency blob — the per-edge MLP
+can't message-pass over one, and PPO builds its observation live anyway; Ivan's call:
+"engineered features only"). Feature-limited ⇒ win% rises on richer features; factorization-
+saturated ⇒ still flat → needs message passing / RL.
+
+**Decision.** Accept the **feature-limited** verdict and **ship encoding-v2** (`ENCODING_VERSION
+2`): node 5→8 (`enemyNbrDiceMaxNorm`, `enemyNbrFrac`, `degreeNorm`), edge 4→7
+(`tgtRetakeThreatNorm`, `srcVacateThreatNorm`, `tgtEnemyNbrFrac`). The retrained weights replace
+the deployed `src/ai/bcPolicyWeights.js` (default `stopBias 0`). **Fork to PPO** for the residual
+gap — no further BC feature/architecture tuning, as BC's ceiling is parity-not-beat ([D-15]).
+
+**Evidence (full tables in RESULTS.md Phase 3 — encoding-v2).** Same net, same 100k corpus,
+only the encoding differs vs the [D-17] `c0_base` twin:
+
+- **Proxy jumped:** val move-match **0.5675 → 0.7328** (+16.5 pt) — the six engineered
+  attack-consequence features made the teacher's moves far more predictable.
+- **Gate followed (the decisive part):** peak arena win% **6.7 ± 0.8 → 12.5 ± 1.4** (15×130,
+  same 8-bot field, CIs disjoint [5.9,7.5] vs [11.1,13.9]). Unlike the capacity sweep (+0.58 pt
+  proxy → flat win%), this proxy gain **carried to the gate**. Native gap to Lookahead (~17%)
+  ~halved: ~13 pt → ~4.6 pt.
+- **STOP self-calibrated:** peak at `stopBias 0` (native STOP 53% vs v1's ~71% turtle); positive
+  bias now only hurts. No deploy-time tuning needed.
+
+**Consequences.** (1) The v2 observation is the **durable artifact** ([D-2] reuse) — it is
+_both_ the shipped BC encoding _and_ the PPO input, so the work survives the BC→PPO fork.
+(2) BC tuning is **done**: the residual ~4.6 pt is the imitation ceiling (BC clones, Lookahead
+searches), which only RL crosses. (3) The lockstep version bump touched
+`encodeObservation.js`, `manifest.py`, `ai_bc.js` (load guard), `export_weights.py`/
+`export_onnx.py` fixtures, and the JS/Python test fixtures + the `encode-corpus` end-to-end
+version assertion — all green at v2.
+
+**Rejected / not chosen.** (a) A raw adjacency-CSR blob in the corpus — the current MLP can't
+message-pass over it and PPO won't consume it (builds observations live), so it would add bytes
+with no model benefit (Ivan: "engineered features only"). (b) Further BC feature engineering to
+chase the last ~4.6 pt — diminishing returns against an imitation ceiling; PPO is the right
+lever. (c) Re-running the capacity sweep on v2 — capacity was already closed independent of
+encoding ([D-17]); 102k suffices.

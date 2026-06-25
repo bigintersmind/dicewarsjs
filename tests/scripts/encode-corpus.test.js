@@ -65,7 +65,7 @@ describe('encode-corpus CLI end-to-end', () => {
     );
 
     const manifest = JSON.parse(fs.readFileSync(path.join(outDir, 'manifest.json'), 'utf-8'));
-    expect(manifest.encodingVersion).toBe(1);
+    expect(manifest.encodingVersion).toBe(2);
     expect(manifest.teacher).toBe('Lookahead');
     expect(manifest.dims.playerCount).toBe(4);
     expect(manifest.counts.games).toBe(games);

@@ -21,6 +21,51 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 Step 2: encoding-v2 → FEATURE-LIMITED confirmed; BC win% 6.7%→12.5%, deployed; fork to PPO
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Built **encoding-v2** (`ENCODING_VERSION 1→2`): engineered local-neighbourhood features only
+  (Ivan's call — no raw adjacency blob). Node 5→8 (`enemyNbrDiceMaxNorm`, `enemyNbrFrac`,
+  `degreeNorm`), edge 4→7 (`tgtRetakeThreatNorm`, `srcVacateThreatNorm`, `tgtEnemyNbrFrac`).
+  Lockstep bump across `encodeObservation.js`, `manifest.py`, `ai_bc.js` guard, export fixtures,
+  and JS/Python tests. Broke a transition deadlock (`encode-corpus → cli-utils → ai_bc` guard
+  threw mid-transition) by extracting `scripts/lib/cli-args.mjs`.
+- Re-encoded the **same** 100k corpus on `shodan` (8,591,769 steps / 59.4M edges, counts
+  identical to v1) and retrained the **same** 102k MLP with the **same** recipe (the only
+  variable is the encoding; v1 twin = the [D-17] capacity-probe `c0_base`).
+- Exported v2 weights → `src/ai/bcPolicyWeights.js` (+ regenerated parity fixture), arena-
+  confirmed via `arena:bc-stopbias` (15×130, bias 0–3, same 8-bot field as the baseline). Full
+  suite green (909/909). ADR: [D-18].
+
+**Learned / decided:**
+
+- **FEATURE-LIMITED, decisively.** Val move-match **0.5675 → 0.7328** (+16.5 pt) AND — the
+  decisive part — the gate followed: peak arena win% **6.7 ± 0.8 → 12.5 ± 1.4** (CIs disjoint).
+  Contrast the capacity sweep, where +0.58 pt proxy left win% flat. The per-edge MLP was
+  feature-starved, not factorization-saturated.
+- Native gap to Lookahead (~17%) ~halved (13 pt → ~4.6 pt). BC is still below the gate (parity-
+  not-beat, [D-15]); the residual is the **imitation ceiling** → **fork to PPO** (D-18). The v2
+  observation is the durable artifact: ships as deployed BC _and_ feeds the PPO input.
+
+**Dead ends / surprises:**
+
+- **v2 needs NO STOP bias.** Peak at `stopBias 0` (native arena STOP 53% vs v1's ~71% turtle);
+  positive bias now only suppresses STOP and _hurts_. The richer features fixed the turtle
+  natively — deploy at default, no tuning.
+- Training warned "no epoch hit the STOP-cal band" (val STOP 0.418 < target 0.448) — a non-issue:
+  val-STOP ≠ arena-STOP (known confound), and bias 0 already lands STOP at 53% in self-play.
+- Caught a stale v1 assertion in `tests/scripts/encode-corpus.test.js` (`encodingVersion` 1→2)
+  that the lockstep bump had missed; full suite green after the fix.
+
+**Next:**
+
+- **Phase 3 → PPO.** Stand up the PPO loop on `shodan` with the v2 observation as the policy
+  input (warm-start from the v2 BC weights is the open design question). Target: cross the
+  imitation ceiling and clear the [D-7] gate (statistically significant win% edge over Lookahead).
+
 ## 2026-06-25 — Phase-3 ceiling probe, Step 1: capacity is NOT the bottleneck (10× params → flat-to-declining win%)
 
 **Phase:** 3 · **Who:** Ivan + Claude

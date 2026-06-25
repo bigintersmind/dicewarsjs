@@ -759,3 +759,53 @@ JS deps and write a `src/ai` wrapper that builds the input tensors from a live
 encoder** extracted from `encodeStep` (it currently requires a `chosenMove` to
 compute the BC label). Then run the session and `argmax`. Evaluate on
 `arena:sweep` vs `ai_lookahead` (the Phase-2 parity gate).
+
+## D-17 — The BC gap is NOT capacity-limited; localize encoding vs factorization before the PPO fork · Accepted (2026-06-24) · follows [D-16](#d-16--the-bc-trainer-lives-in-repo-at-ml-logits-only-single-step-onnx-is-the-inference-contract)
+
+**Context.** After the STOP-de-bias retrain (#55) the calibrated BC clone wins ~6.4% vs
+Lookahead's ~20% — a residual ~13 pt gap attributed to the "encoding/architecture ceiling"
+but never measured. Three candidate causes: (a) **capacity** — the per-edge MLP is too small;
+(b) **features** — the encoding lacks information (notably board adjacency: the corpus carries
+only action-head candidate edges, no full adjacency); (c) **factorization** — the architecture
+(independent per-edge scoring + masked-mean pooling, no message passing) can't represent the
+teacher's relational reasoning regardless of size or features. The fork ahead (GNN warm-start
+vs greenfield PPO, [D-2]) is expensive, so localize the cause first with a cheap probe (Ivan's
+call: "cheap ceiling probe first; destination is PPO either way").
+
+**Decision.** (1) Rule out / in **capacity** with a zero-code width sweep, judged on **win%**
+(the gating metric, [D-7]) not just val move-match (the known-misleading proxy, [D-15]/Phase-2
+STOP sweep). (2) Given the result, **proceed to encoding-v2** — add a board-adjacency blob +
+richer node/edge features and bump `ENCODING_VERSION 1→2` (3-site lockstep:
+`encodeObservation.js`, `manifest.py EXPECTED_ENCODING_VERSION`, `ai_bc.js` load guard),
+re-encode the 100k corpus, retrain the **same** MLP, and arena-confirm. This splits
+feature-limited (acc/win rises on richer features) from factorization-saturated (still flat →
+needs message passing / RL). (3) Tooling: `makeBC({ policy })` (`src/ai/ai_bc.js`) — a
+backward-compatible param to arena-eval candidate checkpoints without overwriting the shipped
+`bcPolicyWeights.js` — and `scripts/_probe-capacity-arena.mjs` (parity pre-flight + config×bias
+peak-win% comparison).
+
+**Evidence (capacity sweep, full tables in RESULTS.md Phase 3).** Three widths, same 100k
+corpus + recipe (`--epochs 6 --stop-weight 0.5 --select-by stop-cal`), on `shodan`:
+
+- **Proxy flat:** val move-match 56.75% (102k) → 57.19% (403k) → 57.33% (1.0M). 10× params →
+  +0.58 pt.
+- **Real metric flat-to-declining:** peak arena win% (matched STOP operating point, 95% CIs)
+  6.7 ± 0.8 (102k) → 6.6 ± 1.2 (403k) → 5.1 ± 0.9 (1.0M). The 1M net is if anything _worse_.
+  Compared at each width's _peak_ over a bias grid because val-STOP-calibration does not
+  transfer to the arena distribution uniformly across training length (6-epoch nets turtle
+  harder than the deployed 2-epoch model). Harness validated: the deployed model reproduces its
+  known ~6.4%.
+
+**Consequences.** Capacity is closed as the lever — **do not scale the MLP**. The encoding-v2
+work is **not throwaway even though the destination is PPO** ([D-2]): a competitive PPO/GNN
+policy needs adjacency in its observation, so v2 front-loads that. BC's own ceiling remains
+**parity, never beat** ([D-15] reframe) — the encoding-v2 BC retrain is **diagnostic**; the
+durable payoff is the reusable enriched observation and a sharper PPO design. If v2 leaves win%
+flat (factorization-saturated), skip further BC tuning and fork straight to PPO with a
+message-passing policy.
+
+**Rejected / not chosen.** (a) Straight to PPO without localizing — risks building PPO on an
+impoverished observation and re-discovering the same gap expensively. (b) A bigger MLP — ruled
+out by this evidence. (c) A standalone GNN-BC probe instead of encoding-v2 — needs the adjacency
+blob anyway (same re-encode cost) _plus_ new architecture, and its result (parity at best) is
+lower-value than producing the reusable v2 observation.

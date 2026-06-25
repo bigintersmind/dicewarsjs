@@ -21,6 +21,59 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 ceiling probe, Step 1: capacity is NOT the bottleneck (10× params → flat-to-declining win%)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Ran the cheap capacity localization probe (Ivan's chosen path after #55) to find _where_ the
+  ~13 pt gap to Lookahead lives before committing to a GNN/PPO fork. Zero-code sweep on
+  `shodan` (CUDA): `EdgePolicyNet` at 3 widths (102k / 403k / 1.0M params), same 100k corpus,
+  same recipe (`--epochs 6 --stop-weight 0.5 --select-by stop-cal`).
+- Hardened the proxy result on the **real metric**: added a backward-compatible `policy` param
+  to `makeBC()` (`src/ai/ai_bc.js`) so candidate checkpoints can be arena-evaluated without
+  overwriting the shipped weights; built `scripts/_probe-capacity-arena.mjs` (parity pre-flight
+  - config×bias grid, peak-win% comparison). Exported all 3 checkpoints + fixtures off `shodan`.
+- 23,400-game confirm (4 configs × bias {0,1,2} × 15×130, paired seeds). Full tables in
+  RESULTS.md (Phase 3 section). ADR: [D-17].
+
+**Learned / decided:**
+
+- **NOT capacity-limited.** Val move-match flat across 10× params (56.75 → 57.33%); peak arena
+  win% flat-to-declining (6.7 → 6.6 → 5.1%, the 1M net slightly _worse_). Both metrics agree.
+  The gap is **encoding and/or factorization**, not model size.
+- **Decided (D-17): proceed to encoding-v2** — add board adjacency + richer features
+  (`ENCODING_VERSION 1→2`), re-encode, retrain the same MLP. Splits feature-limited vs
+  factorization-saturated, AND the enriched observation is reusable as the PPO input (not
+  throwaway). BC's own ceiling is parity, so this retrain is **diagnostic**; the payoff is the
+  reusable encoding + a sharper PPO design.
+
+**Dead ends / surprises:**
+
+- The "connection dropped mid-sweep" from the prior session was a false alarm on the
+  _monitoring_ — the sweep itself finished cleanly (3 checkpoints, RC=0). Recovered them.
+- **val-STOP ≠ arena-STOP, and the gap is epoch-dependent.** `stop-cal` matched val STOP, but
+  the 6-epoch probe nets turtle harder in self-play (arena STOP ~55%) than the deployed 2-epoch
+  model (~49%). So I compared each width at its _peak_ win% over a bias grid (matched operating
+  point), not at bias 0 — else capacity would be confounded with STOP-calibration. (This
+  fragility of BC's STOP behavior under its own distribution is itself a point for PPO, which
+  trains on-distribution.)
+- **Persistence reality, re-confirmed:** a `setsid`-detached WSL job is killed within seconds of
+  SSH disconnect — it's WSL process-tree teardown on session exit, **not** a network artifact
+  (happens even on the stable wired LAN). Tailscale was down this session; reached `shodan` via
+  its direct GFiber LAN IP (`192.168.1.181`). The capacity confirm needed no durable job (export
+  on shodan = seconds; arena = local). **Step 2's re-encode WILL** → schtasks-or-kept-alive TBD.
+
+**Next:**
+
+- Encoding-v2: investigate the current encoder/corpus/model pipeline, design the adjacency blob
+  - feature set, do the `ENCODING_VERSION 1→2` lockstep (`encodeObservation.js` /
+    `manifest.py EXPECTED_ENCODING_VERSION` / `ai_bc.js` guard), re-encode the 100k corpus on
+    shodan (durable job), retrain (6ep stop-cal), export, arena-confirm win% vs Lookahead w/ CIs.
+
+---
+
 ## 2026-06-24 — STOP-de-bias retrain: weighted-CE + stop-cal selection → calibrated (win 3.6→6.4%, still not parity)
 
 **Phase:** 2 · **Who:** Ivan + Claude

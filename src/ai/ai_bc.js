@@ -56,12 +56,27 @@ const CTX = { maxAreas: BC_POLICY.config.maxAreas };
  * @param {number} [opts.stopBias=0] - Subtracted from the STOP logit before argmax.
  * @param {(stopped: boolean) => void} [opts.onDecision] - Called once per decision with
  *   whether the bot chose STOP — lets a sweep tally the realized STOP rate.
+ * @param {import('./bcPolicyWeights.js').BC_POLICY} [opts.policy=BC_POLICY] - Override the
+ *   deployed weights with an alternate exported policy. Used by the ml-bot capacity probe to
+ *   arena-evaluate candidate checkpoints (e.g. wider nets) without overwriting the shipped
+ *   `bcPolicyWeights.js`. Must share the live encoder's `ENCODING_VERSION`.
  * @returns {(botState: import('../arena/types.js').BotState) => ({ from: number, to: number } | null)}
  */
-export function makeBC({ stopBias = 0, onDecision } = {}) {
+export function makeBC({ stopBias = 0, onDecision, policy = BC_POLICY } = {}) {
+  /*
+   * A candidate policy must match the live encoder's feature layout, exactly like the
+   * deployed default checked at import — a skew would silently feed mis-columned tensors.
+   */
+  if (policy.encodingVersion !== ENCODING_VERSION) {
+    throw new Error(
+      `makeBC: policy encodingVersion ${policy.encodingVersion} != encoder ENCODING_VERSION ` +
+        `${ENCODING_VERSION} — retrain/re-export against the current encoding.`
+    );
+  }
+  const ctx = policy === BC_POLICY ? CTX : { maxAreas: policy.config.maxAreas };
   return function bc(botState) {
-    const encoded = encodeObservationForInference(botState, CTX);
-    const { logits } = forward(BC_POLICY, encoded);
+    const encoded = encodeObservationForInference(botState, ctx);
+    const { logits } = forward(policy, encoded);
 
     /*
      * The encoder appends exactly one trailing STOP edge (moves[last] === null), so the

@@ -535,3 +535,48 @@ sweep, so `stopBias 0` here is directly comparable to the 3.6% control there):
 de-biased bot; forward parity green (16/16). **Repro:** train with `--stop-weight 0.5
 --select-by stop-cal`, then `python -m dicewars_bc.export_weights --ckpt <w0.5 ckpt>
 --out ../src/ai/bcPolicyWeights.js --fixture ../tests/fixtures/bc/forwardCases.json`.
+
+## Phase 3 — capacity ceiling probe (is the gap model-size?) · 2026-06-24
+
+**Question.** Is the residual ~13 pt gap to Lookahead (BC ~6.4% vs ~20%) because the per-edge
+MLP is too small? Localize before paying for a GNN or PPO fork ([D-17]). Zero-code sweep:
+re-trained `EdgePolicyNet` at three widths on the same 100k corpus, same recipe
+(`--epochs 6 --stop-weight 0.5 --select-by stop-cal`, seed 0), on `shodan` (CUDA).
+
+**Step 1 — proxy (val move-match at matched STOP calibration). FLAT.**
+
+| config   | node/player/ctx/edge | params    | best val acc | val STOP (teacher 0.448) |
+| -------- | -------------------- | --------- | ------------ | ------------------------ |
+| c0_base  | 64/32/128/128        | 102,211   | 0.5675       | 0.447                    |
+| c1_wide  | 128/64/256/256       | 403,075   | 0.5719       | 0.457                    |
+| c2_large | 256/96/384/384       | 1,005,443 | 0.5733       | 0.463                    |
+
+10× the parameters → **+0.58 pt** val acc. Essentially flat.
+
+**Step 2 — real metric (arena win% with 95% CIs). FLAT-TO-DECLINING.** Move-match is the
+known-misleading proxy (Phase-2 STOP sweep), so each checkpoint was arena-evaluated via
+`scripts/_probe-capacity-arena.mjs` (4 configs × bias {0,1,2} × 15 runs × 130 games = 23,400
+games, paired seed blocks). **Compared at each width's _peak_ win%** (matched arena operating
+point) — because `stop-cal` matched _val_ STOP but _arena_ STOP diverges more for the
+6-epoch nets (all turtle harder in self-play than the deployed 2-epoch model), so a naive
+bias-0 row would compare nets at different, degraded STOP rates. Each export passed a
+JS↔Python parity pre-flight (max |Δlogit| ≤ 1e-4) before its win% was trusted.
+
+| config              | params    | peak win% (95% CI) | @ bias | STOP% |
+| ------------------- | --------- | ------------------ | ------ | ----- |
+| _deployed (anchor)_ | 102,211   | _7.1 ± 1.6_        | 0      | 48.5  |
+| c0_base             | 102,211   | **6.7 ± 0.8**      | 1      | 39.9  |
+| c1_wide             | 403,075   | **6.6 ± 1.2**      | 1      | 37.2  |
+| c2_large            | 1,005,443 | **5.1 ± 0.9**      | 1      | 38.6  |
+
+Across a 10× param range, peak win% is **flat-to-declining (6.7 → 5.1)** — the 1M net is, if
+anything, slightly _worse_ (mild overfit of the teacher's move distribution). The `deployed`
+anchor reproduces its established ~6.4% (✓ harness validated against a known number).
+
+**Verdict: NOT capacity-limited** — confirmed on both the proxy AND the gating metric. The gap
+lives in the **encoding** (no board adjacency; only action-head edges) and/or the
+**factorization** (per-edge-independent scoring + masked-mean pool, no message passing), not
+model size. Next: encoding-v2 (adjacency + richer features) to split feature-limited vs
+factorization-saturated ([D-17]) — and that enriched observation is reusable as the PPO
+input. Checkpoints + exports on `shodan` (`~/dicewarsjs/ml/checkpoints/probe/`,
+`~/probe-exports/`). **Repro:** `node scripts/_probe-capacity-arena.mjs --weights-dir <dir>`.

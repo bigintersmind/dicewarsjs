@@ -13,6 +13,7 @@ import {
   percentilesFromHist,
   recommendMaxEdges,
   splitEpisodes,
+  mergeShards,
 } from '../../scripts/lib/ppo-probe-core.mjs';
 
 describe('mulberry32', () => {
@@ -97,5 +98,56 @@ describe('splitEpisodes', () => {
     const tiny = splitEpisodes(5, 8);
     expect(tiny.reduce((a, b) => a + b, 0)).toBe(5);
     expect(tiny).toEqual([1, 1, 1, 1, 1, 0, 0, 0]);
+  });
+});
+
+describe('mergeShards', () => {
+  it('sums histograms, scalars, and per-bot timing; never carries elapsedMs', () => {
+    const s1 = {
+      elapsedMs: 100,
+      learnerDecisions: 10,
+      totalTurns: 5,
+      episodesRun: 2,
+      wins: 1,
+      eliminations: 1,
+      overflow: 0,
+      hist: [0, 1, 2],
+      botMs: { ai_bc: 3 },
+      botCalls: { ai_bc: 6 },
+    };
+    const s2 = {
+      elapsedMs: 200,
+      learnerDecisions: 20,
+      totalTurns: 7,
+      episodesRun: 3,
+      wins: 0,
+      eliminations: 2,
+      overflow: 1,
+      hist: [1, 0, 4, 5],
+      botMs: { ai_bc: 2, ai_lookahead: 9 },
+      botCalls: { ai_bc: 4, ai_lookahead: 3 },
+    };
+    const m = mergeShards([s1, s2]);
+    expect(m.learnerDecisions).toBe(30);
+    expect(m.totalTurns).toBe(12);
+    expect(m.episodesRun).toBe(5);
+    expect(m.wins).toBe(1);
+    expect(m.eliminations).toBe(3);
+    expect(m.overflow).toBe(1);
+    expect(m.hist).toEqual([1, 1, 6, 5]); // element-wise, ragged lengths zero-extended
+    expect(m.botMs).toEqual({ ai_bc: 5, ai_lookahead: 9 });
+    expect(m.botCalls).toEqual({ ai_bc: 10, ai_lookahead: 3 });
+    expect(m).not.toHaveProperty('elapsedMs'); // wall-clock is measured by the caller, not summed
+  });
+
+  it('coalesces a shard missing the eliminations field (older shard shape) to 0', () => {
+    // prettier-ignore
+    const base = {
+      learnerDecisions: 1, totalTurns: 1, episodesRun: 1, wins: 0,
+      overflow: 0, hist: [1], botMs: {}, botCalls: {},
+    };
+    const a = { ...base }; // no eliminations field
+    const b = { ...base, eliminations: 2 };
+    expect(mergeShards([a, b]).eliminations).toBe(2); // a.eliminations === undefined → +0, not NaN
   });
 });

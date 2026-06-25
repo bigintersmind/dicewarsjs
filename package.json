@@ -34,6 +34,7 @@
     "encode-corpus": "node scripts/encode-corpus.mjs",
     "ppo:env-server": "node scripts/ppo-env-server.mjs",
     "ppo:env-smoke": "node scripts/ppo-env-smoke.mjs",
+    "ppo:disconnect-smoke": "node scripts/ppo-env-disconnect-smoke.mjs",
     "ppo:throughput-probe": "node scripts/ppo-throughput-probe.mjs"
   },
   "keywords": [

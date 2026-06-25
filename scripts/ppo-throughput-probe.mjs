@@ -52,14 +52,39 @@ const NAMED_LEAGUES = [
   },
 ];
 
+const KNOWN_FLAGS = new Set([
+  'opponents',
+  'learner',
+  'episodes',
+  'workers',
+  'seed-base',
+  'learner-seat',
+  'max-turns',
+  'max-areas',
+  'json',
+]);
+
 function parseArgs(argv) {
   const opts = {};
   for (const arg of argv) {
     const m = /^--([^=]+)=(.*)$/.exec(arg);
-    if (m) opts[m[1]] = m[2];
-    else if (/^--/.test(arg)) opts[arg.slice(2)] = 'true';
+    const key = m ? m[1] : /^--/.test(arg) ? arg.slice(2) : null;
+    if (key === null)
+      throw new Error(`Malformed argument "${arg}" — expected --key or --key=value.`);
+    if (!KNOWN_FLAGS.has(key)) {
+      throw new Error(`Unknown flag --${key}. Known: ${[...KNOWN_FLAGS].join(', ')}.`);
+    }
+    opts[key] = m ? m[2] : 'true';
   }
   return opts;
+}
+
+/** Parse a numeric flag, defaulting when absent and rejecting a non-finite value loudly. */
+function numArg(opts, key, fallback) {
+  if (opts[key] === undefined) return fallback;
+  const v = Number(opts[key]);
+  if (!Number.isFinite(v)) throw new Error(`--${key}=${opts[key]} is not a finite number.`);
+  return v;
 }
 
 const mixSeed = (base, w) => (base ^ ((w + 1) * 0x9e3779b1)) >>> 0;
@@ -236,13 +261,12 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const cfg = {
     learner: opts.learner ?? 'random',
-    episodes: opts.episodes !== undefined ? Number(opts.episodes) : 300,
-    workers: opts.workers !== undefined ? Number(opts.workers) : 1,
-    seedBase: opts['seed-base'] !== undefined ? Number(opts['seed-base']) : 1,
-    learnerSeat: opts['learner-seat'] !== undefined ? Number(opts['learner-seat']) : 0,
-    maxTurns: opts['max-turns'] !== undefined ? Number(opts['max-turns']) : 500,
-    maxAreas:
-      opts['max-areas'] !== undefined ? Number(opts['max-areas']) : BC_POLICY.config.maxAreas,
+    episodes: numArg(opts, 'episodes', 300),
+    workers: numArg(opts, 'workers', 1),
+    seedBase: numArg(opts, 'seed-base', 1),
+    learnerSeat: numArg(opts, 'learner-seat', 0),
+    maxTurns: numArg(opts, 'max-turns', 500),
+    maxAreas: numArg(opts, 'max-areas', BC_POLICY.config.maxAreas),
   };
   if (cfg.learner !== 'random' && cfg.learner !== 'stop') {
     throw new Error(`--learner must be random|stop, got "${cfg.learner}".`);

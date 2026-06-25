@@ -169,6 +169,17 @@ describe('PPO action-encoding parity (encoder index ↔ move)', () => {
     expect(() => decodeAction(enc, 1.5)).toThrow(/out of range/);
   });
 
+  it('decodeAction rejects an encoded whose trailing edge is not STOP (encoder layout drift)', () => {
+    /*
+     * Hand-built encoders whose last slot is an attack (not null) must trip the invariant guard,
+     * rather than silently decode an index against a STOP-less array.
+     */
+    const noStop = { moves: [{ from: 1, to: 2 }] };
+    expect(() => decodeAction(noStop, 0)).toThrow(/trailing edge is not STOP/);
+    const twoAttacks = { moves: [{ from: 1, to: 2 }, { from: 3, to: 4 }] };
+    expect(() => decodeAction(twoAttacks, 1)).toThrow(/trailing edge is not STOP/);
+  });
+
   it('zero-valid-moves seat: STOP-only action space (N === 1)', () => {
     // Acting seat owns only 1-die areas → no legal attack → just STOP.
     const botState = makeBotState({

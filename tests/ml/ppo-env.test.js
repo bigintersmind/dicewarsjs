@@ -22,7 +22,12 @@ import { ai_bc } from '../../src/ai/ai_bc.js';
 import { forward, argmax } from '../../src/ai/bcForward.js';
 import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
 
-import { runSelfPlayEpisode, LEARNER_NAME, scaledPlacement } from '../../scripts/lib/ppo-env.mjs';
+import {
+  runSelfPlayEpisode,
+  makeLearnerBot,
+  LEARNER_NAME,
+  scaledPlacement,
+} from '../../scripts/lib/ppo-env.mjs';
 
 const PLAYER_COUNT = 7;
 const MAX_AREAS = BC_POLICY.config.maxAreas;
@@ -221,6 +226,92 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
     expect(early.placement).toBe(scaledPlacement(full.placements, 2, PLAYER_COUNT));
   });
 
+  /*
+   * Same-turn co-elimination: the opponent turn that kills the learner ALSO kills another player.
+   * `aliveCount` alone misses a co-eliminee with a HIGHER seat id than the learner (it finishes
+   * above the learner via runMatch's ascending-id tie-break), so eliminationOutcome adds it back.
+   * These fixtures were found empirically; the deathElims>1 precondition fails LOUD (not silently
+   * passes) if engine RNG ever shifts a seed off its co-elimination. Opponents are ai_bc on purpose:
+   * the early-vs-full placement oracle only holds for DETERMINISTIC opponents (ai_default/example/
+   * adaptive use global Math.random and would desync the two runs). Cases span seat 0 (every
+   * co-eliminee is higher-id) and non-zero seats (which also exercise the EXCLUDE-lower-id branch).
+   */
+  it.each([
+    [0, 23], // seat 0 — co-eliminee higher-id, game still undecided
+    [3, 37], // seat 3 — non-zero seat, mixed-id co-elimination
+    [1, 20], // seat 1 — non-zero seat, eliminating turn also ends the game
+  ])('co-elimination placement matches calculatePlacements (seat %i, seed %i)', async (seat, seed) => {
+    const opponents = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
+    let deathElims = 0;
+    let prevElim = 0;
+    let sawDeath = false;
+    const full = runSelfPlayEpisode({
+      seed,
+      opponents,
+      learnerSeat: seat,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: alwaysStop,
+      onTurn: (_t, s) => {
+        const e = s.players.filter(p => p.eliminated).length;
+        if (!sawDeath && s.players[seat].eliminated) {
+          deathElims = e - prevElim;
+          sawDeath = true;
+        }
+        prevElim = e;
+      },
+    });
+    await tick();
+    const early = runSelfPlayEpisode({
+      seed,
+      opponents,
+      learnerSeat: seat,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: alwaysStop,
+      terminateOnElimination: true,
+    });
+
+    expect(deathElims).toBeGreaterThan(1); // precondition: this seed really IS a co-elimination turn
+    expect(early.eliminated).toBe(true);
+    expect(early.placement).toBe(scaledPlacement(full.placements, seat, PLAYER_COUNT));
+  });
+
+  it('an elimination that also ends the game reports the engine winner with won=0 (runner-up)', async () => {
+    /*
+     * seed 60 / seat 0: the opponent turn that eliminates the learner also wins the game — the
+     * terminal carries a NON-null winner together with eliminated=true and won=0 (the learner is
+     * the runner-up). This is the wire combo the env-server forwards as `winner != -1, won = 0`.
+     */
+    const seat = 0;
+    const opponents = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
+    const full = runSelfPlayEpisode({
+      seed: 60,
+      opponents,
+      learnerSeat: seat,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: alwaysStop,
+    });
+    await tick();
+    const early = runSelfPlayEpisode({
+      seed: 60,
+      opponents,
+      learnerSeat: seat,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: alwaysStop,
+      terminateOnElimination: true,
+    });
+
+    expect(early.eliminated).toBe(true);
+    expect(early.winner).not.toBeNull();
+    expect(early.winner).not.toBe(seat); // the learner cannot be its own eliminator's winner
+    expect(early.won).toBe(0);
+    // Exact parity with the engine's game-over placement, not just a [0,1] bounds check.
+    expect(early.placement).toBe(scaledPlacement(full.placements, seat, PLAYER_COUNT));
+  });
+
   it('is a no-op when the learner wins — identical to the full game', async () => {
     /*
      * A learner that survives to game-over never trips the early-termination guard, so the path
@@ -249,8 +340,97 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
   });
 });
 
+describe('runSelfPlayEpisode — onTurn is the abort seam (env-server disconnect contract)', () => {
+  const sixAiBc = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
+
+  it('a throw from onTurn unwinds the episode and is not mistaken for the elimination sentinel', () => {
+    /*
+     * The env-server cannot signal a mid-episode disconnect by throwing from chooseAction (see the
+     * next test) — it throws from onTurn instead. This pins that an onTurn throw propagates OUT of
+     * runSelfPlayEpisode even in terminateOnElimination mode (the internal LEARNER_ELIMINATED catch
+     * must re-raise any other error), which is exactly what makes the disconnect break reachable.
+     */
+    expect(() =>
+      runSelfPlayEpisode({
+        seed: 777,
+        opponents: sixAiBc,
+        learnerSeat: 2,
+        maxAreas: MAX_AREAS,
+        maxTurns: MAX_TURNS,
+        chooseAction: alwaysStop,
+        terminateOnElimination: true,
+        onTurn: t => {
+          if (t === 3) throw new Error('onTurn abort signal');
+        },
+      })
+    ).toThrow('onTurn abort signal');
+  });
+
+  it('a throw from chooseAction is swallowed by the engine (forfeit), not propagated', () => {
+    /*
+     * The learner runs as an ordinary bot fn, and runBotDirect catches every bot-fn throw and just
+     * forfeits the turn. So a chooseAction that always throws does NOT surface as an episode error —
+     * the learner simply never moves and is conquered. This is the reason the disconnect signal must
+     * travel via onTurn, and it is the bug the env-server's old `if (err instanceof EnvClosed) break`
+     * silently relied on (the break was dead code).
+     */
+    let calls = 0;
+    const ep = runSelfPlayEpisode({
+      seed: 777,
+      opponents: sixAiBc,
+      learnerSeat: 2,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: () => {
+        calls++;
+        throw new Error('learner blew up');
+      },
+      terminateOnElimination: true,
+    });
+    expect(calls).toBeGreaterThan(0); // the learner WAS asked to act
+    expect(ep.eliminated).toBe(true); // a forfeiting seat among real bots is conquered
+    expect(ep.won).toBe(0);
+  });
+});
+
+describe('makeLearnerBot — input validation', () => {
+  it('rejects a non-positive-integer maxAreas', () => {
+    expect(() => makeLearnerBot({ maxAreas: 0, chooseAction: () => 0 })).toThrow(
+      /maxAreas must be a positive integer/
+    );
+    expect(() => makeLearnerBot({ maxAreas: 2.5, chooseAction: () => 0 })).toThrow(
+      /maxAreas must be a positive integer/
+    );
+  });
+
+  it('rejects a non-function chooseAction', () => {
+    expect(() => makeLearnerBot({ maxAreas: 8, chooseAction: 'nope' })).toThrow(
+      /chooseAction must be a function/
+    );
+  });
+});
+
 describe('runSelfPlayEpisode — input validation', () => {
   const baseOpponents = [{ name: 'bc', fn: ai_bc }, { name: 'bc2', fn: ai_bc }];
+
+  it('uniquifies duplicate opponent names so runMatch does not reject the roster', () => {
+    /*
+     * A self-play league routinely seats the same bot at several seats → identical names. runMatch
+     * requires unique names ("Bot names must be unique"); runSelfPlayEpisode must suffix the dupes.
+     * If uniquifyNames regressed, this would throw rather than complete.
+     */
+    const dupes = Array.from({ length: PLAYER_COUNT - 1 }, () => ({ name: 'bc', fn: ai_bc }));
+    const ep = runSelfPlayEpisode({
+      seed: 5,
+      opponents: dupes,
+      learnerSeat: 0,
+      maxAreas: MAX_AREAS,
+      maxTurns: SHORT_TURNS, // only asserts playerCount → length-independent, cap it
+      chooseAction: mimicAiBc,
+    });
+    expect(ep.playerCount).toBe(PLAYER_COUNT);
+  });
+
   it('rejects a non-finite seed (training mode needs a numeric seed)', () => {
     expect(() =>
       runSelfPlayEpisode({

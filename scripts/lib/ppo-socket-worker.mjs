@@ -46,6 +46,28 @@ function wake(status, action = 0) {
   Atomics.notify(ctrl, STATUS);
 }
 
+/*
+ * Last-resort guard. The main thread parks on Atomics.wait during a decision and can ONLY be
+ * unparked by an Atomics.notify from here — its own event loop is blocked, so `worker.on('error')`
+ * on the parent can't help it. If this worker is about to die with a decision outstanding, wake the
+ * main thread with ST_CLOSED first (so the server fails fast instead of hanging forever) and report
+ * the cause. Swallowing keeps the worker alive long enough for the woken main thread to reap it.
+ */
+function failSafe(err) {
+  try {
+    parentPort.postMessage({ type: 'worker-error', message: err?.message ?? String(err) });
+  } catch {
+    /* parent already gone */
+  }
+  try {
+    wake(ST_CLOSED);
+  } catch {
+    /* shared memory torn down */
+  }
+}
+process.on('uncaughtException', failSafe);
+process.on('unhandledRejection', failSafe);
+
 function tryResolveRead() {
   if (pendingRead && inbound.length >= pendingRead.need) {
     const { need, resolve } = pendingRead;
@@ -58,6 +80,11 @@ function tryResolveRead() {
 
 /** Resolve once `n` bytes are available, consuming them from the inbound buffer. */
 function readExactly(n) {
+  /*
+   * Strict request/response means only one read is ever outstanding; guard anyway so a future
+   * re-entrant call fails loudly instead of silently abandoning a never-settled promise.
+   */
+  if (pendingRead) return Promise.reject(new Error('readExactly: a read is already pending'));
   return new Promise((resolve, reject) => {
     pendingRead = { need: n, resolve, reject };
     tryResolveRead();
@@ -77,8 +104,12 @@ async function handleObs(frameArrayBuffer) {
     wake(ST_CLOSED);
     return;
   }
-  writeFramed(frameArrayBuffer);
+  /*
+   * writeFramed is inside the try so a synchronous write failure also wakes main (ST_CLOSED)
+   * rather than escaping as an unhandled rejection that would leave main parked forever.
+   */
   try {
+    writeFramed(frameArrayBuffer);
     const actionBuf = await readExactly(4);
     wake(ST_READY, actionBuf.readInt32LE(0));
   } catch {
@@ -93,15 +124,24 @@ function onSocketGone(reason) {
     const { reject } = pendingRead;
     pendingRead = null;
     reject(new Error(`socket ${reason}`));
-  } else {
-    // Closed between decisions: tell main so it stops before the next episode.
-    parentPort.postMessage({ type: 'closed', reason });
   }
+  /*
+   * Always tell main, even when a read was pending. A mid-decision disconnect is the COMMON case
+   * (the server spends most of its time parked waiting on the learner's action), and the rejected
+   * read alone only forfeits one turn — without this message the episode loop never sees `closed`
+   * and, with --episodes=0, would spin forever simulating matches after the client is gone.
+   */
+  parentPort.postMessage({ type: 'closed', reason });
 }
 
 const server = net.createServer(conn => {
   if (socket) {
-    // One learner per server instance (D-19: one env per connection).
+    /*
+     * One learner per server instance (D-19: one env per connection). Swallow any error on this
+     * rejected connection (e.g. an ECONNRESET racing the destroy) so it can't become an unhandled
+     * 'error' → failSafe → spurious shutdown of the healthy server already serving a learner.
+     */
+    conn.on('error', () => {});
     conn.destroy();
     return;
   }

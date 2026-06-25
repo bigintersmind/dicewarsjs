@@ -2,11 +2,12 @@
  * PPO observation-frame wire codec (ml-bot Phase 3 — [D-19], tracer step 1).
  *
  * Serializes one live decision observation into a single self-describing binary
- * frame for the Node↔Python PPO bridge, and parses it back. The tensor payload is
- * the **same bytes** the offline corpus writes (`scripts/encode-corpus.mjs`'s
- * little-endian f32/i32 layout), minus the corpus-only blobs (labels/value/meta and
+ * frame for the Node↔Python PPO bridge, and parses it back. The tensor payload follows
+ * the **same little-endian f32/i32 convention** the offline corpus writes
+ * (`scripts/encode-corpus.mjs`), minus the corpus-only blobs (labels/value/meta and
  * the CSR `edge_offsets`) — those are a batching concern for a flat multi-step file;
- * a single socket frame carries its own dims in a header instead.
+ * a single socket frame carries its own dims in a header instead. (The agreement is a
+ * shared convention, not a checked invariant — nothing here re-derives the corpus bytes.)
  *
  * Why a header at all (the corpus has none): the corpus keeps all dims in
  * `manifest.json`; a socket frame has no side-channel manifest, so it MUST prefix

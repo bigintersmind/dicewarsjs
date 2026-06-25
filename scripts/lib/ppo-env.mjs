@@ -109,13 +109,17 @@ export function scaledPlacement(placements, learnerSeat, playerCount) {
  * @param {(encoded:Object, botState:Object) => number} cfg.chooseAction - action selector.
  * @param {number} [cfg.maxTurns] - stalemate cap (defaults to runMatch's 500).
  * @param {(encoded:Object, botState:Object) => void} [cfg.onObservation] - per-decision tap.
+ * @param {(turnCount:number, state:Object) => void} [cfg.onTurn] - per-turn tap, forwarded to
+ *   `runMatch`. A consumer can throw from here to abort the match early (e.g. the throughput
+ *   probe stops at learner elimination, matching a real single-learner PPO env's terminal).
  * @returns {{winner:number|null, won:number, placement:number, placements:number[],
  *   turnCount:number, learnerSeat:number, playerCount:number,
  *   finalState:import('../../src/engine/types.js').GameState,
  *   botStats:Object[]}}
  */
 export function runSelfPlayEpisode(cfg) {
-  const { seed, opponents, learnerSeat, maxAreas, maxTurns, chooseAction, onObservation } = cfg;
+  const { seed, opponents, learnerSeat, maxAreas, maxTurns, chooseAction, onObservation, onTurn } =
+    cfg;
 
   if (!Number.isFinite(seed)) {
     throw new Error(
@@ -150,7 +154,7 @@ export function runSelfPlayEpisode(cfg) {
   }
   uniquifyNames(roster);
 
-  const result = runMatch({ bots: roster, seed, maxTurns, recordHistory: false });
+  const result = runMatch({ bots: roster, seed, maxTurns, recordHistory: false, onTurn });
 
   return {
     winner: result.winner,

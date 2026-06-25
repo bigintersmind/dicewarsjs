@@ -975,3 +975,44 @@ Per-step stdio-JSON bridge / a Python re-port of the encoder — [D-3] latency t
 placement/survival reward — the ELO trap. (d) Scaling the MLP or chasing the head architecture before
 PPO — [D-17]/[D-18] closed capacity and confirmed features; the residual is the imitation ceiling, an
 RL problem. (e) Open-ended compute — the kill-risk is precisely an unbounded plateau.
+
+---
+
+## D-20: Phase-3 throughput PROVEN green + `MAX_EDGES` = 64; episodes terminate at learner elimination · Accepted (2026-06-25)
+
+**Context.** [D-19] left two things unproven before any Python/PPO work: whether the in-process-opponent
+loop is fast enough to reach a real env-step budget (the bottleneck [D-19] relocated from the wire into
+opponent simulation — "reachability UNPROVEN until a probe runs against the actual lookahead league"),
+and the true per-decision action-count that sizes `MAX_EDGES`. Tracer step 3 (`scripts/ppo-throughput-probe.mjs`,
+`npm run ppo:throughput-probe`) measured both. Decision-4's first budget unit was set to **fail-fast,
+~one overnight (~12h)** (Ivan, 2026-06-25).
+
+**Decisions.**
+
+1. **GO — throughput is not the blocker.** Local (Mac, 8-core), realistic 8-FFA league
+   (Lookahead/Strategist/Expectimax/4×BC): **644 learner-steps/s single-thread, 1,933 @4 workers**
+   (~483/core). A ~12h unit ⇒ **~28M env-steps single-thread, ~84M @4 workers** — ~40–80× the
+   ≳1–2M GREEN bar. Worst-case (7×Lookahead) is faster (1,140 / 3,496 — fewer expensive bots). Build
+   tracer steps 4–7. (Local number; **re-confirm on shodan** — more cores, different CPU — before
+   locking the literal budget, but the margin is large enough that the GO is robust.)
+
+2. **`MAX_EDGES` = 64.** Observed per-decision `numEdges` (legal attacks + STOP) p100 ≈ **26** (p99 15,
+   mean ~5), **zero overflow** over ~100k decisions across both leagues. [D-19]'s ~64–128 estimate was
+   conservative; 64 gives ~2.5× margin over the observed p100 (a trained policy may reach slightly
+   busier boards than the random stub, but `numEdges` is board-structure-bounded), and is trivially
+   under sb3-contrib #247's ~1400 sparse-mask crash zone. The Python AEC env (step 4) fixes the action
+   space at 64 and masks the pad tail.
+
+3. **The PPO episode terminates at the learner's elimination, NOT at game-over.** A single-learner env
+   returns a terminal (reward = loss) the moment the learner is knocked out; simulating the
+   opponent-only tail afterward produces zero learner steps and is the throughput artifact that made an
+   early full-game probe look ~2× slower. The probe models this via `runMatch`'s `onTurn` hook (no
+   engine edit). **Follow-up for step 1:** the current env-server (`runSelfPlayEpisode`) plays to
+   game-over and only then emits the terminal frame — it should adopt the same early termination (emit
+   the terminal frame at learner elimination), a ~2× free throughput win and the correct PPO semantics.
+
+**Notes.** Per-move cost (realistic league): BC-snapshot stand-in ~0.8 ms (priciest — a forward pass),
+Lookahead ~0.3–0.4 ms, Expectimax ~0.16 ms (far cheaper than the solo-bot "too slow" marker — board
+size + memoization), Strategist ~0.02 ms. Worker-pool scaling ~3× on 4 workers of an 8-core box
+(~75%/core) — a faithful CPU-bound proxy for SB3 `SubprocVecEnv`. Full numbers: `RESULTS.md`
+"Phase-3 PPO throughput probe" + `LOG.md` 2026-06-25.

@@ -21,6 +21,50 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 tracer step 3: throughput probe → GREEN; MAX_EDGES = 64 ([D-20])
+
+**Phase:** 3 · **Who:** Claude
+
+**Did:**
+
+- Built `scripts/ppo-throughput-probe.mjs` (+ `scripts/lib/ppo-probe-core.mjs`, `ppo-probe-worker.mjs`,
+  `npm run ppo:throughput-probe`) and `tests/ml/ppo-throughput-probe.test.js` (8 pure-helper tests).
+  Reuses the env core (`runSelfPlayEpisode` + `onObservation`), `benchmark-bot`'s timing wrapper, and
+  `selfplay-core`'s field/seat resolution + worker-pool pattern. Full suite 940 green.
+- Ran it (Mac, 8-core), worst-case `7xLookahead` + realistic `Lookahead,Strategist,Expectimax,4xBC`,
+  300 ep single-thread + 800 ep @4 workers.
+
+**Learned / decided ([D-20]):**
+
+- **GO — throughput is NOT the blocker.** Realistic league **644 steps/s single-thread, 1,933 @4
+  workers** → **~28M / ~84M env-steps in a 12h unit** — ~40–80× the ≳1–2M fail-fast bar. The
+  in-process-opponent cost [D-19] worried about is comfortably affordable. (Re-confirm on shodan, but
+  the margin makes the GO robust.)
+- **MAX_EDGES = 64.** Per-decision `numEdges` p100 ≈ 26 (p99 15, mean ~5), zero overflow over ~100k
+  decisions — D-19's ~64–128 was conservative; 64 = ~2.5× margin, far under sb3-contrib #247's ~1400.
+- **A real single-learner PPO episode ends at the learner's elimination, not game-over.** Modeled via
+  `runMatch`'s `onTurn` (added an `onTurn` passthrough to `runSelfPlayEpisode` — backward-compatible,
+  oracle still byte-identical).
+
+**Dead ends / surprises:**
+
+- First probe run played to game-over → realistic looked _slower_ than worst-case (94 vs 429 steps/s):
+  an artifact of simulating the opponent-only tail after the learner died (which generates 0 learner
+  steps). Stopping at learner elimination fixed it (94 → 372 → 644 with more episodes) and is the
+  correct PPO model. **Surfaced a step-1 env-server follow-up:** it currently plays to game-over and
+  emits the terminal frame only then — adopting early termination is a ~2× free throughput win.
+- Per-move cost: the BC-snapshot stand-in (~0.8 ms forward pass) is the priciest opponent, above
+  Lookahead (~0.3–0.4 ms); Expectimax is cheap here (~0.16 ms), far from the solo-bot "too slow" marker.
+
+**Next:**
+
+- Tracer steps 4–7 (Python side, on shodan): `[rl]` deps + minimal PettingZoo AEC env (action space =
+  `MAX_EDGES` 64) → custom warm-started SB3 policy + the SB3→EdgePolicyNet repack adapter (D-19 finding
+  c) → tiny PPO run → repack→export→register→`arena:sweep` vs `ai_lookahead@596f781`.
+- Optional cheap win first: make the step-1 env-server terminate episodes at learner elimination ([D-20]).
+
+---
+
 ## 2026-06-25 — Phase-3 tracer steps 1–2 built + green: Node env-server + action-encoding parity
 
 **Phase:** 3 · **Who:** Claude

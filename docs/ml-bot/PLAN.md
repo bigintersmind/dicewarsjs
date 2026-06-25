@@ -360,11 +360,17 @@ and de-risk the two biggest unknowns).**
       shipped-bot decode), and the frame round-trips byte-for-byte. The integration oracle
       confirms a learner reproducing `ai_bc` yields a final state byte-identical to a pure
       `runMatch` (move-for-move, RNG and all) at three seats.
-- [ ] **(3)** **Throughput probe** with a no-op learner against the **real lookahead
-      league** — measure learner-steps/sec for 1 vs N envs. Acceptance = the steps/sec
-      needed to reach the PPO step budget within the compute cap. Sizes decision (4).
+- [x] **(3)** **Throughput probe** (`scripts/ppo-throughput-probe.mjs` +
+      `lib/ppo-probe-core.mjs`, `npm run ppo:throughput-probe`) — **done 2026-06-25, GREEN
+      ([D-20]).** Local (Mac, 8-core) realistic league = **644 steps/s single-thread, 1,933 @4
+      workers** → **~84M env-steps in a 12h unit** (~40–80× the ≳1–2M bar); reachability PROVEN,
+      the in-process-opponent cost is not a blocker. Measures the real PPO model (terminate the
+      episode at learner elimination, not game-over) via `runMatch`'s `onTurn`. Re-confirm on
+      shodan before locking the budget.
 - [ ] **(4)** Python `[rl]` deps (`stable-baselines3`, `sb3-contrib`, `pettingzoo`) +
-      minimal PettingZoo AEC env; validate `MAX_EDGES` against selfplay's p100 action count.
+      minimal PettingZoo AEC env. **`MAX_EDGES` validated 2026-06-25 ([D-20]): observed p100 ≈ 26
+      (p99 15, mean ~5, zero overflow over ~100k decisions) → use `MAX_EDGES = 64`** (margin;
+      D-19's ~64–128 was conservative, far under sb3-contrib #247's ~1400).
 - [ ] **(5)** Custom SB3 `ActorCriticPolicy` (EdgePolicyNet trunk extractor + padded-
       `MAX_EDGES` `MaskableCategorical` + fresh scalar critic); **warm-start** trunk +
       `edge_head` from the v2-BC checkpoint, assert `encoding_version == 2`.

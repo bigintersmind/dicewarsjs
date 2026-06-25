@@ -130,8 +130,17 @@ The sibling package `dicewars_ppo/` is the **Phase-3 self-play learner** (DECISI
 opponent seats in-process and speaks a compact binary socket protocol.
 
 ```bash
-cd ml && pip install -e .[rl]    # gymnasium + stable-baselines3 + sb3-contrib (on shodan)
+cd ml && pip install -e .[rl]    # gymnasium + stable-baselines3 + sb3-contrib + pettingzoo
 ```
+
+> **torch on a fresh GPU box.** `[rl]` pulls `torch` transitively (via SB3), and
+> `pip install -e .[rl]` **re-resolves torch from PyPI** — it does _not_ respect an
+> already-installed CUDA build (on shodan it upgraded `2.5.1+cu121` → `2.12.1+cu130`;
+> pre-installing the CUDA wheel first does **not** prevent this). Recent torch wheels
+> bundle the CUDA runtime, so it generally Just Works (`torch.cuda.is_available()` stays
+> `True`). To hold a _specific_ CUDA build, pin it with a constraints file:
+> `pip install -c constraints.txt -e .[rl]` (with a `torch==<ver>+cuXXX` line). shodan
+> currently runs **torch 2.12.1+cu130** (validated working for both BC and the PPO env).
 
 - `constants.py` — the wire/encoding contract mirrored from
   [`../src/arena/encodeObservation.js`](../src/arena/encodeObservation.js): v2 feature

@@ -851,3 +851,127 @@ with no model benefit (Ivan: "engineered features only"). (b) Further BC feature
 chase the last ~4.6 pt — diminishing returns against an imitation ceiling; PPO is the right
 lever. (c) Re-running the capacity sweep on v2 — capacity was already closed independent of
 encoding ([D-17]); 102k suffices.
+
+## D-19 — Phase-3 PPO architecture: in-process self-play env over a Node↔Python socket, EdgePolicyNet-trunk policy warm-started from v2-BC, PFSP league in the full 8-FFA · Accepted (2026-06-25) · follows [D-18](#d-18--the-bc-gap-was-feature-limited-not-factorization-saturated-encoding-v2-ships-as-the-deployed-bc-and-the-ppo-observation-fork-to-ppo-for-the-residual) · grounds [D-2](#d-2--model-free-ppo-not-alphazero--muzero--accepted-2026-06-21) / [D-3](#d-3--js-engine-is-the-single-source-of-truth-python-for-training-only--accepted-2026-06-21) / [D-13](#d-13--compute-topology-distribute-data-gen-across-machines-seed-range-shards-train-on-the-gpu-box--accepted-2026-06-22)
+
+**Context.** [D-18] forked to PPO: BC is at its imitation ceiling (encoding-v2 → 12.5% win% vs
+Lookahead ~17%; residual ~4.6 pt is the clone-vs-search gap only RL crosses). Before writing any
+Phase-3 code we ran a fan-out **surface-map + adversarial verification** (5 parallel readers over
+the JS rollout assets / Python BC trainer / JS↔Python bridge options / SB3+PettingZoo ecosystem /
+shodan ops, then a synthesis stressed by 3 skeptics) — mirroring how Phase 1 began ([D-12]). The
+verification **corrected two load-bearing claims and surfaced one gate-breaking gap** (below); the
+four strategy forks were taken to Ivan and decided. The architecture inputs were already locked:
+[D-2] (model-free MaskablePPO, not AlphaZero), [D-3] (JS engine is source of truth; Python trains
+only, bridged via a PettingZoo AEC env), [D-13] (train co-located on the GPU box, local socket).
+
+**Decision — the Phase-3 PPO design.** Grounded against code (file:line verified this session):
+
+- **Env.** A **PettingZoo AEC** env with **one learner seat external** and the other 7 seats run
+  **in-process in Node**. The training **observation IS the v2 encoding**, emitted live by
+  `encodeObservationForInference` (`src/arena/encodeObservation.js:471`, `ENCODING_VERSION = 2` at
+  `:43`) — the durable artifact from [D-18], unchanged from the shipped BC/`ai_bc`. A "step" is **one
+  attack decision** (not a whole turn); the trailing STOP edge = `END_TURN`. The env reconstructs the
+  chosen `{from,to}|null` from the **encoder's own parallel `moves[]` array, NEVER a fresh
+  `getValidMoves`** (the two orderings differ — highest-severity correctness trap). Terminal reward
+  only at `phase===GAME_OVER`; turtles truncate at `maxTurns` with reward 0.
+- **Bridge.** A **persistent Node env-server** (engine + v2 encoder in-process) exchanging **compact
+  binary length-prefixed frames** over a **local Unix socket** to N vectorized envs co-located on
+  shodan, reusing `encode-corpus.mjs`'s f32/i32 CSR wire layout so Python decodes a live obs with the
+  same parser as the offline corpus. **Rejected:** per-step stdio-JSON (the [D-3] latency trap) and
+  re-implementing the encoder in Python (a second source of truth that drifts from the parity-tested
+  JS encoder).
+- **Policy net.** **Reuse `EdgePolicyNet`'s trunk + per-edge head** (`ml/dicewars_bc/model.py`) as
+  the PPO actor; **fresh scalar critic** off `ctx` (BC's 2-output won/placement value head is not a
+  bootstrappable return — reinit, optionally keep as an aux task). [D-17] ruled out capacity and
+  [D-18] confirmed the v2 features suffice, so the per-edge MLP is a sound PPO policy start; a
+  message-passing GNN stays the documented escalation if it saturates.
+- **Action masking (corrected).** `EdgePolicyNet`'s **variable-length** edge head does **not** drop
+  into sb3-contrib MaskablePPO, which requires a **fixed `Discrete(N)` + boolean mask**. Resolution:
+  **pad the per-edge head to a validated `MAX_EDGES`** (selfplay p100 of the action-count
+  distribution, ~64–128 — well under sb3-contrib **#247**'s ~1400-action sparse-mask crash zone, NOT
+  the ~992 theoretical all-pairs max) **+ mask the tail** (custom `ActorCriticPolicy` whose features
+  extractor is the EdgePolicyNet trunk; `MaskableCategorical` over the padded logits). A fully-custom
+  ragged distribution (reuse `losses.py`'s segmented softmax) is held as escalation. Treat [D-2]'s
+  "MaskablePPO" as **"PPO + action masking,"** not necessarily the literal class.
+
+**The four strategy decisions (Ivan, 2026-06-25).**
+
+1. **Warm-start from v2-BC + a short from-scratch control.** Mechanically trivial — a PPO actor with
+   the same `ModelConfig` has byte-identical Linear shapes, so
+   `EdgePolicyNet(ModelConfig(**ckpt['config'])).load_state_dict(ckpt['state_dict'])` loads trunk +
+   `edge_head` straight in; only the value head reinits. Run a short fresh control on the same gate so
+   the choice is data-backed. Use a low initial LR / KL constraint (optional brief trunk freeze) so
+   PPO doesn't wipe the BC prior before the critic + shaping stabilize.
+2. **Full 8-player FFA against a heterogeneous league from step one** — **deviates from the written
+   PLAN's "3–4p symmetric self-play first."** Grounded in [D-15]: symmetric low-player mirrors turtle
+   to ~0% decisive (winner=null → ~0 terminal reward → no gradient), and the gate IS the 8-bot FFA.
+   Heterogeneity (fixed strong baselines + snapshots) makes games ~85% decisive and matches the gate
+   distribution. Player-count / opponent-strength ramps are difficulty knobs only if 8-FFA proves
+   unstable — never a symmetric mirror.
+3. **Sparse terminal-win reward first (win=1/loss=0), add annealed potential-based shaping if
+   learning is too slow.** Win is the gate metric ([D-7]); placement/survival is the **ELO trap**
+   ([D-7]/[D-8]/[D-9] shipped consistent-but-never-wins bots) and stays auxiliary at most. Shaping,
+   when added, is **Ng-style `F = γΦ(s′) − Φ(s)`** over quantities the encoder already exposes
+   (Δlargest-group income / territory / dice / eliminations — what `ai_strategist` optimizes),
+   computed env-side in JS and **annealed to 0** so the final policy optimizes pure win%.
+4. **Fixed env-step budget + kill threshold.** No statistically-significant win% edge over Lookahead
+   after the first budget unit → declare plateau, fall back to the shipped BC / Track-A bot. Mirrors
+   Phase 0.5's 4-swing cap. **The budget can only be sized after the throughput probe (slice step 3)
+   returns real learner-steps/sec.**
+
+**League (PFSP).** No maintained drop-in self-play league exists in SB3/PettingZoo; build a
+**Prioritised Fictitious Self-Play** league (AlphaStar pattern; CleanRL's `ppo_pettingzoo_ma_atari`
+as the mechanics reference). Each 8-FFA game = 1–2 learner seats + 2–3 fixed strong JS baselines
+(`ai_lookahead@596f781` the gate opponent, plus Strategist/Expectimax) + 2–3 frozen PPO snapshots.
+**Snapshots MUST run as in-process JS bots** (export each to the `bcForward` weight format and load
+via `makeBC({policy})`) — evaluating them back in Python turns ~1 boundary crossing/turn into up to
+8 and erases the in-process amortization.
+
+**Two adversarial corrections + one gate-breaking gap (the verification's real payoff).**
+
+- **Throughput bottleneck is the in-process heuristic opponents, NOT the wire (corrected).** The
+  synthesis claimed ~13 µs/step (learner applyAction+encode) vs a ~50–200 µs JSON round-trip,
+  concluding binary framing was decisive. That omits the dominant cost: every STOP runs all 7
+  non-learner seats in-process, and the league deliberately includes `ai_lookahead`/`strategist`/
+  `expectimax` (~4 games/s/core, ~250 ms/game). Amortized over ~50–150 learner decisions/game, real
+  per-learner-step wall-clock is **~1.7–5 ms — ~100–400× the quoted figure.** So the wire is ~2–10%
+  of a step (binary framing is a cheap nicety, not the linchpin), and **the [D-3] "plateau-by-
+  slowness" risk is relocated from the wire into opponent simulation — which no bridge format fixes.**
+  The levers are cheaper-early-opponents / more parallel envs (scales with cores) / reduced lookahead
+  depth. **Reachability ("millions of steps in budget") is UNPROVEN until a throughput probe runs
+  against the actual lookahead league** — the probe's acceptance bar is learner-steps/sec needed to
+  hit the budget, not "IPC non-dominant."
+- **Variable-length edge head ≠ fixed MaskablePPO Discrete** (corrected) → pad-to-validated-`MAX_EDGES`
+  - mask (above).
+- **MISSING SB3→EdgePolicyNet repack adapter (gate-breaking, NEW).** `export_weights.py:140` does
+  `getattr(model, attr)` for `{node_encoder, player_encoder, context, edge_head, value_head}` on a
+  **bare** `EdgePolicyNet` (`:118` `EdgePolicyNet(config)`, `:119` `load_state_dict`). An SB3
+  `ActorCriticPolicy` wraps the trunk under a different state_dict namespace and the PPO critic is a
+  fresh scalar head — so `export_weights.py` will **not** find `.node_encoder` on an SB3 object and
+  **fails**. Without an explicit **repack step** (SB3 sub-modules → a bare BC-format `EdgePolicyNet`
+  `.pt`, with an EdgePolicyNet-shaped `value_head` so the parity fixture still runs), the **graded bot
+  ≠ the trained policy** and the gate is meaningless. This repack is the single silent break point and
+  **needs its own parity assertion + a regenerated JS↔Py fixture** before any real run. The eval path
+  is otherwise proven (BC was graded this way, RESULTS.md): registration is a static array edit in
+  `src/arena/builtInBots.js` (`:36` `{ id: 'ai_bc', name: 'BC', fn: ai_bc }`) and `makeBC({policy})`
+  (`src/ai/ai_bc.js:67`) + `bcForward.js` consume the exported weights synchronously, unchanged.
+
+**First tracer slice (smallest end-to-end, ordered — see PLAN Phase 3).** (1) Node env-server +
+binary wire; (2) **cross-bridge action-encoding parity test** (sampled index → encoder `moves[]` →
+correct `{from,to}|null`) green BEFORE training; (3) **throughput probe** against the real lookahead
+league (sizes the budget); (4) Python `[rl]` deps + minimal AEC env; (5) custom policy + warm-start;
+(6) tiny PPO run (1–2 envs, 1 learner + 7 fixed baselines, terminal-win only, a handful of updates);
+(7) **repack → export → register → `arena:sweep`** win% vs Lookahead with CIs. Steps 1–3 are
+decision-independent and de-risk the two biggest unknowns (fast enough? index round-trips correctly?).
+
+**Biggest risk (the documented kill-risk).** Self-play RL may converge to win% **parity** with
+Lookahead — exactly the ceiling Track A hit ([D-8]/[D-9]/[D-11]) and the Risk-thesis prior art warns
+of — and never cross to a significant edge. Mitigated by warm-starting above random, training directly
+against Lookahead, PFSP against collapse, and the pre-set budget + kill threshold (decision 4) → clean
+fallback to the shipped BC bot rather than unbounded spend.
+
+**Rejected.** (a) Following the PLAN's 3–4p symmetric curriculum — [D-15] turtle equilibrium. (b)
+Per-step stdio-JSON bridge / a Python re-port of the encoder — [D-3] latency trap / drift. (c) A
+placement/survival reward — the ELO trap. (d) Scaling the MLP or chasing the head architecture before
+PPO — [D-17]/[D-18] closed capacity and confirmed features; the residual is the imitation ceiling, an
+RL problem. (e) Open-ended compute — the kill-risk is precisely an unbounded plateau.

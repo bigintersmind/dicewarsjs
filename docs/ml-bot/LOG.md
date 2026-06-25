@@ -21,6 +21,58 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 PPO kicked off: architecture finalized (D-19), 4 decisions made, first tracer slice defined
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Squash-merged PR #56 (encoding-v2 / ceiling probe) to master; branched `ml-bot/phase3-ppo`.
+- Ran a **scope-grounding surface-map + adversarial verification** of the Phase-3 PPO design (5
+  parallel readers over JS rollout assets / Python BC trainer / JS↔Python bridge / SB3+PettingZoo
+  ecosystem / shodan ops → synthesis → 3 skeptics → finalized doc), the way [D-12] grounded Phase 1.
+  Verified the load-bearing code claims by hand before recording them (`export_weights.py:140`
+  `getattr` on a bare `EdgePolicyNet`; `builtInBots.js:36` static-array registration; `ai_bc.js:67`
+  `makeBC({policy})`; `encodeObservation.js:471` `encodeObservationForInference`, `ENCODING_VERSION 2`).
+- Recorded **[D-19]** (full architecture + the 4 decisions + the 3 verification findings); flipped
+  PLAN Phase 3 to 🟨 in progress with the corrected 7-step tracer-slice task list + scaling tasks;
+  updated the README dashboard + status block.
+
+**Learned / decided:**
+
+- **Architecture:** PettingZoo AEC, one learner seat external + 7 seats in-process; a **persistent
+  Node env-server over a local binary socket** (NOT per-step JSON — [D-3] trap); policy **reuses the
+  `EdgePolicyNet` trunk + per-edge head** + a fresh scalar critic; the **observation IS the v2
+  encoding** ([D-18]).
+- **Four decisions (Ivan):** (1) warm-start from v2-BC + a short from-scratch control; (2) **full
+  8-FFA vs a heterogeneous PFSP league from step one** — deviates from the PLAN's 3–4p-symmetric
+  task, grounded in [D-15] (symmetric mirrors turtle → ~0% decisive → no gradient); (3) **sparse
+  terminal-win reward first**, annealed potential-based shaping only if too slow (placement = the ELO
+  trap); (4) **fixed env-step budget + kill threshold**, sized after the throughput probe.
+
+**Dead ends / surprises:**
+
+- **The synthesis's throughput math was wrong (caught by a skeptic).** It claimed the JS↔Python
+  _wire_ (~13 µs/step vs ~50–200 µs JSON) was the bottleneck; it omitted that every STOP runs all 7
+  in-process heuristic opponents (`ai_lookahead`/strategist/expectimax, ~4 g/s/core). Real cost is
+  **~1.7–5 ms/learner-step (~100–400× the quoted figure)** — the wire is ~2–10% of a step, so binary
+  framing is a cheap nicety and the [D-3] plateau-by-slowness risk **relocates from the wire into
+  opponent simulation** (no bridge format fixes it). **Reachability is UNPROVEN until a throughput
+  probe runs against the real lookahead league.**
+- **`EdgePolicyNet`'s variable-length edge head doesn't fit MaskablePPO** (fixed `Discrete(N)` + bool
+  mask) → **pad-to-validated-`MAX_EDGES` (~64–128, well under sb3-contrib #247) + mask the tail.**
+- **Gate-breaking gap:** `export_weights.py` `getattr`s a bare `EdgePolicyNet`, so it **fails on a raw
+  SB3 policy object** → a new **SB3→EdgePolicyNet repack step (with its own parity assertion + a
+  regenerated JS↔Py fixture)** is required, else the graded bot ≠ the trained policy.
+
+**Next:**
+
+- **Build the first tracer slice, steps 1–3 (decision-independent, highest-de-risk):** the Node
+  env-server (`scripts/ppo-env-server.mjs`, `runBotTurn` inverted to a socket) → the **cross-bridge
+  action-encoding parity test** (sampled index → encoder `moves[]` → correct `{from,to}|null`) →
+  the **throughput probe** against the real lookahead league (sizes the budget). Then Python `[rl]`
+  deps + AEC env, the custom warm-started policy, the tiny PPO run, and repack→export→`arena:sweep`.
+
 ## 2026-06-25 — Phase-3 Step 2: encoding-v2 → FEATURE-LIMITED confirmed; BC win% 6.7%→12.5%, deployed; fork to PPO
 
 **Phase:** 3 · **Who:** Ivan + Claude

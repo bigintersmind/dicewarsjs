@@ -21,6 +21,7 @@ import {
   BOARD_FEATURES,
   EDGE_FEATURES,
   encodeStep,
+  encodeObservationForInference,
   teacherSeatsOf,
 } from '../../src/arena/encodeObservation.js';
 
@@ -336,6 +337,103 @@ describe('encodeStep — v2 attack-consequence edge features', () => {
     expect(enc.nodes[1][5]).toBe(5 / 8); // enemyNbrDiceMaxNorm — max(id2=2, id3=5) = 5
     expect(enc.nodes[1][6]).toBe(1); // enemyNbrFrac — both neighbours (2,3) are enemy
     expect(enc.nodes[1][7]).toBe(2 / 8); // degreeNorm — 2 neighbours
+  });
+});
+
+describe('encodeStep ↔ encodeObservationForInference — cross-path feature parity', () => {
+  /*
+   * The single most load-bearing invariant the v2 encoder rests on: the train path
+   * (encodeStep) and the inference path (encodeObservationForInference) must produce
+   * byte-identical node/global/edge features for the same board — the deployed BC bot is
+   * trained through the former and runs the latter. Both delegate to the shared
+   * neighborStats/attackEdgeFeatures primitives, so they agree today; this pins it so a
+   * future edit to one call site (a different `exceptId`, a reverted inline row, a changed
+   * `me` argument) can't silently desync the two and feed the net mis-columned tensors.
+   *
+   * Board (me=p0): id1 (mine, dice 4) attacks enemies id2 & id3. legalMoves below is the
+   * COMPLETE legal set (= getValidMoves) so the two paths' attack sets match exactly and
+   * every edge is comparable. The 1→3 edge also drives the zero-degree consequence guard
+   * (id3's only neighbour is the excluded `from`) on both paths.
+   */
+  function parityStep() {
+    const allAreas = [
+      { id: 1, owner: 0, dice: 4, neighbors: [2, 3], isBorder: true },
+      { id: 2, owner: 1, dice: 2, neighbors: [1, 4], isBorder: true },
+      { id: 3, owner: 2, dice: 5, neighbors: [1], isBorder: true },
+      { id: 4, owner: 1, dice: 6, neighbors: [2], isBorder: true },
+    ];
+    const players = [0, 1, 2].map(id => ({
+      id,
+      territories: 1,
+      totalDice: 4,
+      connectedTerritories: 1,
+      reinforcements: 0,
+      eliminated: false,
+    }));
+    const observation = {
+      myPlayer: 0,
+      turnNumber: 3,
+      totalPlayers: 3,
+      activePlayers: 3,
+      gamePhase: 'mid',
+      myAreas: allAreas.filter(a => a.owner === 0),
+      allAreas,
+      players,
+    };
+    return {
+      playerId: 0,
+      turnNumber: 3,
+      observation,
+      legalMoves: [
+        { from: 1, to: 2, attackerDice: 4, defenderDice: 2 },
+        { from: 1, to: 3, attackerDice: 4, defenderDice: 5 },
+        STOP,
+      ],
+      chosenMove: { from: 1, to: 2 },
+      outcome: { won: true },
+    };
+  }
+
+  const PARITY_CTX = { ...SYNTH_CTX, playerCount: 3 };
+  const train = encodeStep(parityStep(), PARITY_CTX);
+  // Inference takes the live BotState (= the step's observation; myPlayer === playerId here).
+  const infer = encodeObservationForInference(parityStep().observation, {
+    maxAreas: PARITY_CTX.maxAreas,
+  });
+
+  it('produces identical node, player, and board tensors on both paths', () => {
+    expect(infer.nodes).toEqual(train.nodes);
+    expect(infer.players).toEqual(train.players);
+    expect(infer.board).toEqual(train.board);
+  });
+
+  it('produces identical edge features for every attack (matched by from→to)', () => {
+    // Map "from->to" → edge row for the attack (non-STOP) edges of each path.
+    const attackRows = (edges, edgeIndex) => {
+      const m = new Map();
+      edges.forEach((row, k) => {
+        if (row[3] === 1) return; // skip STOP (isStop col 3)
+        m.set(`${edgeIndex[k][0]}->${edgeIndex[k][1]}`, row);
+      });
+      return m;
+    };
+    const trainRows = attackRows(train.edges, train.edgeIndex);
+    const inferRows = attackRows(infer.edges, infer.edgeIndex);
+
+    // Same attack set (legalMoves is the full getValidMoves set) and identical rows.
+    expect([...inferRows.keys()].sort()).toEqual([...trainRows.keys()].sort());
+    for (const [key, trainRow] of trainRows) {
+      expect(inferRows.get(key)).toEqual(trainRow);
+    }
+
+    // The 1→3 edge exercises the zero-degree consequence guard the same way on both paths.
+    expect(inferRows.get('1->3')[4]).toBe(0); // tgtRetakeThreatNorm — no other nbr of `3`
+    expect(inferRows.get('1->3')[6]).toBe(0); // tgtEnemyNbrFrac — degree-0 guard → 0
+  });
+
+  it('appends an identical trailing STOP edge on both paths', () => {
+    expect(infer.moves[infer.moves.length - 1]).toBeNull();
+    expect(infer.edges[infer.edges.length - 1]).toEqual(train.edges[train.edges.length - 1]);
   });
 });
 

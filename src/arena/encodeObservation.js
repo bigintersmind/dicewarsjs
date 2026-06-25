@@ -8,13 +8,13 @@
  *   - **Nodes** — a graph over the fixed territory-id node space `0 .. maxAreas-1` (id 0 is
  *     the unused sentinel). One row per id; absent ids are zero with `present = 0`. Features
  *     are **relational** (`isMine`/`isEnemy`), never an absolute seat one-hot, so the policy
- *     is seat-symmetric. v2 ([D-17]) adds three local-neighbourhood features (enemy-threat
+ *     is seat-symmetric. v2 ([D-18]) adds three local-neighbourhood features (enemy-threat
  *     magnitude, enemy fraction, degree) so the per-node MLP sees board structure.
  *   - **Per-player globals** — one row per seat (`isMe` marks self), the quantities the
  *     teacher's posture/leader terms key off.
  *   - **Board scalars** — my dice-share, active fraction, game-phase one-hot.
  *   - **Action head** — one row per legal move from `getValidMoves` plus an explicit STOP,
- *     each carrying the engineered edge features (`winProb`, `atk/8`, `def/8`; v2 [D-17] adds
+ *     each carrying the engineered edge features (`winProb`, `atk/8`, `def/8`; v2 [D-18] adds
  *     three attack-consequence features — post-capture retaliation, vacated-source exposure,
  *     target enemy-surround) so the net never has to learn dice math or look ahead one ply.
  *     The mask is all-ones over exactly this set (the legal set IS `getValidMoves` + STOP —
@@ -46,7 +46,7 @@ export const ENCODING_VERSION = 2;
  * Per-node feature names, in tensor-column order. One row per territory id
  * `0 .. maxAreas-1`; absent ids (no present area) are all-zero (`present = 0`).
  *
- * v2 (ml-bot Phase-3 ceiling probe, [D-17]) appends three **local-neighbourhood**
+ * v2 (ml-bot Phase-3 ceiling probe, [D-18]) appends three **local-neighbourhood**
  * features so the per-node MLP sees the board structure the v1 encoding withheld
  * (the v1 corpus carried no adjacency at all). All are **relational to the acting
  * seat** (`enemy` = owner ≠ me), preserving seat-symmetry.
@@ -102,8 +102,8 @@ export const EDGE_FEATURES = Object.freeze([
   'atkNorm', // attackerDice / MAX_DICE
   'defNorm', // defenderDice / MAX_DICE
   'isStop', // 1 for the STOP action, 0 for an attack
-  'tgtRetakeThreatNorm', // v2: after capture, max enemy dice adjacent to `to` (excl. `from`) / MAX_DICE — immediate retaliation risk
-  'srcVacateThreatNorm', // v2: max enemy dice adjacent to `from`'s OTHER neighbours / MAX_DICE — exposure from emptying the attacker
+  'tgtRetakeThreatNorm', // v2: max enemy dice adjacent to `to` (excl. `from`) / MAX_DICE — current-board proxy for post-capture retaliation risk
+  'srcVacateThreatNorm', // v2: max enemy dice among `from`'s OTHER neighbours (excl. `to`) / MAX_DICE — exposure left behind when the attacker empties to 1 die
   'tgtEnemyNbrFrac', // v2: enemy neighbours of `to` (excl. `from`) / its neighbour count — how surrounded the prize is
 ]);
 
@@ -157,7 +157,7 @@ function neighborStats(area, areaById, me, exceptId = -1) {
  * The full edge-feature row for one attack `from → to`, shared by the train and
  * inference encoders. The first three (winProb, atk/8, def/8) and `isStop = 0`
  * are the v1 features; the last three are the v2 attack-consequence features
- * ([D-17]), each a deterministic function of the *current* board (no leakage).
+ * ([D-18]), each a deterministic function of the *current* board (no leakage).
  *
  * @param {import('./types.js').BotArea} fromArea
  * @param {import('./types.js').BotArea} toArea

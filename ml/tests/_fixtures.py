@@ -15,7 +15,7 @@ import numpy as np
 
 # Feature widths are part of the encoding contract — keep these at the real
 # widths so the model code paths are identical to production; only A and P shrink.
-# v2 (ml-bot Phase-3, D-17): node 5→8 (+neighbourhood feats), edge 4→7 (+consequence
+# v2 (ml-bot Phase-3, D-18): node 5→8 (+neighbourhood feats), edge 4→7 (+consequence
 # feats); isStop stays column 3. Mirror src/arena/encodeObservation.js.
 NODE_FEATURES = [
     "present", "diceNorm", "isMine", "isEnemy", "isBorder",

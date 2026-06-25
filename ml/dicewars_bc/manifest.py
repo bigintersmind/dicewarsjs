@@ -23,7 +23,7 @@ from pathlib import Path
 
 # Must match `ENCODING_VERSION` in src/arena/encodeObservation.js. Bump in
 # lockstep when the feature layout changes incompatibly.
-# v2 (ml-bot Phase-3, D-17): +3 node neighbourhood feats (5→8), +3 edge
+# v2 (ml-bot Phase-3, D-18): +3 node neighbourhood feats (5→8), +3 edge
 # attack-consequence feats (4→7). Model/dataset read widths from the manifest dims,
 # so no code dims change — only this guard + the corpus must agree.
 EXPECTED_ENCODING_VERSION = 2

@@ -19,7 +19,7 @@
  * known anchor (~6.4% native) that validates the harness reproduces the established number.
  *
  * Usage:
- *   node scripts/_probe-capacity-arena.mjs                       # 20 runs x 150 games
+ *   node scripts/_probe-capacity-arena.mjs                       # 15 runs x 130 games (defaults)
  *   node scripts/_probe-capacity-arena.mjs --runs 12 --games 150
  *   WEIGHTS_DIR=/path/to/probe-exports node scripts/_probe-capacity-arena.mjs
  */
@@ -123,28 +123,38 @@ async function loadPolicy(file) {
   if (!existsSync(wPath)) throw new Error(`weights not found: ${wPath}`);
   const mod = await import(pathToFileURL(wPath).href);
   const policy = mod.BC_POLICY;
-  // Parity pre-flight against the sibling fixture, if present.
+  if (!policy) throw new Error(`${file} did not export BC_POLICY (got ${typeof policy}).`);
+
+  /*
+   * Parity pre-flight against the sibling fixture is MANDATORY: it is the only check that a
+   * candidate's JS forward reproduces the Python reference, so a missing fixture would let a
+   * numerically broken net masquerade as a real win-rate signal (the whole point of the probe).
+   * Fail loud rather than silently arena-evaluating an un-cross-checked net.
+   */
   const fxPath = wPath.replace(/\.weights\.js$/, '.fixture.json');
-  if (existsSync(fxPath)) {
-    const fx = JSON.parse(readFileSync(fxPath, 'utf8'));
-    let maxErr = 0;
-    for (const c of fx.cases) {
-      const obs = {
-        nodes: c.nodes,
-        players: c.players,
-        board: c.board,
-        edges: c.edges,
-        edgeIndex: c.edgeIndex,
-      };
-      const { logits } = forward(policy, obs);
-      for (let i = 0; i < logits.length; i++)
-        maxErr = Math.max(maxErr, Math.abs(logits[i] - c.logits[i]));
-    }
-    if (maxErr > 1e-3)
-      throw new Error(`parity FAIL for ${file}: maxErr=${maxErr.toExponential(2)} > 1e-3`);
-    return { policy, parity: maxErr };
+  if (!existsSync(fxPath)) {
+    throw new Error(
+      `parity fixture not found for ${file}: ${fxPath} — export weights with --fixture so the ` +
+        `JS forward can be cross-checked before this net is trusted in the arena.`
+    );
   }
-  return { policy, parity: null };
+  const fx = JSON.parse(readFileSync(fxPath, 'utf8'));
+  let maxErr = 0;
+  for (const c of fx.cases) {
+    const obs = {
+      nodes: c.nodes,
+      players: c.players,
+      board: c.board,
+      edges: c.edges,
+      edgeIndex: c.edgeIndex,
+    };
+    const { logits } = forward(policy, obs);
+    for (let i = 0; i < logits.length; i++)
+      maxErr = Math.max(maxErr, Math.abs(logits[i] - c.logits[i]));
+  }
+  if (maxErr > 1e-3)
+    throw new Error(`parity FAIL for ${file}: maxErr=${maxErr.toExponential(2)} > 1e-3`);
+  return { policy, parity: maxErr };
 }
 
 function countParams(policy) {

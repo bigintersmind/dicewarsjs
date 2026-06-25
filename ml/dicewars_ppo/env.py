@@ -48,7 +48,7 @@ from .constants import (
     PLAYER_W,
 )
 from .env_server import EnvServerProcess
-from .wire import ObsFrame, recv_frame, send_action
+from .wire import ObsFrame, expected_frame_bytes, recv_frame, send_action
 
 
 class DiceWarsEnv(gym.Env):
@@ -93,6 +93,9 @@ class DiceWarsEnv(gym.Env):
         # action_masks() returns and what step() validates the action against.
         self._mask = np.zeros(self.max_edges, dtype=bool)
         self._awaiting_reset = True  # gym contract: must reset() before step()
+        # Tight upper bound on a legal frame body (num_edges ≤ max_edges); recv_frame
+        # rejects a larger length prefix as a desync instead of buffering it.
+        self._max_frame_bytes = expected_frame_bytes(max_areas, player_count, max_edges)
 
         self.action_space = spaces.Discrete(self.max_edges)
         self.observation_space = spaces.Dict(
@@ -117,9 +120,19 @@ class DiceWarsEnv(gym.Env):
             host, port = self._server.host, self._server.port
         else:
             host, port = self._host, self._port
-        sock = socket.create_connection((host, port), timeout=self._connect_timeout_s)
-        sock.settimeout(None)  # blocking reads for the rest of the episode
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        try:
+            sock = socket.create_connection((host, port), timeout=self._connect_timeout_s)
+            sock.settimeout(None)  # blocking reads for the rest of the episode
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError as exc:
+            # Reap the just-launched managed server so a failed connect can't orphan it,
+            # and fold in its exit code (often the real cause) instead of a bare refusal.
+            rc = self._server.returncode if self._server is not None else None
+            self.close()
+            raise ConnectionError(
+                f"failed to connect to env-server at {host}:{port} "
+                f"(managed server returncode={rc}): {exc}"
+            ) from exc
         self._sock = sock
 
     # --- gym API --------------------------------------------------------------
@@ -132,7 +145,7 @@ class DiceWarsEnv(gym.Env):
         super().reset(seed=seed)
         self._ensure_connected()
 
-        frame = recv_frame(self._sock)
+        frame = recv_frame(self._sock, self._max_frame_bytes)
         if frame.is_terminal:
             raise RuntimeError(
                 "env-server sent a terminal frame at reset() — episode desync "
@@ -154,14 +167,22 @@ class DiceWarsEnv(gym.Env):
             )
 
         send_action(self._sock, action)
-        frame = recv_frame(self._sock)
+        frame = recv_frame(self._sock, self._max_frame_bytes)
 
         if frame.is_terminal:
-            # Sparse terminal-win reward ([D-19] decision 3).
+            # Sparse terminal-win reward ([D-19] decision 3). Validate the wire values
+            # so an encoder/server regression fails loud here instead of feeding a
+            # poisoned reward into the replay buffer.
+            if frame.won not in (0, 1):
+                raise ValueError(
+                    f"terminal frame won={frame.won} not in {{0, 1}} — wire corruption?"
+                )
+            if not 0.0 <= frame.placement <= 1.0:
+                raise ValueError(f"terminal frame placement={frame.placement} not in [0, 1]")
             reward = float(frame.won)
             # All terminals are reported `terminated` for now; distinguishing a
             # maxTurns stalemate as `truncated` (for value bootstrapping) needs a
-            # truncation flag on the wire — a documented step-6 refinement.
+            # truncation flag on the wire — a later refinement (not yet a PLAN step).
             self._awaiting_reset = True
             return self._frame_to_obs(frame), reward, True, False, self._info(frame)
 

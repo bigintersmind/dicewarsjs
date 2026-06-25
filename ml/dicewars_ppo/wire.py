@@ -49,7 +49,10 @@ _ACTION_STRUCT = struct.Struct("<i")  # one i32 LE action index, no prefix
 _LEN_STRUCT = struct.Struct("<I")  # u32 LE outbound length prefix
 
 
-@dataclass(frozen=True)
+# eq=False: this DTO is never value-compared, and the default frozen-dataclass
+# tuple ``__eq__``/``__hash__`` would raise on the numpy array fields ("ambiguous
+# truth value" / "unhashable"). Identity semantics are correct for a per-frame carrier.
+@dataclass(frozen=True, eq=False)
 class ObsFrame:
     """One decoded observation frame (header fields + tensor payload).
 
@@ -82,7 +85,8 @@ class ObsFrame:
         return self.terminal == 1
 
 
-def _expected_bytes(max_areas: int, player_count: int, num_edges: int) -> int:
+def expected_frame_bytes(max_areas: int, player_count: int, num_edges: int) -> int:
+    """Body byte length (no length prefix) for a frame with these dims."""
     floats = max_areas * NODE_W + player_count * PLAYER_W + BOARD_W + num_edges * EDGE_W
     ints = num_edges * 2
     return HEADER_BYTES + floats * 4 + ints * 4
@@ -125,7 +129,7 @@ def parse_frame(buf: bytes | bytearray | memoryview) -> ObsFrame:
             f"dicewars_ppo.constants.ENCODING_VERSION and the column widths together"
         )
 
-    expected = _expected_bytes(max_areas, player_count, num_edges)
+    expected = expected_frame_bytes(max_areas, player_count, num_edges)
     if len(buf) != expected:
         raise ValueError(
             f"frame is {len(buf)} bytes, expected {expected} for maxAreas={max_areas} "
@@ -235,9 +239,21 @@ def recv_all(sock: _socket.socket, n: int) -> bytes:
     return b"".join(chunks)
 
 
-def recv_frame(sock: _socket.socket) -> ObsFrame:
-    """Read one length-prefixed frame ``[u32 LE len][body]`` and parse it."""
+def recv_frame(sock: _socket.socket, max_bytes: int | None = None) -> ObsFrame:
+    """Read one length-prefixed frame ``[u32 LE len][body]`` and parse it.
+
+    ``max_bytes`` bounds the untrusted ``u32`` length prefix BEFORE the body is
+    read, so a desynced/corrupt stream fails loudly here instead of buffering up to
+    ~4 GiB (an OOM/hang) waiting on a body that never matches. Callers pass the
+    largest legal body for their dims (``expected_frame_bytes(.., max_edges)``);
+    ``None`` leaves it unbounded (hermetic tests with trusted input).
+    """
     (length,) = _LEN_STRUCT.unpack(recv_all(sock, _LEN_STRUCT.size))
+    if max_bytes is not None and length > max_bytes:
+        raise ValueError(
+            f"frame length {length} exceeds max {max_bytes} — stream desync or corrupt "
+            f"prefix (refusing to buffer; check the wire framing / encodingVersion)."
+        )
     return parse_frame(recv_all(sock, length))
 
 

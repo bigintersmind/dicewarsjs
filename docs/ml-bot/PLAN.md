@@ -367,10 +367,21 @@ and de-risk the two biggest unknowns).**
       the in-process-opponent cost is not a blocker. Measures the real PPO model (terminate the
       episode at learner elimination, not game-over) via `runMatch`'s `onTurn`. Re-confirm on
       shodan before locking the budget.
-- [ ] **(4)** Python `[rl]` deps (`stable-baselines3`, `sb3-contrib`, `pettingzoo`) +
-      minimal PettingZoo AEC env. **`MAX_EDGES` validated 2026-06-25 ([D-20]): observed p100 ≈ 26
-      (p99 15, mean ~5, zero overflow over ~100k decisions) → use `MAX_EDGES = 64`** (margin;
-      D-19's ~64–128 was conservative, far under sb3-contrib #247's ~1400).
+- [~] **(4)** Python `[rl]` deps (`stable-baselines3`, `sb3-contrib`, `pettingzoo`) +
+  minimal env. **`MAX_EDGES` validated 2026-06-25 ([D-20]): observed p100 ≈ 26
+  (p99 15, mean ~5, zero overflow over ~100k decisions) → use `MAX_EDGES = 64`** (margin;
+  D-19's ~64–128 was conservative, far under sb3-contrib #247's ~1400).
+  **Scaffolded 2026-06-25:** new in-repo package `ml/dicewars_ppo/` — `constants` (the v2
+  wire/encoding contract + `MAX_EDGES`), `wire` (Python port of `obs-frame.mjs` + socket
+  framing), `env_server` (launch/supervise `ppo-env-server.mjs`), and `env.DiceWarsEnv`
+  (`Discrete(MAX_EDGES)` + `action_masks()`, padded v2-tensor `Dict` obs, sparse terminal-win
+  reward). **Realized as a single-agent `gymnasium.Env`, not a PettingZoo AEC env** — the
+  env-server runs all opponent seats in-process and exposes only the learner, so a plain
+  masked Gym env is what MaskablePPO consumes (refines D-19's wording; holds for the whole
+  phase since PFSP snapshots also run in-process). `[rl]` extra added to `pyproject.toml`.
+  Cross-language wire parity is green two ways: a hermetic byte-exact golden-fixture test
+  (`tests/test_ppo_wire.py`) and a live 132-decision run against the real Node server. The
+  end-to-end Gym smoke (`tests/test_ppo_env.py`) runs on shodan once `pip install -e .[rl]`.
 - [ ] **(5)** Custom SB3 `ActorCriticPolicy` (EdgePolicyNet trunk extractor + padded-
       `MAX_EDGES` `MaskableCategorical` + fresh scalar critic); **warm-start** trunk +
       `edge_head` from the v2-BC checkpoint, assert `encoding_version == 2`.

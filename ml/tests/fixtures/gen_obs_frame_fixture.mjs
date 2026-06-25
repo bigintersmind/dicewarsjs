@@ -1,0 +1,68 @@
+/**
+ * Generate the cross-language golden frame fixture for `dicewars_ppo.wire`.
+ *
+ * Writes `obs_frame_v2.bin` (the exact bytes `serializeObsFrame` produces) and
+ * `obs_frame_v2.json` (the same values as plain JSON) next to this file. The
+ * Python test (`ml/tests/test_ppo_wire.py`) parses the `.bin` and asserts every
+ * field equals the `.json` — a hermetic, byte-exact check that the Python parser
+ * matches the JS serializer, with NO live Node process at test time.
+ *
+ * Re-run after any change to `scripts/lib/obs-frame.mjs` or the v-bump:
+ *   node ml/tests/fixtures/gen_obs_frame_fixture.mjs
+ *
+ * The frame is SYNTHETIC (small, hand-built, deterministic) — it bypasses the
+ * engine/encoder so the fixture is engine-independent and uses values that are
+ * exact in f32 (integers and negative-power-of-two fractions). It still flows
+ * through the real `serializeObsFrame`, so the byte layout under test is real.
+ */
+
+import { writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+import { ENCODING_VERSION } from '../../../src/arena/encodeObservation.js';
+import { OBS_FRAME_MAGIC, serializeObsFrame } from '../../../scripts/lib/obs-frame.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+const maxAreas = 3;
+const playerCount = 2;
+const numEdges = 2; // one attack + STOP
+
+/*
+ * Distinctive, f32-exact values (row*10 + col) so a column/row transposition or
+ * an endianness bug is obvious in the failure diff.
+ */
+const rows = (h, w, base) =>
+  Array.from({ length: h }, (_row, r) => Array.from({ length: w }, (_col, c) => base + r * 10 + c));
+
+const frame = {
+  magic: OBS_FRAME_MAGIC,
+  encodingVersion: ENCODING_VERSION,
+  maxAreas,
+  playerCount,
+  numEdges,
+  activePlayerId: 0,
+  turnNumber: 5,
+  terminal: 0,
+  winner: -1,
+  won: 0,
+  placement: 0,
+  nodes: rows(maxAreas, 8, 0), // NODE_FEATURES.length === 8 at v2
+  players: rows(playerCount, 6, 100), // PLAYER_FEATURES.length === 6
+  board: [200, 201, 202, 203, 204], // BOARD_FEATURES.length === 5
+  edges: [
+    [0.5, 0.25, 0.75, 0, 0.125, 0.375, 0.625], // an attack (isStop=0), EDGE_FEATURES.length === 7
+    [0, 0, 0, 1, 0, 0, 0], // STOP (isStop=1)
+  ],
+  edgeIndex: [
+    [1, 2], // attack from id 1 → id 2
+    [0, 0], // STOP row
+  ],
+};
+
+const bytes = serializeObsFrame(frame);
+writeFileSync(path.join(HERE, 'obs_frame_v2.bin'), bytes);
+writeFileSync(path.join(HERE, 'obs_frame_v2.json'), `${JSON.stringify(frame, null, 2)}\n`);
+
+process.stdout.write(`wrote obs_frame_v2.bin (${bytes.byteLength} bytes) + obs_frame_v2.json\n`);

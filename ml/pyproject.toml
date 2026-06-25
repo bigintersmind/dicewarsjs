@@ -19,6 +19,17 @@ onnx = [
   "onnx>=1.15",
   "onnxruntime>=1.17",
 ]
+# Phase-3 self-play PPO (dicewars_ppo). Installed on the GPU box (shodan/WSL);
+# NOT needed for the BC trainer or its hermetic tests. gymnasium is the env API;
+# stable-baselines3 + sb3-contrib provide PPO + action masking (MaskablePPO);
+# pettingzoo is listed for the multi-agent reference utilities (the env itself is
+# single-agent — opponents run in-process in Node; see dicewars_ppo/__init__.py).
+rl = [
+  "gymnasium>=0.29",
+  "stable-baselines3>=2.3",
+  "sb3-contrib>=2.3",
+  "pettingzoo>=1.24",
+]
 dev = [
   "pytest>=7.4",
   # Pinned exact so the lint gate is reproducible: an unpinned ruff adds/retires
@@ -32,7 +43,7 @@ dicewars-bc-train = "dicewars_bc.train:main"
 dicewars-bc-export = "dicewars_bc.export_onnx:main"
 
 [tool.setuptools]
-packages = ["dicewars_bc"]
+packages = ["dicewars_bc", "dicewars_ppo"]
 
 [tool.pytest.ini_options]
 # Make `dicewars_bc` importable when running `pytest` from ml/ without installing.

@@ -122,6 +122,38 @@ build the input tensors from a live `BotState` the **same way**
 run the session, and `argmax`. The sidecar `bc_policy.onnx.json` carries
 `encodingVersion` + the I/O contract so the wrapper can assert compatibility.
 
+## Phase 3 — self-play PPO (`dicewars_ppo/`)
+
+The sibling package `dicewars_ppo/` is the **Phase-3 self-play learner** (DECISIONS
+[D-19]/[D-20]). It trains a PPO policy — reusing this package's `EdgePolicyNet` trunk
+— against the persistent Node env-server (`scripts/ppo-env-server.mjs`), which runs the
+opponent seats in-process and speaks a compact binary socket protocol.
+
+```bash
+cd ml && pip install -e .[rl]    # gymnasium + stable-baselines3 + sb3-contrib (on shodan)
+```
+
+- `constants.py` — the wire/encoding contract mirrored from
+  [`../src/arena/encodeObservation.js`](../src/arena/encodeObservation.js): v2 feature
+  widths, the `ENCODING_VERSION` guard, and `MAX_EDGES = 64` ([D-20]).
+- `wire.py` — a Python port of [`../scripts/lib/obs-frame.mjs`](../scripts/lib/obs-frame.mjs)
+  (`parse_frame`/`serialize_frame`) plus the length-prefixed socket framing.
+- `env_server.py` — launch + supervise a `ppo-env-server.mjs` subprocess.
+- `env.py` — `DiceWarsEnv`, a **single-agent** `gymnasium.Env` (`Discrete(MAX_EDGES)`
+  + `action_masks()`) over the socket. It's single-agent because the env-server exposes
+  only the learner seat (opponents run in-process in Node) — exactly what sb3-contrib
+  `MaskablePPO` consumes; no PettingZoo wrapper is needed.
+
+The cross-language wire codec has a hermetic byte-exact parity test
+(`tests/test_ppo_wire.py`, parses a committed golden frame); the end-to-end env smoke
+(`tests/test_ppo_env.py`) launches a real server and skips where `gymnasium`/`node`
+are absent (so it runs on shodan, not in the BC CI). Regenerate the golden frame after
+any `obs-frame.mjs` / encoding change: `node tests/fixtures/gen_obs_frame_fixture.mjs`.
+
+The custom SB3 policy + warm-start (step 5), the tiny PPO run (step 6), and the
+repack→export→register→gate (step 7) are the remaining Phase-3 tracer steps — see
+[`../docs/ml-bot/PLAN.md`](../docs/ml-bot/PLAN.md).
+
 ## Tests
 
 ```bash

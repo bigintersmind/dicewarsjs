@@ -851,3 +851,224 @@ with no model benefit (Ivan: "engineered features only"). (b) Further BC feature
 chase the last ~4.6 pt — diminishing returns against an imitation ceiling; PPO is the right
 lever. (c) Re-running the capacity sweep on v2 — capacity was already closed independent of
 encoding ([D-17]); 102k suffices.
+
+## D-19 — Phase-3 PPO architecture: in-process self-play env over a Node↔Python socket, EdgePolicyNet-trunk policy warm-started from v2-BC, PFSP league in the full 8-FFA · Accepted (2026-06-25) · follows [D-18](#d-18--the-bc-gap-was-feature-limited-not-factorization-saturated-encoding-v2-ships-as-the-deployed-bc-and-the-ppo-observation-fork-to-ppo-for-the-residual) · grounds [D-2](#d-2--model-free-ppo-not-alphazero--muzero--accepted-2026-06-21) / [D-3](#d-3--js-engine-is-the-single-source-of-truth-python-for-training-only--accepted-2026-06-21) / [D-13](#d-13--compute-topology-distribute-data-gen-across-machines-seed-range-shards-train-on-the-gpu-box--accepted-2026-06-22)
+
+**Context.** [D-18] forked to PPO: BC is at its imitation ceiling (encoding-v2 → 12.5% win% vs
+Lookahead ~17%; residual ~4.6 pt is the clone-vs-search gap only RL crosses). Before writing any
+Phase-3 code we ran a fan-out **surface-map + adversarial verification** (5 parallel readers over
+the JS rollout assets / Python BC trainer / JS↔Python bridge options / SB3+PettingZoo ecosystem /
+shodan ops, then a synthesis stressed by 3 skeptics) — mirroring how Phase 1 began ([D-12]). The
+verification **corrected two load-bearing claims and surfaced one gate-breaking gap** (below); the
+four strategy forks were taken to Ivan and decided. The architecture inputs were already locked:
+[D-2] (model-free MaskablePPO, not AlphaZero), [D-3] (JS engine is source of truth; Python trains
+only, bridged via a PettingZoo AEC env), [D-13] (train co-located on the GPU box, local socket).
+
+**Decision — the Phase-3 PPO design.** Grounded against code (file:line verified this session):
+
+- **Env.** A **PettingZoo AEC** env with **one learner seat external** and the other 7 seats run
+  **in-process in Node**. The training **observation IS the v2 encoding**, emitted live by
+  `encodeObservationForInference` (`src/arena/encodeObservation.js:471`, `ENCODING_VERSION = 2` at
+  `:43`) — the durable artifact from [D-18], unchanged from the shipped BC/`ai_bc`. A "step" is **one
+  attack decision** (not a whole turn); the trailing STOP edge = `END_TURN`. The env reconstructs the
+  chosen `{from,to}|null` from the **encoder's own parallel `moves[]` array, NEVER a fresh
+  `getValidMoves`** (the two orderings differ — highest-severity correctness trap). Terminal reward
+  only at `phase===GAME_OVER`; turtles truncate at `maxTurns` with reward 0.
+- **Bridge.** A **persistent Node env-server** (engine + v2 encoder in-process) exchanging **compact
+  binary length-prefixed frames** over a **local Unix socket** to N vectorized envs co-located on
+  shodan, reusing `encode-corpus.mjs`'s f32/i32 CSR wire layout so Python decodes a live obs with the
+  same parser as the offline corpus. **Rejected:** per-step stdio-JSON (the [D-3] latency trap) and
+  re-implementing the encoder in Python (a second source of truth that drifts from the parity-tested
+  JS encoder).
+- **Policy net.** **Reuse `EdgePolicyNet`'s trunk + per-edge head** (`ml/dicewars_bc/model.py`) as
+  the PPO actor; **fresh scalar critic** off `ctx` (BC's 2-output won/placement value head is not a
+  bootstrappable return — reinit, optionally keep as an aux task). [D-17] ruled out capacity and
+  [D-18] confirmed the v2 features suffice, so the per-edge MLP is a sound PPO policy start; a
+  message-passing GNN stays the documented escalation if it saturates.
+- **Action masking (corrected).** `EdgePolicyNet`'s **variable-length** edge head does **not** drop
+  into sb3-contrib MaskablePPO, which requires a **fixed `Discrete(N)` + boolean mask**. Resolution:
+  **pad the per-edge head to a validated `MAX_EDGES`** (selfplay p100 of the action-count
+  distribution, ~64–128 — well under sb3-contrib **#247**'s ~1400-action sparse-mask crash zone, NOT
+  the ~992 theoretical all-pairs max) **+ mask the tail** (custom `ActorCriticPolicy` whose features
+  extractor is the EdgePolicyNet trunk; `MaskableCategorical` over the padded logits). A fully-custom
+  ragged distribution (reuse `losses.py`'s segmented softmax) is held as escalation. Treat [D-2]'s
+  "MaskablePPO" as **"PPO + action masking,"** not necessarily the literal class.
+
+**The four strategy decisions (Ivan, 2026-06-25).**
+
+1. **Warm-start from v2-BC + a short from-scratch control.** Mechanically trivial — a PPO actor with
+   the same `ModelConfig` has byte-identical Linear shapes, so
+   `EdgePolicyNet(ModelConfig(**ckpt['config'])).load_state_dict(ckpt['state_dict'])` loads trunk +
+   `edge_head` straight in; only the value head reinits. Run a short fresh control on the same gate so
+   the choice is data-backed. Use a low initial LR / KL constraint (optional brief trunk freeze) so
+   PPO doesn't wipe the BC prior before the critic + shaping stabilize.
+2. **Full 8-player FFA against a heterogeneous league from step one** — **deviates from the written
+   PLAN's "3–4p symmetric self-play first."** Grounded in [D-15]: symmetric low-player mirrors turtle
+   to ~0% decisive (winner=null → ~0 terminal reward → no gradient), and the gate IS the 8-bot FFA.
+   Heterogeneity (fixed strong baselines + snapshots) makes games ~85% decisive and matches the gate
+   distribution. Player-count / opponent-strength ramps are difficulty knobs only if 8-FFA proves
+   unstable — never a symmetric mirror.
+3. **Sparse terminal-win reward first (win=1/loss=0), add annealed potential-based shaping if
+   learning is too slow.** Win is the gate metric ([D-7]); placement/survival is the **ELO trap**
+   ([D-7]/[D-8]/[D-9] shipped consistent-but-never-wins bots) and stays auxiliary at most. Shaping,
+   when added, is **Ng-style `F = γΦ(s′) − Φ(s)`** over quantities the encoder already exposes
+   (Δlargest-group income / territory / dice / eliminations — what `ai_strategist` optimizes),
+   computed env-side in JS and **annealed to 0** so the final policy optimizes pure win%.
+4. **Fixed env-step budget + kill threshold.** No statistically-significant win% edge over Lookahead
+   after the first budget unit → declare plateau, fall back to the shipped BC / Track-A bot. Mirrors
+   Phase 0.5's 4-swing cap. **The budget can only be sized after the throughput probe (slice step 3)
+   returns real learner-steps/sec.**
+
+**League (PFSP).** No maintained drop-in self-play league exists in SB3/PettingZoo; build a
+**Prioritised Fictitious Self-Play** league (AlphaStar pattern; CleanRL's `ppo_pettingzoo_ma_atari`
+as the mechanics reference). Each 8-FFA game = 1–2 learner seats + 2–3 fixed strong JS baselines
+(`ai_lookahead@596f781` the gate opponent, plus Strategist/Expectimax) + 2–3 frozen PPO snapshots.
+**Snapshots MUST run as in-process JS bots** (export each to the `bcForward` weight format and load
+via `makeBC({policy})`) — evaluating them back in Python turns ~1 boundary crossing/turn into up to
+8 and erases the in-process amortization.
+
+**Two adversarial corrections + one gate-breaking gap (the verification's real payoff).**
+
+- **Throughput bottleneck is the in-process heuristic opponents, NOT the wire (corrected).** The
+  synthesis claimed ~13 µs/step (learner applyAction+encode) vs a ~50–200 µs JSON round-trip,
+  concluding binary framing was decisive. That omits the dominant cost: every STOP runs all 7
+  non-learner seats in-process, and the league deliberately includes `ai_lookahead`/`strategist`/
+  `expectimax` (~4 games/s/core, ~250 ms/game). Amortized over ~50–150 learner decisions/game, real
+  per-learner-step wall-clock is **~1.7–5 ms — ~100–400× the quoted figure.** So the wire is ~2–10%
+  of a step (binary framing is a cheap nicety, not the linchpin), and **the [D-3] "plateau-by-
+  slowness" risk is relocated from the wire into opponent simulation — which no bridge format fixes.**
+  The levers are cheaper-early-opponents / more parallel envs (scales with cores) / reduced lookahead
+  depth. **Reachability ("millions of steps in budget") is UNPROVEN until a throughput probe runs
+  against the actual lookahead league** — the probe's acceptance bar is learner-steps/sec needed to
+  hit the budget, not "IPC non-dominant."
+- **Variable-length edge head ≠ fixed MaskablePPO Discrete** (corrected) → pad-to-validated-`MAX_EDGES`
+  - mask (above).
+- **MISSING SB3→EdgePolicyNet repack adapter (gate-breaking, NEW).** `export_weights.py:140` does
+  `getattr(model, attr)` for `{node_encoder, player_encoder, context, edge_head, value_head}` on a
+  **bare** `EdgePolicyNet` (`:118` `EdgePolicyNet(config)`, `:119` `load_state_dict`). An SB3
+  `ActorCriticPolicy` wraps the trunk under a different state_dict namespace and the PPO critic is a
+  fresh scalar head — so `export_weights.py` will **not** find `.node_encoder` on an SB3 object and
+  **fails**. Without an explicit **repack step** (SB3 sub-modules → a bare BC-format `EdgePolicyNet`
+  `.pt`, with an EdgePolicyNet-shaped `value_head` so the parity fixture still runs), the **graded bot
+  ≠ the trained policy** and the gate is meaningless. This repack is the single silent break point and
+  **needs its own parity assertion + a regenerated JS↔Py fixture** before any real run. The eval path
+  is otherwise proven (BC was graded this way, RESULTS.md): registration is a static array edit in
+  `src/arena/builtInBots.js` (`:36` `{ id: 'ai_bc', name: 'BC', fn: ai_bc }`) and `makeBC({policy})`
+  (`src/ai/ai_bc.js:67`) + `bcForward.js` consume the exported weights synchronously, unchanged.
+
+**First tracer slice (smallest end-to-end, ordered — see PLAN Phase 3).** (1) Node env-server +
+binary wire; (2) **cross-bridge action-encoding parity test** (sampled index → encoder `moves[]` →
+correct `{from,to}|null`) green BEFORE training; (3) **throughput probe** against the real lookahead
+league (sizes the budget); (4) Python `[rl]` deps + minimal AEC env; (5) custom policy + warm-start;
+(6) tiny PPO run (1–2 envs, 1 learner + 7 fixed baselines, terminal-win only, a handful of updates);
+(7) **repack → export → register → `arena:sweep`** win% vs Lookahead with CIs. Steps 1–3 are
+decision-independent and de-risk the two biggest unknowns (fast enough? index round-trips correctly?).
+
+**Biggest risk (the documented kill-risk).** Self-play RL may converge to win% **parity** with
+Lookahead — exactly the ceiling Track A hit ([D-8]/[D-9]/[D-11]) and the Risk-thesis prior art warns
+of — and never cross to a significant edge. Mitigated by warm-starting above random, training directly
+against Lookahead, PFSP against collapse, and the pre-set budget + kill threshold (decision 4) → clean
+fallback to the shipped BC bot rather than unbounded spend.
+
+**Rejected.** (a) Following the PLAN's 3–4p symmetric curriculum — [D-15] turtle equilibrium. (b)
+Per-step stdio-JSON bridge / a Python re-port of the encoder — [D-3] latency trap / drift. (c) A
+placement/survival reward — the ELO trap. (d) Scaling the MLP or chasing the head architecture before
+PPO — [D-17]/[D-18] closed capacity and confirmed features; the residual is the imitation ceiling, an
+RL problem. (e) Open-ended compute — the kill-risk is precisely an unbounded plateau.
+
+---
+
+## D-20: Phase-3 throughput PROVEN green + `MAX_EDGES` = 64; episodes terminate at learner elimination · Accepted (2026-06-25)
+
+**Context.** [D-19] left two things unproven before any Python/PPO work: whether the in-process-opponent
+loop is fast enough to reach a real env-step budget (the bottleneck [D-19] relocated from the wire into
+opponent simulation — "reachability UNPROVEN until a probe runs against the actual lookahead league"),
+and the true per-decision action-count that sizes `MAX_EDGES`. Tracer step 3 (`scripts/ppo-throughput-probe.mjs`,
+`npm run ppo:throughput-probe`) measured both. Decision-4's first budget unit was set to **fail-fast,
+~one overnight (~12h)** (Ivan, 2026-06-25).
+
+**Decisions.**
+
+1. **GO — throughput is not the blocker.** Local (Mac, 8-core), realistic 8-FFA league
+   (Lookahead/Strategist/Expectimax/4×BC): **644 learner-steps/s single-thread, 1,933 @4 workers**
+   (~483/core). A ~12h unit ⇒ **~28M env-steps single-thread, ~84M @4 workers** — ~40–80× the
+   ≳1–2M GREEN bar. Worst-case (7×Lookahead) is faster (1,140 / 3,496 — fewer expensive bots). Build
+   tracer steps 4–7. (Local number; **re-confirm on shodan** — more cores, different CPU — before
+   locking the literal budget, but the margin is large enough that the GO is robust.)
+
+2. **`MAX_EDGES` = 64.** Observed per-decision `numEdges` (legal attacks + STOP) p100 ≈ **26** (p99 15,
+   mean ~5), **zero overflow** over ~100k decisions across both leagues. [D-19]'s ~64–128 estimate was
+   conservative; 64 gives ~2.5× margin over the observed p100 (a trained policy may reach slightly
+   busier boards than the random stub, but `numEdges` is board-structure-bounded), and is trivially
+   under sb3-contrib #247's ~1400 sparse-mask crash zone. The Python AEC env (step 4) fixes the action
+   space at 64 and masks the pad tail.
+
+3. **The PPO episode terminates at the learner's elimination, NOT at game-over.** A single-learner env
+   returns a terminal (reward = loss) the moment the learner is knocked out; simulating the
+   opponent-only tail afterward produces zero learner steps and is the throughput artifact that made an
+   early full-game probe look ~2× slower. The probe models this via `runMatch`'s `onTurn` hook (no
+   engine edit). **Follow-up for step 1 — DONE (2026-06-25).** `runSelfPlayEpisode` now takes a
+   `terminateOnElimination` flag (default off → the full-game integration oracle stays byte-identical):
+   an internal `onTurn` guard unwinds `runMatch` at the learner's elimination and synthesizes the
+   terminal there. Placement is exact, not approximate — a player's finishing rank is fixed the moment
+   it dies (everyone still alive outlives it), so `rank = #alive` reproduces `calculatePlacements`'
+   game-over value with no tail (asserted against the engine on a fixed seed in `tests/ml/ppo-env.test.js`).
+   **Refined by [D-21] (2026-06-25):** `rank = #alive` is exact only when the learner is the SOLE death that
+   turn; a same-turn co-elimination with a higher-seat-id player needs a `+co-eliminees` correction to match
+   `calculatePlacements` (it was off by one rank in ~4% of losing episodes).
+   The env-server sets the flag (terminal frame at elimination: `won=0`, `winner=-1` while undecided,
+   placement = locked-in rank); the throughput probe was refactored onto the same flag, dropping its
+   bespoke sentinel-throw. ~2× free throughput on the env-server path + correct single-learner PPO
+   semantics. (Smoke re-verified end-to-end over the socket.)
+
+**Notes.** Per-move cost (realistic league): BC-snapshot stand-in ~0.8 ms (priciest — a forward pass),
+Lookahead ~0.3–0.4 ms, Expectimax ~0.16 ms (far cheaper than the solo-bot "too slow" marker — board
+size + memoization), Strategist ~0.02 ms. Worker-pool scaling ~3× on 4 workers of an 8-core box
+(~75%/core) — a faithful CPU-bound proxy for SB3 `SubprocVecEnv`. Full numbers: `RESULTS.md`
+"Phase-3 PPO throughput probe" + `LOG.md` 2026-06-25.
+
+---
+
+## D-21 — Env↔learner control plane: signal via the `onTurn` seam, a per-decision watchdog, fail-loud on desync; placement gains a same-turn co-elimination correction · Accepted (2026-06-25) · hardens [D-19](#d-19--phase-3-ppo-architecture-in-process-self-play-env-over-a-nodepython-socket-edgepolicynet-trunk-policy-warm-started-from-v2-bc-pfsp-league-in-the-full-8-ffa--accepted-2026-06-25) / [D-20](#d-20-phase-3-throughput-proven-green--max_edges--64-episodes-terminate-at-learner-elimination--accepted-2026-06-25)
+
+**Context.** Review of the tracer slice (PR #57) surfaced that the learner runs as an ordinary bot fn, so
+`runBotDirect` (`src/arena/botRunner.js`) catches **every** throw it makes and converts it to a silent
+turn-forfeit. Two "error paths" written to fail loud were therefore **dead on the live path**:
+`chooseAction`'s `EnvClosed` on disconnect (so the `if (err instanceof EnvClosed) break` was dead code — a
+vanished client made the `--episodes=0` server spin full matches forever) and `decodeAction`'s out-of-range
+guard (a learner↔env action-space desync silently produced a stream of valid-looking, corrupt low-reward
+episodes). An adversarial verification workflow (4 verifiers + a completeness critic) then found two more
+deadlocks behind the JS-only `failSafe`: a hard worker death (OOM/segfault — no JS exception) or a
+connected-but-silent learner parked the main thread's `Atomics.wait` forever (its blocked event loop can't
+run `worker.on('error')`).
+
+**Decisions.**
+
+1. **All env↔learner control signals travel via the `onTurn` seam, never a `chooseAction` throw.** `runMatch`
+   does not wrap its `onTurn` callback in try/catch, so a throw there propagates out of `runSelfPlayEpisode` —
+   the one abort path the engine's bot-fn try/catch can't swallow. `chooseAction` records _why_ the learner
+   was lost (`lostError`) and a `failIfLost` onTurn guard re-raises it on the next turn boundary (≤1 forfeited
+   turn of slack); the worker always posts `closed` on socket loss.
+
+2. **A per-decision watchdog.** `--decision-timeout-ms` (default 120 s — inference is sub-second; 0 disables)
+   bounds the main-side `Atomics.wait`, so a hung learner or a hard worker death aborts loud instead of
+   deadlocking. This is the gate the verification critic put on long unattended training (shodan, steps 4–7).
+
+3. **A clean disconnect is exit 0; a timeout or an action-space desync is fatal (exit 1).** An out-of-range
+   action index is a trainer-side masking/`MAX_EDGES` bug, not a recoverable move — surface it loud with a
+   diagnostic rather than forfeit and poison the data. The protocol contract the Python client must honor:
+   reply within the deadline, never send an index outside `[0, numEdges)`.
+
+4. **Placement gains a same-turn co-elimination correction (refines [D-20] pt 3).** `runMatch` appends
+   simultaneous eliminations to `eliminationOrder` in ascending seat id and `calculatePlacements` reverses
+   that, so a co-eliminee with a HIGHER id than the learner finishes ABOVE it yet isn't counted in `#alive`.
+   `eliminationOutcome` now uses `rank = aliveCount + (higher-id same-turn co-eliminees)` — verified exact vs
+   `calculatePlacements` over a 1,560-game oracle sweep (0 mismatches; the naive `#alive` model was wrong in 19).
+
+**Rejected.** A heartbeat/bounded-retry protocol over the socket (more moving parts than a per-decision
+deadline buys for a single-learner env). Signaling the disconnect by throwing from `chooseAction` and
+"catching it later" — impossible, `runBotDirect` eats it first; that _was_ the original dead-code bug.
+
+**Notes.** No engine or shipped-bot changes — all in `scripts/` + `tests/ml/`. Regression coverage:
+`npm run ppo:disconnect-smoke` (disconnect → exit 0, watchdog → exit 1, desync → exit 1) + 22 new unit tests.
+Full suite 965 green; CI green on `be126bc`. Session: `LOG.md` 2026-06-25 "review hardening".

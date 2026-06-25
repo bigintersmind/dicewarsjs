@@ -316,28 +316,82 @@ everything technical before we gamble on RL.
 
 ---
 
-## Phase 3 — Self-play RL (PPO) · ⬜ Not started · ~3–6 weeks (real plateau risk)
+## Phase 3 — Self-play RL (PPO) · 🟨 In progress (kicked off 2026-06-25) · ~3–6 weeks (real plateau risk)
 
 **Objective.** Train a self-play policy that is _genuinely stronger_ than
 **`ai_lookahead`** (the bar, per [D-7]; `ai_strategist` is only a secondary
 reference) — the ambitious, uncertain part.
 
-**Tasks.**
+> **Architecture finalized in [D-19]** (scope-grounded against code + adversarially
+> verified, the way [D-12] grounded Phase 1). **PettingZoo AEC**, one learner seat
+> external + 7 seats in-process; a **persistent Node env-server** over a local binary
+> socket (NOT per-step JSON — [D-3] trap); policy **reuses the `EdgePolicyNet` trunk +
+> per-edge head** with a fresh scalar critic; the **observation IS the v2 encoding**
+> ([D-18]). **Four decisions (Ivan, 2026-06-25):** (1) **warm-start from v2-BC + a short
+> from-scratch control**; (2) **full 8-FFA vs a heterogeneous PFSP league from step one**
+> — _deviates from the old 3–4p-symmetric task below_, grounded in [D-15] (mirrors
+> turtle); (3) **sparse terminal-win reward first**, annealed potential-based shaping
+> only if too slow (placement = the ELO trap); (4) **fixed env-step budget + kill
+> threshold**, sized after the throughput probe. **Three verification findings:** the
+> throughput bottleneck is the **in-process heuristic opponents, not the wire**
+> (~1.7–5 ms/learner-step; reachability UNPROVEN until the probe runs); the variable-
+> length edge head needs **pad-to-validated-`MAX_EDGES` + mask** (MaskablePPO wants a
+> fixed Discrete); and a **gate-breaking SB3→EdgePolicyNet repack gap**
+> (`export_weights.py` `getattr`s a bare `EdgePolicyNet`) that must be built + parity-
+> asserted or the graded bot ≠ the trained policy.
 
-- [ ] Stand up a **PettingZoo AEC** env (turn-based, per-agent obs + action mask)
-      wrapping the headless arena via subprocess/socket. Keep the JS engine as the
-      source of truth (no Python re-port).
-- [ ] Train **MaskablePPO** (SB3 + sb3-contrib) with parameter sharing across
-      seats.
-- [ ] Use an **opponent league**: snapshots of past policies + `ai_strategist` as
-      a fixed baseline (naive simultaneous self-play collapses/cycles).
-- [ ] Add reward shaping (Δlargest-group income, territory/dice deltas,
-      eliminations) and/or value bootstrapping for the sparse, long-horizon
-      terminal reward.
-- [ ] Curriculum: start at **3–4 players**, move to **8-player FFA last** (8-FFA
-      self-play at scale is a research frontier).
-- [ ] Warm-start from the Phase-2 imitation weights (prior art: from-scratch
-      stalls; bootstrapped wins).
+**Tasks — first tracer slice (smallest end-to-end; steps 1–3 are decision-independent
+and de-risk the two biggest unknowns).**
+
+- [x] **(1)** Node env-server (`scripts/ppo-env-server.mjs` + `scripts/lib/{ppo-env,obs-frame,ppo-socket-worker}.mjs`)
+      — **done 2026-06-25.** Lower-risk seam than editing `runBotTurn`: reuse `runMatch`
+      **verbatim** and inject the learner as a synchronous bot-fn shim (`runBotDirect` already
+      calls bot fns sync). The shim encodes via `encodeObservationForInference`, emits a
+      self-describing binary frame (header + the corpus's f32/i32 tensor bytes — **no mask
+      blob**, the inference encoder emits only legal edges ⇒ implicit all-ones), and blocks on
+      an i32 index. The sync blocking read (brief risk #1) is isolated to a **worker thread that
+      owns the socket** while the main thread parks on `Atomics.wait`. End-to-end transport
+      proven by `scripts/ppo-env-smoke.mjs` (`npm run ppo:env-smoke`).
+- [x] **(2)** Cross-bridge **action-encoding parity test** (`tests/ml/ppo-action-parity.test.js`,
+      11 cases) + env-core oracle (`tests/ml/ppo-env.test.js`, 9 cases) — **green 2026-06-25.**
+      Action source is always the encoder's own `moves[]` (never a fresh `getValidMoves`); the
+      suite asserts the attack ordering coincides with `getValidMoves`, STOP is the unique last
+      slot, `decodeAction(enc, argmax(logits))` reproduces `ai_bc` exactly (bridge-decode ==
+      shipped-bot decode), and the frame round-trips byte-for-byte. The integration oracle
+      confirms a learner reproducing `ai_bc` yields a final state byte-identical to a pure
+      `runMatch` (move-for-move, RNG and all) at three seats.
+- [x] **(3)** **Throughput probe** (`scripts/ppo-throughput-probe.mjs` +
+      `lib/ppo-probe-core.mjs`, `npm run ppo:throughput-probe`) — **done 2026-06-25, GREEN
+      ([D-20]).** Local (Mac, 8-core) realistic league = **644 steps/s single-thread, 1,933 @4
+      workers** → **~84M env-steps in a 12h unit** (~40–80× the ≳1–2M bar); reachability PROVEN,
+      the in-process-opponent cost is not a blocker. Measures the real PPO model (terminate the
+      episode at learner elimination, not game-over) via `runMatch`'s `onTurn`. Re-confirm on
+      shodan before locking the budget.
+- [ ] **(4)** Python `[rl]` deps (`stable-baselines3`, `sb3-contrib`, `pettingzoo`) +
+      minimal PettingZoo AEC env. **`MAX_EDGES` validated 2026-06-25 ([D-20]): observed p100 ≈ 26
+      (p99 15, mean ~5, zero overflow over ~100k decisions) → use `MAX_EDGES = 64`** (margin;
+      D-19's ~64–128 was conservative, far under sb3-contrib #247's ~1400).
+- [ ] **(5)** Custom SB3 `ActorCriticPolicy` (EdgePolicyNet trunk extractor + padded-
+      `MAX_EDGES` `MaskableCategorical` + fresh scalar critic); **warm-start** trunk +
+      `edge_head` from the v2-BC checkpoint, assert `encoding_version == 2`.
+- [ ] **(6)** Tiny tracer PPO run: 1–2 envs, 1 learner + 7 fixed JS baselines (no
+      snapshots/PFSP yet), terminal-win reward only, warm-started, a handful of updates.
+- [ ] **(7)** **Repack → export → register → gate:** SB3 sub-modules → bare BC-format
+      `EdgePolicyNet` `.pt` (with parity assertion) → `export_weights.py` → regenerated
+      JS↔Py fixture → add to `src/arena/builtInBots.js` via `makeBC({policy})` →
+      `npm run arena:sweep` win% vs `ai_lookahead@596f781` with 95% CIs.
+
+**Tasks — scaling (after the tracer slice closes the loop).**
+
+- [ ] **PFSP opponent league** — snapshots exported to the `bcForward` JS weight format and
+      run **in-process** (never evaluated back in Python); sample ∝ win-rate vs the current
+      learner; fixed strong baselines in every game keep games decisive ([D-15]).
+- [ ] Scale envs across cores; add the short **from-scratch control** run (decision 1).
+- [ ] Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
+      `F = γΦ(s′)−Φ(s)`, env-side in JS) only if terminal-only learning is too slow.
+- [ ] **shodan ops:** schtasks-wrapped WSL launch (the only disconnect-surviving pattern);
+      idempotent checkpoint/resume of policy + optimizer + VecNormalize + RNG + step + pool;
+      TensorBoard + a flat CSV that survives sessions.
 
 **Acceptance criteria.**
 

@@ -21,6 +21,258 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 env-server review hardening (PR #57 fixes) → [D-21]
+
+**Phase:** 3 · **Who:** Claude
+
+**Did:**
+
+- Reviewed the tracer slice (PR #57) with specialized agents + an adversarial verification workflow, then
+  fixed every finding. No engine/shipped-bot edits — all in `scripts/` + `tests/ml/`. Full suite 965 green;
+  CI green on `be126bc`.
+- **Disconnect (was: zombie loop).** The learner runs as a bot fn and `runBotDirect` swallows _every_ bot-fn
+  throw, so the `EnvClosed` from `chooseAction` was eaten → the `if (err instanceof EnvClosed) break` was dead
+  code; with `--episodes=0` a vanished client spun full matches forever. Fix: record the loss and re-raise on
+  the next turn boundary via a `failIfLost` **onTurn** guard (the one seam the engine's try/catch can't
+  swallow); the worker now **always** posts `closed` on socket loss.
+- **Watchdog (issue A — the unattended-training gate).** The main-side `Atomics.wait` had no timeout, so a
+  hard worker death (OOM/segfault — no JS throw, `failSafe` never runs) or a connected-but-silent learner
+  parked it forever. Added `--decision-timeout-ms` (default 120 s; 0 = off) → bounded loud abort (exit 1).
+- **Loud desync (issue B).** `decodeAction`'s out-of-range throw was _also_ dead (swallowed → silent
+  turn-forfeit → a stream of valid-looking, corrupt low-reward episodes). `chooseAction` now validates the
+  index and fails **fatal** (exit 1) with a `MAX_EDGES`/masking hint, instead of poisoning training data.
+- **Placement parity (corrects D-20's "exact").** `rank = #alive` was off by one on a same-turn
+  co-elimination: `runMatch` orders simultaneous deaths by ascending seat id and `calculatePlacements`
+  reverses that, so a co-eliminee with a HIGHER id than the learner finishes ABOVE it but isn't in `#alive`.
+  `eliminationOutcome` now uses `rank = aliveCount + (higher-id same-turn co-eliminees)`.
+- **Robustness/teardown.** `writeFramed` inside the `handleObs` try; worker `failSafe` (uncaught/unhandled →
+  wake main `ST_CLOSED`, now consumed by the parent); episode loop in `try/finally` that always reaps the
+  worker; `readExactly` re-entrancy guard; rejected 2nd connection gets a no-op error handler (no spurious
+  shutdown); CLI rejects unknown/non-finite flags; bind/worker failures exit 1.
+- **Tests (+22 → 965).** `tests/ml/obs-frame.test.js` (codec shape/size/type guards, `numEdges=0`);
+  co-elimination placement across seats 0/1/3 + a runner-up exact-parity case; the onTurn abort-seam
+  mechanism; `uniquifyNames`, `makeLearnerBot` validation, `mergeShards`, `decodeAction` STOP guard. New
+  `scripts/ppo-env-disconnect-smoke.mjs` (`npm run ppo:disconnect-smoke`): a 3-scenario lost-learner smoke —
+  disconnect → exit 0, watchdog → exit 1, desync → exit 1.
+
+**Learned / decided ([D-21]):**
+
+- **The control-plane constraint.** Because the learner is an ordinary bot fn, `runBotDirect` converts any
+  throw into a silent turn-forfeit. So _every_ env↔learner control signal — disconnect, timeout, desync — must
+  surface via the `onTurn` seam (which `runMatch` does NOT wrap in try/catch), never by throwing from
+  `chooseAction`. This is the load-bearing fact behind all four robustness fixes and the protocol the Python
+  client (steps 4–7) must respect: reply within the deadline, never send an out-of-range index; a clean
+  disconnect ⇒ exit 0, a timeout/desync ⇒ exit 1.
+- The adversarial workflow (4 verifiers + a completeness critic) confirmed the disconnect and placement fixes
+  sound and surfaced A & B — both deadlock/silent-corruption holes the green suite couldn't catch — which were
+  then fixed. The placement fix was reconfirmed by a 1,560-game oracle sweep, 0 mismatches.
+
+**Dead ends / surprises:**
+
+- `decodeAction`'s loud out-of-range throw and `chooseAction`'s `EnvClosed` look like working error paths but
+  are BOTH dead on the live path — the same `runBotDirect` swallow. That loud-by-design / silent-in-practice
+  asymmetry is exactly why a desync poisoned data with no signal. Resolved by routing both through the onTurn
+  channel + a boundary index check in `chooseAction`.
+
+**Next:**
+
+- Unchanged: tracer steps 4–7 (Python `[rl]` on shodan). The watchdog (issue A) was the prerequisite the
+  verification critic gated long unattended runs on — now in place.
+
+---
+
+## 2026-06-25 — Phase-3 env-server early termination (the [D-20] step-1 follow-up)
+
+**Phase:** 3 · **Who:** Claude
+
+**Did:**
+
+- Added `terminateOnElimination` to `runSelfPlayEpisode` (`scripts/lib/ppo-env.mjs`, default off → the
+  full-game integration oracle stays byte-identical). When on, an internal `onTurn` guard unwinds
+  `runMatch` at the learner's elimination and `eliminationOutcome` synthesizes the terminal there
+  (`won=0`, `winner = state.winner` — null/-1 while the game is undecided, or the real winner if the
+  eliminating turn also ended the game; `placements`/`botStats` null; new `eliminated:true` flag).
+- Placement at death is **exact**, not approximate: a player's finishing rank is locked the moment it
+  dies (every still-alive seat outlives it), so `rank = #alive` reproduces `calculatePlacements`'
+  game-over value with no tail. Factored `scaledPlacementFromRank(rank, playerCount)` so both paths
+  share the mapping.
+- `ppo-env-server.mjs` sets the flag (terminal frame now emitted at elimination, not game-over).
+- Refactored `runProbeShard` (`ppo-probe-core.mjs`) onto the same flag — dropped its bespoke
+  `EPISODE_TERMINAL` sentinel-throw; behavior identical (the probe already stopped at elimination).
+- Tests: 3 new cases in `tests/ml/ppo-env.test.js` — (a) eliminated learner → early terminal, stops
+  strictly sooner; (b) stops on the **exact** elimination turn AND `placement` equals the engine's
+  `calculatePlacements` value on a fixed seed; (c) a winning learner (seed 11) → flag is a byte-for-byte
+  no-op vs the full game. 12/12 green; parity (11) + probe-helper (8) green; env-smoke re-run PASS.
+
+**Learned / decided:**
+
+- The "winner=-1 + placement>0" terminal frames in the smoke are **stalemate survivors** (passive STOP
+  learner still alive at maxTurns), not eliminations — correctly routed through the normal game-over
+  summary, not `eliminationOutcome`. Verified seed 100 = stalemate (`eliminated:false`, placement 0.667,
+  turnCount 500). No bug; the placement model reconciles with the engine on every smoke seed.
+
+**Dead ends / surprises:**
+
+- First no-op test asserted `won===1` vs 6 **passive** opponents — they turtle (defensive dice pile up)
+  and the learner stalemates, so `won===0`. Switched to 6 ai_bc + seed 11 (a genuine learner win) to
+  exercise the survive-to-game-over no-op with an actual `won===1`.
+
+**Next:**
+
+- Steps 4–7 (Python `[rl]` on shodan): PettingZoo AEC env (action space = `MAX_EDGES` 64) → warm-started
+  SB3 policy + SB3→EdgePolicyNet repack adapter → tiny PPO run → repack/export/register → `arena:sweep`
+  vs `ai_lookahead@596f781` (D-7 BEAT gate). Re-confirm throughput on shodan before locking the budget.
+
+---
+
+## 2026-06-25 — Phase-3 tracer step 3: throughput probe → GREEN; MAX_EDGES = 64 ([D-20])
+
+**Phase:** 3 · **Who:** Claude
+
+**Did:**
+
+- Built `scripts/ppo-throughput-probe.mjs` (+ `scripts/lib/ppo-probe-core.mjs`, `ppo-probe-worker.mjs`,
+  `npm run ppo:throughput-probe`) and `tests/ml/ppo-throughput-probe.test.js` (8 pure-helper tests).
+  Reuses the env core (`runSelfPlayEpisode` + `onObservation`), `benchmark-bot`'s timing wrapper, and
+  `selfplay-core`'s field/seat resolution + worker-pool pattern. Full suite 940 green.
+- Ran it (Mac, 8-core), worst-case `7xLookahead` + realistic `Lookahead,Strategist,Expectimax,4xBC`,
+  300 ep single-thread + 800 ep @4 workers.
+
+**Learned / decided ([D-20]):**
+
+- **GO — throughput is NOT the blocker.** Realistic league **644 steps/s single-thread, 1,933 @4
+  workers** → **~28M / ~84M env-steps in a 12h unit** — ~40–80× the ≳1–2M fail-fast bar. The
+  in-process-opponent cost [D-19] worried about is comfortably affordable. (Re-confirm on shodan, but
+  the margin makes the GO robust.)
+- **MAX_EDGES = 64.** Per-decision `numEdges` p100 ≈ 26 (p99 15, mean ~5), zero overflow over ~100k
+  decisions — D-19's ~64–128 was conservative; 64 = ~2.5× margin, far under sb3-contrib #247's ~1400.
+- **A real single-learner PPO episode ends at the learner's elimination, not game-over.** Modeled via
+  `runMatch`'s `onTurn` (added an `onTurn` passthrough to `runSelfPlayEpisode` — backward-compatible,
+  oracle still byte-identical).
+
+**Dead ends / surprises:**
+
+- First probe run played to game-over → realistic looked _slower_ than worst-case (94 vs 429 steps/s):
+  an artifact of simulating the opponent-only tail after the learner died (which generates 0 learner
+  steps). Stopping at learner elimination fixed it (94 → 372 → 644 with more episodes) and is the
+  correct PPO model. **Surfaced a step-1 env-server follow-up:** it currently plays to game-over and
+  emits the terminal frame only then — adopting early termination is a ~2× free throughput win.
+- Per-move cost: the BC-snapshot stand-in (~0.8 ms forward pass) is the priciest opponent, above
+  Lookahead (~0.3–0.4 ms); Expectimax is cheap here (~0.16 ms), far from the solo-bot "too slow" marker.
+
+**Next:**
+
+- Tracer steps 4–7 (Python side, on shodan): `[rl]` deps + minimal PettingZoo AEC env (action space =
+  `MAX_EDGES` 64) → custom warm-started SB3 policy + the SB3→EdgePolicyNet repack adapter (D-19 finding
+  c) → tiny PPO run → repack→export→register→`arena:sweep` vs `ai_lookahead@596f781`.
+- Optional cheap win first: make the step-1 env-server terminate episodes at learner elimination ([D-20]).
+
+---
+
+## 2026-06-25 — Phase-3 tracer steps 1–2 built + green: Node env-server + action-encoding parity
+
+**Phase:** 3 · **Who:** Claude
+
+**Did:**
+
+- Re-grounded the exact contracts via a focused surface-map workflow (5 readers → byte-level synthesis
+  brief), then verified the two UNCERTAIN flags directly in source (`encodeGlobals` reads the same
+  `BotState` fields `createBotState` emits ⇒ no train/live drift; the STOP-only path `N===1` is valid).
+- Built the **env-server** (tracer step 1): `scripts/lib/obs-frame.mjs` (self-describing binary wire
+  codec), `scripts/lib/ppo-env.mjs` (`decodeAction` + `runSelfPlayEpisode` reusing `runMatch` verbatim
+  via an injected synchronous learner bot-fn shim), `scripts/lib/ppo-socket-worker.mjs` (socket-owning
+  worker thread), `scripts/ppo-env-server.mjs` (main thread parks on `Atomics.wait`). `npm run`:
+  `ppo:env-server`, `ppo:env-smoke`.
+- Built the **parity gate** (tracer step 2): `tests/ml/ppo-action-parity.test.js` (11) +
+  `tests/ml/ppo-env.test.js` (9). **All 20 green.** Transport proven end-to-end by
+  `scripts/ppo-env-smoke.mjs` (forked server + STOP-only client, 3 episodes, 164 obs frames).
+
+**Learned / decided:**
+
+- **Lowest-risk seam = reuse `runMatch`, don't edit `runBotTurn`.** `runBotDirect` calls bot fns
+  synchronously, so the learner is just a bot fn that encodes-emits-and-blocks. Zero engine edits;
+  opponents run through the same `runBotTurn` as any arena match.
+- **The sync blocking read (brief risk #1) is real but containable:** isolate it in a worker thread
+  that owns the socket; the main thread blocks on `Atomics.wait` over a `SharedArrayBuffer`. The pure
+  env core takes an injected synchronous `chooseAction`, so it's fully unit-testable with a stub — no
+  socket needed for the gate.
+- **No mask blob on the wire.** The inference encoder emits only legal edges ⇒ the mask is implicit
+  all-ones (matches `ai_bc`'s no-mask argmax). Pad-to-MAX + mask is an agent-side (Python) rollout
+  concern, not the wire's.
+- **The two highest-severity correctness traps are now pinned by tests:** the encoder's `moves[]`
+  ordering coincides with `getValidMoves` element-by-element, and `decodeAction(enc, argmax(logits))`
+  reproduces `ai_bc` exactly (bridge-decode == shipped-bot decode). The integration oracle confirms a
+  learner reproducing `ai_bc` yields a final state byte-identical to a pure `runMatch` at three seats.
+
+**Dead ends / surprises:**
+
+- A JS in-process socket smoke test **deadlocks** — the server's main thread is blocked in
+  `Atomics.wait`, so the client must be a separate OS process. The smoke check forks the server.
+- ai_bc 4-player games can **stalemate** (turtling); a stalemate terminal (winner=−1, won=0, valid
+  placement) is legitimate, not a bug. Reward stays well-defined.
+
+**Next:**
+
+- Tracer **step 3 — throughput probe**: a no-op learner against the **real `ai_lookahead` league**,
+  measure learner-steps/sec (1 vs N envs). This is the existential early signal (reachability is
+  UNPROVEN per [D-19]) and sizes the env-step budget / kill threshold (decision 4).
+- Then steps 4–7 (Python `[rl]` deps + AEC env → warm-started SB3 policy → tiny PPO run →
+  repack→export→`arena:sweep`).
+
+---
+
+## 2026-06-25 — Phase-3 PPO kicked off: architecture finalized (D-19), 4 decisions made, first tracer slice defined
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Squash-merged PR #56 (encoding-v2 / ceiling probe) to master; branched `ml-bot/phase3-ppo`.
+- Ran a **scope-grounding surface-map + adversarial verification** of the Phase-3 PPO design (5
+  parallel readers over JS rollout assets / Python BC trainer / JS↔Python bridge / SB3+PettingZoo
+  ecosystem / shodan ops → synthesis → 3 skeptics → finalized doc), the way [D-12] grounded Phase 1.
+  Verified the load-bearing code claims by hand before recording them (`export_weights.py:140`
+  `getattr` on a bare `EdgePolicyNet`; `builtInBots.js:36` static-array registration; `ai_bc.js:67`
+  `makeBC({policy})`; `encodeObservation.js:471` `encodeObservationForInference`, `ENCODING_VERSION 2`).
+- Recorded **[D-19]** (full architecture + the 4 decisions + the 3 verification findings); flipped
+  PLAN Phase 3 to 🟨 in progress with the corrected 7-step tracer-slice task list + scaling tasks;
+  updated the README dashboard + status block.
+
+**Learned / decided:**
+
+- **Architecture:** PettingZoo AEC, one learner seat external + 7 seats in-process; a **persistent
+  Node env-server over a local binary socket** (NOT per-step JSON — [D-3] trap); policy **reuses the
+  `EdgePolicyNet` trunk + per-edge head** + a fresh scalar critic; the **observation IS the v2
+  encoding** ([D-18]).
+- **Four decisions (Ivan):** (1) warm-start from v2-BC + a short from-scratch control; (2) **full
+  8-FFA vs a heterogeneous PFSP league from step one** — deviates from the PLAN's 3–4p-symmetric
+  task, grounded in [D-15] (symmetric mirrors turtle → ~0% decisive → no gradient); (3) **sparse
+  terminal-win reward first**, annealed potential-based shaping only if too slow (placement = the ELO
+  trap); (4) **fixed env-step budget + kill threshold**, sized after the throughput probe.
+
+**Dead ends / surprises:**
+
+- **The synthesis's throughput math was wrong (caught by a skeptic).** It claimed the JS↔Python
+  _wire_ (~13 µs/step vs ~50–200 µs JSON) was the bottleneck; it omitted that every STOP runs all 7
+  in-process heuristic opponents (`ai_lookahead`/strategist/expectimax, ~4 g/s/core). Real cost is
+  **~1.7–5 ms/learner-step (~100–400× the quoted figure)** — the wire is ~2–10% of a step, so binary
+  framing is a cheap nicety and the [D-3] plateau-by-slowness risk **relocates from the wire into
+  opponent simulation** (no bridge format fixes it). **Reachability is UNPROVEN until a throughput
+  probe runs against the real lookahead league.**
+- **`EdgePolicyNet`'s variable-length edge head doesn't fit MaskablePPO** (fixed `Discrete(N)` + bool
+  mask) → **pad-to-validated-`MAX_EDGES` (~64–128, well under sb3-contrib #247) + mask the tail.**
+- **Gate-breaking gap:** `export_weights.py` `getattr`s a bare `EdgePolicyNet`, so it **fails on a raw
+  SB3 policy object** → a new **SB3→EdgePolicyNet repack step (with its own parity assertion + a
+  regenerated JS↔Py fixture)** is required, else the graded bot ≠ the trained policy.
+
+**Next:**
+
+- **Build the first tracer slice, steps 1–3 (decision-independent, highest-de-risk):** the Node
+  env-server (`scripts/ppo-env-server.mjs`, `runBotTurn` inverted to a socket) → the **cross-bridge
+  action-encoding parity test** (sampled index → encoder `moves[]` → correct `{from,to}|null`) →
+  the **throughput probe** against the real lookahead league (sizes the budget). Then Python `[rl]`
+  deps + AEC env, the custom warm-started policy, the tiny PPO run, and repack→export→`arena:sweep`.
+
 ## 2026-06-25 — Phase-3 Step 2: encoding-v2 → FEATURE-LIMITED confirmed; BC win% 6.7%→12.5%, deployed; fork to PPO
 
 **Phase:** 3 · **Who:** Ivan + Claude

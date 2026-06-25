@@ -343,13 +343,23 @@ reference) — the ambitious, uncertain part.
 **Tasks — first tracer slice (smallest end-to-end; steps 1–3 are decision-independent
 and de-risk the two biggest unknowns).**
 
-- [ ] **(1)** Node env-server (`scripts/ppo-env-server.mjs`): one
-      `createGame({seed, recordHistory:false})`, `matchRunner.js` `runBotTurn` inverted to
-      yield to a socket on the learner's turn and run the other 7 seats in-process; emits a
-      compact binary obs frame (reuse `encode-corpus.mjs`'s f32/i32 CSR layout) + `moves[]` + mask; blocks on an i32 action index.
-- [ ] **(2)** Cross-bridge **action-encoding parity test** (new fixture): on fixed seeds,
-      the sampled index → the encoder's own `moves[]` → the correct `{from,to}|null` —
-      **never** a fresh `getValidMoves` (orderings differ). Green **before** any training.
+- [x] **(1)** Node env-server (`scripts/ppo-env-server.mjs` + `scripts/lib/{ppo-env,obs-frame,ppo-socket-worker}.mjs`)
+      — **done 2026-06-25.** Lower-risk seam than editing `runBotTurn`: reuse `runMatch`
+      **verbatim** and inject the learner as a synchronous bot-fn shim (`runBotDirect` already
+      calls bot fns sync). The shim encodes via `encodeObservationForInference`, emits a
+      self-describing binary frame (header + the corpus's f32/i32 tensor bytes — **no mask
+      blob**, the inference encoder emits only legal edges ⇒ implicit all-ones), and blocks on
+      an i32 index. The sync blocking read (brief risk #1) is isolated to a **worker thread that
+      owns the socket** while the main thread parks on `Atomics.wait`. End-to-end transport
+      proven by `scripts/ppo-env-smoke.mjs` (`npm run ppo:env-smoke`).
+- [x] **(2)** Cross-bridge **action-encoding parity test** (`tests/ml/ppo-action-parity.test.js`,
+      11 cases) + env-core oracle (`tests/ml/ppo-env.test.js`, 9 cases) — **green 2026-06-25.**
+      Action source is always the encoder's own `moves[]` (never a fresh `getValidMoves`); the
+      suite asserts the attack ordering coincides with `getValidMoves`, STOP is the unique last
+      slot, `decodeAction(enc, argmax(logits))` reproduces `ai_bc` exactly (bridge-decode ==
+      shipped-bot decode), and the frame round-trips byte-for-byte. The integration oracle
+      confirms a learner reproducing `ai_bc` yields a final state byte-identical to a pure
+      `runMatch` (move-for-move, RNG and all) at three seats.
 - [ ] **(3)** **Throughput probe** with a no-op learner against the **real lookahead
       league** — measure learner-steps/sec for 1 vs N envs. Acceptance = the steps/sec
       needed to reach the PPO step budget within the compute cap. Sizes decision (4).

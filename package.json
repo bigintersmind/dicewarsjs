@@ -31,7 +31,9 @@
     "validate-community-bots": "node scripts/validate-community-bots.mjs",
     "tournament": "node scripts/run-online-tournament.mjs",
     "selfplay": "node scripts/selfplay.mjs",
-    "encode-corpus": "node scripts/encode-corpus.mjs"
+    "encode-corpus": "node scripts/encode-corpus.mjs",
+    "ppo:env-server": "node scripts/ppo-env-server.mjs",
+    "ppo:env-smoke": "node scripts/ppo-env-smoke.mjs"
   },
   "keywords": [
     "game",

@@ -21,6 +21,58 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 tracer steps 1–2 built + green: Node env-server + action-encoding parity
+
+**Phase:** 3 · **Who:** Claude
+
+**Did:**
+
+- Re-grounded the exact contracts via a focused surface-map workflow (5 readers → byte-level synthesis
+  brief), then verified the two UNCERTAIN flags directly in source (`encodeGlobals` reads the same
+  `BotState` fields `createBotState` emits ⇒ no train/live drift; the STOP-only path `N===1` is valid).
+- Built the **env-server** (tracer step 1): `scripts/lib/obs-frame.mjs` (self-describing binary wire
+  codec), `scripts/lib/ppo-env.mjs` (`decodeAction` + `runSelfPlayEpisode` reusing `runMatch` verbatim
+  via an injected synchronous learner bot-fn shim), `scripts/lib/ppo-socket-worker.mjs` (socket-owning
+  worker thread), `scripts/ppo-env-server.mjs` (main thread parks on `Atomics.wait`). `npm run`:
+  `ppo:env-server`, `ppo:env-smoke`.
+- Built the **parity gate** (tracer step 2): `tests/ml/ppo-action-parity.test.js` (11) +
+  `tests/ml/ppo-env.test.js` (9). **All 20 green.** Transport proven end-to-end by
+  `scripts/ppo-env-smoke.mjs` (forked server + STOP-only client, 3 episodes, 164 obs frames).
+
+**Learned / decided:**
+
+- **Lowest-risk seam = reuse `runMatch`, don't edit `runBotTurn`.** `runBotDirect` calls bot fns
+  synchronously, so the learner is just a bot fn that encodes-emits-and-blocks. Zero engine edits;
+  opponents run through the same `runBotTurn` as any arena match.
+- **The sync blocking read (brief risk #1) is real but containable:** isolate it in a worker thread
+  that owns the socket; the main thread blocks on `Atomics.wait` over a `SharedArrayBuffer`. The pure
+  env core takes an injected synchronous `chooseAction`, so it's fully unit-testable with a stub — no
+  socket needed for the gate.
+- **No mask blob on the wire.** The inference encoder emits only legal edges ⇒ the mask is implicit
+  all-ones (matches `ai_bc`'s no-mask argmax). Pad-to-MAX + mask is an agent-side (Python) rollout
+  concern, not the wire's.
+- **The two highest-severity correctness traps are now pinned by tests:** the encoder's `moves[]`
+  ordering coincides with `getValidMoves` element-by-element, and `decodeAction(enc, argmax(logits))`
+  reproduces `ai_bc` exactly (bridge-decode == shipped-bot decode). The integration oracle confirms a
+  learner reproducing `ai_bc` yields a final state byte-identical to a pure `runMatch` at three seats.
+
+**Dead ends / surprises:**
+
+- A JS in-process socket smoke test **deadlocks** — the server's main thread is blocked in
+  `Atomics.wait`, so the client must be a separate OS process. The smoke check forks the server.
+- ai_bc 4-player games can **stalemate** (turtling); a stalemate terminal (winner=−1, won=0, valid
+  placement) is legitimate, not a bug. Reward stays well-defined.
+
+**Next:**
+
+- Tracer **step 3 — throughput probe**: a no-op learner against the **real `ai_lookahead` league**,
+  measure learner-steps/sec (1 vs N envs). This is the existential early signal (reachability is
+  UNPROVEN per [D-19]) and sizes the env-step budget / kill threshold (decision 4).
+- Then steps 4–7 (Python `[rl]` deps + AEC env → warm-started SB3 policy → tiny PPO run →
+  repack→export→`arena:sweep`).
+
+---
+
 ## 2026-06-25 — Phase-3 PPO kicked off: architecture finalized (D-19), 4 decisions made, first tracer slice defined
 
 **Phase:** 3 · **Who:** Ivan + Claude

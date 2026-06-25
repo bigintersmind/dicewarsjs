@@ -21,6 +21,50 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 env-server early termination (the [D-20] step-1 follow-up)
+
+**Phase:** 3 · **Who:** Claude
+
+**Did:**
+
+- Added `terminateOnElimination` to `runSelfPlayEpisode` (`scripts/lib/ppo-env.mjs`, default off → the
+  full-game integration oracle stays byte-identical). When on, an internal `onTurn` guard unwinds
+  `runMatch` at the learner's elimination and `eliminationOutcome` synthesizes the terminal there
+  (`won=0`, `winner = state.winner` — null/-1 while the game is undecided, or the real winner if the
+  eliminating turn also ended the game; `placements`/`botStats` null; new `eliminated:true` flag).
+- Placement at death is **exact**, not approximate: a player's finishing rank is locked the moment it
+  dies (every still-alive seat outlives it), so `rank = #alive` reproduces `calculatePlacements`'
+  game-over value with no tail. Factored `scaledPlacementFromRank(rank, playerCount)` so both paths
+  share the mapping.
+- `ppo-env-server.mjs` sets the flag (terminal frame now emitted at elimination, not game-over).
+- Refactored `runProbeShard` (`ppo-probe-core.mjs`) onto the same flag — dropped its bespoke
+  `EPISODE_TERMINAL` sentinel-throw; behavior identical (the probe already stopped at elimination).
+- Tests: 3 new cases in `tests/ml/ppo-env.test.js` — (a) eliminated learner → early terminal, stops
+  strictly sooner; (b) stops on the **exact** elimination turn AND `placement` equals the engine's
+  `calculatePlacements` value on a fixed seed; (c) a winning learner (seed 11) → flag is a byte-for-byte
+  no-op vs the full game. 12/12 green; parity (11) + probe-helper (8) green; env-smoke re-run PASS.
+
+**Learned / decided:**
+
+- The "winner=-1 + placement>0" terminal frames in the smoke are **stalemate survivors** (passive STOP
+  learner still alive at maxTurns), not eliminations — correctly routed through the normal game-over
+  summary, not `eliminationOutcome`. Verified seed 100 = stalemate (`eliminated:false`, placement 0.667,
+  turnCount 500). No bug; the placement model reconciles with the engine on every smoke seed.
+
+**Dead ends / surprises:**
+
+- First no-op test asserted `won===1` vs 6 **passive** opponents — they turtle (defensive dice pile up)
+  and the learner stalemates, so `won===0`. Switched to 6 ai_bc + seed 11 (a genuine learner win) to
+  exercise the survive-to-game-over no-op with an actual `won===1`.
+
+**Next:**
+
+- Steps 4–7 (Python `[rl]` on shodan): PettingZoo AEC env (action space = `MAX_EDGES` 64) → warm-started
+  SB3 policy + SB3→EdgePolicyNet repack adapter → tiny PPO run → repack/export/register → `arena:sweep`
+  vs `ai_lookahead@596f781` (D-7 BEAT gate). Re-confirm throughput on shodan before locking the budget.
+
+---
+
 ## 2026-06-25 — Phase-3 tracer step 3: throughput probe → GREEN; MAX_EDGES = 64 ([D-20])
 
 **Phase:** 3 · **Who:** Claude

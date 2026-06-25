@@ -20,15 +20,6 @@
 import { runSelfPlayEpisode } from './ppo-env.mjs';
 
 /**
- * Sentinel thrown from `onTurn` to abort a match the instant the learner is eliminated — a
- * real single-learner PPO env returns a terminal (reward = loss) there and does NOT simulate
- * the opponent-only tail. Reused (identity-checked) to avoid a per-episode allocation. This
- * changes only wall-clock/throughput; the numEdges histogram is identical (all learner
- * decisions happen before its elimination).
- */
-const EPISODE_TERMINAL = new Error('ppo-probe: learner eliminated (episode terminal)');
-
-/**
  * Deterministic 32-bit PRNG (mulberry32). Used for the `random` learner so the probe is
  * reproducible (no `Math.random`, which would make the numEdges distribution machine- and
  * run-dependent).
@@ -187,29 +178,24 @@ export function runProbeShard({
   let episodesRun = 0;
   const t0 = performance.now();
   for (let e = 0; e < episodes; e++) {
-    let episodeTurns = 0;
-    const onTurn = (turnCount, state) => {
-      episodeTurns = turnCount;
-      if (state.players[learnerSeat].eliminated) throw EPISODE_TERMINAL; // PPO terminal: stop here
-    };
-    try {
-      const res = runSelfPlayEpisode({
-        seed: seedBase + e,
-        opponents: timedSeats,
-        learnerSeat,
-        maxAreas,
-        maxTurns,
-        chooseAction,
-        onObservation,
-        onTurn,
-      });
-      totalTurns += res.turnCount;
-      wins += res.won;
-    } catch (err) {
-      if (err !== EPISODE_TERMINAL) throw err;
-      totalTurns += episodeTurns; // learner eliminated mid-game → a loss (wins += 0)
-      eliminations += 1;
-    }
+    /*
+     * PPO terminal: stop at the learner's elimination (no opponent-only tail) — the env core's
+     * canonical early termination. The numEdges histogram is unaffected (every learner decision
+     * happens before its elimination); only the simulated wall-clock shrinks.
+     */
+    const res = runSelfPlayEpisode({
+      seed: seedBase + e,
+      opponents: timedSeats,
+      learnerSeat,
+      maxAreas,
+      maxTurns,
+      chooseAction,
+      onObservation,
+      terminateOnElimination: true,
+    });
+    totalTurns += res.turnCount;
+    wins += res.won;
+    if (res.eliminated) eliminations += 1; // eliminated mid-game → a loss (wins += 0)
     episodesRun += 1;
   }
   const elapsedMs = performance.now() - t0;

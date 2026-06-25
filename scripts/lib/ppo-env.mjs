@@ -24,6 +24,14 @@ import { encodeObservationForInference } from '../../src/arena/encodeObservation
 export const LEARNER_NAME = 'ppo-learner';
 
 /**
+ * Sentinel thrown from the internal per-turn guard to unwind `runMatch` the instant the
+ * learner is eliminated, when `terminateOnElimination` is set. Identity-checked on catch so a
+ * genuine error from a user `onTurn` (or an `EnvClosed` from the socket) still propagates.
+ * Module-level (not per-episode) to avoid an allocation per turn.
+ */
+const LEARNER_ELIMINATED = new Error('runSelfPlayEpisode: learner eliminated (episode terminal)');
+
+/**
  * Decode a policy action index against the encoder's OWN `moves[]` — never a fresh
  * `getValidMoves` (the two orderings coincide today only by construction; relying on
  * the encoder's array makes a future reorder fail the parity test rather than silently
@@ -78,6 +86,20 @@ export function makeLearnerBot({ maxAreas, chooseAction, onObservation } = {}) {
 }
 
 /**
+ * Scaled placement from a 0-based finishing rank (0 = first): 1 = first … 0 = last; 0 when
+ * the rank is unknown (<0) or there is a single seat. Shared by the game-over path (rank from
+ * the placement order) and the early-termination path (rank = #players still alive when the
+ * learner dies — see `eliminationOutcome`), so both express the identical mapping.
+ *
+ * @param {number} rank - 0-based finishing position, best-first; -1 if unplaced.
+ * @param {number} playerCount
+ * @returns {number}
+ */
+export function scaledPlacementFromRank(rank, playerCount) {
+  return playerCount > 1 && rank >= 0 ? 1 - rank / (playerCount - 1) : 0;
+}
+
+/**
  * Scaled placement for the learner, matching `encodeStep`'s aux value target:
  * 1 = first … 0 = last; 0 when the seat is unplaced or there is a single seat.
  *
@@ -87,8 +109,7 @@ export function makeLearnerBot({ maxAreas, chooseAction, onObservation } = {}) {
  * @returns {number}
  */
 export function scaledPlacement(placements, learnerSeat, playerCount) {
-  const rank = placements.indexOf(learnerSeat);
-  return playerCount > 1 && rank >= 0 ? 1 - rank / (playerCount - 1) : 0;
+  return scaledPlacementFromRank(placements.indexOf(learnerSeat), playerCount);
 }
 
 /**
@@ -110,16 +131,32 @@ export function scaledPlacement(placements, learnerSeat, playerCount) {
  * @param {number} [cfg.maxTurns] - stalemate cap (defaults to runMatch's 500).
  * @param {(encoded:Object, botState:Object) => void} [cfg.onObservation] - per-decision tap.
  * @param {(turnCount:number, state:Object) => void} [cfg.onTurn] - per-turn tap, forwarded to
- *   `runMatch`. A consumer can throw from here to abort the match early (e.g. the throughput
- *   probe stops at learner elimination, matching a real single-learner PPO env's terminal).
- * @returns {{winner:number|null, won:number, placement:number, placements:number[],
- *   turnCount:number, learnerSeat:number, playerCount:number,
+ *   `runMatch` (called before the elimination check when `terminateOnElimination` is set). A
+ *   consumer can also throw from here to abort the match early.
+ * @param {boolean} [cfg.terminateOnElimination=false] - end the episode the instant the LEARNER
+ *   is eliminated (reward = loss), instead of playing the match out to game-over. This is the
+ *   correct single-learner PPO terminal — the opponent-only tail after the learner dies is not
+ *   part of the learner's MDP, and simulating it costs ~2× the wall-clock for nothing. Default
+ *   off keeps the full-game result byte-identical (the integration oracle). When the learner
+ *   instead survives to win/stalemate, the flag is a pure no-op.
+ * @returns {{winner:number|null, won:number, placement:number, placements:number[]|null,
+ *   turnCount:number, learnerSeat:number, playerCount:number, eliminated:boolean,
  *   finalState:import('../../src/engine/types.js').GameState,
- *   botStats:Object[]}}
+ *   botStats:Object[]|null}} `placements`/`botStats` are null on an early elimination (the match
+ *   was aborted before `runMatch` computed them); `eliminated` flags that path.
  */
 export function runSelfPlayEpisode(cfg) {
-  const { seed, opponents, learnerSeat, maxAreas, maxTurns, chooseAction, onObservation, onTurn } =
-    cfg;
+  const {
+    seed,
+    opponents,
+    learnerSeat,
+    maxAreas,
+    maxTurns,
+    chooseAction,
+    onObservation,
+    onTurn,
+    terminateOnElimination = false,
+  } = cfg;
 
   if (!Number.isFinite(seed)) {
     throw new Error(
@@ -154,8 +191,50 @@ export function runSelfPlayEpisode(cfg) {
   }
   uniquifyNames(roster);
 
-  const result = runMatch({ bots: roster, seed, maxTurns, recordHistory: false, onTurn });
+  if (terminateOnElimination) {
+    /*
+     * Abort the match the moment the learner is eliminated and synthesize the terminal there.
+     * `runMatch`'s onTurn fires after every turn with the post-turn board, so the turn that
+     * eliminates the learner (always an opponent's) triggers the unwind on its own callback.
+     */
+    let abortState = null;
+    let abortTurn = 0;
+    const guardedOnTurn = (turnCount, state) => {
+      if (onTurn) onTurn(turnCount, state);
+      if (state.players[learnerSeat].eliminated) {
+        abortState = state;
+        abortTurn = turnCount;
+        throw LEARNER_ELIMINATED;
+      }
+    };
+    try {
+      const result = runMatch({
+        bots: roster,
+        seed,
+        maxTurns,
+        recordHistory: false,
+        onTurn: guardedOnTurn,
+      });
+      // Learner survived to game-over (won or stalemate-survivor) → identical to the full game.
+      return summarizeOutcome(result, learnerSeat, playerCount);
+    } catch (err) {
+      if (err !== LEARNER_ELIMINATED) throw err; // re-raise EnvClosed / a user-onTurn throw
+      return eliminationOutcome(abortState, abortTurn, learnerSeat, playerCount);
+    }
+  }
 
+  const result = runMatch({ bots: roster, seed, maxTurns, recordHistory: false, onTurn });
+  return summarizeOutcome(result, learnerSeat, playerCount);
+}
+
+/**
+ * Shape a completed-match `runMatch` result into the episode outcome (learner's reward inputs).
+ *
+ * @param {import('../../src/arena/matchRunner.js').MatchResult} result
+ * @param {number} learnerSeat
+ * @param {number} playerCount
+ */
+function summarizeOutcome(result, learnerSeat, playerCount) {
   return {
     winner: result.winner,
     won: result.winner === learnerSeat ? 1 : 0,
@@ -164,8 +243,40 @@ export function runSelfPlayEpisode(cfg) {
     turnCount: result.turnCount,
     learnerSeat,
     playerCount,
+    eliminated: false,
     finalState: result.finalState,
     botStats: result.botStats,
+  };
+}
+
+/**
+ * Synthesize the learner's terminal outcome at the moment of its elimination (early-termination
+ * mode), without simulating the opponent-only tail. The learner's FINAL rank is fixed once it
+ * dies: every player still alive outlives it (better placement) and every player already
+ * eliminated finished below it, so `rank = #players still alive` here — exactly what
+ * `calculatePlacements` would yield at game-over. `winner` is the engine's winner when the
+ * eliminating turn also ended the game (learner = runner-up), else null (game still undecided);
+ * the reward is `won = 0` either way. `placements`/`botStats` are null — the match was aborted
+ * before `runMatch` built them.
+ *
+ * @param {import('../../src/engine/types.js').GameState} state - board at the learner's elimination.
+ * @param {number} turnCount - turns played when the learner was eliminated.
+ * @param {number} learnerSeat
+ * @param {number} playerCount
+ */
+function eliminationOutcome(state, turnCount, learnerSeat, playerCount) {
+  const aliveCount = state.players.filter(p => !p.eliminated).length; // players who outlive the learner
+  return {
+    winner: state.winner,
+    won: 0,
+    placement: scaledPlacementFromRank(aliveCount, playerCount),
+    placements: null,
+    turnCount,
+    learnerSeat,
+    playerCount,
+    eliminated: true,
+    finalState: state,
+    botStats: null,
   };
 }
 

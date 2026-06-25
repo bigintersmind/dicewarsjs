@@ -142,6 +142,84 @@ describe('runSelfPlayEpisode — determinism (RNG threaded correctly)', () => {
   });
 });
 
+describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
+  const sixAiBc = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
+
+  it('ends the episode at the learner elimination, not at game-over', () => {
+    const cfg = {
+      seed: 777,
+      opponents: sixAiBc,
+      learnerSeat: 2,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: alwaysStop,
+    };
+    const full = runSelfPlayEpisode(cfg); // plays the opponent-only tail out to game-over
+    const early = runSelfPlayEpisode({ ...cfg, terminateOnElimination: true });
+
+    // A passive seat among real bots is conquered; the early run stops strictly sooner.
+    expect(early.eliminated).toBe(true);
+    expect(early.won).toBe(0);
+    expect(early.turnCount).toBeLessThan(full.turnCount);
+    expect(early.finalState.players[2].eliminated).toBe(true);
+    // The full game's tail is not simulated → the aborted match never built these.
+    expect(early.placements).toBeNull();
+    expect(early.botStats).toBeNull();
+    expect(early.placement).toBeGreaterThanOrEqual(0);
+    expect(early.placement).toBeLessThanOrEqual(1);
+  });
+
+  it('stops on the exact turn of elimination, with the engine-equivalent placement', () => {
+    let firstElimTurn = -1;
+    const cfg = {
+      seed: 777,
+      opponents: sixAiBc,
+      learnerSeat: 2,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: alwaysStop,
+    };
+    const full = runSelfPlayEpisode({
+      ...cfg,
+      onTurn: (t, state) => {
+        if (firstElimTurn === -1 && state.players[2].eliminated) firstElimTurn = t;
+      },
+    });
+    const early = runSelfPlayEpisode({ ...cfg, terminateOnElimination: true });
+
+    expect(firstElimTurn).toBeGreaterThan(0);
+    expect(early.turnCount).toBe(firstElimTurn);
+    // Placement synthesized at death (rank = #alive) equals calculatePlacements at game-over.
+    expect(early.placement).toBe(scaledPlacement(full.placements, 2, PLAYER_COUNT));
+  });
+
+  it('is a no-op when the learner wins — identical to the full game', () => {
+    /*
+     * A learner that survives to game-over never trips the early-termination guard, so the path
+     * falls through to the same completed-match result, byte for byte. seed 11 is a learner win.
+     */
+    const cfg = {
+      seed: 11,
+      opponents: sixAiBc,
+      learnerSeat: 0,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: mimicAiBc,
+    };
+    const full = runSelfPlayEpisode(cfg);
+    const early = runSelfPlayEpisode({ ...cfg, terminateOnElimination: true });
+
+    expect(early.won).toBe(1); // learner conquers the board — a genuine game-over win
+    expect(early.winner).toBe(0);
+    expect(early.eliminated).toBe(false);
+    expect(early.turnCount).toBe(full.turnCount);
+    expect(early.winner).toBe(full.winner);
+    expect(early.placement).toBe(full.placement);
+    expect(early.placements).toEqual(full.placements);
+    expect(projectState(early.finalState)).toEqual(projectState(full.finalState));
+  });
+});
+
 describe('runSelfPlayEpisode — input validation', () => {
   const baseOpponents = [{ name: 'bc', fn: ai_bc }, { name: 'bc2', fn: ai_bc }];
   it('rejects a non-finite seed (training mode needs a numeric seed)', () => {

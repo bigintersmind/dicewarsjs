@@ -5,8 +5,11 @@
  * Per connection it runs self-play episodes: the designated learner seat plays an
  * N-FFA match against in-process opponent bots, emitting one binary observation frame
  * per learner decision and blocking for the learner's i32 action index, then a terminal
- * frame with the episode reward. The game engine, the opponents, and the action decode
- * are the SAME code the arena and the shipped BC bot use (`runMatch`, `runSelfPlayEpisode`,
+ * frame with the episode reward. The episode terminates at the LEARNER's elimination
+ * (reward = loss) — not at game-over — so the opponent-only tail is never simulated (the
+ * correct single-learner PPO terminal; ~2× the throughput — see `runSelfPlayEpisode`'s
+ * `terminateOnElimination`). The game engine, the opponents, and the action decode are the
+ * SAME code the arena and the shipped BC bot use (`runMatch`, `runSelfPlayEpisode`,
  * `decodeAction`) — the server only adds transport.
  *
  * Synchronous blocking read: `runMatch` is synchronous, so the learner shim cannot await.
@@ -155,13 +158,20 @@ async function main() {
         maxAreas,
         maxTurns,
         chooseAction,
+        // End the episode at the learner's elimination, not game-over (PPO terminal; ~2×).
+        terminateOnElimination: true,
       });
     } catch (err) {
       if (err instanceof EnvClosed) break;
       throw err;
     }
 
-    // Terminal frame: the learner's view of the final board + the episode reward.
+    /*
+     * Terminal frame: the learner's view of the board at the episode terminal (its elimination,
+     * or game-over if it survived) + the reward. On an early elimination `result.winner` is null
+     * (game undecided) → -1 on the wire; `won` is 0 and `placement` is the learner's locked-in
+     * finishing rank.
+     */
     const termState = createBotState(result.finalState, learnerSeat);
     const termEnc = encodeObservationForInference(termState, { maxAreas });
     const termFrame = buildObsFrame({

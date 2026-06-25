@@ -1007,9 +1007,16 @@ and the true per-decision action-count that sizes `MAX_EDGES`. Tracer step 3 (`s
    returns a terminal (reward = loss) the moment the learner is knocked out; simulating the
    opponent-only tail afterward produces zero learner steps and is the throughput artifact that made an
    early full-game probe look ~2× slower. The probe models this via `runMatch`'s `onTurn` hook (no
-   engine edit). **Follow-up for step 1:** the current env-server (`runSelfPlayEpisode`) plays to
-   game-over and only then emits the terminal frame — it should adopt the same early termination (emit
-   the terminal frame at learner elimination), a ~2× free throughput win and the correct PPO semantics.
+   engine edit). **Follow-up for step 1 — DONE (2026-06-25).** `runSelfPlayEpisode` now takes a
+   `terminateOnElimination` flag (default off → the full-game integration oracle stays byte-identical):
+   an internal `onTurn` guard unwinds `runMatch` at the learner's elimination and synthesizes the
+   terminal there. Placement is exact, not approximate — a player's finishing rank is fixed the moment
+   it dies (everyone still alive outlives it), so `rank = #alive` reproduces `calculatePlacements`'
+   game-over value with no tail (asserted against the engine on a fixed seed in `tests/ml/ppo-env.test.js`).
+   The env-server sets the flag (terminal frame at elimination: `won=0`, `winner=-1` while undecided,
+   placement = locked-in rank); the throughput probe was refactored onto the same flag, dropping its
+   bespoke sentinel-throw. ~2× free throughput on the env-server path + correct single-learner PPO
+   semantics. (Smoke re-verified end-to-end over the socket.)
 
 **Notes.** Per-move cost (realistic league): BC-snapshot stand-in ~0.8 ms (priciest — a forward pass),
 Lookahead ~0.3–0.4 ms, Expectimax ~0.16 ms (far cheaper than the solo-bot "too slow" marker — board

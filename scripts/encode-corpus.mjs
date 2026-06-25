@@ -48,7 +48,7 @@ import {
   encodeStep,
   teacherSeatsOf,
 } from '../src/arena/encodeObservation.js';
-import { getArg, hasFlag, colors } from './lib/cli-utils.mjs';
+import { getArg, hasFlag, colors } from './lib/cli-args.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 

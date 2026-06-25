@@ -31,7 +31,7 @@ def test_train_one_epoch_writes_checkpoint(tmp_path):
     # weights_only=True doubles as a guard that the checkpoint stays safe-loadable
     # (only tensors + plain containers/scalars) — see export_onnx.py.
     ckpt = torch.load(ckpt_path, weights_only=True)
-    assert ckpt["encoding_version"] == 1
+    assert ckpt["encoding_version"] == 2
     assert ckpt["teacher"] == "Lookahead"
     assert ckpt["config"]["max_areas"] == 6
     assert ckpt["config"]["player_count"] == 2  # carried from the manifest for the ONNX export

@@ -63,7 +63,8 @@ def _make_example(config: ModelConfig, edge_counts, n_seats=None, seed: int = 0)
     ends = torch.tensor(edge_counts).cumsum(0).tolist()
     for end in ends:
         i = end - 1
-        edge_feat[i] = torch.tensor([0.0, 0.0, 0.0, 1.0])
+        edge_feat[i] = 0.0  # zero all edge features ...
+        edge_feat[i, 3] = 1.0  # ... except isStop (column 3; see EDGE_FEATURES, width-agnostic)
         edge_from[i] = 0
         edge_to[i] = 0
     edge_batch = torch.repeat_interleave(torch.arange(b), torch.tensor(edge_counts))

@@ -44,7 +44,10 @@ describe('encodeObservationForInference', () => {
 
   it('reconstructs exactly getValidMoves + a trailing STOP', () => {
     expect(enc.moves[enc.moves.length - 1]).toBeNull(); // STOP
-    expect(enc.edges[enc.edges.length - 1]).toEqual([0, 0, 0, 1]);
+    // v2 STOP edge: all features 0 except isStop (column 3); width tracks EDGE_FEATURES.
+    const stopEdge = new Array(BC_POLICY.config.edgeFeatures).fill(0);
+    stopEdge[3] = 1;
+    expect(enc.edges[enc.edges.length - 1]).toEqual(stopEdge);
     expect(enc.edgeIndex[enc.edgeIndex.length - 1]).toEqual([0, 0]);
 
     const attacks = enc.moves.slice(0, -1);

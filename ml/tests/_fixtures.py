@@ -13,14 +13,22 @@ from pathlib import Path
 
 import numpy as np
 
-# Feature widths are part of the v1 encoding contract — keep these at the real
+# Feature widths are part of the encoding contract — keep these at the real
 # widths so the model code paths are identical to production; only A and P shrink.
-NODE_FEATURES = ["present", "diceNorm", "isMine", "isEnemy", "isBorder"]
+# v2 (ml-bot Phase-3, D-17): node 5→8 (+neighbourhood feats), edge 4→7 (+consequence
+# feats); isStop stays column 3. Mirror src/arena/encodeObservation.js.
+NODE_FEATURES = [
+    "present", "diceNorm", "isMine", "isEnemy", "isBorder",
+    "enemyNbrDiceMaxNorm", "enemyNbrFrac", "degreeNorm",
+]
 PLAYER_FEATURES = [
     "isMe", "eliminated", "territoriesFrac", "diceFrac", "connectedFrac", "stockNorm",
 ]
 BOARD_FEATURES = ["myDiceShare", "activeFrac", "phaseEarly", "phaseMid", "phaseLate"]
-EDGE_FEATURES = ["winProb", "atkNorm", "defNorm", "isStop"]
+EDGE_FEATURES = [
+    "winProb", "atkNorm", "defNorm", "isStop",
+    "tgtRetakeThreatNorm", "srcVacateThreatNorm", "tgtEnemyNbrFrac",
+]
 
 
 def make_step(
@@ -41,7 +49,8 @@ def make_step(
     board = rng.random(len(BOARD_FEATURES)).astype("<f4")
 
     edges = rng.random((edge_count, len(EDGE_FEATURES))).astype("<f4")
-    edges[-1] = [0.0, 0.0, 0.0, 1.0]  # STOP edge
+    edges[-1] = 0.0  # STOP edge: all features 0 ...
+    edges[-1, 3] = 1.0  # ... except isStop (column 3, width-agnostic)
     edges[:-1, 3] = 0.0  # attacks have isStop=0
 
     edge_index = np.zeros((edge_count, 2), dtype="<i4")
@@ -65,7 +74,7 @@ def make_step(
 
 
 def write_corpus(
-    out_dir: str | Path, steps: list[dict], *, teacher: str = "Lookahead", encoding_version: int = 1
+    out_dir: str | Path, steps: list[dict], *, teacher: str = "Lookahead", encoding_version: int = 2
 ) -> Path:
     """Pack ``steps`` into the on-disk blob/manifest layout. Returns the dir."""
     out = Path(out_dir)

@@ -17,10 +17,10 @@ def test_len_and_item_shapes(tmp_path):
     assert len(ds) == 7
 
     item = ds[0]
-    assert item["nodes"].shape == (6, 5)
+    assert item["nodes"].shape == (6, 8)  # v2: 8 node features
     assert item["players"].shape == (2, 6)
     assert item["board"].shape == (5,)
-    assert item["edge_feat"].shape[1] == 4
+    assert item["edge_feat"].shape[1] == 7  # v2: 7 edge features
     assert item["edge_index"].shape == (item["edge_feat"].shape[0], 2)
     assert item["value"].shape == (2,)
     assert item["label"].dtype == torch.int64

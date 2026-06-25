@@ -41,13 +41,15 @@ const CTX = { maxAreas: BC_POLICY.config.maxAreas };
  *
  * `stopBias` is subtracted from the trailing STOP edge's logit *before* the argmax,
  * so a positive value makes the bot less willing to end its turn (more aggressive);
- * `stopBias = 0` is the plain clone. This is a **no-retrain** calibration knob for the
- * ml-bot Phase-2 STOP-bias diagnostic: the trained clone over-predicts STOP (~68% of
- * decisions vs ~45% for the teacher) and so plays too passively to win (the corrected
- * `stopBias = 0` control wins only ~3.6% vs the teacher's ~18%). Sweeping this
- * knob over the *existing* exported weights tells us whether the failure is just a
- * miscalibrated STOP threshold — and what STOP rate to target — before paying for a
- * class-weighted/focal-CE retrain on the GPU box. See `scripts/bc-stopbias-sweep.mjs`.
+ * `stopBias = 0` is the plain clone — and, since encoding-v2 ([D-18]), the shipped
+ * default: the v2 features cured the turtle natively (native arena STOP ~53% at
+ * `stopBias 0`, already near the teacher), so the clone wins ~12.5% vs Lookahead's ~17%
+ * with NO bias and positive bias now only hurts. The knob is retained as a **no-retrain**
+ * diagnostic — sweeping it over the *existing* exported weights probes whether a residual
+ * gap is just a miscalibrated STOP threshold, without paying for a GPU retrain. (Under v1
+ * it was a needed correction: the v1 clone over-predicted STOP (~68% of val decisions vs
+ * the teacher's ~45%) and turtled to ~3.6% arena win until biased.) See
+ * `scripts/bc-stopbias-sweep.mjs`.
  *
  * NB: a constant additive penalty, **not** a softmax temperature — a single global
  * temperature is argmax-invariant and would have no effect on the deployed argmax.
@@ -56,12 +58,27 @@ const CTX = { maxAreas: BC_POLICY.config.maxAreas };
  * @param {number} [opts.stopBias=0] - Subtracted from the STOP logit before argmax.
  * @param {(stopped: boolean) => void} [opts.onDecision] - Called once per decision with
  *   whether the bot chose STOP — lets a sweep tally the realized STOP rate.
+ * @param {import('./bcPolicyWeights.js').BC_POLICY} [opts.policy=BC_POLICY] - Override the
+ *   deployed weights with an alternate exported policy. Used by the ml-bot capacity probe to
+ *   arena-evaluate candidate checkpoints (e.g. wider nets) without overwriting the shipped
+ *   `bcPolicyWeights.js`. Must share the live encoder's `ENCODING_VERSION`.
  * @returns {(botState: import('../arena/types.js').BotState) => ({ from: number, to: number } | null)}
  */
-export function makeBC({ stopBias = 0, onDecision } = {}) {
+export function makeBC({ stopBias = 0, onDecision, policy = BC_POLICY } = {}) {
+  /*
+   * A candidate policy must match the live encoder's feature layout, exactly like the
+   * deployed default checked at import — a skew would silently feed mis-columned tensors.
+   */
+  if (policy.encodingVersion !== ENCODING_VERSION) {
+    throw new Error(
+      `makeBC: policy encodingVersion ${policy.encodingVersion} != encoder ENCODING_VERSION ` +
+        `${ENCODING_VERSION} — retrain/re-export against the current encoding.`
+    );
+  }
+  const ctx = policy === BC_POLICY ? CTX : { maxAreas: policy.config.maxAreas };
   return function bc(botState) {
-    const encoded = encodeObservationForInference(botState, CTX);
-    const { logits } = forward(BC_POLICY, encoded);
+    const encoded = encodeObservationForInference(botState, ctx);
+    const { logits } = forward(policy, encoded);
 
     /*
      * The encoder appends exactly one trailing STOP edge (moves[last] === null), so the

@@ -759,3 +759,95 @@ JS deps and write a `src/ai` wrapper that builds the input tensors from a live
 encoder** extracted from `encodeStep` (it currently requires a `chosenMove` to
 compute the BC label). Then run the session and `argmax`. Evaluate on
 `arena:sweep` vs `ai_lookahead` (the Phase-2 parity gate).
+
+## D-17 — The BC gap is NOT capacity-limited; localize encoding vs factorization before the PPO fork · Accepted (2026-06-24) · follows [D-16](#d-16--the-bc-trainer-lives-in-repo-at-ml-logits-only-single-step-onnx-is-the-inference-contract)
+
+**Context.** After the STOP-de-bias retrain (#55) the calibrated BC clone wins ~6.4% vs
+Lookahead's ~20% — a residual ~13 pt gap attributed to the "encoding/architecture ceiling"
+but never measured. Three candidate causes: (a) **capacity** — the per-edge MLP is too small;
+(b) **features** — the encoding lacks information (notably board adjacency: the corpus carries
+only action-head candidate edges, no full adjacency); (c) **factorization** — the architecture
+(independent per-edge scoring + masked-mean pooling, no message passing) can't represent the
+teacher's relational reasoning regardless of size or features. The fork ahead (GNN warm-start
+vs greenfield PPO, [D-2]) is expensive, so localize the cause first with a cheap probe (Ivan's
+call: "cheap ceiling probe first; destination is PPO either way").
+
+**Decision.** (1) Rule out / in **capacity** with a zero-code width sweep, judged on **win%**
+(the gating metric, [D-7]) not just val move-match (the known-misleading proxy, [D-15]/Phase-2
+STOP sweep). (2) Given the result, **proceed to encoding-v2** — add a board-adjacency blob +
+richer node/edge features and bump `ENCODING_VERSION 1→2` (3-site lockstep:
+`encodeObservation.js`, `manifest.py EXPECTED_ENCODING_VERSION`, `ai_bc.js` load guard),
+re-encode the 100k corpus, retrain the **same** MLP, and arena-confirm. This splits
+feature-limited (acc/win rises on richer features) from factorization-saturated (still flat →
+needs message passing / RL). (3) Tooling: `makeBC({ policy })` (`src/ai/ai_bc.js`) — a
+backward-compatible param to arena-eval candidate checkpoints without overwriting the shipped
+`bcPolicyWeights.js` — and `scripts/_probe-capacity-arena.mjs` (parity pre-flight + config×bias
+peak-win% comparison).
+
+**Evidence (capacity sweep, full tables in RESULTS.md Phase 3).** Three widths, same 100k
+corpus + recipe (`--epochs 6 --stop-weight 0.5 --select-by stop-cal`), on `shodan`:
+
+- **Proxy flat:** val move-match 56.75% (102k) → 57.19% (403k) → 57.33% (1.0M). 10× params →
+  +0.58 pt.
+- **Real metric flat-to-declining:** peak arena win% (matched STOP operating point, 95% CIs)
+  6.7 ± 0.8 (102k) → 6.6 ± 1.2 (403k) → 5.1 ± 0.9 (1.0M). The 1M net is if anything _worse_.
+  Compared at each width's _peak_ over a bias grid because val-STOP-calibration does not
+  transfer to the arena distribution uniformly across training length (6-epoch nets turtle
+  harder than the deployed 2-epoch model). Harness validated: the deployed model reproduces its
+  known ~6.4%.
+
+**Consequences.** Capacity is closed as the lever — **do not scale the MLP**. The encoding-v2
+work is **not throwaway even though the destination is PPO** ([D-2]): a competitive PPO/GNN
+policy needs adjacency in its observation, so v2 front-loads that. BC's own ceiling remains
+**parity, never beat** ([D-15] reframe) — the encoding-v2 BC retrain is **diagnostic**; the
+durable payoff is the reusable enriched observation and a sharper PPO design. If v2 leaves win%
+flat (factorization-saturated), skip further BC tuning and fork straight to PPO with a
+message-passing policy.
+
+**Rejected / not chosen.** (a) Straight to PPO without localizing — risks building PPO on an
+impoverished observation and re-discovering the same gap expensively. (b) A bigger MLP — ruled
+out by this evidence. (c) A standalone GNN-BC probe instead of encoding-v2 — needs the adjacency
+blob anyway (same re-encode cost) _plus_ new architecture, and its result (parity at best) is
+lower-value than producing the reusable v2 observation.
+
+## D-18 — The BC gap was FEATURE-LIMITED, not factorization-saturated; encoding-v2 ships as the deployed BC and the PPO observation; fork to PPO for the residual · Accepted (2026-06-25) · resolves [D-17](#d-17--the-bc-gap-is-not-capacity-limited-localize-encoding-vs-factorization-before-the-ppo-fork)
+
+**Context.** [D-17] closed capacity and split the remaining gap into **features** vs
+**factorization**, to be decided by encoding-v2: same 102k MLP + same recipe, only the encoding
+enriched (engineered local-neighbourhood features, not a raw adjacency blob — the per-edge MLP
+can't message-pass over one, and PPO builds its observation live anyway; Ivan's call:
+"engineered features only"). Feature-limited ⇒ win% rises on richer features; factorization-
+saturated ⇒ still flat → needs message passing / RL.
+
+**Decision.** Accept the **feature-limited** verdict and **ship encoding-v2** (`ENCODING_VERSION
+2`): node 5→8 (`enemyNbrDiceMaxNorm`, `enemyNbrFrac`, `degreeNorm`), edge 4→7
+(`tgtRetakeThreatNorm`, `srcVacateThreatNorm`, `tgtEnemyNbrFrac`). The retrained weights replace
+the deployed `src/ai/bcPolicyWeights.js` (default `stopBias 0`). **Fork to PPO** for the residual
+gap — no further BC feature/architecture tuning, as BC's ceiling is parity-not-beat ([D-15]).
+
+**Evidence (full tables in RESULTS.md Phase 3 — encoding-v2).** Same net, same 100k corpus,
+only the encoding differs vs the [D-17] `c0_base` twin:
+
+- **Proxy jumped:** val move-match **0.5675 → 0.7328** (+16.5 pt) — the six engineered
+  attack-consequence features made the teacher's moves far more predictable.
+- **Gate followed (the decisive part):** peak arena win% **6.7 ± 0.8 → 12.5 ± 1.4** (15×130,
+  same 8-bot field, CIs disjoint [5.9,7.5] vs [11.1,13.9]). Unlike the capacity sweep (+0.58 pt
+  proxy → flat win%), this proxy gain **carried to the gate**. Native gap to Lookahead (~17%)
+  ~halved: ~13 pt → ~4.6 pt.
+- **STOP self-calibrated:** peak at `stopBias 0` (native STOP 53% vs v1's ~71% turtle); positive
+  bias now only hurts. No deploy-time tuning needed.
+
+**Consequences.** (1) The v2 observation is the **durable artifact** ([D-2] reuse) — it is
+_both_ the shipped BC encoding _and_ the PPO input, so the work survives the BC→PPO fork.
+(2) BC tuning is **done**: the residual ~4.6 pt is the imitation ceiling (BC clones, Lookahead
+searches), which only RL crosses. (3) The lockstep version bump touched
+`encodeObservation.js`, `manifest.py`, `ai_bc.js` (load guard), `export_weights.py`/
+`export_onnx.py` fixtures, and the JS/Python test fixtures + the `encode-corpus` end-to-end
+version assertion — all green at v2.
+
+**Rejected / not chosen.** (a) A raw adjacency-CSR blob in the corpus — the current MLP can't
+message-pass over it and PPO won't consume it (builds observations live), so it would add bytes
+with no model benefit (Ivan: "engineered features only"). (b) Further BC feature engineering to
+chase the last ~4.6 pt — diminishing returns against an imitation ceiling; PPO is the right
+lever. (c) Re-running the capacity sweep on v2 — capacity was already closed independent of
+encoding ([D-17]); 102k suffices.

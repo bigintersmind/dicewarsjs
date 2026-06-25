@@ -21,6 +21,104 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 Step 2: encoding-v2 → FEATURE-LIMITED confirmed; BC win% 6.7%→12.5%, deployed; fork to PPO
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Built **encoding-v2** (`ENCODING_VERSION 1→2`): engineered local-neighbourhood features only
+  (Ivan's call — no raw adjacency blob). Node 5→8 (`enemyNbrDiceMaxNorm`, `enemyNbrFrac`,
+  `degreeNorm`), edge 4→7 (`tgtRetakeThreatNorm`, `srcVacateThreatNorm`, `tgtEnemyNbrFrac`).
+  Lockstep bump across `encodeObservation.js`, `manifest.py`, `ai_bc.js` guard, export fixtures,
+  and JS/Python tests. Broke a transition deadlock (`encode-corpus → cli-utils → ai_bc` guard
+  threw mid-transition) by extracting `scripts/lib/cli-args.mjs`.
+- Re-encoded the **same** 100k corpus on `shodan` (8,591,769 steps / 59.4M edges, counts
+  identical to v1) and retrained the **same** 102k MLP with the **same** recipe (the only
+  variable is the encoding; v1 twin = the [D-17] capacity-probe `c0_base`).
+- Exported v2 weights → `src/ai/bcPolicyWeights.js` (+ regenerated parity fixture), arena-
+  confirmed via `arena:bc-stopbias` (15×130, bias 0–3, same 8-bot field as the baseline). Full
+  suite green (909/909). ADR: [D-18].
+
+**Learned / decided:**
+
+- **FEATURE-LIMITED, decisively.** Val move-match **0.5675 → 0.7328** (+16.5 pt) AND — the
+  decisive part — the gate followed: peak arena win% **6.7 ± 0.8 → 12.5 ± 1.4** (CIs disjoint).
+  Contrast the capacity sweep, where +0.58 pt proxy left win% flat. The per-edge MLP was
+  feature-starved, not factorization-saturated.
+- Native gap to Lookahead (~17%) ~halved (13 pt → ~4.6 pt). BC is still below the gate (parity-
+  not-beat, [D-15]); the residual is the **imitation ceiling** → **fork to PPO** (D-18). The v2
+  observation is the durable artifact: ships as deployed BC _and_ feeds the PPO input.
+
+**Dead ends / surprises:**
+
+- **v2 needs NO STOP bias.** Peak at `stopBias 0` (native arena STOP 53% vs v1's ~71% turtle);
+  positive bias now only suppresses STOP and _hurts_. The richer features fixed the turtle
+  natively — deploy at default, no tuning.
+- Training warned "no epoch hit the STOP-cal band" (val STOP 0.418 < target 0.448) — a non-issue:
+  val-STOP ≠ arena-STOP (known confound), and bias 0 already lands STOP at 53% in self-play.
+- Caught a stale v1 assertion in `tests/scripts/encode-corpus.test.js` (`encodingVersion` 1→2)
+  that the lockstep bump had missed; full suite green after the fix.
+
+**Next:**
+
+- **Phase 3 → PPO.** Stand up the PPO loop on `shodan` with the v2 observation as the policy
+  input (warm-start from the v2 BC weights is the open design question). Target: cross the
+  imitation ceiling and clear the [D-7] gate (statistically significant win% edge over Lookahead).
+
+## 2026-06-25 — Phase-3 ceiling probe, Step 1: capacity is NOT the bottleneck (10× params → flat-to-declining win%)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Ran the cheap capacity localization probe (Ivan's chosen path after #55) to find _where_ the
+  ~13 pt gap to Lookahead lives before committing to a GNN/PPO fork. Zero-code sweep on
+  `shodan` (CUDA): `EdgePolicyNet` at 3 widths (102k / 403k / 1.0M params), same 100k corpus,
+  same recipe (`--epochs 6 --stop-weight 0.5 --select-by stop-cal`).
+- Hardened the proxy result on the **real metric**: added a backward-compatible `policy` param
+  to `makeBC()` (`src/ai/ai_bc.js`) so candidate checkpoints can be arena-evaluated without
+  overwriting the shipped weights; built `scripts/_probe-capacity-arena.mjs` (parity pre-flight
+  - config×bias grid, peak-win% comparison). Exported all 3 checkpoints + fixtures off `shodan`.
+- 23,400-game confirm (4 configs × bias {0,1,2} × 15×130, paired seeds). Full tables in
+  RESULTS.md (Phase 3 section). ADR: [D-17].
+
+**Learned / decided:**
+
+- **NOT capacity-limited.** Val move-match flat across 10× params (56.75 → 57.33%); peak arena
+  win% flat-to-declining (6.7 → 6.6 → 5.1%, the 1M net slightly _worse_). Both metrics agree.
+  The gap is **encoding and/or factorization**, not model size.
+- **Decided (D-17): proceed to encoding-v2** — add board adjacency + richer features
+  (`ENCODING_VERSION 1→2`), re-encode, retrain the same MLP. Splits feature-limited vs
+  factorization-saturated, AND the enriched observation is reusable as the PPO input (not
+  throwaway). BC's own ceiling is parity, so this retrain is **diagnostic**; the payoff is the
+  reusable encoding + a sharper PPO design.
+
+**Dead ends / surprises:**
+
+- The "connection dropped mid-sweep" from the prior session was a false alarm on the
+  _monitoring_ — the sweep itself finished cleanly (3 checkpoints, RC=0). Recovered them.
+- **val-STOP ≠ arena-STOP, and the gap is epoch-dependent.** `stop-cal` matched val STOP, but
+  the 6-epoch probe nets turtle harder in self-play (arena STOP ~55%) than the deployed 2-epoch
+  model (~49%). So I compared each width at its _peak_ win% over a bias grid (matched operating
+  point), not at bias 0 — else capacity would be confounded with STOP-calibration. (This
+  fragility of BC's STOP behavior under its own distribution is itself a point for PPO, which
+  trains on-distribution.)
+- **Persistence reality, re-confirmed:** a `setsid`-detached WSL job is killed within seconds of
+  SSH disconnect — it's WSL process-tree teardown on session exit, **not** a network artifact
+  (happens even on the stable wired LAN). Tailscale was down this session; reached `shodan` via
+  its direct GFiber LAN IP (`192.168.1.181`). The capacity confirm needed no durable job (export
+  on shodan = seconds; arena = local). **Step 2's re-encode WILL** → schtasks-or-kept-alive TBD.
+
+**Next:**
+
+- Encoding-v2: investigate the current encoder/corpus/model pipeline, design the adjacency blob
+  - feature set, do the `ENCODING_VERSION 1→2` lockstep (`encodeObservation.js` /
+    `manifest.py EXPECTED_ENCODING_VERSION` / `ai_bc.js` guard), re-encode the 100k corpus on
+    shodan (durable job), retrain (6ep stop-cal), export, arena-confirm win% vs Lookahead w/ CIs.
+
+---
+
 ## 2026-06-24 — STOP-de-bias retrain: weighted-CE + stop-cal selection → calibrated (win 3.6→6.4%, still not parity)
 
 **Phase:** 2 · **Who:** Ivan + Claude

@@ -8,14 +8,17 @@
  *   - **Nodes** — a graph over the fixed territory-id node space `0 .. maxAreas-1` (id 0 is
  *     the unused sentinel). One row per id; absent ids are zero with `present = 0`. Features
  *     are **relational** (`isMine`/`isEnemy`), never an absolute seat one-hot, so the policy
- *     is seat-symmetric.
+ *     is seat-symmetric. v2 ([D-18]) adds three local-neighbourhood features (enemy-threat
+ *     magnitude, enemy fraction, degree) so the per-node MLP sees board structure.
  *   - **Per-player globals** — one row per seat (`isMe` marks self), the quantities the
  *     teacher's posture/leader terms key off.
  *   - **Board scalars** — my dice-share, active fraction, game-phase one-hot.
  *   - **Action head** — one row per legal move from `getValidMoves` plus an explicit STOP,
- *     each carrying the engineered edge features (`winProb`, `atk/8`, `def/8`) so the net
- *     never has to learn dice math. The mask is all-ones over exactly this set (the legal
- *     set IS `getValidMoves` + STOP — see {@link import('./trajectoryExport.js').trajectoryFromReplay}).
+ *     each carrying the engineered edge features (`winProb`, `atk/8`, `def/8`; v2 [D-18] adds
+ *     three attack-consequence features — post-capture retaliation, vacated-source exposure,
+ *     target enemy-surround) so the net never has to learn dice math or look ahead one ply.
+ *     The mask is all-ones over exactly this set (the legal set IS `getValidMoves` + STOP —
+ *     see {@link import('./trajectoryExport.js').trajectoryFromReplay}).
  *   - **BC label** — the index of the teacher's `chosenMove` within that action list.
  *   - **Aux value head** — terminal `won` + normalized `placement` (1 = first … 0 = last),
  *     a recommended multi-task target that warm-starts Phase-3 PPO.
@@ -37,11 +40,16 @@ import { isStopMove } from './trajectoryExport.js';
  * incompatibly (separate from OBSERVATION_SCHEMA_VERSION, which stamps the
  * on-disk lean record; this stamps the *expanded tensor* layout).
  */
-export const ENCODING_VERSION = 1;
+export const ENCODING_VERSION = 2;
 
 /**
  * Per-node feature names, in tensor-column order. One row per territory id
  * `0 .. maxAreas-1`; absent ids (no present area) are all-zero (`present = 0`).
+ *
+ * v2 (ml-bot Phase-3 ceiling probe, [D-18]) appends three **local-neighbourhood**
+ * features so the per-node MLP sees the board structure the v1 encoding withheld
+ * (the v1 corpus carried no adjacency at all). All are **relational to the acting
+ * seat** (`enemy` = owner ≠ me), preserving seat-symmetry.
  * @type {readonly string[]}
  */
 export const NODE_FEATURES = Object.freeze([
@@ -50,6 +58,9 @@ export const NODE_FEATURES = Object.freeze([
   'isMine', // owner === me
   'isEnemy', // present && owner !== me
   'isBorder', // BotState.isBorder (adjacent to a differently-owned area)
+  'enemyNbrDiceMaxNorm', // v2: max dice among enemy neighbours / MAX_DICE (biggest incoming threat); 0 if none
+  'enemyNbrFrac', // v2: enemy neighbours / total neighbours; 0 if isolated
+  'degreeNorm', // v2: neighbour count / NEIGHBOR_DEGREE_NORM (connectivity / exposure)
 ]);
 
 /**
@@ -91,9 +102,82 @@ export const EDGE_FEATURES = Object.freeze([
   'atkNorm', // attackerDice / MAX_DICE
   'defNorm', // defenderDice / MAX_DICE
   'isStop', // 1 for the STOP action, 0 for an attack
+  'tgtRetakeThreatNorm', // v2: max enemy dice adjacent to `to` (excl. `from`) / MAX_DICE — current-board proxy for post-capture retaliation risk
+  'srcVacateThreatNorm', // v2: max enemy dice among `from`'s OTHER neighbours (excl. `to`) / MAX_DICE — exposure left behind when the attacker empties to 1 die
+  'tgtEnemyNbrFrac', // v2: enemy neighbours of `to` (excl. `from`) / its neighbour count — how surrounded the prize is
 ]);
 
 const PHASE_INDEX = Object.freeze({ early: 0, mid: 1, late: 2 });
+
+/**
+ * Degree (neighbour-count) normalizer for `degreeNorm`. Hex territories rarely
+ * exceed ~6 neighbours; 8 leaves headroom and keeps the feature in [0, ~1].
+ */
+const NEIGHBOR_DEGREE_NORM = 8;
+
+/**
+ * The trailing STOP action's edge-feature row: all features 0 except `isStop`
+ * (column 3). Width tracks EDGE_FEATURES so v-bumps can't silently mis-size it.
+ * @type {number[]}
+ */
+const STOP_EDGE = EDGE_FEATURES.map(name => (name === 'isStop' ? 1 : 0));
+
+/**
+ * Relational (acting-seat `me`) summary of one area's neighbourhood: how many
+ * present neighbours it has (optionally excluding one id), how many are
+ * enemy-owned, and the largest enemy dice among them. The single primitive both
+ * the v2 node features and the v2 edge-consequence features are built from, so
+ * the train (`encodeStep`) and inference (`encodeObservationForInference`) paths
+ * can't drift.
+ *
+ * @param {import('./types.js').BotArea} area
+ * @param {Map<number, import('./types.js').BotArea>} areaById - present areas by id
+ * @param {number} me - acting seat (owner === me ⇒ mine, else enemy)
+ * @param {number} [exceptId=-1] - a neighbour id to skip (e.g. the attack's other endpoint)
+ * @returns {{ degree: number, enemyCount: number, enemyDiceMax: number }}
+ */
+function neighborStats(area, areaById, me, exceptId = -1) {
+  let degree = 0;
+  let enemyCount = 0;
+  let enemyDiceMax = 0;
+  for (const nbrId of area.neighbors) {
+    if (nbrId === exceptId) continue;
+    const nbr = areaById.get(nbrId);
+    if (!nbr) continue; // absent neighbour (allAreas is pre-filtered, but stay safe)
+    degree++;
+    if (nbr.owner !== me) {
+      enemyCount++;
+      if (nbr.dice > enemyDiceMax) enemyDiceMax = nbr.dice;
+    }
+  }
+  return { degree, enemyCount, enemyDiceMax };
+}
+
+/**
+ * The full edge-feature row for one attack `from → to`, shared by the train and
+ * inference encoders. The first three (winProb, atk/8, def/8) and `isStop = 0`
+ * are the v1 features; the last three are the v2 attack-consequence features
+ * ([D-18]), each a deterministic function of the *current* board (no leakage).
+ *
+ * @param {import('./types.js').BotArea} fromArea
+ * @param {import('./types.js').BotArea} toArea
+ * @param {Map<number, import('./types.js').BotArea>} areaById
+ * @param {number} me
+ * @returns {number[]} EDGE_FEATURES-wide row
+ */
+function attackEdgeFeatures(fromArea, toArea, areaById, me) {
+  const tgt = neighborStats(toArea, areaById, me, fromArea.id); // `to`'s other neighbours
+  const src = neighborStats(fromArea, areaById, me, toArea.id); // `from`'s other neighbours
+  return [
+    winProbability(fromArea.dice, toArea.dice),
+    fromArea.dice / MAX_DICE,
+    toArea.dice / MAX_DICE,
+    0, // isStop
+    tgt.enemyDiceMax / MAX_DICE,
+    src.enemyDiceMax / MAX_DICE,
+    tgt.degree ? tgt.enemyCount / tgt.degree : 0,
+  ];
+}
 
 /**
  * @typedef {Object} EncodeContext
@@ -124,10 +208,11 @@ const PHASE_INDEX = Object.freeze({ early: 0, mid: 1, late: 2 });
  * @param {import('./types.js').BotState} obs - The step's sanitized observation
  * @param {number} me - The acting seat
  * @param {number} maxAreas
+ * @param {Map<number, import('./types.js').BotArea>} areaById - present areas by id (for v2 neighbour features)
  * @returns {number[][]}
  */
-function encodeNodes(obs, me, maxAreas) {
-  const nodes = Array.from({ length: maxAreas }, () => [0, 0, 0, 0, 0]);
+function encodeNodes(obs, me, maxAreas, areaById) {
+  const nodes = Array.from({ length: maxAreas }, () => new Array(NODE_FEATURES.length).fill(0));
   for (const area of obs.allAreas) {
     if (area.id < 0 || area.id >= maxAreas) {
       throw new Error(
@@ -136,12 +221,16 @@ function encodeNodes(obs, me, maxAreas) {
       );
     }
     const isMine = area.owner === me ? 1 : 0;
+    const s = neighborStats(area, areaById, me); // all present neighbours
     nodes[area.id] = [
       1, // present
       area.dice / MAX_DICE,
       isMine,
       isMine ? 0 : 1, // isEnemy (present here by construction, so !mine ⇒ enemy)
       area.isBorder ? 1 : 0,
+      s.enemyDiceMax / MAX_DICE, // enemyNbrDiceMaxNorm
+      s.degree ? s.enemyCount / s.degree : 0, // enemyNbrFrac
+      s.degree / NEIGHBOR_DEGREE_NORM, // degreeNorm
     ];
   }
   return nodes;
@@ -212,9 +301,11 @@ function encodeGlobals(obs, me, totalTerritories) {
  *
  * @param {Array<Object>} legalMoves - getValidMoves output + a trailing STOP
  * @param {{from:number,to:number}|{type:string}} chosenMove
+ * @param {Map<number, import('./types.js').BotArea>} areaById - present areas by id (for v2 edge features)
+ * @param {number} me - acting seat (for relational v2 edge features)
  * @returns {{ edges: number[][], edgeIndex: number[][], mask: number[], label: number }}
  */
-function encodeActions(legalMoves, chosenMove) {
+function encodeActions(legalMoves, chosenMove, areaById, me) {
   const edges = [];
   const edgeIndex = [];
   let label = -1;
@@ -223,16 +314,19 @@ function encodeActions(legalMoves, chosenMove) {
   for (let i = 0; i < legalMoves.length; i++) {
     const move = legalMoves[i];
     if (isStopMove(move)) {
-      edges.push([0, 0, 0, 1]);
+      edges.push(STOP_EDGE.slice());
       edgeIndex.push([0, 0]);
       if (chosenIsStop) label = i;
     } else {
-      edges.push([
-        winProbability(move.attackerDice, move.defenderDice),
-        move.attackerDice / MAX_DICE,
-        move.defenderDice / MAX_DICE,
-        0,
-      ]);
+      const fromArea = areaById.get(move.from);
+      const toArea = areaById.get(move.to);
+      if (!fromArea || !toArea) {
+        throw new Error(
+          `encodeObservation: legal move ${move.from}->${move.to} references an area absent from ` +
+            `allAreas — cannot build its edge features.`
+        );
+      }
+      edges.push(attackEdgeFeatures(fromArea, toArea, areaById, me));
       edgeIndex.push([move.from, move.to]);
       if (!chosenIsStop && move.from === chosenMove.from && move.to === chosenMove.to) {
         label = i;
@@ -319,9 +413,15 @@ export function encodeStep(step, ctx) {
     );
   }
 
-  const nodes = encodeNodes(obs, me, maxAreas);
+  const areaById = new Map(obs.allAreas.map(a => [a.id, a]));
+  const nodes = encodeNodes(obs, me, maxAreas, areaById);
   const { players, board } = encodeGlobals(obs, me, obs.allAreas.length);
-  const { edges, edgeIndex, mask, label } = encodeActions(step.legalMoves, step.chosenMove);
+  const { edges, edgeIndex, mask, label } = encodeActions(
+    step.legalMoves,
+    step.chosenMove,
+    areaById,
+    me
+  );
 
   /*
    * Aux value head: terminal outcome relative to the acting seat. `placements`
@@ -370,10 +470,10 @@ export function encodeStep(step, ctx) {
  */
 export function encodeObservationForInference(botState, ctx) {
   const me = botState.myPlayer;
-  const nodes = encodeNodes(botState, me, ctx.maxAreas);
+  const areaById = new Map(botState.allAreas.map(a => [a.id, a]));
+  const nodes = encodeNodes(botState, me, ctx.maxAreas, areaById);
   const { players, board } = encodeGlobals(botState, me, botState.allAreas.length);
 
-  const areaById = new Map(botState.allAreas.map(a => [a.id, a]));
   const edges = [];
   const edgeIndex = [];
   const moves = [];
@@ -382,18 +482,13 @@ export function encodeObservationForInference(botState, ctx) {
     for (const adjId of area.neighbors) {
       const adj = areaById.get(adjId); // present (in allAreas) ...
       if (!adj || adj.owner === me) continue; // ... and enemy-owned
-      edges.push([
-        winProbability(area.dice, adj.dice),
-        area.dice / MAX_DICE,
-        adj.dice / MAX_DICE,
-        0,
-      ]);
+      edges.push(attackEdgeFeatures(area, adj, areaById, me));
       edgeIndex.push([area.id, adj.id]);
       moves.push({ from: area.id, to: adj.id });
     }
   }
   // Trailing STOP — the legal set is exactly getValidMoves + STOP.
-  edges.push([0, 0, 0, 1]);
+  edges.push(STOP_EDGE.slice());
   edgeIndex.push([0, 0]);
   moves.push(null);
 

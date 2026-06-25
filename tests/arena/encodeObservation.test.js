@@ -21,6 +21,7 @@ import {
   BOARD_FEATURES,
   EDGE_FEATURES,
   encodeStep,
+  encodeObservationForInference,
   teacherSeatsOf,
 } from '../../src/arena/encodeObservation.js';
 
@@ -91,8 +92,17 @@ const SYNTH_CTX = { maxAreas: 6, playerCount: 3, winner: 0, placements: [0, 1, 2
 
 describe('encodeObservation — feature-name contract', () => {
   it('declares stable column orders and an encoding version', () => {
-    expect(ENCODING_VERSION).toBe(1);
-    expect(NODE_FEATURES).toEqual(['present', 'diceNorm', 'isMine', 'isEnemy', 'isBorder']);
+    expect(ENCODING_VERSION).toBe(2);
+    expect(NODE_FEATURES).toEqual([
+      'present',
+      'diceNorm',
+      'isMine',
+      'isEnemy',
+      'isBorder',
+      'enemyNbrDiceMaxNorm',
+      'enemyNbrFrac',
+      'degreeNorm',
+    ]);
     expect(PLAYER_FEATURES).toEqual([
       'isMe',
       'eliminated',
@@ -108,7 +118,15 @@ describe('encodeObservation — feature-name contract', () => {
       'phaseMid',
       'phaseLate',
     ]);
-    expect(EDGE_FEATURES).toEqual(['winProb', 'atkNorm', 'defNorm', 'isStop']);
+    expect(EDGE_FEATURES).toEqual([
+      'winProb',
+      'atkNorm',
+      'defNorm',
+      'isStop',
+      'tgtRetakeThreatNorm',
+      'srcVacateThreatNorm',
+      'tgtEnemyNbrFrac',
+    ]);
   });
 
   it('binds ENCODING_VERSION to the on-disk column layout (bump the version if columns change)', () => {
@@ -124,8 +142,8 @@ describe('encodeObservation — feature-name contract', () => {
       .digest('hex')
       .slice(0, 16);
     expect({ version: ENCODING_VERSION, fingerprint }).toEqual({
-      version: 1,
-      fingerprint: '58f1a8654ac9fe34',
+      version: 2,
+      fingerprint: 'c7637fa6b24540ef',
     });
   });
 });
@@ -139,19 +157,22 @@ describe('encodeStep — node tensor', () => {
   });
 
   it('zeroes the sentinel (id 0) and absent ids', () => {
-    expect(enc.nodes[0]).toEqual([0, 0, 0, 0, 0]);
-    expect(enc.nodes[5]).toEqual([0, 0, 0, 0, 0]);
+    expect(enc.nodes[0]).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(enc.nodes[5]).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it('encodes mine/enemy/border relationally with dice/MAX_DICE', () => {
-    // id 1: mine, dice 3, border
-    expect(enc.nodes[1]).toEqual([1, 3 / 8, 1, 0, 1]);
-    // id 2: enemy, dice 2, border
-    expect(enc.nodes[2]).toEqual([1, 2 / 8, 0, 1, 1]);
-    // id 3: mine, dice 1, interior
-    expect(enc.nodes[3]).toEqual([1, 1 / 8, 1, 0, 0]);
-    // id 4: enemy, dice 5, border
-    expect(enc.nodes[4]).toEqual([1, 5 / 8, 0, 1, 1]);
+    /*
+     * v2 appends [enemyNbrDiceMaxNorm, enemyNbrFrac, degreeNorm], all relational to me=p0.
+     * id 1 (mine, nbrs 2[enemy,2 dice] & 3[mine]): enemyDiceMax 2/8, enemyFrac 1/2, degree 2/8.
+     * id 2 (enemy, nbr 1[mine]): no enemy-of-p0 neighbour → 0, 0; degree 1/8.
+     * id 3 (mine, nbr 1[mine]): 0, 0; degree 1/8.
+     * id 4 (enemy, nbr 2[enemy,2 dice]): enemyDiceMax 2/8, enemyFrac 1; degree 1/8.
+     */
+    expect(enc.nodes[1]).toEqual([1, 3 / 8, 1, 0, 1, 2 / 8, 1 / 2, 2 / 8]);
+    expect(enc.nodes[2]).toEqual([1, 2 / 8, 0, 1, 1, 0, 0, 1 / 8]);
+    expect(enc.nodes[3]).toEqual([1, 1 / 8, 1, 0, 0, 0, 0, 1 / 8]);
+    expect(enc.nodes[4]).toEqual([1, 5 / 8, 0, 1, 1, 2 / 8, 1, 1 / 8]);
   });
 
   it('throws when an area id falls outside the node range [0, maxAreas)', () => {
@@ -218,10 +239,10 @@ describe('encodeStep — action head, label, and value', () => {
     expect(enc.edges[0][0]).toBeLessThan(1);
     expect(enc.edges[0][1]).toBe(3 / 8);
     expect(enc.edges[0][2]).toBe(2 / 8);
-    expect(enc.edges[0][3]).toBe(0);
+    expect(enc.edges[0][3]).toBe(0); // isStop (still column 3 in v2)
     expect(enc.edgeIndex[0]).toEqual([1, 2]);
-    // STOP edge: zero features, isStop flag, sentinel gather index
-    expect(enc.edges[1]).toEqual([0, 0, 0, 1]);
+    // STOP edge: zero features, isStop flag (col 3), sentinel gather index
+    expect(enc.edges[1]).toEqual([0, 0, 0, 1, 0, 0, 0]);
     expect(enc.edgeIndex[1]).toEqual([0, 0]);
   });
 
@@ -256,6 +277,163 @@ describe('encodeStep — action head, label, and value', () => {
     expect(() => encodeStep(syntheticStep(), { ...SYNTH_CTX, playerCount: 4 })).toThrow(
       /players but ctx.playerCount/
     );
+  });
+});
+
+describe('encodeStep — v2 attack-consequence edge features', () => {
+  /*
+   * A board where the consequence features are all non-zero (the simpler syntheticStep
+   * zeroes them). me=p0 attacks 1→2; both endpoints have an OTHER enemy neighbour:
+   *   id 1 (me, dice 4) ── nbrs 2 (enemy) & 3 (enemy p2, dice 5)
+   *   id 2 (enemy, dice 2) ── nbrs 1 & 4 (enemy p1, dice 6)
+   * For 1→2:  tgtRetake = max enemy dice adj to `2` excl. `1` = id4's 6 → 6/8.
+   *           srcVacate = max enemy dice adj to `1` excl. `2` = id3's 5 → 5/8.
+   *           tgtEnemyNbrFrac = enemy nbrs of `2` excl. `1` (just id4) / 1 = 1.
+   */
+  function consequenceStep() {
+    const allAreas = [
+      { id: 1, owner: 0, dice: 4, neighbors: [2, 3], isBorder: true },
+      { id: 2, owner: 1, dice: 2, neighbors: [1, 4], isBorder: true },
+      { id: 3, owner: 2, dice: 5, neighbors: [1], isBorder: true },
+      { id: 4, owner: 1, dice: 6, neighbors: [2], isBorder: true },
+    ];
+    const players = [0, 1, 2].map(id => ({
+      id,
+      territories: 1,
+      totalDice: 4,
+      connectedTerritories: 1,
+      reinforcements: 0,
+      eliminated: false,
+    }));
+    return {
+      playerId: 0,
+      turnNumber: 3,
+      observation: {
+        myPlayer: 0,
+        turnNumber: 3,
+        totalPlayers: 3,
+        activePlayers: 3,
+        gamePhase: 'mid',
+        myAreas: allAreas.filter(a => a.owner === 0),
+        allAreas,
+        players,
+      },
+      legalMoves: [{ from: 1, to: 2, attackerDice: 4, defenderDice: 2 }, STOP],
+      chosenMove: { from: 1, to: 2 },
+      outcome: { won: true },
+    };
+  }
+
+  it('encodes post-capture retaliation, vacated-source exposure, and target surround', () => {
+    const enc = encodeStep(consequenceStep(), { ...SYNTH_CTX, playerCount: 3 });
+    const attack = enc.edges[0];
+    expect(attack[1]).toBe(4 / 8); // atkNorm
+    expect(attack[2]).toBe(2 / 8); // defNorm
+    expect(attack[3]).toBe(0); // isStop
+    expect(attack[4]).toBe(6 / 8); // tgtRetakeThreatNorm — id4 (6 dice) can retake `2`
+    expect(attack[5]).toBe(5 / 8); // srcVacateThreatNorm — id3 (5 dice) threatens the emptied `1`
+    expect(attack[6]).toBe(1); // tgtEnemyNbrFrac — `2`'s only other neighbour (id4) is enemy
+    // node neighbour features are non-zero here too (id1 sees enemy nbrs 2 & 3)
+    expect(enc.nodes[1][5]).toBe(5 / 8); // enemyNbrDiceMaxNorm — max(id2=2, id3=5) = 5
+    expect(enc.nodes[1][6]).toBe(1); // enemyNbrFrac — both neighbours (2,3) are enemy
+    expect(enc.nodes[1][7]).toBe(2 / 8); // degreeNorm — 2 neighbours
+  });
+});
+
+describe('encodeStep ↔ encodeObservationForInference — cross-path feature parity', () => {
+  /*
+   * The single most load-bearing invariant the v2 encoder rests on: the train path
+   * (encodeStep) and the inference path (encodeObservationForInference) must produce
+   * byte-identical node/global/edge features for the same board — the deployed BC bot is
+   * trained through the former and runs the latter. Both delegate to the shared
+   * neighborStats/attackEdgeFeatures primitives, so they agree today; this pins it so a
+   * future edit to one call site (a different `exceptId`, a reverted inline row, a changed
+   * `me` argument) can't silently desync the two and feed the net mis-columned tensors.
+   *
+   * Board (me=p0): id1 (mine, dice 4) attacks enemies id2 & id3. legalMoves below is the
+   * COMPLETE legal set (= getValidMoves) so the two paths' attack sets match exactly and
+   * every edge is comparable. The 1→3 edge also drives the zero-degree consequence guard
+   * (id3's only neighbour is the excluded `from`) on both paths.
+   */
+  function parityStep() {
+    const allAreas = [
+      { id: 1, owner: 0, dice: 4, neighbors: [2, 3], isBorder: true },
+      { id: 2, owner: 1, dice: 2, neighbors: [1, 4], isBorder: true },
+      { id: 3, owner: 2, dice: 5, neighbors: [1], isBorder: true },
+      { id: 4, owner: 1, dice: 6, neighbors: [2], isBorder: true },
+    ];
+    const players = [0, 1, 2].map(id => ({
+      id,
+      territories: 1,
+      totalDice: 4,
+      connectedTerritories: 1,
+      reinforcements: 0,
+      eliminated: false,
+    }));
+    const observation = {
+      myPlayer: 0,
+      turnNumber: 3,
+      totalPlayers: 3,
+      activePlayers: 3,
+      gamePhase: 'mid',
+      myAreas: allAreas.filter(a => a.owner === 0),
+      allAreas,
+      players,
+    };
+    return {
+      playerId: 0,
+      turnNumber: 3,
+      observation,
+      legalMoves: [
+        { from: 1, to: 2, attackerDice: 4, defenderDice: 2 },
+        { from: 1, to: 3, attackerDice: 4, defenderDice: 5 },
+        STOP,
+      ],
+      chosenMove: { from: 1, to: 2 },
+      outcome: { won: true },
+    };
+  }
+
+  const PARITY_CTX = { ...SYNTH_CTX, playerCount: 3 };
+  const train = encodeStep(parityStep(), PARITY_CTX);
+  // Inference takes the live BotState (= the step's observation; myPlayer === playerId here).
+  const infer = encodeObservationForInference(parityStep().observation, {
+    maxAreas: PARITY_CTX.maxAreas,
+  });
+
+  it('produces identical node, player, and board tensors on both paths', () => {
+    expect(infer.nodes).toEqual(train.nodes);
+    expect(infer.players).toEqual(train.players);
+    expect(infer.board).toEqual(train.board);
+  });
+
+  it('produces identical edge features for every attack (matched by from→to)', () => {
+    // Map "from->to" → edge row for the attack (non-STOP) edges of each path.
+    const attackRows = (edges, edgeIndex) => {
+      const m = new Map();
+      edges.forEach((row, k) => {
+        if (row[3] === 1) return; // skip STOP (isStop col 3)
+        m.set(`${edgeIndex[k][0]}->${edgeIndex[k][1]}`, row);
+      });
+      return m;
+    };
+    const trainRows = attackRows(train.edges, train.edgeIndex);
+    const inferRows = attackRows(infer.edges, infer.edgeIndex);
+
+    // Same attack set (legalMoves is the full getValidMoves set) and identical rows.
+    expect([...inferRows.keys()].sort()).toEqual([...trainRows.keys()].sort());
+    for (const [key, trainRow] of trainRows) {
+      expect(inferRows.get(key)).toEqual(trainRow);
+    }
+
+    // The 1→3 edge exercises the zero-degree consequence guard the same way on both paths.
+    expect(inferRows.get('1->3')[4]).toBe(0); // tgtRetakeThreatNorm — no other nbr of `3`
+    expect(inferRows.get('1->3')[6]).toBe(0); // tgtEnemyNbrFrac — degree-0 guard → 0
+  });
+
+  it('appends an identical trailing STOP edge on both paths', () => {
+    expect(infer.moves[infer.moves.length - 1]).toBeNull();
+    expect(infer.edges[infer.edges.length - 1]).toEqual(train.edges[train.edges.length - 1]);
   });
 });
 

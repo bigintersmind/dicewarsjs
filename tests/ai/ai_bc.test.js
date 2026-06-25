@@ -44,7 +44,10 @@ describe('encodeObservationForInference', () => {
 
   it('reconstructs exactly getValidMoves + a trailing STOP', () => {
     expect(enc.moves[enc.moves.length - 1]).toBeNull(); // STOP
-    expect(enc.edges[enc.edges.length - 1]).toEqual([0, 0, 0, 1]);
+    // v2 STOP edge: all features 0 except isStop (column 3); width tracks EDGE_FEATURES.
+    const stopEdge = new Array(BC_POLICY.config.edgeFeatures).fill(0);
+    stopEdge[3] = 1;
+    expect(enc.edges[enc.edges.length - 1]).toEqual(stopEdge);
     expect(enc.edgeIndex[enc.edgeIndex.length - 1]).toEqual([0, 0]);
 
     const attacks = enc.moves.slice(0, -1);
@@ -204,5 +207,23 @@ describe('makeBC stopBias hook', () => {
      */
     expect(move).toBeNull();
     expect(lastStopped).toBe(true);
+  });
+});
+
+describe('makeBC policy override', () => {
+  it('makeBC({ policy }) runs the passed weights — identical to the default for BC_POLICY', () => {
+    const state = firstStateWithMoves();
+    const botState = createBotState(state, state.turnOrder[state.currentPlayerIndex]);
+    /*
+     * Passing the deployed weights explicitly must match the implicit default exactly:
+     * proves the candidate-eval path (used by the capacity probe) is wired to `policy`.
+     */
+    expect(makeBC({ policy: BC_POLICY })(botState)).toEqual(ai_bc(botState));
+  });
+
+  it('throws if the candidate policy disagrees with the encoder ENCODING_VERSION', () => {
+    // A version-skewed candidate would feed mis-columned tensors — fail loud at factory time.
+    const skewed = { ...BC_POLICY, encodingVersion: BC_POLICY.encodingVersion + 1 };
+    expect(() => makeBC({ policy: skewed })).toThrow(/encodingVersion/);
   });
 });

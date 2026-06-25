@@ -88,7 +88,7 @@ def _make_fixture(
         edge_from = torch.randint(1, a, (e,), generator=g)
         edge_to = torch.randint(1, a, (e,), generator=g)
         edge_feat[-1] = 0.0  # STOP edge: zero all features ...
-        edge_feat[-1, 3] = 1.0  # ... except isStop (column 3; width-agnostic across encoding versions)
+        edge_feat[-1, 3] = 1.0  # ... except isStop (col 3, width-agnostic across versions)
         edge_from[-1] = 0
         edge_to[-1] = 0
         edge_batch = torch.zeros(e, dtype=torch.int64)

@@ -29,13 +29,22 @@ const MAX_AREAS = BC_POLICY.config.maxAreas;
 const MAX_TURNS = 500;
 
 /*
- * Every test below simulates one or two full 7-FFA self-play matches (an ai_bc forward pass per
- * decision). That runs ~1-2s locally, but under `--coverage` instrumentation on a resource-capped
- * CI runner it is ~12x slower (~13-17s) — past vitest's 5s default, which timed these out in CI.
- * Raise the per-test timeout file-wide (6x the observed CI worst case) so coverage runs don't
- * flake, while still catching a genuine hang.
+ * These tests simulate full 7-FFA self-play matches (an ai_bc forward pass per decision) — pure
+ * synchronous CPU. Under `--coverage` on a resource-capped CI runner each match is several seconds,
+ * and a test body that runs two back-to-back blocks the worker's event loop long enough to starve
+ * vitest's birpc heartbeat ("Timeout calling onTaskUpdate"), failing the run even though the tests
+ * pass. Two mitigations: (1) `SHORT_TURNS` caps the matches whose assertion is turn-count-
+ * independent (the lockstep/determinism/coherence checks all hold at any cap — they otherwise run
+ * to the 500-turn stalemate cap); (2) `tick()` yields to the event loop between paired matches so
+ * the heartbeat stays alive. The raised testTimeout is a backstop for a single match under load.
  */
 vi.setConfig({ testTimeout: 30_000 });
+
+/** Turn cap for tests whose property holds at any length — keeps each sync block short under coverage. */
+const SHORT_TURNS = 60;
+
+/** Yield to the event loop (a macrotask) so vitest's worker RPC can flush between heavy sync blocks. */
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
 /** A learner that reproduces ai_bc: argmax over the same logits the BC bot uses. */
 const mimicAiBc = encoded => argmax(forward(BC_POLICY, encoded).logits);
@@ -60,23 +69,28 @@ function projectState(s) {
 }
 
 describe('runSelfPlayEpisode — integration oracle vs pure runMatch', () => {
-  // A learner that reproduces ai_bc must yield the same game as ai_bc-at-that-seat.
-  it.each([0, 3, 6])('learner mimicking ai_bc at seat %i matches runMatch', seat => {
+  /*
+   * A learner that reproduces ai_bc must yield the same game as ai_bc-at-that-seat. Byte-identical
+   * lockstep holds at any length, so cap turns to keep each synchronous block short under coverage.
+   */
+  it.each([0, 3, 6])('learner mimicking ai_bc at seat %i matches runMatch', async seat => {
     const seed = 12345;
 
     const oracle = runMatch({
       bots: Array.from({ length: PLAYER_COUNT }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
       seed,
-      maxTurns: MAX_TURNS,
+      maxTurns: SHORT_TURNS,
       recordHistory: false,
     });
+
+    await tick();
 
     const ep = runSelfPlayEpisode({
       seed,
       opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
       learnerSeat: seat,
       maxAreas: MAX_AREAS,
-      maxTurns: MAX_TURNS,
+      maxTurns: SHORT_TURNS,
       chooseAction: mimicAiBc,
     });
 
@@ -111,12 +125,13 @@ describe('runSelfPlayEpisode — STOP and reward semantics', () => {
   });
 
   it('reward fields are coherent with the winner', () => {
+    // Coherence (won/winner/placement) holds regardless of length → cap to bound the sync block.
     const ep = runSelfPlayEpisode({
       seed: 4242,
       opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
       learnerSeat: 1,
       maxAreas: MAX_AREAS,
-      maxTurns: MAX_TURNS,
+      maxTurns: SHORT_TURNS,
       chooseAction: mimicAiBc,
     });
 
@@ -131,16 +146,18 @@ describe('runSelfPlayEpisode — STOP and reward semantics', () => {
 });
 
 describe('runSelfPlayEpisode — determinism (RNG threaded correctly)', () => {
-  it('same seed + same policy → identical final state and reward', () => {
+  it('same seed + same policy → identical final state and reward', async () => {
+    // Determinism is length-independent → cap turns; yield between the two runs to free the worker.
     const cfg = {
       seed: 90210,
       opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
       learnerSeat: 4,
       maxAreas: MAX_AREAS,
-      maxTurns: MAX_TURNS,
+      maxTurns: SHORT_TURNS,
       chooseAction: mimicAiBc,
     };
     const a = runSelfPlayEpisode(cfg);
+    await tick();
     const b = runSelfPlayEpisode(cfg);
 
     expect(b.turnCount).toBe(a.turnCount);
@@ -154,7 +171,7 @@ describe('runSelfPlayEpisode — determinism (RNG threaded correctly)', () => {
 describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
   const sixAiBc = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
 
-  it('ends the episode at the learner elimination, not at game-over', () => {
+  it('ends the episode at the learner elimination, not at game-over', async () => {
     const cfg = {
       seed: 777,
       opponents: sixAiBc,
@@ -164,6 +181,7 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
       chooseAction: alwaysStop,
     };
     const full = runSelfPlayEpisode(cfg); // plays the opponent-only tail out to game-over
+    await tick();
     const early = runSelfPlayEpisode({ ...cfg, terminateOnElimination: true });
 
     // A passive seat among real bots is conquered; the early run stops strictly sooner.
@@ -178,7 +196,7 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
     expect(early.placement).toBeLessThanOrEqual(1);
   });
 
-  it('stops on the exact turn of elimination, with the engine-equivalent placement', () => {
+  it('stops on the exact turn of elimination, with the engine-equivalent placement', async () => {
     let firstElimTurn = -1;
     const cfg = {
       seed: 777,
@@ -194,6 +212,7 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
         if (firstElimTurn === -1 && state.players[2].eliminated) firstElimTurn = t;
       },
     });
+    await tick();
     const early = runSelfPlayEpisode({ ...cfg, terminateOnElimination: true });
 
     expect(firstElimTurn).toBeGreaterThan(0);
@@ -202,7 +221,7 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
     expect(early.placement).toBe(scaledPlacement(full.placements, 2, PLAYER_COUNT));
   });
 
-  it('is a no-op when the learner wins — identical to the full game', () => {
+  it('is a no-op when the learner wins — identical to the full game', async () => {
     /*
      * A learner that survives to game-over never trips the early-termination guard, so the path
      * falls through to the same completed-match result, byte for byte. seed 11 is a learner win.
@@ -216,6 +235,7 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
       chooseAction: mimicAiBc,
     };
     const full = runSelfPlayEpisode(cfg);
+    await tick();
     const early = runSelfPlayEpisode({ ...cfg, terminateOnElimination: true });
 
     expect(early.won).toBe(1); // learner conquers the board — a genuine game-over win
@@ -263,7 +283,7 @@ describe('runSelfPlayEpisode — input validation', () => {
       opponents: baseOpponents,
       learnerSeat: 0,
       maxAreas: MAX_AREAS,
-      maxTurns: MAX_TURNS,
+      maxTurns: SHORT_TURNS, // smoke only asserts playerCount → length-independent, cap it
       chooseAction: mimicAiBc,
     });
     expect(ep.playerCount).toBe(3);

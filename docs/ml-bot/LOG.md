@@ -21,6 +21,60 @@ Entry template:
 
 ---
 
+## 2026-06-25 — PR #60 review follow-up: two truncated-wire regression gaps closed
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Ran a second, pre-merge review pass on PR #60 (the step-6 PR) with four specialist agents
+  (general code / test-coverage / silent-failure / comments), distinct from the step-6 adversarial
+  4-dimension review. It **cleared the wire change as correct** — JS↔Py byte offsets match
+  field-for-field (`truncated` i32 at offset 40, `placement` f32 shifted to 44, 48-byte header),
+  truncation semantics sound, and the placement-at-cap path verified safe (`calculatePlacements`
+  runs unconditionally and ranks survivors when there is no winner, so `placement ∈ [0,1]` always
+  holds at a cap — `step()`'s placement guard can't spuriously raise).
+- Closed **two defense-in-depth gaps** the pass surfaced, both in the exact mechanism the wire fix
+  protects (the PPO value-bootstrap decision), committed `e407387`:
+  1. `env.py step()` validated `won`/`placement`/`truncated` each in-range but **not** the
+     `won`↔`truncated` cross-invariant — the contradictory pair `(won=1, truncated=1)` passed every
+     per-field guard and would bootstrap a win's value target (`terminated=False`), poisoning the
+     critic. Added a fail-loud guard + a hermetic rejection test that drives the **real** `step()`
+     body (swap/removal makes `step()` return a tuple instead of raising, so the test is coupled to
+     the guard, not a tautology).
+  2. **No byte-level obs-frame round-trip exercised `truncated=1`.** Set `truncated=1` in the
+     `ppo-action-parity` terminal round-trip + asserted it survives serialize→parse.
+
+**Learned / decided:**
+
+- **`0` serializes identically as i32 or f32**, so the all-`truncated=0` test corpus would let a
+  dtype/offset regression on the new offset-40 slot pass **every** test and only fail at runtime on
+  shodan (a real cap arriving as `1065353216`). A single non-zero round-trip value is the cheap,
+  load-bearing guard against that whole class.
+- Neither gap is a **live** bug today — the JS side keeps the flags mutually exclusive — but both
+  guard the **league/PFSP code that will set `truncated` next** (the most likely place a future
+  `summarizeOutcome`-shaped path violates the invariant silently).
+
+**Dead ends / surprises:**
+
+- None. Verified locally in a throwaway `gymnasium` venv (the `[rl]` stack is shodan-only, but the
+  new guard is pure-Python so the hermetic test is authoritative regardless of gymnasium version):
+  `test_ppo_env_unit.py` + `test_ppo_wire.py` **20 passed**, `ruff` clean; `ppo-action-parity`
+  **12 passed**, eslint + prettier clean. The pinned-env `[rl]` confirmation still runs on shodan as
+  with prior steps.
+- **Deferred (lower-risk, → PFSP work):** assert `truncated`/`won` presence at the env-server wire
+  boundary (currently `result.truncated ? 1 : 0` silently coerces a missing field to 0); add
+  `batch_size>0` / `learner_seat<player_count` guards to `train_tracer._validate_args`; a one-line
+  `summarizeOutcome` JSDoc caveat (the "cap only" invariant strictly holds only on the
+  `terminateOnElimination:true` path the server always uses).
+
+**Next:**
+
+- Unchanged by this review — **step 7** (repack → export → register → `arena:sweep` gate vs
+  `ai_lookahead`) and the Phase-3 scaling tasks (PFSP league, `SubprocVecEnv`, from-scratch control).
+
+---
+
 ## 2026-06-25 — Phase-3 tracer step 6: tiny warm-started PPO run + truncated/terminated wire fix
 
 **Phase:** 3 · **Who:** Ivan + Claude

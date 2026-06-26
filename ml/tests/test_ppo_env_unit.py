@@ -173,3 +173,13 @@ def test_step_terminal_rejects_invalid_truncated(golden_frame, monkeypatch):
     term = dataclasses.replace(golden_frame, terminal=1, winner=0, won=0, truncated=2)
     with pytest.raises(ValueError, match="truncated=2 not in"):
         _drive_step_with_terminal(monkeypatch, env, term)
+
+
+def test_step_terminal_rejects_won_and_truncated(golden_frame, monkeypatch):
+    # won=1 and truncated=1 are each individually legal but contradictory: a stalemate cap is
+    # never a win. The pair must fail loud rather than bootstrap a win as a truncation (which
+    # would inflate the value target and poison the critic) — the gap the per-field guards miss.
+    env = _env()
+    term = dataclasses.replace(golden_frame, terminal=1, winner=0, won=1, truncated=1)
+    with pytest.raises(ValueError, match="both truncated and won"):
+        _drive_step_with_terminal(monkeypatch, env, term)

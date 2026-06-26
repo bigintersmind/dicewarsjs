@@ -183,6 +183,17 @@ class DiceWarsEnv(gym.Env):
                 raise ValueError(
                     f"terminal frame truncated={frame.truncated} not in {{0, 1}} — wire corruption?"
                 )
+            # A win and a maxTurns truncation are mutually exclusive: a stalemate cap means the
+            # game did not end, so it cannot also be a win. Each flag is individually in-range
+            # above, but the contradictory pair (won=1, truncated=1) would still slip through and
+            # bootstrap a win's value target (terminated=False) — poisoning the critic. Reject it
+            # loud here rather than trust the JS side to keep them exclusive.
+            if frame.truncated and frame.won:
+                raise ValueError(
+                    f"terminal frame is both truncated and won (won={frame.won}, "
+                    f"truncated={frame.truncated}) — a maxTurns stalemate cap cannot be a win; "
+                    "summarizeOutcome regression or wire corruption?"
+                )
             reward = float(frame.won)
             # A maxTurns stalemate cap is a Gym TRUNCATION, not a real terminal: the game did
             # not actually end, so SB3 must bootstrap V(s) here (it keys off `truncated` via the

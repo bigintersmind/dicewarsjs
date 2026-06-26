@@ -21,6 +21,139 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 step 7 CLOSED: first real PPO-tracer gate number (on shodan)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Ran the real export + gate on shodan** (the torch box; the scaffold below was Mac-only). The
+  step-6 `checkpoints/ppo-tracer.pt` **was never persisted** (only the code merged as PR #60), so I
+  re-ran the tracer to regenerate it: `python -m dicewars_ppo.train_tracer --checkpoint
+checkpoints/v2-base/bc_model.pt --timesteps 2048 --out checkpoints/ppo-tracer.pt` — train→repack→
+  `_verify_repack_exportable` all green (12 PPO updates, reloads into a bare `EdgePolicyNet`).
+- **Exported** `python -m dicewars_bc.export_weights --ckpt checkpoints/ppo-tracer.pt --out
+../src/ai/ppoPolicyWeights.js --fixture ../tests/fixtures/bc/ppoForwardCases.json` → JS weights
+  (`teacher=ppo-tracer`, **102,787 params**, 2.1 MB) + 6-case parity fixture. Pulled both into the
+  repo over the ssh→WSL channel, **sha256-verified byte-identical** to the shodan originals.
+- **Parity is live + green:** `tests/ai/ppoForward.test.js` (previously `skipIf(!present)`) now runs
+  — the pure-JS `bcForward` reproduces the PyTorch reference logits at **3.0e-5** (< 1e-3 tol).
+- **First real gate** (`npm run ppo:gate`, seat-fair, 20 runs × 19 seeds × 8 seat rotations =
+  **3040 games**, 267.7s):
+  - PPO **11.5 ± 1.3%** vs Lookahead **15.1 ± 1.1%** · paired **Δ −3.6 ± 1.7 pp [−5.3, −1.9]** →
+    ❌ **BEHIND** (CI strictly below 0).
+  - PPO STOP **55.2%**, attack-win **81.4%**.
+
+**Learned / decided:**
+
+- **The tracer behaves exactly as predicted** — a loop-closer, not a strength run (2048 steps,
+  ~12 updates, low-LR warm-start from v2-base BC). It lands ≈ the BC anchor and BEHIND the bar.
+  The repack→export→register→gate chain is now proven against a **real trained PPO policy**, not a
+  BC stand-in. A real **BEAT** is the Phase-3 scaling goal, not this step.
+- **Win% is field-relative — read the paired Δ, not the absolute.** Lookahead is 15.1% here vs the
+  ~23% in the capacity-probe field because this gate field is the full built-in roster (8-way FFA,
+  chance baseline 12.5%, with Strategist + Expectimax also strong). Both bots are measured in the
+  **same** field every game and counterbalanced across all 8 seats, so the **paired Δ** is the valid
+  signal; the absolute win% is not comparable across different fields.
+- **shodan env note:** the env-server (`ppo-env-server.mjs`) needs **Node v22** (nvm:
+  `~/.nvm/versions/node/v22.23.1`); the default `/usr/bin/node` is v12 and fails the ESM import.
+  `EnvServerProcess` resolves `node` via `shutil.which`, so PATH must front the v22 bin.
+
+**Dead ends / surprises:**
+
+- The step-6 PPO checkpoint artifact wasn't on disk (only the code shipped) — had to regenerate it
+  before exporting. Cheap (a tracer is tiny), but worth noting: the gate artifact is reproducible
+  from `v2-base/bc_model.pt` in one command, it is not a kept file.
+
+**Next:**
+
+- Artifacts (`src/ai/ppoPolicyWeights.js` + `tests/fixtures/bc/ppoForwardCases.json`) are
+  **untracked-local**; permanent `builtInBots.js` registration stays **Phase-4 / BEAT-gated**. Commit
+  the step-7 scaffold + these artifacts only if we want the parity test to run in CI on this net.
+- Phase-3 **scaling** (PFSP league, from-scratch control, reward shaping) toward an actual BEAT;
+  re-run `ppo:gate` at each checkpoint and append the number here.
+
+---
+
+## 2026-06-25 — Phase-3 step 7: headline-gate scaffold (repack→export→register→gate)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Mapped step 7 against the code first** and found the heavy lifting already exists: the
+  Python repack (`repack_to_bc_checkpoint` in `policy.py`, driven by `train_tracer.py`'s
+  `_verify_repack_exportable`) and `dicewars_bc/export_weights.py` consume a repacked PPO
+  actor **unchanged** (it's a bare `EdgePolicyNet` ckpt; the `ppo_*`/`teacher` provenance keys
+  are ignored, `selection_metric=None`), and `makeBC({ policy })` in `src/ai/ai_bc.js` already
+  takes an alternate exported policy (built for the capacity probe). So step 7 is **JS-side
+  glue + the gate harness**, not new Python.
+- **Scaffolded the gate path (all green on this Mac, no GPU):**
+  - `scripts/lib/load-bc-policy.mjs` — the shared "trust an exported policy" step: dynamic-import
+    - **mandatory JS↔Py parity pre-flight** (per-logit tolerance + exact argmax match) against the
+      `--fixture`. Lifted from the capacity probe, which now reuses it (DRY).
+  - `scripts/lib/stats.mjs` — the `T95`/`meanCi` block, extracted from the three copies in
+    `arena-sweep.mjs` / `_probe-capacity-arena.mjs` / the new gate (migrated all three).
+  - `scripts/lib/ppo-gate-core.mjs` + `scripts/ppo-gate.mjs` (`npm run ppo:gate`) — register the
+    candidate via `makeBC({ policy })`, run a **seat-fair 8-bot FFA sweep** (built-ins minus the
+    BC clone, + the candidate), report candidate & `Lookahead` win% with 95% CIs **plus the
+    paired per-run Δwin%** and a **BEAT / TIE / BEHIND** verdict. Gate = **BEAT only** (paired Δ
+    CI strictly above 0); judged on **win%, not ELO**.
+  - `npm run ppo:export` — the canonical `export_weights.py` invocation (→ `src/ai/ppoPolicyWeights.js`
+    - `tests/fixtures/bc/ppoForwardCases.json`).
+  - Tests: `tests/scripts/{loadBcPolicy,ppoGateCore}.test.js` (23 cases) + `tests/ai/ppoForward.test.js`
+    (PPO parity, skips until the export artifacts exist) + `ml/tests/test_export_weights.py`
+    (torch-only repack-format export coverage, BC CI tier).
+- **Validated the whole machinery against the BC anchor** (`ppo-gate.mjs --weights
+src/ai/bcPolicyWeights.js --fixture …/forwardCases.json`): seat-fair BCanchor **14.2 ± 4.2%** vs
+  Lookahead **22.9 ± 4.8%** (paired Δ −8.8, CI below 0 → **BEHIND**), parity **2.4e-5**, STOP **49%**,
+  attack-win **83%** — the bar's measured strength matches the documented seat-fair Lookahead
+  (RESULTS D-7 ≈24%), so repack→export→register→gate is proven end-to-end. The missing-weights path
+  prints the exact 3-command reproduce recipe and exits non-zero.
+- **Ran a 5-dimension adversarial review workflow** (parity contract / statistical gate & seat
+  fairness / build-import safety / Python repack fidelity / pin & docs), 23 agents, each finding
+  independently verified. **It caught a real CRITICAL bug and I fixed it:** the first cut reused
+  `runArena`, which maps `bots[i] → seat i` and never rotates, so the candidate (seat 7) and the bar
+  (seat 5) sat in fixed seats every game and `MapGenerator` hands out territory by seat — confounding
+  the paired delta. **Fix:** the gate now counterbalances exactly like `scripts/_baseline.mjs`
+  (`rotatedField` over all N seat rotations per seed, via `runMatch` directly). The proof it mattered:
+  pre-fix fixed-seat Lookahead measured **18.3%**; seat-fair it measures **22.9%**, in line with the
+  documented seat-fair ~24%. Also folded in confirmed defensive fixes: `export_weights.py` now asserts
+  `encoding_version == EXPECTED_ENCODING_VERSION` and loads `weights_only=True` (consistent + safe);
+  `checkParity` now guards fixture↔weights feature-width agreement; and the gate documents its
+  conservative one-sided α≈0.025 verdict + low-power caveat. Refuted (correctly): a "PLAN says add to
+  builtInBots" misread and a seed-overlap claim (stride is safe).
+
+**Learned / decided:**
+
+- **Bar pin:** in-repo `ai_lookahead` differs from `596f781` only in **comments** (verified
+  `git diff 596f781 HEAD -- src/ai/ai_lookahead.js` — a strict-`>` doc wording fix, constants
+  byte-identical), so it is the behavioral `@596f781` bar, exactly as RESULTS.md already treats it.
+- **Registration scope:** the gate registers the candidate **dynamically** via `makeBC({policy})`;
+  a **permanent** `builtInBots.js` entry (which plain `arena:sweep` reads) is deferred to **Phase 4**,
+  gated on the bot clearing BEAT. A static import of the not-yet-existing `ppoPolicyWeights.js` would
+  break the build/suite, and a tracer-strength net does not belong in the shipped field — the dynamic
+  harness is the green, honest path. This is a deliberate deviation from the PLAN's literal "add to
+  builtInBots".
+- The _tracer_ policy is a loop-closer, not a strength run: it should land ≈ the BC clone
+  (TIE/BEHIND). A real **BEAT** is the Phase-3 scaling goal.
+
+**Dead ends / surprises:**
+
+- None blocking. Mild surprise: step 7 needed **zero** new Python — the step-5/6 repack design
+  already produced an `export_weights`-compatible checkpoint, so the only outstanding artifact is
+  the exported `ppoPolicyWeights.js` itself (a torch box / shodan).
+
+**Next:**
+
+- On shodan: `npm run ppo:export` from the step-6 `checkpoints/ppo-tracer.pt`, copy
+  `src/ai/ppoPolicyWeights.js` + `tests/fixtures/bc/ppoForwardCases.json` into the repo, then
+  `npm run ppo:gate` for the first real (tracer-strength) gate number — closes the step-7 loop.
+- Then the Phase-3 **scaling** tasks (PFSP league, from-scratch control, reward shaping) toward an
+  actual BEAT; re-run `ppo:gate` at each checkpoint.
+
+---
+
 ## 2026-06-25 — PR #60 review follow-up: two truncated-wire regression gaps closed
 
 **Phase:** 3 · **Who:** Ivan + Claude

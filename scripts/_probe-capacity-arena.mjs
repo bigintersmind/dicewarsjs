@@ -24,15 +24,14 @@
  *   WEIGHTS_DIR=/path/to/probe-exports node scripts/_probe-capacity-arena.mjs
  */
 
-import { pathToFileURL } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { runArena } from '../src/arena/arenaRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
 import { makeBC } from '../src/ai/ai_bc.js';
-import { forward } from '../src/ai/bcForward.js';
 import { getArg } from './lib/cli-utils.mjs';
+import { loadExportedPolicy, countParams } from './lib/load-bc-policy.mjs';
+import { meanCi, mean } from './lib/stats.mjs';
 
 const args = process.argv.slice(2);
 const runCount = parseInt(getArg(args, 'runs', '15'), 10);
@@ -75,95 +74,14 @@ if (!baseField.some(b => b.name === YARDSTICK)) throw new Error(`${YARDSTICK} mi
 
 const STRIDE = Math.max(1_000_000, gamesPerRun * 1000);
 
-// --- 95% Student-t CI (mirrors scripts/arena-sweep.mjs) ---
-const T95 = {
-  1: 12.706,
-  2: 4.303,
-  3: 3.182,
-  4: 2.776,
-  5: 2.571,
-  6: 2.447,
-  7: 2.365,
-  8: 2.306,
-  9: 2.262,
-  10: 2.228,
-  11: 2.201,
-  12: 2.179,
-  13: 2.16,
-  14: 2.145,
-  15: 2.131,
-  16: 2.12,
-  17: 2.11,
-  18: 2.101,
-  19: 2.093,
-  20: 2.086,
-  21: 2.08,
-  22: 2.074,
-  23: 2.069,
-  24: 2.064,
-  25: 2.06,
-  26: 2.056,
-  27: 2.052,
-  28: 2.048,
-  29: 2.045,
-  30: 2.042,
-};
-const tCrit = df => T95[df] ?? 1.96;
-function meanCi(values) {
-  const n = values.length;
-  const m = values.reduce((a, b) => a + b, 0) / n;
-  const v = values.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1);
-  return { mean: m, ci: tCrit(n - 1) * (Math.sqrt(v) / Math.sqrt(n)) };
-}
-const mean = vs => vs.reduce((a, b) => a + b, 0) / vs.length;
-
-// --- Load + parity-check a candidate policy ---
-async function loadPolicy(file) {
-  const wPath = resolve(WEIGHTS_DIR, file);
-  if (!existsSync(wPath)) throw new Error(`weights not found: ${wPath}`);
-  const mod = await import(pathToFileURL(wPath).href);
-  const policy = mod.BC_POLICY;
-  if (!policy) throw new Error(`${file} did not export BC_POLICY (got ${typeof policy}).`);
-
-  /*
-   * Parity pre-flight against the sibling fixture is MANDATORY: it is the only check that a
-   * candidate's JS forward reproduces the Python reference, so a missing fixture would let a
-   * numerically broken net masquerade as a real win-rate signal (the whole point of the probe).
-   * Fail loud rather than silently arena-evaluating an un-cross-checked net.
-   */
-  const fxPath = wPath.replace(/\.weights\.js$/, '.fixture.json');
-  if (!existsSync(fxPath)) {
-    throw new Error(
-      `parity fixture not found for ${file}: ${fxPath} — export weights with --fixture so the ` +
-        `JS forward can be cross-checked before this net is trusted in the arena.`
-    );
-  }
-  const fx = JSON.parse(readFileSync(fxPath, 'utf8'));
-  let maxErr = 0;
-  for (const c of fx.cases) {
-    const obs = {
-      nodes: c.nodes,
-      players: c.players,
-      board: c.board,
-      edges: c.edges,
-      edgeIndex: c.edgeIndex,
-    };
-    const { logits } = forward(policy, obs);
-    for (let i = 0; i < logits.length; i++)
-      maxErr = Math.max(maxErr, Math.abs(logits[i] - c.logits[i]));
-  }
-  if (maxErr > 1e-3)
-    throw new Error(`parity FAIL for ${file}: maxErr=${maxErr.toExponential(2)} > 1e-3`);
-  return { policy, parity: maxErr };
-}
-
-function countParams(policy) {
-  let n = 0;
-  for (const head of Object.values(policy.layers)) {
-    for (const layer of head) n += layer.w.length * layer.w[0].length + layer.b.length;
-  }
-  return n;
-}
+/*
+ * Load + MANDATORY parity pre-flight (the only check that a candidate's JS forward
+ * reproduces the Python reference, so a numerically broken net can't masquerade as a
+ * real win-rate signal). Shared with the PPO gate via load-bc-policy.mjs; the sibling
+ * `<config>.fixture.json` is derived by the loader.
+ */
+const loadPolicy = file =>
+  loadExportedPolicy({ weightsPath: resolve(WEIGHTS_DIR, file), label: file });
 
 console.log(
   `Capacity→win% confirm: ${CONFIGS.length} configs x ${BIASES.length} biases x ${runCount} runs x ${gamesPerRun} games ` +

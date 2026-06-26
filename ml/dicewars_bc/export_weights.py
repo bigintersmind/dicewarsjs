@@ -27,6 +27,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
+from .manifest import EXPECTED_ENCODING_VERSION
 from .model import EdgePolicyNet, ModelConfig
 
 # The five Sequential MLPs of EdgePolicyNet, mapped to camelCase keys the JS reads.
@@ -113,7 +114,22 @@ def _make_fixture(
 def export(
     ckpt_path: str | Path, out_path: str | Path, fixture_path: str | Path | None = None
 ) -> Path:
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    # weights_only=True: BC/repacked-PPO checkpoints are tensors + a plain
+    # dict/str/num payload (same contract load_bc_checkpoint loads), so this avoids the
+    # arbitrary-code unpickler and stays consistent with the rest of the pipeline.
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+
+    # Fail fast on an encoding-version skew: the JS encoder/forward only support the
+    # current version, and makeBC rejects a mismatch at load — catch it here so a stale
+    # checkpoint never produces a silently-wrong weights module.
+    ev = ckpt.get("encoding_version")
+    if ev != EXPECTED_ENCODING_VERSION:
+        raise ValueError(
+            f"checkpoint encoding_version={ev!r} != {EXPECTED_ENCODING_VERSION} ({ckpt_path}); "
+            "re-export from a checkpoint matching the current JS encoding "
+            "(src/arena/encodeObservation.js / dicewars_bc.manifest)."
+        )
+
     config = ModelConfig(**ckpt["config"])
     model = EdgePolicyNet(config)
     model.load_state_dict(ckpt["state_dict"])

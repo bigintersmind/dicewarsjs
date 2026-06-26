@@ -418,10 +418,49 @@ and de-risk the two biggest unknowns).**
   explained-variance → 0.74), repacks + reloads export-ready, and `--freeze-trunk` preserves the
   warm-started actor byte-for-byte (22 tensors). JS suite (obs-frame + ppo-env, +truncation test)
   green. _PR pending._
-- [ ] **(7)** **Repack → export → register → gate:** SB3 sub-modules → bare BC-format
-      `EdgePolicyNet` `.pt` (with parity assertion) → `export_weights.py` → regenerated
-      JS↔Py fixture → add to `src/arena/builtInBots.js` via `makeBC({policy})` →
-      `npm run arena:sweep` win% vs `ai_lookahead@596f781` with 95% CIs.
+- [~] **(7)** **Repack → export → register → gate:** SB3 sub-modules → bare BC-format
+  `EdgePolicyNet` `.pt` (with parity assertion) → `export_weights.py` → regenerated
+  JS↔Py fixture → register via `makeBC({policy})` → `arena:sweep` win% vs
+  `ai_lookahead@596f781` with 95% CIs. **JS-side gate scaffolded 2026-06-25** (the
+  Python repack/export already worked unchanged — proven on shodan in step 6). What
+  landed and how to run it:
+  - **Export recipe (torch box).** `export_weights.py` consumes the repacked PPO
+    checkpoint as-is (it's a bare `EdgePolicyNet` ckpt; the extra `ppo_*`/`teacher`
+    provenance keys are ignored, `selection_metric` is `None`). Wired as
+    `npm run ppo:export` (= `python -m dicewars_bc.export_weights --ckpt
+checkpoints/ppo-tracer.pt --out ../src/ai/ppoPolicyWeights.js --fixture
+../tests/fixtures/bc/ppoForwardCases.json`). Covered by `ml/tests/test_export_weights.py`
+    (torch-only, repack-format incl. provenance keys + v2 widths — runs in the BC CI tier).
+  - **Register + gate (here, no GPU).** `npm run ppo:gate` (`scripts/ppo-gate.mjs`)
+    dynamic-imports the exported weights, runs a **mandatory parity pre-flight** (the
+    shared `scripts/lib/load-bc-policy.mjs` — also now backs the capacity probe),
+    registers the net via `makeBC({ policy })` (the exact in-browser path), and runs a
+    seat-fair 8-bot FFA sweep reporting candidate & `Lookahead` win% with 95% CIs **plus
+    the paired per-run Δwin%** and a **BEAT / TIE / BEHIND** verdict (`scripts/lib/ppo-gate-core.mjs`).
+    Gate PASSES only on **BEAT** (paired Δ CI strictly above 0). Judge on **win%, not
+    ELO**. Tests: `tests/scripts/{loadBcPolicy,ppoGateCore}.test.js` + `tests/ai/ppoForward.test.js`
+    (PPO parity, skips until the export artifacts exist).
+  - **Stand-in validated on this Mac (2026-06-25):** `ppo-gate.mjs --weights
+src/ai/bcPolicyWeights.js --fixture …/forwardCases.json` reproduces the known BC
+    anchor (≈13% vs Lookahead ≈18%, parity 2.4e-5, STOP ≈52%) → the whole
+    repack→export→register→gate machinery is proven.
+  - **First REAL gate run (2026-06-25, on shodan).** Regenerated `checkpoints/ppo-tracer.pt`
+    (`train_tracer --timesteps 2048`, the step-6 artifact wasn't kept), exported → `npm run
+ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.1 ± 1.1%**,
+    paired **Δ −3.6 ± 1.7 pp [−5.3, −1.9]** → ❌ **BEHIND** (parity 3.0e-5, STOP 55%, atk-win 81%).
+    Exactly the tracer expectation (≈BC, BEHIND the bar). Loop closed end-to-end on a real
+    trained policy; the **BEAT** that actually closes step 7 is the scaling work below. See LOG.
+  - **Bar pin:** in-repo `ai_lookahead` differs from `596f781` only in comments
+    (verified `git diff`), so it is the behavioral `@596f781` bar (as RESULTS.md
+    already treats it).
+  - **Registration scope (decision):** the gate harness registers the candidate
+    **dynamically** via `makeBC({policy})`; a **permanent** `src/arena/builtInBots.js`
+    entry (which the plain `arena:sweep` reads) is deferred to **Phase 4**, gated on the
+    bot actually clearing BEAT — shipping a tracer-strength net into the field would
+    dilute the registry. A static import of the not-yet-existing `ppoPolicyWeights.js`
+    would also break the build/suite; the dynamic harness is the green, honest path.
+  - **Expectation:** the _tracer_ policy is a loop-closer, not a strength run — it should
+    land ≈ the BC clone (TIE/BEHIND). A real **BEAT** is the Phase-3 scaling goal below.
 
 **Tasks — scaling (after the tracer slice closes the loop).**
 

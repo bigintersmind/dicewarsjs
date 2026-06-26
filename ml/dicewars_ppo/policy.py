@@ -91,8 +91,10 @@ class MaskableEdgePolicy(MaskableActorCriticPolicy):
         Overrides the base ``_build`` wholesale: we do NOT build the base's
         ``mlp_extractor`` / ``action_net`` (the per-edge head replaces them).
         ``self.action_dist`` is already a ``MaskableCategoricalDistribution`` from
-        the base ``__init__``. The default (param-less) ``CombinedExtractor`` over
-        our all-``Box``/``MultiBinary`` Dict was built before this and is left unused.
+        the base ``__init__``. Any default features extractor SB3 builds (a
+        param-less ``FlattenExtractor`` over our Dict obs) is left unused — every
+        overridden method reads the obs Dict directly, so we don't depend on its
+        class or on exactly when the base instantiates it.
         """
         self.bc_net = EdgePolicyNet(self._bc_config)
         # Fresh scalar critic off ctx (PPO V(s)); separate from BC's value_head.
@@ -208,7 +210,10 @@ def load_bc_checkpoint(ckpt_path: str | Path) -> tuple[ModelConfig, dict]:
     Returns ``(config, checkpoint_dict)``. Raises if the checkpoint is a stale
     encoding version (a v1 net would shape-mismatch the live v2 observation).
     """
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    # weights_only=True: our BC checkpoints are tensors + a plain dict/str/num config
+    # (same as dicewars_bc.export_onnx), so this avoids the arbitrary-code-execution
+    # unpickler path that weights_only=False enables.
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     ev = ckpt.get("encoding_version")
     if ev != ENCODING_VERSION:
         raise ValueError(
@@ -223,12 +228,33 @@ def load_bc_checkpoint(ckpt_path: str | Path) -> tuple[ModelConfig, dict]:
 def warm_start_from_bc(policy: MaskableEdgePolicy, ckpt: dict) -> None:
     """Load BC trunk + ``edge_head`` (+ ``value_head``) into the policy's actor.
 
+    Validates the checkpoint up front — ``encoding_version == 2``, v2 feature widths,
+    and that its ``ModelConfig`` matches the one the policy was built from — so a
+    stale/mismatched checkpoint fails with an actionable message rather than a raw
+    ``load_state_dict`` size-mismatch dump, and a same-shape/different-encoding
+    checkpoint can't warm-start silently. This is a separate public entry point from
+    :func:`load_bc_checkpoint`, so it re-checks rather than trusting the caller.
+
     The actor (``policy.bc_net``) is a bare ``EdgePolicyNet`` with the checkpoint's
     ``ModelConfig``, so ``state_dict`` keys line up exactly (``strict=True``). The
     fresh scalar critic (``policy.value_net``) is intentionally left at its init —
     PPO learns it. The BC ``value_head`` loads too but PPO never trains it (no loss
     references it), so it survives for the repack parity fixture.
     """
+    ev = ckpt.get("encoding_version")
+    if ev != ENCODING_VERSION:
+        raise ValueError(
+            f"warm-start checkpoint encoding_version={ev!r} != {ENCODING_VERSION}; "
+            "must be the v2 BC checkpoint (the deployed ai_bc)."
+        )
+    ckpt_cfg = ModelConfig(**ckpt["config"])
+    _assert_v2_config(ckpt_cfg)
+    if ckpt_cfg != policy.bc_net.config:
+        raise ValueError(
+            f"warm-start checkpoint config {ckpt_cfg} != policy config "
+            f"{policy.bc_net.config}; the policy was built from a different "
+            "ModelConfig than the checkpoint."
+        )
     policy.bc_net.load_state_dict(ckpt["state_dict"], strict=True)
 
 
@@ -249,5 +275,11 @@ def repack_to_bc_checkpoint(
         "encoding_version": ENCODING_VERSION,
     }
     if extra:
+        clobbered = ckpt.keys() & extra.keys()
+        if clobbered:
+            raise ValueError(
+                f"repack `extra` may not override canonical checkpoint keys: "
+                f"{sorted(clobbered)} (use it only for provenance like `teacher`/step)."
+            )
         ckpt.update(extra)
     return ckpt

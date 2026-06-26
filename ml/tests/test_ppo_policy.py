@@ -179,6 +179,62 @@ def test_distribution_zeros_the_pad_tail():
     assert torch.allclose(probs[:, :n_edges].sum(dim=1), torch.ones(probs.shape[0]), atol=1e-5)
 
 
+# --- forward-path parity (the warm-start fidelity loop) --------------------------
+
+
+def test_policy_forward_matches_bare_edgepolicynet():
+    """The policy's forward path computes the SAME edge logits as a bare
+    ``EdgePolicyNet`` on the same obs.
+
+    ``test_repack_roundtrips_to_bare_edgepolicynet`` proves the *weights* survive the
+    BC↔PPO round trip. This proves the policy's padded-``[N, ME]`` → ragged reshape /
+    ``edge_batch`` synthesis / ``view`` plumbing (``_edge_logits_and_values``)
+    *consumes* those weights the same way the BC forward / ONNX export does — so the
+    graded bot == the trained policy through the forward path, not just the bytes. A
+    ``repeat`` vs ``repeat_interleave`` slip or an ``n``/``me`` transpose would yield
+    a perfectly valid masked distribution while silently breaking the warm-start;
+    this is the regression pin for that class of bug.
+    """
+    cfg = _v2_config()
+    ckpt = _make_bc_checkpoint(cfg, seed=5)
+    policy = _build_warm_started(cfg, ckpt)
+    obs, _masks, n_edges = _fake_obs_batch(cfg)
+    n = obs["nodes"].shape[0]
+
+    # Policy forward path → padded [N, MAX_EDGES] edge logits (pad tail is garbage).
+    with torch.no_grad():
+        policy_logits, _values = policy._edge_logits_and_values(obs)
+
+    # Reference: a bare EdgePolicyNet with the SAME weights, run over the ragged
+    # *legal* edges of each row — exactly the BC forward / ONNX export call. Every
+    # row has n_edges legal slots; flatten row-major and batch-tag each edge with its
+    # row (repeat_interleave → [0]*n_edges, [1]*n_edges, …), mirroring the legal head
+    # of the policy's own [N, ME] → [N*ME] flatten.
+    bare = EdgePolicyNet(cfg)
+    bare.load_state_dict(ckpt["state_dict"])
+    bare.eval()
+
+    edge_feat = obs["edge_feat"][:, :n_edges, :].reshape(n * n_edges, EDGE_W)
+    edge_from = obs["edge_from"][:, :n_edges].reshape(n * n_edges).long()
+    edge_to = obs["edge_to"][:, :n_edges].reshape(n * n_edges).long()
+    edge_batch = torch.arange(n).repeat_interleave(n_edges)
+    with torch.no_grad():
+        ref_logits, _ = bare(
+            obs["nodes"],
+            obs["players"],
+            obs["board"],
+            edge_feat,
+            edge_from,
+            edge_to,
+            edge_batch,
+        )
+    ref_logits = ref_logits.view(n, n_edges)
+
+    # The legal-slot logits must match the bare net's exactly (same weights, same
+    # gather/Linear/ReLU ops); tolerance covers only BLAS batch-size rounding.
+    assert torch.allclose(policy_logits[:, :n_edges], ref_logits, rtol=1e-4, atol=1e-6)
+
+
 def test_evaluate_actions_and_predict_values_are_finite():
     cfg = _v2_config()
     policy = _build_warm_started(cfg, _make_bc_checkpoint(cfg))

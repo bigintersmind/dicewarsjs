@@ -641,3 +641,33 @@ residual ~4.6 pt gap to Lookahead is the **imitation ceiling** (BC clones; Looka
 — the lever PPO/RL pulls. The v2 observation is the durable artifact: it ships as the deployed
 BC _and_ feeds the PPO input. v2 checkpoint on `shodan` (`~/dicewarsjs/ml/checkpoints/v2-base/`).
 **Repro:** `npm run arena:bc-stopbias -- --runs 15 --games 130 --bias 0,0.5,1,2,3`.
+
+---
+
+## Phase 3 — PPO gate-harness baselines: BC anchor + tracer (apples-to-apples) · 2026-06-26
+
+**Why.** Phase-3 scaling needs a clean, same-config baseline that any trained PPO policy must
+beat. The `npm run ppo:gate` harness (#61) runs a seat-fair 8-bot FFA and reports the **paired
+per-run Δwin% vs `ai_lookahead@596f781`** — the valid signal (absolute win% is field-relative;
+chance baseline is 12.5% in an 8-way FFA, with Strategist + Expectimax also strong). Both rows:
+default config, **3040 games** (20 runs × 19 seeds × 8 seat rotations), judged on **win%, not ELO**.
+
+| Candidate (gate)                               | Cand win% (95% CI) | Lookahead win% | Paired Δ (cand − bar)       | Verdict   |
+| ---------------------------------------------- | ------------------ | -------------- | --------------------------- | --------- |
+| **BC v2 anchor** (`bcPolicyWeights.js`)        | 12.4 ± 1.4         | 16.1 ± 1.4     | **−3.7 ± 2.4 [−6.1, −1.3]** | ❌ BEHIND |
+| **PPO tracer** (`ppo-tracer`, 2048 steps, #61) | 11.5 ± 1.3         | 15.1 ± 1.1     | **−3.6 ± 1.7 [−5.3, −1.9]** | ❌ BEHIND |
+
+**Takeaway.** BC anchor (−3.7) ≈ PPO tracer (−3.6) — **statistically identical**. The 2048-step
+tracer did **not** learn past the BC warm-start (exactly the loop-closer expectation). So the
+clean Phase-3 baseline any real run must beat is **Δ ≈ −3.7 pp** (BC level). The earlier −8.8 in
+the LOG was a noisier smaller validation run; −3.7 is the canonical-config number.
+
+**In flight (2026-06-26).** First fixed-field scaling diagnostic ([D-22] task A): `train_tracer`
+warm-started from v2-BC, fixed heterogeneous field, learning-enabled HPs (`lr 2.5e-4`,
+`ent_coef 0.01`, 1M steps), on `shodan`. **Measured throughput ~72 fps** (real policy +
+`ai_lookahead`-heavy field, single-threaded `DummyVecEnv`) → ~3.85 h for 1M; the probe's 644/s
+used a stub learner. Result + the export→`ppo:gate` Δ to follow. A material move above −3.7 →
+PPO learns past BC → green-light the PFSP league ([D-22] task B); flat → plateau signal (and
+motivates [D-22] task E: `SubprocVecEnv` parallel envs + a longer run before concluding).
+
+**Repro:** BC anchor — `npm run ppo:gate -- --weights src/ai/bcPolicyWeights.js --fixture tests/fixtures/bc/forwardCases.json --name BCanchor`; PPO — `npm run ppo:gate` (default weights = `ppoPolicyWeights.js`).

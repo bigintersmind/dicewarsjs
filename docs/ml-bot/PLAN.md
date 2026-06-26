@@ -462,17 +462,35 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
   - **Expectation:** the _tracer_ policy is a loop-closer, not a strength run — it should
     land ≈ the BC clone (TIE/BEHIND). A real **BEAT** is the Phase-3 scaling goal below.
 
-**Tasks — scaling (after the tracer slice closes the loop).**
+**Tasks — scaling (after the tracer slice closes the loop). Design + sequencing fixed in [D-22].**
 
-- [ ] **PFSP opponent league** — snapshots exported to the `bcForward` JS weight format and
-      run **in-process** (never evaluated back in Python); sample ∝ win-rate vs the current
-      learner; fixed strong baselines in every game keep games decisive ([D-15]).
-- [ ] Scale envs across cores; add the short **from-scratch control** run (decision 1).
-- [ ] Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
+- [ ] **(A) Fixed-field diagnostic gate — FIRST, zero new code ([D-22] decision 3).** Scale the
+      existing `train_tracer.py` run on the fixed heterogeneous field (no PFSP) with **learning-enabled
+      HPs** (its defaults are tracer-low — `lr=1e-4`, `ent_coef=0`, 2048 steps — and won't learn by
+      design), then `npm run ppo:export` + `npm run ppo:gate`. Answers the one binary unknown cheaply:
+      _does PPO move past the BC ceiling (12.5%) toward Lookahead at all?_ A flat result is the plateau
+      kill-signal (reward/credit-assignment/encoding, not opponent distribution). **Limitation:**
+      `train_tracer` has no checkpoint/resume/logging and uses `DummyVecEnv` (sequential) — fine for a
+      bounded diagnostic, but task (E) is the prerequisite for the long run.
+- [ ] **(B) PFSP opponent league ([D-22]) — Node-resident.** New `scripts/lib/ppo-league.mjs` (pool +
+      seeded `mulberry32` sampler + win-rate book) inside the env-server; the loop draws
+      `league.draw(seed)` per episode (replaces the static `opponents` const at `ppo-env-server.mjs:259`).
+      **Fixed-field is the empty-pool degenerate mode of this same pipeline** — so (A) and (B) share
+      code. Snapshots: Python SB3 callback `repack → export_weights` (weights-only — no per-snapshot
+      fixture needed, [D-22] decision 6) → atomic `manifest.json`; Node hot-loads via `makeBC({policy})`
+      (fresh filename per snapshot — ESM URL cache). Sample `w(S)=max(ε,1−learnerWinRate(S))^k`; reserve
+      **R≈3–4 aggressive baselines every game** ([D-15] turtle defense); hold `player_count` constant.
+      **Win-rate attribution is the real work item** — pairwise/placement-relative, **excluding
+      `maxTurns` truncations**. Honor: freeze `ENCODING_VERSION`; dedup via `uniquifyNames` `#N`;
+      re-probe decisive-rate + throughput on a snapshot-heavy field before locking the budget.
+      _Open: per-worker vs shared-disk-global stats — lean shared-disk-global, pluggable ([D-22])._
+- [ ] **(C)** Scale envs across cores; add the short **from-scratch control** run ([D-19] decision 1).
+- [ ] **(D)** Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
       `F = γΦ(s′)−Φ(s)`, env-side in JS) only if terminal-only learning is too slow.
-- [ ] **shodan ops:** schtasks-wrapped WSL launch (the only disconnect-surviving pattern);
-      idempotent checkpoint/resume of policy + optimizer + VecNormalize + RNG + step + pool;
-      TensorBoard + a flat CSV that survives sessions.
+- [ ] **(E) shodan training-ops (prerequisite for the long BEAT run):** schtasks-wrapped WSL launch
+      (the only disconnect-surviving pattern); idempotent checkpoint/resume of policy + optimizer +
+      VecNormalize + RNG + step + pool; TensorBoard + a flat CSV that survives sessions; swap
+      `DummyVecEnv` → `SubprocVecEnv` for real cross-core parallelism.
 
 **Acceptance criteria.**
 

@@ -1072,3 +1072,104 @@ deadline buys for a single-learner env). Signaling the disconnect by throwing fr
 **Notes.** No engine or shipped-bot changes — all in `scripts/` + `tests/ml/`. Regression coverage:
 `npm run ppo:disconnect-smoke` (disconnect → exit 0, watchdog → exit 1, desync → exit 1) + 22 new unit tests.
 Full suite 965 green; CI green on `be126bc`. Session: `LOG.md` 2026-06-25 "review hardening".
+
+---
+
+## D-22 — PFSP league is Node-resident; build ONE league pipeline and run fixed-field as its empty-pool mode (cheap "does PPO learn?" gate first) · Accepted (2026-06-26) · follows [D-19](#d-19--phase-3-ppo-architecture-in-process-self-play-env-over-a-nodepython-socket-edgepolicynet-trunk-policy-warm-started-from-v2-bc-pfsp-league-in-the-full-8-ffa--accepted-2026-06-25) / [D-20](#d-20-phase-3-throughput-proven-green--max_edges--64-episodes-terminate-at-learner-elimination--accepted-2026-06-25) / hardened by [D-21](#d-21--envlearner-control-plane-signal-via-the-onturn-seam-a-per-decision-watchdog-fail-loud-on-desync-placement-gains-a-same-turn-co-elimination-correction--accepted-2026-06-25)
+
+**Context.** PR #61 closed the Phase-3 tracer slice — the `repack → export → register → gate`
+chain is proven on a real trained PPO policy (tracer: 11.5% vs Lookahead 15.1%, paired Δ −3.6 pp,
+❌ BEHIND, exactly the loop-closer expectation). What remains is the **scaling** work toward an
+actual BEAT, of which the **PFSP opponent league** ([D-19]) is the central algorithmic piece. Before
+writing it we scope-grounded the design against the code (the [D-12]/[D-19] method): a 6-reader
+surface-map of the exact seams + two independent design takes (minimal-change vs best-architecture) +
+an 8-claim adversarial verification pass (1 refuted, 2 qualified). Both takes converged on the same
+architecture; verification corrected the naive plan in four places.
+
+**Decisions.**
+
+1. **The league is Node-resident; Python only _produces_ snapshot artifacts.** The opponent pool,
+   the per-episode sampler, and the win-rate book all live in a new `scripts/lib/ppo-league.mjs`
+   inside the env-server. This is **forced by the wire, not a preference**: the learner→env uplink is
+   a bare 4-byte i32 action with no message type and `env.reset()` sends zero bytes
+   (`ml/dicewars_ppo/wire.py:266-269`, `scripts/lib/ppo-socket-worker.mjs:113`, `ml/dicewars_ppo/env.py:140-156`),
+   so Python cannot select opponents per-episode without adding a typed inbound control frame — the
+   exact path [D-21] hardened with fail-loud desync guards (the riskiest place to touch). The Node
+   episode loop already has a per-episode hook and `runSelfPlayEpisode` rebuilds its roster fresh
+   from `cfg.opponents` every call with **zero cross-episode state** (verified — `scripts/lib/ppo-env.mjs:153-197`),
+   so a Node-side draw is a zero-wire, zero-restart change. Independently matches [D-19]: snapshots
+   run in-process as JS bots via `makeBC({ policy })`, never evaluated back in Python.
+
+2. **Build ONE league pipeline; fixed-field is its degenerate empty-pool mode — not throwaway code.**
+   Replace the loop-invariant `opponents` constant (`scripts/ppo-env-server.mjs:259`, resolved once at
+   `:127`) with `league.draw(seed)`; with an empty snapshot pool the sampler fills all seats from the
+   fixed baselines = today's tracer field. So the cheap gate exercises the exact same draw/record/refresh
+   paths the real league uses, and turning PFSP on is a cadence flag, not a re-architecture.
+
+3. **Sequencing: fixed-field-first, then PFSP — reconciled with [D-19].** The one unknown that gates
+   the whole phase is binary and cheap: _does PPO move past the BC ceiling (12.5%) toward Lookahead
+   at all?_ Answer it first on the existing fixed heterogeneous field (zero new code), then flip
+   snapshots on for the long-horizon BEAT run. [D-19]'s "PFSP from step one" warned about a _static_
+   field overfitting over the **long** horizon; that does not bite a short diagnostic, and the tracer
+   field is 5 distinct strategies (not the all-Lookahead mirror [D-15] warns about), so it has neither
+   the turtle nor a single-exploit problem. The asymmetry is decisive: if PPO doesn't move on a strong
+   heterogeneous field, a fancier opponent distribution wouldn't have saved it (the failure would be
+   reward/credit-assignment/encoding) — so PFSP-first would burn the league build for nothing.
+
+4. **Sampling & anchoring.** Per episode, reserve **R ≈ 3–4 aggressive baselines**
+   (`ai_lookahead, ai_strategist, ai_expectimax, ai_defensive`) in _every_ 8-FFA game; PFSP-sample
+   only the remaining `7 − R` seats. This is the structural defense against the [D-15] turtle
+   equilibrium (snapshots are BC/PPO-lineage and STOP-biased). Weight `w(S) = max(ε, 1 − learnerWinRate(S))^k`
+   ([D-19]'s "∝ win-rate vs the learner" = focus on opponents that beat the learner; ε floor keeps new
+   snapshots sampled). RNG = `mulberry32(seedBase + ep)` — deterministic, never `Math.random`. **Hold
+   `player_count` constant** (`runMatch` derives it from `bots.length`; varying it rescales the board —
+   vary identity only).
+
+5. **Win-rate bookkeeping is the real work item, attributed pairwise.** Today's outcome objects carry
+   _only the learner's_ result, with no per-opponent attribution — so the league must add placement-relative
+   crediting: the learner "beat" snapshot `S` iff it outplaced `S` (from `result.placements`, or
+   `finalState.players[].eliminated` on early elimination). **Exclude `maxTurns` truncations**
+   (`truncated=1`) from win-rate stats — counting stalemates as losses biases the sampler back toward
+   turtle fields; log truncation rate separately as a decisiveness health metric.
+
+6. **Snapshot pipeline (verification-corrected).** A periodic Python SB3 `BaseCallback` does
+   `repack_to_bc_checkpoint(model.policy)` (in-memory, drops the PPO critic, keeps `value_head`) →
+   `export_weights.export(...)` → atomic `manifest.json` rewrite (the "new snapshot available" signal —
+   no wire message). Node polls the manifest at episode boundaries and loads new snapshots once via
+   `makeBC({ policy })`, caching `{ id, fn }` (**fresh filename per snapshot** — ESM `import()` caches by
+   URL). **Snapshots do NOT need a per-snapshot parity fixture** (a naive claim, refuted): the in-process
+   `makeBC` path needs only weights + matching `encodingVersion`/`maxAreas`; the `.fixture.json` is
+   required _only_ if a snapshot is routed through `loadExportedPolicy`'s offline parity pre-flight
+   (the gate/capacity-probe trust step). So snapshot export is weights-only; parity is an optional
+   one-time check at export time.
+
+**Constraints surfaced (must honor).**
+
+- **Freeze `ENCODING_VERSION` (currently 2) for the whole run.** `makeBC` hard-throws on encoding skew
+  (`src/ai/ai_bc.js:72-77`), so the league cannot pool snapshots taken across a version bump — they
+  become _unloadable_ mid-run, not gracefully degraded. A bump means re-export/invalidate older snapshots.
+- **Dedup is `uniquifyNames` appending `#N`** (`scripts/lib/ppo-env.mjs:328`), not an `@i` seat suffix
+  (which doesn't exist). Any roster with repeated snapshots must route through `runSelfPlayEpisode`'s
+  roster build (which calls it) or it hits `runMatch`'s unique-name throw (`src/arena/matchRunner.js:235`).
+- **Re-probe decisive-rate + throughput on a snapshot-heavy field** before locking the env-step budget:
+  a BC-forward seat costs ~0.8 ms/move vs ~0.02–0.4 ms for heuristics ([D-20]), and [D-15]'s
+  decisive-rate was only validated for hand-picked fields.
+
+**Open sub-decision (deferred to build time): cross-worker stats.** Per-worker-independent leagues
+(simpler; noisier sampling on small per-worker counts) vs a shared-on-disk global league
+(append-only per-worker result logs folded into one `winrates.json`; lower variance; ~1 extra day).
+Lean **shared-disk-global with a pluggable backend**, since PFSP sampling quality directly affects the
+BEAT outcome — but ship per-worker if the aggregator proves more than ~1 incremental day.
+
+**Rejected.** A Python-driven sampler (would require extending the [D-21]-guarded wire for no v1
+benefit). A throwaway standalone fixed-field harness (Take A's first cut) — it pays back its 2–3 day
+head start re-integrating PFSP and rebuilding per-worker stats into a global league later; decision 2
+makes fixed-field a _mode_ of the one pipeline instead.
+
+**Notes.** Effort ≈ 1 week for the clean PFSP-ready pipeline, with the fixed-field gate runnable on
+day 2–3 (empty pool = tracer field, no snapshot callback needed yet). Grounding: design workflow
+(6-reader map + 2 design takes + 8-claim adversarial verify). **Caveat for the scaling run:**
+`train_tracer.py` takes the knobs (`--timesteps/--lr/--ent-coef/--n-envs`) so the fixed-field gate
+needs no new code, but its _defaults_ are tracer-low (won't learn) and it has **no checkpoint/resume,
+no TensorBoard/CSV, and uses `DummyVecEnv`** (sequential) — fine for a bounded diagnostic, but the
+durable **shodan training-ops** task (PLAN Phase-3 scaling) is the prerequisite for the long BEAT run.

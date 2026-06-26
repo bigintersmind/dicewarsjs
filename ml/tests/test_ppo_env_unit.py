@@ -10,6 +10,7 @@ in ``test_ppo_env`` (which also needs ``node``).
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import numpy as np
@@ -120,3 +121,55 @@ def test_check_dims_rejects_edge_overflow(golden_frame):
     env = DiceWarsEnv(max_areas=3, player_count=2, max_edges=1, managed=False, host="x", port=1)
     with pytest.raises(ValueError, match="MAX_EDGES"):
         env._frame_to_obs(golden_frame)
+
+
+# --- step() terminal: the terminated/truncated mapping (the PPO bootstrap gate) -----
+
+
+def _drive_step_with_terminal(monkeypatch, env, term_frame):
+    """Drive one ``env.step()`` whose server reply is ``term_frame`` (no live socket).
+
+    Patches the socket I/O the env imported (``send_action``/``recv_frame``) so the
+    terminal frame flows through the REAL ``step()`` body — the point is to exercise the
+    actual terminated/truncated mapping, not re-implement it. The env is primed so the
+    action passes the legality guard.
+    """
+    monkeypatch.setattr("dicewars_ppo.env.send_action", lambda _sock, _idx: None)
+    monkeypatch.setattr("dicewars_ppo.env.recv_frame", lambda _sock, _max: term_frame)
+    env._awaiting_reset = False
+    env._mask = np.array([True] + [False] * (env.max_edges - 1))  # action 0 legal
+    return env.step(0)
+
+
+@pytest.mark.parametrize(
+    ("won", "truncated", "exp_terminated", "exp_truncated", "exp_reward"),
+    [
+        (1, 0, True, False, 1.0),  # genuine win → terminated, value bootstrap 0
+        (0, 0, True, False, 0.0),  # genuine loss (elimination) → terminated
+        (0, 1, False, True, 0.0),  # maxTurns stalemate CAP → truncated, bootstrap V(s)
+    ],
+)
+def test_step_terminal_maps_truncated_to_gym_tuple(
+    golden_frame, monkeypatch, won, truncated, exp_terminated, exp_truncated, exp_reward
+):
+    """A swap here (``terminated = bool(frame.truncated)``) silently breaks SB3 bootstrapping.
+
+    ``frozen=True`` ObsFrame ⇒ build the terminal via ``dataclasses.replace`` (mutation raises).
+    """
+    env = _env()
+    term = dataclasses.replace(golden_frame, terminal=1, winner=0, won=won, truncated=truncated)
+
+    _obs, reward, terminated, trunc, info = _drive_step_with_terminal(monkeypatch, env, term)
+
+    assert (terminated, trunc) == (exp_terminated, exp_truncated)
+    assert reward == exp_reward
+    assert info["truncated"] == truncated  # the raw flag rides in info too
+    assert env._awaiting_reset is True  # a terminal step re-arms the reset guard
+
+
+def test_step_terminal_rejects_invalid_truncated(golden_frame, monkeypatch):
+    # A corrupt truncated flag (not 0/1) must fail loud, not poison the bootstrap decision.
+    env = _env()
+    term = dataclasses.replace(golden_frame, terminal=1, winner=0, won=0, truncated=2)
+    with pytest.raises(ValueError, match="truncated=2 not in"):
+        _drive_step_with_terminal(monkeypatch, env, term)

@@ -278,7 +278,9 @@ async function main() {
        * Terminal frame: the learner's view of the board at the episode terminal (its elimination,
        * or game-over if it survived) + the reward. On an early elimination `result.winner` is null
        * (game undecided) → -1 on the wire; `won` is 0 and `placement` is the learner's locked-in
-       * finishing rank.
+       * finishing rank. `truncated=1` ONLY for a maxTurns stalemate cap (a Gym truncation the
+       * learner side bootstraps), disambiguating it from a winner=-1 mid-game elimination — which
+       * carries the same winner/won but is a genuine terminal (`truncated=0`).
        */
       const termState = createBotState(result.finalState, learnerSeat);
       const termEnc = encodeObservationForInference(termState, { maxAreas });
@@ -289,6 +291,7 @@ async function main() {
         terminal: 1,
         winner: result.winner ?? -1,
         won: result.won,
+        truncated: result.truncated ? 1 : 0,
         placement: result.placement,
       });
       worker.postMessage({

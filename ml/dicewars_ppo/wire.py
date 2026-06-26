@@ -4,7 +4,8 @@ A Python port of ``scripts/lib/obs-frame.mjs`` (parse) and its serializer
 (``serializeObsFrame``, mirrored here for hermetic round-trip tests / debugging).
 The byte layout is documented in obs-frame.mjs; the short version:
 
-    HEADER  44 bytes  — 10 × i32 then placement f32 (see constants.HEADER_STRUCT)
+    HEADER  48 bytes  — 11 × i32 then placement f32 (see constants.HEADER_STRUCT)
+                        (the 11th i32 is `truncated`: 1 = maxTurns stalemate cap)
     nodes      f32  maxAreas   × NODE_W
     players    f32  playerCount × PLAYER_W
     board      f32  BOARD_W
@@ -71,6 +72,8 @@ class ObsFrame:
     terminal: int  # 0 mid-game (action expected), 1 terminal (no reply)
     winner: int  # winning seat, or -1 (none / stalemate)
     won: int  # 1 if the learner won, else 0 (meaningful when terminal == 1)
+    truncated: int  # 1 if a maxTurns stalemate CAP (Gym truncation → bootstrap V(s)),
+    # else 0 (genuine terminal: win or elimination). Meaningful when terminal == 1.
     placement: float  # scaled 1=first … 0=last (meaningful when terminal == 1)
 
     # tensors
@@ -114,6 +117,7 @@ def parse_frame(buf: bytes | bytearray | memoryview) -> ObsFrame:
         terminal,
         winner,
         won,
+        truncated,
         placement,
     ) = HEADER_STRUCT.unpack_from(buf, 0)
 
@@ -164,6 +168,7 @@ def parse_frame(buf: bytes | bytearray | memoryview) -> ObsFrame:
         terminal=terminal,
         winner=winner,
         won=won,
+        truncated=truncated,
         placement=float(placement),
         nodes=nodes.astype(np.float32).reshape(max_areas, NODE_W),
         players=players.astype(np.float32).reshape(player_count, PLAYER_W),
@@ -204,6 +209,7 @@ def serialize_frame(frame: ObsFrame) -> bytes:
         frame.terminal,
         frame.winner,
         frame.won,
+        frame.truncated,
         float(frame.placement),
     )
     return b"".join(

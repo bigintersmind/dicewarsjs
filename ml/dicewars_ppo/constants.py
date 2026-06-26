@@ -88,10 +88,13 @@ DEFAULT_PLAYER_COUNT = 7
 # ASCII "DWOB" as a little-endian i32 (== struct '<i' of the bytes b"BOWD").
 OBS_FRAME_MAGIC = 0x44574F42
 
-# 11 header fields × 4 bytes: 10 × i32 then 1 × f32 (placement). See obs-frame.mjs.
-HEADER_STRUCT = struct.Struct("<10if")
-HEADER_BYTES = HEADER_STRUCT.size  # 44
-assert HEADER_BYTES == 44, "header layout drifted from obs-frame.mjs"
+# 12 header fields × 4 bytes: 11 × i32 then 1 × f32 (placement). The 11th i32 is
+# `truncated` (1 = maxTurns stalemate cap → Gym truncation, else 0), inserted before
+# placement to disambiguate a cap survivor from a winner=-1 mid-game elimination.
+# See obs-frame.mjs.
+HEADER_STRUCT = struct.Struct("<11if")
+HEADER_BYTES = HEADER_STRUCT.size  # 48
+assert HEADER_BYTES == 48, "header layout drifted from obs-frame.mjs"
 
 # Little-endian dtype strings for the tensor payload (matches the corpus blobs).
 F32 = "<f4"

@@ -20,6 +20,7 @@
 
 import { runMatch } from '../../src/arena/matchRunner.js';
 import { encodeObservationForInference } from '../../src/arena/encodeObservation.js';
+import { GAME_PHASES } from '../../src/engine/constants.js';
 
 /** Display name for the learner seat in the bots roster. */
 export const LEARNER_NAME = 'ppo-learner';
@@ -142,9 +143,12 @@ export function scaledPlacement(placements, learnerSeat, playerCount) {
  *   instead survives to win/stalemate, the flag is a pure no-op.
  * @returns {{winner:number|null, won:number, placement:number, placements:number[]|null,
  *   turnCount:number, learnerSeat:number, playerCount:number, eliminated:boolean,
- *   finalState:import('../../src/engine/types.js').GameState,
+ *   truncated:boolean, finalState:import('../../src/engine/types.js').GameState,
  *   botStats:Object[]|null}} `placements`/`botStats` are null on an early elimination (the match
- *   was aborted before `runMatch` computed them); `eliminated` flags that path.
+ *   was aborted before `runMatch` computed them); `eliminated` flags that path. `truncated` is
+ *   true ONLY when the learner survived to the `maxTurns` stalemate cap (a Gym truncation — the
+ *   game did not actually end, so the learner's value should be bootstrapped); a win or an
+ *   elimination is a genuine terminal (`truncated:false`).
  */
 export function runSelfPlayEpisode(cfg) {
   const {
@@ -262,6 +266,12 @@ function summarizeOutcome(result, learnerSeat, playerCount) {
     learnerSeat,
     playerCount,
     eliminated: false,
+    /*
+     * The learner reached game end alive. If the engine never declared a winner
+     * (phase !== GAME_OVER), the match stopped on the `maxTurns` cap — a Gym
+     * truncation (bootstrap V(s)), not a genuine terminal. A real win/loss is GAME_OVER.
+     */
+    truncated: result.finalState.phase !== GAME_PHASES.GAME_OVER,
     finalState: result.finalState,
     botStats: result.botStats,
   };
@@ -297,6 +307,12 @@ function eliminationOutcome(state, turnCount, learnerSeat, playerCount, coElimAb
     learnerSeat,
     playerCount,
     eliminated: true,
+    /*
+     * The learner's elimination is a genuine MDP terminal (a loss), never a cap truncation —
+     * even if it happens to coincide with the maxTurns boundary, the learner's episode ended
+     * because it died, so its value bootstrap is 0.
+     */
+    truncated: false,
     finalState: state,
     botStats: null,
   };

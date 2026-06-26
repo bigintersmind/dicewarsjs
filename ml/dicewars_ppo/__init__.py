@@ -18,7 +18,9 @@ Layout (built incrementally over Phase-3 tracer steps 4–7, see
 * ``policy`` — ``MaskableEdgePolicy``: the ``EdgePolicyNet``-trunk actor + fresh
   scalar critic for ``MaskablePPO``, with warm-start/repack to the BC checkpoint.
   **Step 5.**
-* training entry — step 6 (not built yet).
+* ``train_tracer`` — the tiny end-to-end tracer PPO run: warm-start → MaskablePPO vs
+  a fixed JS-baseline field (sparse terminal-win reward) → repack to BC format.
+  **Step 6.**
 
 **Why single-agent, not PettingZoo AEC.** The underlying game is an 8-way AEC,
 but the env-server runs all opponent seats *in-process in Node* and exposes only

@@ -21,6 +21,63 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 tracer step 6: tiny warm-started PPO run + truncated/terminated wire fix
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Closed the tracer slice (step 6): the self-play PPO loop runs end-to-end.** New
+  `ml/dicewars_ppo/train_tracer.py` warm-starts the `MaskableEdgePolicy` (EdgePolicyNet trunk +
+  fresh scalar critic) from the v2-BC checkpoint, runs sb3-contrib `MaskablePPO` over `DiceWarsEnv`
+  vs a fixed, seed-pure, heterogeneous JS-baseline field (`ai_lookahead,ai_strategist,ai_expectimax,
+ai_bc,ai_defensive`, cycled to fill 6 opponent seats) with a **sparse terminal-win reward** (+1
+  win / 0 else, [D-19] decision 3), a handful of updates, then **repacks** the trained actor to BC
+  checkpoint format and verifies it reloads into a bare `EdgePolicyNet` (the step-7 export target).
+- **Folded in the deferred `truncated`-vs-`terminated` wire fix.** Added a `truncated` i32 field to
+  the obs-frame header (frame 44→48 bytes). A `maxTurns` stalemate CAP is now a Gym **truncation**
+  (`terminated=False, truncated=True` → SB3 bootstraps `V(s)`); a win or the learner's elimination
+  is a genuine terminal (`terminated=True`). This disambiguates the cap from a `winner=-1` mid-game
+  elimination, which carried the same `winner/won` but is NOT a truncation. Computed in
+  `runSelfPlayEpisode` (`summarizeOutcome`: `finalState.phase !== GAME_OVER`; `eliminationOutcome`:
+  always `false`), carried through the env-server terminal frame, parsed in `wire.py`, surfaced by
+  `DiceWarsEnv.step()`.
+- Regenerated the byte-exact golden fixture (`obs_frame_v2.{bin,json}`, 280→284 bytes); JS↔Py wire
+  parity stays green both ways. Added a hermetic `step()` test driving the real terminated/truncated
+  mapping (review-confirmed gap — a swap would silently break SB3 bootstrapping yet pass everything).
+
+**Learned / decided:**
+
+- **MaskablePPO constructs and trains with the custom `MaskableEdgePolicy` cleanly** — the first
+  real exercise of the full SB3 learner path (step 5 only tested `build_policy` standalone). The
+  absent `mlp_extractor` / `set_training_mode` is a non-issue in practice.
+- The `truncated` flag had to be a **dedicated header field** — `winner=-1 + won=0` is genuinely
+  ambiguous between a stalemate-cap survivor and a mid-game elimination, so no existing field could
+  carry it. SB3's gym→VecEnv shim turns `truncated=True` into `TimeLimit.truncated` and bootstraps,
+  so correct value targets fall out for free once the wire carries the bit.
+- `--freeze-trunk` is a clean safety floor: the repacked actor is **byte-identical** (22 tensors) to
+  the warm-start, and `policy_gradient_loss ≈ 1.6e-8` confirms the frozen actor emits no gradient.
+
+**Dead ends / surprises:**
+
+- None. Validated on shodan (branch `ml-bot/phase3-ppo-tracer-run`, HEAD `67c8381`): ruff clean; 13
+  env-unit + wire/policy tests + 1 live env smoke pass; the default tracer run completes 4 updates
+  with the critic learning (explained_variance → 0.74, value_loss 0.005→0.0024); repack reloads into
+  a bare `EdgePolicyNet`; `--freeze-trunk` preserves the actor byte-for-byte. JS suite (obs-frame +
+  ppo-env, 44 tests incl. a new truncation test) green locally. An adversarial 4-dimension review
+  (wire-parity / truncation-semantics / train-script / test-coverage) cleared 3 dimensions and
+  surfaced exactly the one test gap, now closed.
+
+**Next:**
+
+- **Step 7** — repack → `export_weights.py` → regenerated JS↔Py fixture → register via
+  `makeBC({policy})` → `arena:sweep` win% vs `ai_lookahead@596f781` (95% CIs). The repack path is
+  already proven from a real trained policy, so step 7 is wiring + the headline gate.
+- **Scaling** — PFSP league, more envs (SubprocVecEnv — DummyVecEnv serializes the blocking sockets),
+  the from-scratch control, annealed shaping only if terminal-only is too slow.
+
+---
+
 ## 2026-06-25 — Phase-3 tracer step 5: EdgePolicyNet-trunk PPO policy + warm-start/repack
 
 **Phase:** 3 · **Who:** Ivan + Claude

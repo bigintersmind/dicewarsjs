@@ -47,6 +47,7 @@ const frame = {
   terminal: 0,
   winner: -1,
   won: 0,
+  truncated: 0,
   placement: 0,
   nodes: rows(maxAreas, 8, 0), // NODE_FEATURES.length === 8 at v2
   players: rows(playerCount, 6, 100), // PLAYER_FEATURES.length === 6

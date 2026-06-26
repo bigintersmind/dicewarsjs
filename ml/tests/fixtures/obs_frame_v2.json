@@ -9,6 +9,7 @@
   "terminal": 0,
   "winner": -1,
   "won": 0,
+  "truncated": 0,
   "placement": 0,
   "nodes": [
     [

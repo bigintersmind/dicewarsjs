@@ -48,6 +48,7 @@ def test_parse_matches_golden_json(golden_bytes: bytes, golden_json: dict) -> No
     assert frame.terminal == golden_json["terminal"]
     assert frame.winner == golden_json["winner"]
     assert frame.won == golden_json["won"]
+    assert frame.truncated == golden_json["truncated"]
     assert frame.placement == pytest.approx(golden_json["placement"])
 
     np.testing.assert_array_equal(frame.nodes, np.array(golden_json["nodes"], dtype=np.float32))

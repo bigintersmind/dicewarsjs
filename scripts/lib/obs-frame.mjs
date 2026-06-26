@@ -16,7 +16,7 @@
  *
  * Layout (all little-endian, tightly packed, 4-byte stride, NO alignment padding):
  *
- *   HEADER — 11 fields × 4 bytes = 44 bytes
+ *   HEADER — 12 fields × 4 bytes = 48 bytes
  *     [ 0] magic           i32  = OBS_FRAME_MAGIC ("DWOB") — sanity/version guard
  *     [ 1] encodingVersion i32  = ENCODING_VERSION (NOT hardcoded; bumps with the encoder)
  *     [ 2] maxAreas        i32  = node-tensor height (policy config.maxAreas)
@@ -27,7 +27,11 @@
  *     [ 7] terminal        i32  = 0 mid-game (action expected) | 1 terminal (no reply)
  *     [ 8] winner          i32  = winning seat, or -1 (none / stalemate)
  *     [ 9] won             i32  = 1 if the learner won, else 0 (meaningful when terminal=1)
- *     [10] placement       f32  = learner placement scaled 1=first … 0=last (terminal=1)
+ *     [10] truncated       i32  = 1 if the terminal is a maxTurns stalemate CAP (Gym
+ *                                 truncation — bootstrap V(s)), else 0 (a genuine
+ *                                 terminal: a win or the learner's elimination). Only
+ *                                 meaningful when terminal=1.
+ *     [11] placement       f32  = learner placement scaled 1=first … 0=last (terminal=1)
  *   TENSOR PAYLOAD (row-major)
  *     nodes      f32  maxAreas * NODE_FEATURES.length
  *     players    f32  playerCount * PLAYER_FEATURES.length
@@ -59,7 +63,7 @@ const PLAYER_W = PLAYER_FEATURES.length;
 const BOARD_W = BOARD_FEATURES.length;
 const EDGE_W = EDGE_FEATURES.length;
 
-const HEADER_FIELDS = 11;
+const HEADER_FIELDS = 12;
 const HEADER_BYTES = HEADER_FIELDS * 4;
 
 /**
@@ -76,6 +80,8 @@ const HEADER_BYTES = HEADER_FIELDS * 4;
  * @param {number} [args.terminal=0] - 0 mid-game, 1 terminal.
  * @param {number} [args.winner=-1] - winning seat, or -1.
  * @param {number} [args.won=0] - 1 if the learner won.
+ * @param {number} [args.truncated=0] - 1 if the terminal is a maxTurns stalemate cap
+ *   (Gym truncation), else 0 (genuine terminal). Only meaningful when `terminal=1`.
  * @param {number} [args.placement=0] - scaled placement (1=first … 0=last).
  * @returns {ObsFrame}
  */
@@ -86,6 +92,7 @@ export function buildObsFrame({
   terminal = 0,
   winner = -1,
   won = 0,
+  truncated = 0,
   placement = 0,
 }) {
   return {
@@ -99,6 +106,7 @@ export function buildObsFrame({
     terminal,
     winner,
     won,
+    truncated,
     placement,
     nodes: encoded.nodes,
     players: encoded.players,
@@ -120,6 +128,7 @@ export function buildObsFrame({
  * @property {number} terminal
  * @property {number} winner
  * @property {number} won
+ * @property {number} truncated
  * @property {number} placement
  * @property {number[][]} nodes      - [maxAreas][NODE_FEATURES.length]
  * @property {number[][]} players    - [playerCount][PLAYER_FEATURES.length]
@@ -172,7 +181,8 @@ export function serializeObsFrame(frame) {
   view.setInt32(28, frame.terminal, true);
   view.setInt32(32, frame.winner, true);
   view.setInt32(36, frame.won, true);
-  view.setFloat32(40, frame.placement, true);
+  view.setInt32(40, frame.truncated, true);
+  view.setFloat32(44, frame.placement, true);
 
   let off = HEADER_BYTES;
   off = writeFloatRows(view, off, frame.nodes);
@@ -218,7 +228,8 @@ export function parseObsFrame(input) {
   const terminal = view.getInt32(28, true);
   const winner = view.getInt32(32, true);
   const won = view.getInt32(36, true);
-  const placement = view.getFloat32(40, true);
+  const truncated = view.getInt32(40, true);
+  const placement = view.getFloat32(44, true);
 
   const floatCount = maxAreas * NODE_W + playerCount * PLAYER_W + BOARD_W + numEdges * EDGE_W;
   const intCount = numEdges * 2;
@@ -252,6 +263,7 @@ export function parseObsFrame(input) {
     terminal,
     winner,
     won,
+    truncated,
     placement,
     nodes,
     players,

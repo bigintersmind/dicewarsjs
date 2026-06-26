@@ -127,6 +127,30 @@ describe('runSelfPlayEpisode — STOP and reward semantics', () => {
     expect(ep.winner).not.toBe(ep.learnerSeat);
     expect(ep.won).toBe(0);
     expect(ep.turnCount).toBeLessThan(MAX_TURNS);
+    expect(ep.truncated).toBe(false); // a real game-over (GAME_OVER), not a cap truncation
+  });
+
+  it('reports truncated=true when the match hits the maxTurns stalemate cap', () => {
+    /*
+     * A tiny turn cap stops the match before anyone is eliminated, so the engine never reaches
+     * GAME_OVER: a Gym truncation (the learner side must bootstrap V(s)), NOT a genuine terminal.
+     * The flag must distinguish this from a winner=-1 mid-game elimination (which is `truncated:false`).
+     */
+    const ep = runSelfPlayEpisode({
+      seed: 777,
+      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
+      learnerSeat: 2,
+      maxAreas: MAX_AREAS,
+      maxTurns: 3, // far below any elimination → the game can't finish
+      chooseAction: mimicAiBc,
+      terminateOnElimination: true,
+    });
+
+    expect(ep.turnCount).toBe(3); // ran to the cap
+    expect(ep.eliminated).toBe(false); // nobody eliminated this early
+    expect(ep.truncated).toBe(true); // the headline: cap, not GAME_OVER
+    expect(ep.winner).toBeNull(); // no winner declared at a stalemate cap
+    expect(ep.won).toBe(0);
   });
 
   it('reward fields are coherent with the winner', () => {
@@ -332,6 +356,7 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
     expect(early.won).toBe(1); // learner conquers the board — a genuine game-over win
     expect(early.winner).toBe(0);
     expect(early.eliminated).toBe(false);
+    expect(early.truncated).toBe(false); // GAME_OVER win, not a cap truncation
     expect(early.turnCount).toBe(full.turnCount);
     expect(early.winner).toBe(full.winner);
     expect(early.placement).toBe(full.placement);

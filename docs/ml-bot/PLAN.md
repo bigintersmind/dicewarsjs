@@ -386,24 +386,38 @@ and de-risk the two biggest unknowns).**
       length prefix (OOM/desync guard), reap-safe `EnvServerProcess.close()` + a `weakref.finalize`
       GC backstop against orphaned Node children, and a hermetic env/socket unit-test tier wired
       into `ml-ci.yml` (gymnasium installed there; the live smoke still skips, no `node` in CI).
-- [~] **(5)** Custom SB3 `MaskableActorCriticPolicy` (`ml/dicewars_ppo/policy.py`) — EdgePolicyNet
-  trunk + per-edge head as the actor, fresh scalar critic off `ctx`; overrides
-  `forward`/`evaluate_actions`/`predict_values`/`get_distribution` to gather padded-`MAX_EDGES`
-  logits straight from the obs `Dict` into a `MaskableCategorical` (the ragged per-edge head
-  doesn't fit SB3's `features_extractor→action_net` mold). **Warm-start** (`warm_start_from_bc`
-  / `load_bc_checkpoint`) loads trunk + `edge_head` from the v2-BC checkpoint, asserting
-  `encoding_version == 2` + v2 feature widths; the **gate-breaking repack gap ([D-19]) is
-  closed up front** by `repack_to_bc_checkpoint` (actor → bare-`EdgePolicyNet` `.pt`) with a
-  round-trip parity test. The edge-head gather was extracted into
-  `EdgePolicyNet.edge_logits_from_context` so the BC forward/ONNX export and the PPO actor share
-  one source of truth (behavior-preserving — BC `test_model`/`test_export_onnx` green, ONNX
-  trace unchanged). **Validated on shodan 2026-06-25** (branch `ml-bot/phase3-ppo-policy`):
-  ruff clean, 12 BC-parity + 8 new hermetic policy tests pass, and the **real deployed
-  `v2-base` checkpoint** warm-starts, repacks byte-identically, and drives the live Node
-  env-server through a full episode picking only legal actions. _Hermetic policy tests gated on
-  sb3-contrib/gymnasium (run on shodan, skip in BC CI like the live env smoke)._
-- [ ] **(6)** Tiny tracer PPO run: 1–2 envs, 1 learner + 7 fixed JS baselines (no
-      snapshots/PFSP yet), terminal-win reward only, warm-started, a handful of updates.
+- [x] **(5)** Custom SB3 `MaskableActorCriticPolicy` (`ml/dicewars_ppo/policy.py`) — EdgePolicyNet
+      trunk + per-edge head as the actor, fresh scalar critic off `ctx`; overrides
+      `forward`/`evaluate_actions`/`predict_values`/`get_distribution` to gather padded-`MAX_EDGES`
+      logits straight from the obs `Dict` into a `MaskableCategorical` (the ragged per-edge head
+      doesn't fit SB3's `features_extractor→action_net` mold). **Warm-start** (`warm_start_from_bc`
+      / `load_bc_checkpoint`) loads trunk + `edge_head` from the v2-BC checkpoint, asserting
+      `encoding_version == 2` + v2 feature widths; the **gate-breaking repack gap ([D-19]) is
+      closed up front** by `repack_to_bc_checkpoint` (actor → bare-`EdgePolicyNet` `.pt`) with a
+      round-trip parity test. The edge-head gather was extracted into
+      `EdgePolicyNet.edge_logits_from_context` so the BC forward/ONNX export and the PPO actor share
+      one source of truth (behavior-preserving — BC `test_model`/`test_export_onnx` green, ONNX
+      trace unchanged). **Validated on shodan 2026-06-25** (branch `ml-bot/phase3-ppo-policy`):
+      ruff clean, 12 BC-parity + 8 new hermetic policy tests pass, and the **real deployed
+      `v2-base` checkpoint** warm-starts, repacks byte-identically, and drives the live Node
+      env-server through a full episode picking only legal actions. _Hermetic policy tests gated on
+      sb3-contrib/gymnasium (run on shodan, skip in BC CI like the live env smoke)._ **Merged
+      2026-06-25 (#59, `a5b2bb8`).**
+- [~] **(6)** Tiny tracer PPO run (`ml/dicewars_ppo/train_tracer.py`) — warm-start the policy from
+  the v2-BC checkpoint, run `MaskablePPO` over `DiceWarsEnv` vs a **fixed seed-pure heterogeneous
+  JS field** (`ai_lookahead,ai_strategist,ai_expectimax,ai_bc,ai_defensive`, no PFSP/snapshots yet)
+  with the **sparse terminal-win reward** ([D-19] decision 3), a handful of updates, then **repack**
+  the trained actor to BC format and verify it reloads into a bare `EdgePolicyNet` (the step-7
+  target). Low default LR protects the warm start; `--freeze-trunk` trains the critic only.
+  **Folded in the deferred `truncated`-vs-`terminated` wire fix:** a new `truncated` i32 header
+  field (frame 44→48 bytes) marks a `maxTurns` stalemate cap as a Gym **truncation** (SB3 bootstraps
+  `V(s)`) vs a `winner=-1` mid-game elimination (a genuine terminal) — computed in
+  `runSelfPlayEpisode` (`finalState.phase !== GAME_OVER`), carried on the wire, surfaced by
+  `step()`. **Validated on shodan 2026-06-25** (branch `ml-bot/phase3-ppo-tracer-run`): ruff clean;
+  30 wire/env/policy + 1 live env smoke pass; the run completes 4 updates (critic
+  explained-variance → 0.74), repacks + reloads export-ready, and `--freeze-trunk` preserves the
+  warm-started actor byte-for-byte (22 tensors). JS suite (obs-frame + ppo-env, +truncation test)
+  green. _PR pending._
 - [ ] **(7)** **Repack → export → register → gate:** SB3 sub-modules → bare BC-format
       `EdgePolicyNet` `.pt` (with parity assertion) → `export_weights.py` → regenerated
       JS↔Py fixture → add to `src/arena/builtInBots.js` via `makeBC({policy})` →

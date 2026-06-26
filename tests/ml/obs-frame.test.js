@@ -41,6 +41,7 @@ function validFrame({ maxAreas = 4, playerCount = 3, numEdges = 2 } = {}) {
     terminal: 0,
     winner: -1,
     won: 0,
+    truncated: 0,
     placement: 0,
     nodes: zeros(maxAreas, NODE_W),
     players: zeros(playerCount, PLAYER_W),
@@ -97,7 +98,7 @@ describe('serializeObsFrame — shape & dim validation', () => {
 
 describe('parseObsFrame — size & type guards', () => {
   it('rejects a buffer smaller than the fixed header', () => {
-    expect(() => parseObsFrame(Buffer.alloc(10))).toThrow(/< 44-byte header/);
+    expect(() => parseObsFrame(Buffer.alloc(10))).toThrow(/< 48-byte header/);
   });
 
   it('rejects a buffer whose length disagrees with its header dims', () => {

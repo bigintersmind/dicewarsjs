@@ -262,6 +262,12 @@ describe('PPO obs-frame binary round-trip', () => {
       terminal: 1,
       winner: 3,
       won: 1,
+      /*
+       * truncated rides as an i32 at offset 40 (between won@36 and placement@44). A non-zero
+       * value is load-bearing: 0 serializes identically as int or float, so only a non-zero
+       * truncated catches a dtype/offset regression on this slot (it would round-trip as garbage).
+       */
+      truncated: 1,
       placement: 0.75,
     });
     const parsed = parseObsFrame(serializeObsFrame(frame));
@@ -277,6 +283,7 @@ describe('PPO obs-frame binary round-trip', () => {
     expect(parsed.terminal).toBe(1);
     expect(parsed.winner).toBe(3);
     expect(parsed.won).toBe(1);
+    expect(parsed.truncated).toBe(1); // i32 at offset 40 survives the round-trip (not f32-corrupted)
     expect(parsed.placement).toBeCloseTo(0.75, 6);
 
     // Ints exact; floats round-trip at single precision.

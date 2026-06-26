@@ -172,31 +172,49 @@ def train(args: argparse.Namespace) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument(
         "--checkpoint",
         default="checkpoints/v2-base/bc_model.pt",
         help="v2-BC checkpoint to warm-start from (the deployed ai_bc).",
     )
-    p.add_argument("--out", default="checkpoints/ppo-tracer.pt", help="Repacked BC-format output .pt")
+    p.add_argument(
+        "--out", default="checkpoints/ppo-tracer.pt", help="Repacked BC-format output .pt"
+    )
     p.add_argument("--opponents", default=DEFAULT_OPPONENTS, help="CSV of fixed baseline bot ids")
     p.add_argument("--learner-seat", type=int, default=0, help="Seat the learner occupies")
-    p.add_argument("--n-envs", type=int, default=1, help="Parallel DummyVecEnv envs (1-2 for a tracer)")
+    p.add_argument(
+        "--n-envs", type=int, default=1, help="Parallel DummyVecEnv envs (1-2 for a tracer)"
+    )
     # Budget — kept tiny: total_timesteps / (n_steps * n_envs) = number of PPO updates.
-    p.add_argument("--timesteps", type=int, default=2048, help="Total env steps (a handful of updates)")
-    p.add_argument("--n-steps", type=int, default=512, help="Rollout length per env before each update")
-    p.add_argument("--batch-size", type=int, default=128, help="Minibatch size (must divide n_steps*n_envs)")
+    p.add_argument(
+        "--timesteps", type=int, default=2048, help="Total env steps (a handful of updates)"
+    )
+    p.add_argument(
+        "--n-steps", type=int, default=512, help="Rollout length per env before each update"
+    )
+    p.add_argument(
+        "--batch-size", type=int, default=128, help="Minibatch (must divide n_steps*n_envs)"
+    )
     p.add_argument("--n-epochs", type=int, default=4, help="PPO epochs per rollout")
     # Low LR by default so a short run can't wreck the warm-started actor ([D-19] decision 1).
-    p.add_argument("--lr", type=float, default=1e-4, help="Learning rate (low; protects the warm start)")
-    p.add_argument("--gamma", type=float, default=0.999, help="Discount (high: sparse terminal-win signal)")
+    p.add_argument(
+        "--lr", type=float, default=1e-4, help="Learning rate (low; protects the warm start)"
+    )
+    p.add_argument(
+        "--gamma", type=float, default=0.999, help="Discount (high: sparse terminal-win signal)"
+    )
     p.add_argument("--gae-lambda", type=float, default=0.95)
-    p.add_argument("--ent-coef", type=float, default=0.0, help="Entropy bonus (0 keeps the warm start stable)")
+    p.add_argument(
+        "--ent-coef", type=float, default=0.0, help="Entropy bonus (0 keeps the warm start stable)"
+    )
     p.add_argument("--vf-coef", type=float, default=0.5)
     p.add_argument(
         "--freeze-trunk",
         action="store_true",
-        help="Freeze the BC trunk+edge_head (train the fresh critic only; actor unchanged at repack).",
+        help="Freeze the BC trunk+edge_head (train the fresh critic only; actor unchanged).",
     )
     p.add_argument("--max-turns", type=int, default=500, help="Stalemate cap (→ Gym truncation)")
     p.add_argument("--seed", type=int, default=0, help="PPO/torch seed")

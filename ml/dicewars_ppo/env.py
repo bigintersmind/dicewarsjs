@@ -184,10 +184,10 @@ class DiceWarsEnv(gym.Env):
                     f"terminal frame truncated={frame.truncated} not in {{0, 1}} — wire corruption?"
                 )
             reward = float(frame.won)
-            # A maxTurns stalemate cap is a Gym TRUNCATION, not a real terminal: the game did not
-            # actually end, so SB3 must bootstrap V(s) at this state (it keys off `truncated` via the
-            # gym→VecEnv shim's `TimeLimit.truncated` info). A win or the learner's elimination is a
-            # genuine terminal (`terminated`, value bootstrap 0). The two are mutually exclusive here.
+            # A maxTurns stalemate cap is a Gym TRUNCATION, not a real terminal: the game did
+            # not actually end, so SB3 must bootstrap V(s) here (it keys off `truncated` via the
+            # gym→VecEnv shim's `TimeLimit.truncated` info). A win or the learner's elimination is
+            # a genuine terminal (`terminated`, bootstrap 0). The two are mutually exclusive here.
             truncated = bool(frame.truncated)
             terminated = not truncated
             self._awaiting_reset = True

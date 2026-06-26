@@ -367,24 +367,41 @@ and de-risk the two biggest unknowns).**
       the in-process-opponent cost is not a blocker. Measures the real PPO model (terminate the
       episode at learner elimination, not game-over) via `runMatch`'s `onTurn`. Re-confirm on
       shodan before locking the budget.
-- [~] **(4)** Python `[rl]` deps (`stable-baselines3`, `sb3-contrib`, `pettingzoo`) +
-  minimal env. **`MAX_EDGES` validated 2026-06-25 ([D-20]): observed p100 ≈ 26
-  (p99 15, mean ~5, zero overflow over ~100k decisions) → use `MAX_EDGES = 64`** (margin;
-  D-19's ~64–128 was conservative, far under sb3-contrib #247's ~1400).
-  **Scaffolded 2026-06-25:** new in-repo package `ml/dicewars_ppo/` — `constants` (the v2
-  wire/encoding contract + `MAX_EDGES`), `wire` (Python port of `obs-frame.mjs` + socket
-  framing), `env_server` (launch/supervise `ppo-env-server.mjs`), and `env.DiceWarsEnv`
-  (`Discrete(MAX_EDGES)` + `action_masks()`, padded v2-tensor `Dict` obs, sparse terminal-win
-  reward). **Realized as a single-agent `gymnasium.Env`, not a PettingZoo AEC env** — the
-  env-server runs all opponent seats in-process and exposes only the learner, so a plain
-  masked Gym env is what MaskablePPO consumes (refines D-19's wording; holds for the whole
-  phase since PFSP snapshots also run in-process). `[rl]` extra added to `pyproject.toml`.
-  Cross-language wire parity is green two ways: a hermetic byte-exact golden-fixture test
-  (`tests/test_ppo_wire.py`) and a live 132-decision run against the real Node server. The
-  end-to-end Gym smoke (`tests/test_ppo_env.py`) runs on shodan once `pip install -e .[rl]`.
-- [ ] **(5)** Custom SB3 `ActorCriticPolicy` (EdgePolicyNet trunk extractor + padded-
-      `MAX_EDGES` `MaskableCategorical` + fresh scalar critic); **warm-start** trunk +
-      `edge_head` from the v2-BC checkpoint, assert `encoding_version == 2`.
+- [x] **(4)** Python `[rl]` deps (`stable-baselines3`, `sb3-contrib`, `pettingzoo`) +
+      minimal env. **`MAX_EDGES` validated 2026-06-25 ([D-20]): observed p100 ≈ 26
+      (p99 15, mean ~5, zero overflow over ~100k decisions) → use `MAX_EDGES = 64`** (margin;
+      D-19's ~64–128 was conservative, far under sb3-contrib #247's ~1400).
+      **Scaffolded 2026-06-25:** new in-repo package `ml/dicewars_ppo/` — `constants` (the v2
+      wire/encoding contract + `MAX_EDGES`), `wire` (Python port of `obs-frame.mjs` + socket
+      framing), `env_server` (launch/supervise `ppo-env-server.mjs`), and `env.DiceWarsEnv`
+      (`Discrete(MAX_EDGES)` + `action_masks()`, padded v2-tensor `Dict` obs, sparse terminal-win
+      reward). **Realized as a single-agent `gymnasium.Env`, not a PettingZoo AEC env** — the
+      env-server runs all opponent seats in-process and exposes only the learner, so a plain
+      masked Gym env is what MaskablePPO consumes (refines D-19's wording; holds for the whole
+      phase since PFSP snapshots also run in-process). `[rl]` extra added to `pyproject.toml`.
+      Cross-language wire parity is green two ways: a hermetic byte-exact golden-fixture test
+      (`tests/test_ppo_wire.py`) and a live 132-decision run against the real Node server. The
+      end-to-end Gym smoke (`tests/test_ppo_env.py`) runs on shodan once `pip install -e .[rl]`.
+      **Merged 2026-06-25 (#58, `b8b91d1`)** with a review-pass hardening: bounded `recv_frame`
+      length prefix (OOM/desync guard), reap-safe `EnvServerProcess.close()` + a `weakref.finalize`
+      GC backstop against orphaned Node children, and a hermetic env/socket unit-test tier wired
+      into `ml-ci.yml` (gymnasium installed there; the live smoke still skips, no `node` in CI).
+- [~] **(5)** Custom SB3 `MaskableActorCriticPolicy` (`ml/dicewars_ppo/policy.py`) — EdgePolicyNet
+  trunk + per-edge head as the actor, fresh scalar critic off `ctx`; overrides
+  `forward`/`evaluate_actions`/`predict_values`/`get_distribution` to gather padded-`MAX_EDGES`
+  logits straight from the obs `Dict` into a `MaskableCategorical` (the ragged per-edge head
+  doesn't fit SB3's `features_extractor→action_net` mold). **Warm-start** (`warm_start_from_bc`
+  / `load_bc_checkpoint`) loads trunk + `edge_head` from the v2-BC checkpoint, asserting
+  `encoding_version == 2` + v2 feature widths; the **gate-breaking repack gap ([D-19]) is
+  closed up front** by `repack_to_bc_checkpoint` (actor → bare-`EdgePolicyNet` `.pt`) with a
+  round-trip parity test. The edge-head gather was extracted into
+  `EdgePolicyNet.edge_logits_from_context` so the BC forward/ONNX export and the PPO actor share
+  one source of truth (behavior-preserving — BC `test_model`/`test_export_onnx` green, ONNX
+  trace unchanged). **Validated on shodan 2026-06-25** (branch `ml-bot/phase3-ppo-policy`):
+  ruff clean, 12 BC-parity + 8 new hermetic policy tests pass, and the **real deployed
+  `v2-base` checkpoint** warm-starts, repacks byte-identically, and drives the live Node
+  env-server through a full episode picking only legal actions. _Hermetic policy tests gated on
+  sb3-contrib/gymnasium (run on shodan, skip in BC CI like the live env smoke)._
 - [ ] **(6)** Tiny tracer PPO run: 1–2 envs, 1 learner + 7 fixed JS baselines (no
       snapshots/PFSP yet), terminal-win reward only, warm-started, a handful of updates.
 - [ ] **(7)** **Repack → export → register → gate:** SB3 sub-modules → bare BC-format

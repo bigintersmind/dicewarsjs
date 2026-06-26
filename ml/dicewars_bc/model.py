@@ -130,6 +130,36 @@ class EdgePolicyNet(nn.Module):
         ctx = self.context(torch.cat([node_pool, player_pool, board], dim=-1))  # [B, C]
         return node_emb, ctx
 
+    def edge_logits_from_context(
+        self,
+        node_emb: torch.Tensor,  # [B, A, H]
+        ctx: torch.Tensor,  # [B, C]
+        edge_feat: torch.Tensor,  # [E, Fe]
+        edge_from: torch.Tensor,  # [E] int64
+        edge_to: torch.Tensor,  # [E] int64
+        edge_batch: torch.Tensor,  # [E] int64 — which step each edge belongs to
+    ) -> torch.Tensor:
+        """Per-edge logits ``[E]`` from a precomputed context (the edge head).
+
+        Split out of :meth:`forward` so the Phase-3 PPO policy (``dicewars_ppo``)
+        runs the *exact same* edge-head gather as the BC forward / ONNX export — one
+        source of truth, no drift between the trained policy and the graded bot.
+        Only gathers/Linear/ReLU, so it stays ONNX-trace-friendly with dynamic ``E``
+        and ``B``.
+
+        Each edge indexes its OWN step's node block: flatten ``[B, A, H] → [B*A, H]``
+        and gather at ``edge_batch * A + id``. ``reshape(-1, H)`` keeps the batch dim
+        dynamic (so the ONNX export does too).
+        """
+        a = node_emb.shape[1]  # max_areas — statically fixed node-tensor width
+        flat_nodes = node_emb.reshape(-1, node_emb.shape[-1])  # [B*A, H]
+        from_emb = flat_nodes.index_select(0, edge_batch * a + edge_from)  # [E, H]
+        to_emb = flat_nodes.index_select(0, edge_batch * a + edge_to)  # [E, H]
+        ctx_e = ctx.index_select(0, edge_batch)  # [E, C]
+
+        edge_in = torch.cat([ctx_e, from_emb, to_emb, edge_feat], dim=-1)
+        return self.edge_head(edge_in).squeeze(-1)  # [E]
+
     def forward(
         self,
         nodes: torch.Tensor,  # [B, A, Fn]
@@ -145,21 +175,9 @@ class EdgePolicyNet(nn.Module):
         ONNX-export-friendly: only gathers/Linear/ReLU — no data-dependent
         control flow, so it traces cleanly with dynamic ``E`` (edges) and ``B``.
         """
-        a = nodes.shape[1]  # max_areas — statically fixed node-tensor width
         node_emb, ctx = self.encode_context(nodes, players, board)
-
-        # Gather from/to node embeddings for each edge out of its OWN step's
-        # node block: flatten [B, A, H] → [B*A, H] and index by batch*A + id.
-        # reshape(-1, H) keeps the batch dim dynamic (so the ONNX export does too).
-        flat_nodes = node_emb.reshape(-1, node_emb.shape[-1])  # [B*A, H]
-        from_idx = edge_batch * a + edge_from
-        to_idx = edge_batch * a + edge_to
-        from_emb = flat_nodes.index_select(0, from_idx)  # [E, H]
-        to_emb = flat_nodes.index_select(0, to_idx)  # [E, H]
-        ctx_e = ctx.index_select(0, edge_batch)  # [E, C]
-
-        edge_in = torch.cat([ctx_e, from_emb, to_emb, edge_feat], dim=-1)
-        edge_logits = self.edge_head(edge_in).squeeze(-1)  # [E]
-
+        edge_logits = self.edge_logits_from_context(
+            node_emb, ctx, edge_feat, edge_from, edge_to, edge_batch
+        )
         value = self.value_head(ctx)  # [B, 2]
         return edge_logits, value

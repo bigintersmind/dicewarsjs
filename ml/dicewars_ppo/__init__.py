@@ -14,8 +14,11 @@ Layout (built incrementally over Phase-3 tracer steps 4–7, see
   ``scripts/lib/obs-frame.mjs`` plus the length-prefixed socket framing.
 * ``env_server`` — launch + supervise a ``ppo-env-server.mjs`` subprocess.
 * ``env`` — ``DiceWarsEnv``, a single-agent Gymnasium env over the socket
-  (Discrete(``MAX_EDGES``) + action masking). **Step 4 (this scaffold).**
-* ``policy`` / training entry — step 5–6 (not built yet).
+  (Discrete(``MAX_EDGES``) + action masking). **Step 4.**
+* ``policy`` — ``MaskableEdgePolicy``: the ``EdgePolicyNet``-trunk actor + fresh
+  scalar critic for ``MaskablePPO``, with warm-start/repack to the BC checkpoint.
+  **Step 5.**
+* training entry — step 6 (not built yet).
 
 **Why single-agent, not PettingZoo AEC.** The underlying game is an 8-way AEC,
 but the env-server runs all opponent seats *in-process in Node* and exposes only

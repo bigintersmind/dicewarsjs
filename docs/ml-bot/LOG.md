@@ -21,6 +21,54 @@ Entry template:
 
 ---
 
+## 2026-06-25 — Phase-3 tracer step 5: EdgePolicyNet-trunk PPO policy + warm-start/repack
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Reviewed merged #58 (step 4) — the review-pass hardening is sound (bounded `recv_frame`,
+  reap-safe server teardown, `weakref.finalize` GC backstop, hermetic env/socket unit tier in CI).
+- Built the custom SB3 policy in `ml/dicewars_ppo/policy.py` (`MaskableEdgePolicy`): the v2-BC
+  `EdgePolicyNet` trunk + per-edge head as the PPO actor, a **fresh scalar critic** off `ctx`.
+  Bypasses SB3's `features_extractor→action_net` pipeline (the ragged per-edge head doesn't fit it)
+  by overriding `forward`/`evaluate_actions`/`predict_values`/`get_distribution` to gather
+  padded-`MAX_EDGES` edge logits straight from the obs `Dict` into a `MaskableCategorical`.
+- `warm_start_from_bc` / `load_bc_checkpoint` load trunk + `edge_head` from the v2-BC checkpoint
+  (assert `encoding_version == 2` + v2 feature widths); critic stays fresh.
+- **Closed the [D-19] gate-breaking repack gap up front:** `repack_to_bc_checkpoint` pulls the
+  actor back into BC checkpoint format (bare `EdgePolicyNet` `state_dict` + config), proven by a
+  round-trip parity test. So the step-7 "graded bot == trained policy" risk is already de-risked.
+- Extracted the edge-head gather into `EdgePolicyNet.edge_logits_from_context` so the BC
+  forward/ONNX export and the PPO actor share one source of truth (Ivan chose the extraction over
+  copy-with-comment). Behavior-preserving: BC `test_model` + `test_export_onnx` green, ONNX trace
+  byte-unchanged.
+- Located the warm-start source: `~/dicewarsjs/ml/checkpoints/v2-base/bc_model.pt` on shodan
+  (`enc=2`, 102,787 params, `val_stop_cal=0.7264…` — matches `bcPolicyWeights.js` byte-for-byte =
+  the deployed `ai_bc`). The other `checkpoints/{probe/*,smoke}` `.pt`s are stale encoding-v1.
+
+**Learned / decided:**
+
+- The PPO actor being a _real_ `EdgePolicyNet` instance (same submodule names) is what makes the
+  repack a near-identity — keep it that way through scaling.
+- The BC `value_head` rides along through warm-start/PPO/repack untouched (PPO never puts it in a
+  loss → grad stays `None` → weights survive), so the JS↔Py parity fixture still runs at export.
+
+**Dead ends / surprises:**
+
+- None. Validated on shodan (branch `ml-bot/phase3-ppo-policy`): ruff clean, 12 BC-parity + 8 new
+  policy tests pass, and the **real `v2-base` checkpoint** warm-starts, repacks byte-identically,
+  and drove the live env-server through a 76-decision episode picking only legal actions.
+
+**Next:**
+
+- Step 6 — tiny tracer PPO run (1–2 envs, 1 learner + fixed JS baselines, terminal-win reward,
+  warm-started, a handful of updates) with low initial LR / optional brief trunk freeze ([D-19]
+  decision 1). Fold in the `truncated`-vs-`terminated` wire flag for `maxTurns` stalemates while
+  there (deferred from step 4) so value bootstrapping is correct.
+
+---
+
 ## 2026-06-25 — Phase-3 tracer step 4: Python `[rl]` env scaffold (`dicewars_ppo`)
 
 **Phase:** 3 · **Who:** Ivan + Claude

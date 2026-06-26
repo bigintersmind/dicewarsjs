@@ -79,7 +79,8 @@ export function checkParity(policy, fixture, { tol = PARITY_TOL, label = 'policy
    * Feature-layout guard: the fixture and the weights must agree on the encoding's
    * feature widths or the JS forward is fed mis-columned tensors. export_weights writes
    * both from one model, so a mismatch means a stale/hand-edited pairing — fail loud
-   * before trusting the numeric check (which leans on NaN propagation to notice).
+   * here with a precise message, ahead of the per-logit check below. (That check also
+   * rejects the resulting non-finite logits, but as a blunter "non-finite logit" error.)
    */
   if (fixture.config && policy.config) {
     for (const k of [
@@ -114,7 +115,21 @@ export function checkParity(policy, fixture, { tol = PARITY_TOL, label = 'policy
       );
     }
     for (let i = 0; i < logits.length; i++) {
-      maxErr = Math.max(maxErr, Math.abs(logits[i] - c.logits[i]));
+      const err = Math.abs(logits[i] - c.logits[i]);
+      /*
+       * Reject a non-finite diff explicitly. A NaN/Inf logit is the classic symptom of
+       * a mis-dimensioned or mis-columned export, and it is silent here otherwise:
+       * Math.max is NaN-sticky and `NaN > tol` is `false`, so the tolerance check below
+       * would PASS a numerically broken net — the exact failure this pre-flight exists
+       * to catch (the argmax check only trips if the poisoned argmax happens to differ).
+       */
+      if (!Number.isFinite(err)) {
+        throw new Error(
+          `parity FAIL for ${label} (case ${ci}, edge ${i}): non-finite logit ` +
+            `(JS=${logits[i]}, ref=${c.logits[i]}) — wrong dims or a mis-columned input.`
+        );
+      }
+      maxErr = Math.max(maxErr, err);
     }
     if (argmax(logits) !== argmax(c.logits)) {
       throw new Error(
@@ -123,6 +138,10 @@ export function checkParity(policy, fixture, { tol = PARITY_TOL, label = 'policy
       );
     }
   }
+  /*
+   * maxErr is finite here: the per-edge guard above throws on any non-finite diff
+   * before it can reach this Math.max, so a plain tolerance compare is sufficient.
+   */
   if (maxErr > tol) {
     throw new Error(
       `parity FAIL for ${label}: maxErr=${maxErr.toExponential(2)} > tol=${tol.toExponential(2)}`

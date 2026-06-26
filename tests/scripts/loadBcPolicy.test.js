@@ -10,6 +10,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
+import { argmax } from '../../src/ai/bcForward.js';
 import {
   checkParity,
   countParams,
@@ -58,14 +59,54 @@ describe('checkParity', () => {
     );
   });
 
-  it('throws when the JS forward disagrees with corrupted reference logits', () => {
+  it('throws on a magnitude error past tolerance (uniform shift, argmax unchanged)', () => {
+    /*
+     * A uniform +5 shift leaves the argmax fixed, so this exercises the tolerance
+     * branch specifically (not the argmax branch tested below).
+     */
     const corrupted = {
       cases: fixture.cases.map(c => ({
         ...c,
-        logits: c.logits.map(v => v + 5), // shift well past tolerance
+        logits: c.logits.map(v => v + 5),
       })),
     };
-    expect(() => checkParity(BC_POLICY, corrupted, { label: 'bc' })).toThrow(/parity FAIL/);
+    expect(() => checkParity(BC_POLICY, corrupted, { label: 'bc' })).toThrow(/maxErr=/);
+  });
+
+  it('throws on an argmax disagreement (a different chosen action)', () => {
+    /*
+     * Point each multi-edge reference case's argmax at a DIFFERENT edge than the JS
+     * forward picks. A wrong *action* is the failure the deployed bot actually suffers,
+     * so the per-case argmax guard must fire — the prior test only covers magnitude.
+     */
+    const flipped = {
+      ...fixture,
+      cases: fixture.cases.map(c => {
+        if (c.logits.length < 2) return c; // single-edge case can't disagree
+        const winner = argmax(c.logits);
+        const other = (winner + 1) % c.logits.length;
+        const logits = c.logits.slice();
+        logits[other] = Math.max(...c.logits) + 1; // make `other` the new argmax
+        return { ...c, logits };
+      }),
+    };
+    expect(() => checkParity(BC_POLICY, flipped, { label: 'bc' })).toThrow(/argmax/);
+  });
+
+  it('throws on a non-finite reference logit (NaN cannot silently pass the tolerance check)', () => {
+    /*
+     * NaN is the symptom of a mis-dimensioned export. Math.max stays NaN-sticky and
+     * `NaN > tol` is false, so without an explicit finiteness guard a broken net would
+     * slip through. Use the first multi-edge case so a real diff is computed.
+     */
+    const idx = fixture.cases.findIndex(c => c.logits.length >= 2);
+    const poisoned = {
+      ...fixture,
+      cases: fixture.cases.map((c, i) =>
+        i === idx ? { ...c, logits: c.logits.map((v, j) => (j === 0 ? NaN : v)) } : c
+      ),
+    };
+    expect(() => checkParity(BC_POLICY, poisoned, { label: 'bc' })).toThrow(/non-finite logit/);
   });
 });
 

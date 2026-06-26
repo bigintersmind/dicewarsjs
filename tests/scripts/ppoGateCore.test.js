@@ -4,12 +4,14 @@
  * "no weights yet" help. No arena, no torch.
  */
 import {
+  ABORT_MIN_ATTEMPTS,
   LOOKAHEAD_PIN,
   buildGateField,
   classifyGate,
   missingWeightsHelp,
   pairedDelta,
   rotatedField,
+  shouldAbort,
   verdictLine,
 } from '../../scripts/lib/ppo-gate-core.mjs';
 
@@ -120,6 +122,30 @@ describe('missingWeightsHelp', () => {
     expect(help).toContain('train_tracer');
     expect(help).toContain('npm run ppo:export');
     expect(help).toContain('npm run ppo:gate');
+  });
+});
+
+describe('shouldAbort', () => {
+  it('does not abort before the minimum-attempts floor, even at 100% failure', () => {
+    /*
+     * The whole point of the fix: a run where every early match fails must NOT pin the
+     * guard. Below the floor it stays quiet regardless of the failure ratio.
+     */
+    for (let a = 1; a < ABORT_MIN_ATTEMPTS; a++) {
+      expect(shouldAbort(a, a)).toBe(false); // all `a` attempts failed
+    }
+  });
+
+  it('aborts at/after the floor once more than half of attempts failed', () => {
+    expect(shouldAbort(ABORT_MIN_ATTEMPTS, ABORT_MIN_ATTEMPTS)).toBe(true); // 5/5
+    expect(shouldAbort(4, 5)).toBe(true); // 4/5 = 80% > 50%
+    expect(shouldAbort(6, 10)).toBe(true); // 6/10 = 60% > 50%
+  });
+
+  it('does not abort at exactly half or below (strictly > 50%)', () => {
+    expect(shouldAbort(5, 10)).toBe(false); // exactly 50%
+    expect(shouldAbort(3, 10)).toBe(false); // 30%
+    expect(shouldAbort(0, 20)).toBe(false); // clean run
   });
 });
 

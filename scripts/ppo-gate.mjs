@@ -43,6 +43,7 @@ import {
   missingWeightsHelp,
   pairedDelta,
   rotatedField,
+  shouldAbort,
   verdictLine,
 } from './lib/ppo-gate-core.mjs';
 
@@ -133,6 +134,7 @@ const candWin = [];
 const barWin = [];
 const candAtkWin = [];
 let failedGames = 0;
+let attempts = 0; // every match tried (success or fail) — the abort denominator
 const startTime = Date.now();
 
 for (let run = 0; run < runCount; run++) {
@@ -144,14 +146,19 @@ for (let run = 0; run < runCount; run++) {
   for (let s = 0; s < seedsPerRun; s++) {
     const seed = (seedBase + run) * STRIDE + s + 1;
     for (let r = 0; r < N; r++) {
+      attempts++;
       let res;
       try {
         res = runMatch({ bots: rotatedField(field, r), seed });
       } catch (err) {
         failedGames++;
-        const attempted = run * gamesPerRunActual + games + 1;
-        if (attempted >= 5 && failedGames / attempted > 0.5) {
-          console.error(`\nGate aborted: ${failedGames}/${attempted} games failed (>50%).`);
+        /*
+         * Count real attempts, not successes: a run whose every match throws leaves
+         * `games` at 0, so a successes-based denominator would pin the abort and let a
+         * catastrophic sweep through to a NaN verdict.
+         */
+        if (shouldAbort(failedGames, attempts)) {
+          console.error(`\nGate aborted: ${failedGames}/${attempts} matches failed (>50%).`);
           process.exit(1);
         }
         console.error(`\n[gate] match failed (seed ${seed}, rot ${r}): ${err.message}`);
@@ -164,6 +171,18 @@ for (let run = 0; run < runCount; run++) {
       candAttacks += candStat.attacksMade;
       candAttackWins += candStat.attacksWon;
     }
+  }
+  /*
+   * A run with zero completed games (every match failed but stayed under the abort
+   * threshold) would make win% = 0/0 = NaN, which classifyGate silently reads as a
+   * TIE. Fail loud instead of grading a broken run.
+   */
+  if (games === 0) {
+    console.error(
+      `\nGate aborted: run ${run + 1} completed 0 of ${gamesPerRunActual} attempted games ` +
+        `— win% (and the verdict) would be NaN.`
+    );
+    process.exit(1);
   }
   candWin.push((candWins / games) * 100);
   barWin.push((barWins / games) * 100);

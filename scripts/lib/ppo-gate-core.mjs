@@ -56,6 +56,26 @@ export function classifyGate({ lo, hi }) {
   return 'TIE';
 }
 
+/** Minimum match attempts before the failure-rate abort can trip (need a trend first). */
+export const ABORT_MIN_ATTEMPTS = 5;
+
+/**
+ * Whether the gate should abort mid-sweep because matches are failing en masse.
+ *
+ * True once enough matches have been *attempted* (>= {@link ABORT_MIN_ATTEMPTS}) AND
+ * more than half of those attempts threw. The denominator is real attempts
+ * (successes + failures), NOT successes — a successes-only count stays pinned when
+ * every match in a run fails, which would let a catastrophic run slip past the guard
+ * and push a NaN win% into the verdict (`classifyGate` would then read NaN as a TIE).
+ *
+ * @param {number} failed - matches that threw so far (cumulative across the sweep)
+ * @param {number} attempts - matches tried so far, success or fail (cumulative)
+ * @returns {boolean}
+ */
+export function shouldAbort(failed, attempts) {
+  return attempts >= ABORT_MIN_ATTEMPTS && failed / attempts > 0.5;
+}
+
 /** Human-readable one-liner for a gate verdict. */
 export function verdictLine(verdict, delta) {
   const d = `${delta.mean >= 0 ? '+' : ''}${delta.mean.toFixed(1)} ± ${delta.ci.toFixed(1)} pp`;

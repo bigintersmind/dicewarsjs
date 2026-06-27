@@ -28,9 +28,12 @@ import { pathToFileURL } from 'node:url';
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
 
 /*
- * `makeBC` + `ENCODING_VERSION` are lazy-imported inside `refresh()` (they pull in the ~2 MB deployed
- * BC weights via ai_bc.js) so the empty-pool fixed-field path — the common B1/B2 case and its fast unit
- * tests — never loads them. They are imported once, on the first refresh that actually has a manifest.
+ * `makeBC` + `ENCODING_VERSION` are dynamic-imported inside `refresh()` purely for code locality —
+ * they are only referenced once a real manifest exists. This defers no LOAD cost: the ~2 MB
+ * `bcPolicyWeights.js` is already pulled in eagerly at the top of this module via `BUILT_IN_BOTS`
+ * (→ `ai_bc.js` → `bcPolicyWeights.js`), and the env-server imports `BC_POLICY` directly too, so the
+ * `import()` below just hits the module cache. (`ENCODING_VERSION` comes from the far lighter
+ * `encodeObservation.js`, also already loaded.) The B1/B2 unit tests pay the weights cost regardless.
  */
 
 /** Split + trim the opponent id CSV, dropping blanks; throws if it resolves to nothing. */
@@ -87,8 +90,13 @@ export function resolveBaselineField(idCsv, count) {
  *   (B3). When set, `refresh()` polls it and hot-loads new self-play snapshots into the pool via
  *   `makeBC`. `null` (the default / no `--snapshot-manifest`) keeps the empty-pool fixed-field mode —
  *   `refresh()` is a no-op, so B3 is fully backward-compatible with task A / B1 / B2.
- * @param {number} [opts.poolCap=40] max snapshots held live in memory (B3). FIFO-by-step eviction
- *   keeps the most recent/hardest snapshots ([D-23]); the evicted snapshot's `.js` file is GC'd.
+ * @param {number} [opts.poolCap=40] max snapshots kept live (sampleable) and on disk (B3). FIFO-by-
+ *   step eviction keeps the most recent/hardest snapshots ([D-23]) and `unlinkSync`s the evicted
+ *   `.js`, so this bounds DISK and the sampleable set. It does NOT bound process memory: Node's ESM
+ *   module registry retains every dynamic-`import()`ed snapshot module for the process lifetime (each
+ *   fresh filename is a distinct, permanently-cached module), so resident weights grow with the total
+ *   number of snapshots ever loaded, not `poolCap`. Modest at realistic cadences (~2 MB each); if a
+ *   long run needs a hard memory bound, load weights without `import()` caching (B4/B5 concern).
  * @returns {{draw: Function, recordResult: Function, winRate: Function, refresh: Function,
  *   stats: Function}}
  */
@@ -137,6 +145,8 @@ export function makeLeague({
    * learner) earns a higher weight. maxTurns truncations are excluded (see recordResult).
    */
   const book = new Map();
+  // One-shot guard so a broken-contract decisive game (no seatBeat[]) warns once, not per-episode.
+  let warnedNoSeatBeat = false;
 
   /*
    * Snapshot pool (B3): hot-loaded self-play snapshots the trainer published, FIFO-capped at
@@ -188,10 +198,35 @@ export function makeLeague({
       }
       decisiveGames++;
       const { seatBeat } = result;
-      if (!Array.isArray(seatBeat)) return; // no attribution available (defensive)
+      if (!Array.isArray(seatBeat)) {
+        /*
+         * Both shapers always return a seatBeat[] for a decisive game (ppo-env.mjs), so a missing one
+         * means an upstream shaper/contract break. Don't crash a long training run over a single bad
+         * outcome — but don't let it silently empty the book either (the failure mode that would make
+         * B4's PFSP sampler quietly collapse to ~uniform). Warn ONCE so the regression is visible.
+         */
+        if (!warnedNoSeatBeat) {
+          warnedNoSeatBeat = true;
+          process.stderr.write(
+            '[ppo-league] decisive game had no seatBeat[] — win-rate book not credited; check the ' +
+              'runSelfPlayEpisode/runMatch placement contract.\n'
+          );
+        }
+        return;
+      }
       for (const d of drawn) {
         const beat = seatBeat[d.seat];
-        if (typeof beat !== 'number') continue; // learner's own seat / an unrankable seat
+        if (beat === null || beat === undefined) continue; // an unrankable seat (drawn never holds the learner)
+        if (beat !== 0 && beat !== 1 && beat !== 0.5) {
+          /*
+           * Anything outside the documented {0, 0.5, 1} domain is a shaper/seat desync — fail loud
+           * rather than fold a garbage value into `wins` and violate the book's `games >= wins`.
+           */
+          throw new Error(
+            `ppo-league.recordResult: seatBeat[${d.seat}]=${beat} outside {0,0.5,1} — shaper/seat ` +
+              `desync (a corrupt win-rate book would poison B4's PFSP sampler).`
+          );
+        }
         let rec = book.get(d.id);
         if (!rec) {
           rec = { wins: 0, games: 0 };
@@ -231,13 +266,26 @@ export function makeLeague({
       let stat;
       try {
         stat = statSync(snapshotManifest);
-      } catch {
-        return { added: 0, poolSize: pool.length }; // not written yet — no snapshots to load
+      } catch (err) {
+        /*
+         * ENOENT is the only benign case: the producer simply hasn't published its first snapshot
+         * yet (expected for the first ~--snapshot-every steps). Any other errno (EACCES/ENOTDIR/an
+         * unmounted share) is a misconfiguration that will never self-resolve — surface it loudly
+         * instead of silently running forever in empty-pool fixed-field mode.
+         */
+        if (err.code === 'ENOENT') return { added: 0, poolSize: pool.length };
+        throw new Error(
+          `ppo-league.refresh: cannot stat snapshot manifest ${snapshotManifest} ` +
+            `(${err.code ?? err.message}). Check --snapshot-manifest / the producer's --snapshot-dir.`
+        );
       }
       if (stat.mtimeMs === manifestMtimeMs) return { added: 0, poolSize: pool.length };
 
       const manifest = JSON.parse(readFileSync(snapshotManifest, 'utf8'));
-      // Lazy-load the heavy ai_bc deps only now that a real manifest exists (see top-of-file note).
+      /*
+       * Pull in makeBC/ENCODING_VERSION here for code locality — both are already module-cached
+       * (loaded eagerly via the top-of-file BUILT_IN_BOTS import; see the note there).
+       */
       const [{ makeBC }, { ENCODING_VERSION }] = await Promise.all([
         import('../../src/ai/ai_bc.js'),
         import('../../src/arena/encodeObservation.js'),
@@ -266,8 +314,11 @@ export function makeLeague({
       }
 
       /*
-       * FIFO eviction: keep the most recent `poolCap`; GC the evicted snapshot's `.js` (D-23 disk
-       * retention — `poolCap` bounds memory, not disk, and the fresh-filename rule grows disk forever).
+       * FIFO eviction: keep the most recent `poolCap` sampleable and `unlinkSync` the evicted `.js`
+       * (D-23 disk retention — the fresh-filename rule would otherwise grow disk forever). This bounds
+       * DISK and the sampleable set, NOT process memory: the dynamic-`import()`ed module stays in
+       * Node's ESM registry for the process lifetime, so dropping the `fn` here does not free the
+       * ~2 MB weights (see the `poolCap` JSDoc note).
        */
       while (pool.length > poolCap) {
         const evicted = pool.shift();
@@ -282,7 +333,13 @@ export function makeLeague({
       return { added, poolSize: pool.length };
     },
 
-    /** League health snapshot (the throughput/decisive-rate re-probe in B5 reads this). */
+    /**
+     * League health snapshot. The env-server emits this on its `PPO_ENV_SERVER DONE` line (the B5
+     * throughput/decisive-rate re-probe reads it; until B4 wires the book into `draw()` it is the
+     * only external window onto the win-rate book). `decisiveGames` counts every booked decisive
+     * episode incl. zero-decision skips, so `decisiveGames > <wire terminals>` evidences the B2
+     * "book before the zero-decision wire gate" reordering.
+     */
     stats() {
       const total = decisiveGames + truncatedGames;
       return {

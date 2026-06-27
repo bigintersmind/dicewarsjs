@@ -144,10 +144,15 @@ describe('ppo-league — telemetry tally (B1)', () => {
   it('counts decisive vs maxTurns-truncated games and reports decisive-rate', () => {
     const league = makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: COUNT, learnerSeat: 0 });
     const { drawn } = league.draw(0);
-    league.recordResult(drawn, { truncated: false });
-    league.recordResult(drawn, { truncated: false });
-    league.recordResult(drawn, { truncated: false });
-    league.recordResult(drawn, { truncated: true });
+    /*
+     * Realistic decisive games carry a seatBeat[] (the all-loss vector here); this test asserts only
+     * the counters, but supplying it keeps the path realistic and avoids the no-seatBeat warn.
+     */
+    const seatBeat = [null, 0, 0, 0, 0, 0, 0];
+    league.recordResult(drawn, { truncated: false, seatBeat });
+    league.recordResult(drawn, { truncated: false, seatBeat });
+    league.recordResult(drawn, { truncated: false, seatBeat });
+    league.recordResult(drawn, { truncated: true, seatBeat });
     const s = league.stats();
     expect(s.decisiveGames).toBe(3);
     expect(s.truncatedGames).toBe(1);
@@ -232,11 +237,51 @@ describe('ppo-league — win-rate book (B2)', () => {
     expect(league.winRate('ai_strategist')).toBe(0);
   });
 
-  it('counts the decisive game but books nothing when no seatBeat is present (defensive)', () => {
+  it('counts the decisive game, books nothing, and warns ONCE when no seatBeat is present (defensive)', () => {
     const league = newLeague(0);
     const { drawn } = league.draw(0);
-    league.recordResult(drawn, { truncated: false }); // no seatBeat
-    expect(league.stats()).toMatchObject({ bookSize: 0, decisiveGames: 1 });
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      league.recordResult(drawn, { truncated: false }); // no seatBeat → warn + skip booking
+      league.recordResult(drawn, { truncated: false }); // second offence must NOT re-warn (warn-once)
+      // Both games are still counted as decisive; the book stays empty.
+      expect(league.stats()).toMatchObject({ bookSize: 0, decisiveGames: 2 });
+      // The contract-break is surfaced exactly once (the regression-visibility signal FIX 3 adds).
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0]).toMatch(/no seatBeat/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('throws on an out-of-domain seatBeat value (shaper/seat desync — never folds garbage into wins)', () => {
+    const league = newLeague(0);
+    const { drawn } = league.draw(0);
+    // 2 is outside {0, 0.5, 1}; the old `typeof === 'number'` guard would have done `wins += 2`.
+    expect(() =>
+      league.recordResult(drawn, { truncated: false, seatBeat: [null, 2, 0, 0, 0, 0, 0] })
+    ).toThrow(/outside \{0,0\.5,1\}/);
+  });
+
+  it('throws on a NaN seatBeat value (the load-bearing triple-inequality case)', () => {
+    const league = newLeague(0);
+    const { drawn } = league.draw(0);
+    // NaN !== 0 && NaN !== 1 && NaN !== 0.5 is all-true, so NaN must THROW, not silently poison wins.
+    expect(() =>
+      league.recordResult(drawn, { truncated: false, seatBeat: [null, NaN, 0, 0, 0, 0, 0] })
+    ).toThrow(/outside \{0,0\.5,1\}/);
+  });
+
+  it('accepts a 0.5 tie without throwing and credits half a win', () => {
+    const league = newLeague(0);
+    const { drawn } = league.draw(0);
+    /*
+     * 0.5 is the documented (unreachable-in-practice) elo-parity tie; it must be booked, not rejected.
+     * ai_strategist sits at board seat 2 (only ai_lookahead is cycled onto two seats), so the tie
+     * goes at index 2 → its win-rate is exactly 0.5 (half a win / one game).
+     */
+    league.recordResult(drawn, { truncated: false, seatBeat: [null, 0, 0.5, 0, 0, 0, 0] });
+    expect(league.winRate('ai_strategist')).toBeCloseTo(0.5, 10); // 0.5 wins / 1 game
   });
 });
 

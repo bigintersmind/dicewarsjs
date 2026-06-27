@@ -369,7 +369,21 @@ async function main() {
       await new Promise(res => setImmediate(res));
     }
 
-    process.stdout.write(`PPO_ENV_SERVER DONE episodes=${played}\n`);
+    /*
+     * Emit the league health snapshot on the DONE line (the B5 throughput/decisive-rate re-probe
+     * reads this; it is the only window onto the otherwise-internal win-rate book until B4 wires it
+     * into `draw()`). `played` counts surfaced wire terminals; `decisiveGames` counts every booked
+     * decisive episode INCLUDING zero-decision skips — so `episodes < decisiveGames` is the visible
+     * signature of a zero-decision episode that was booked but surfaced no frame (the B2 reordering).
+     * env.py drains and drops this line (only the anchored LISTENING line is parsed), so appending
+     * fields is safe.
+     */
+    const s = league.stats();
+    process.stdout.write(
+      `PPO_ENV_SERVER DONE episodes=${played} decisiveGames=${s.decisiveGames} ` +
+        `truncatedGames=${s.truncatedGames} decisiveRate=${s.decisiveRate.toFixed(4)} ` +
+        `poolSize=${s.poolSize} loadedSnapshots=${s.loadedSnapshots} bookSize=${s.bookSize}\n`
+    );
   } finally {
     /*
      * Always reap the worker — otherwise its still-listening server keeps the process alive (a

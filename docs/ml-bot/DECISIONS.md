@@ -1248,8 +1248,9 @@ snapshots _unloadable_, not gracefully degraded). **Stats locality (chosen): shi
 `store` now, default `InMemoryStore` (per-worker); land `SharedDiskStore` with Task E** when
 `SubprocVecEnv` makes per-worker books noisy ([D-22] leans shared-disk-global; the interface makes it
 a one-line swap). **Disk retention: GC the evicted snapshots' `.js` files** — `poolCap` bounds the
-in-memory pool only, and the mandatory fresh-filename guarantees unbounded disk growth otherwise
-_[verifier correction]._
+live (sampleable) pool and, via the GC, disk; it does NOT bound process memory (Node's ESM registry
+retains every dynamic-`import()`ed snapshot module for the run), and the mandatory fresh-filename
+guarantees unbounded disk growth without the GC _[verifier correction; memory caveat added post-review]._
 
 **Sampler params (chosen defaults — all CLI knobs).** `w(S)=max(ε,1−winRate(S))^k`; `ε=0.05`, `k=2`,
 `poolCap=40` (FIFO-by-step eviction — keeps the most recent/hardest snapshots; FIFO avoids the

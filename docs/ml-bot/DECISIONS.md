@@ -1327,3 +1327,68 @@ The Node sampler is unit-tested (`tests/ml/ppo-league-pfsp.test.js`) and the Pyt
 match-stats / locked-decisions → 3 design decisions → synthesize + adversarial verify). One design
 agent (stats-locality) hit the structured-output retry cap; the synthesizer reconstructed that piece
 from the maps, and the verifier confirmed it against the code.
+
+**B5 done (2026-06-27): all six steps B0–B5 shipped.** B5 = the throughput/decisive-rate re-probe;
+its empirical result + the budget-gate resolution are [D-24](#d-24--b5-the-snapshot-heavy-re-probe-env-sim-is-not-the-bottleneck-r3-locked--accepted-2026-06-27).
+
+---
+
+## D-24 — B5: the snapshot-heavy re-probe — env-sim is NOT the bottleneck, R=3 locked · Accepted (2026-06-27) · resolves the [D-22](#d-22--pfsp-league-is-node-resident-build-one-league-pipeline-and-run-fixed-field-as-its-empty-pool-mode-cheap-does-ppo-learn-gate-first--accepted-2026-06-26) budget gate · closes [D-23](#d-23--task-b-build-scope-the-pfsp-opponent-league-node-resident--proposed-2026-06-27--follows-d-22--hard-prerequisite-pr-62) step B5
+
+**Context.** [D-22] deferred locking the env-step budget until a re-probe on a **snapshot-heavy** field —
+the field the PFSP run actually trains against once its pool fills with net-policy snapshots (BC-forward
+~0.8 ms/move, far costlier than the cheap heuristics the [D-20] probe measured). [D-23] open-Q4 also
+coupled snapshot cadence `N` with the reserve count `R`, and the [D-15] turtle risk needed re-checking
+on a self-similar snapshot field. B5 answers all three.
+
+**Tooling.** NEW `npm run ppo:league-probe` (`scripts/ppo-league-probe.mjs` + `scripts/lib/ppo-league-probe-core.mjs`
+
+- `-worker.mjs`, 23 tests) drives the **real** `makeLeague` sampler (`refresh → draw →
+runSelfPlayEpisode → recordResult → stats`) — the genuine "first live exercise of the sampler" ([D-23]),
+  unlike the [D-20] probe which ran a fixed field and could not exercise the league. Snapshots are injected
+  without the Python producer via **re-export shims** ( `export { BC_POLICY } from '…ppoPolicyWeights.js'`)
+  so `refresh()` `makeBC`-wraps the same ~2 MB module per snapshot. **Two decisive-rates, never conflated**
+  (the scope-verify's central correction): **PASS A** learner-relative (`terminateOnElimination:true`, the
+  trainer's exact regime → `league.stats().decisiveRate`, the budget basis) and **PASS B** global/[D-15]
+  turtle (`terminateOnElimination:false`, `winner!=null`). Driven by a greedy PPO-policy learner.
+
+**Result (shodan, 16-core, Node v22, D-23 standard field, count=6; full numbers in RESULTS.md).**
+
+- **env-sim is NOT the bottleneck.** GREEN at EVERY reserve count: **50.7M (R=0, all 6 seats snapshots)
+  → 89.9M (R=4) env-steps/12h** at 14 workers — ~25–45× the ≳2M GREEN bar. This **refutes the [D-19]
+  worry** that in-process net-policy opponents could make env-steps prohibitive. The real binding rate
+  is the SB3/PPO learner loop (task-A's 1M run was GPU/`DummyVecEnv`-bound at ~17 eff steps/s, NOT
+  env-sim-bound), which task C/E's `SubprocVecEnv` lifts. So the [D-22] env-sim gate is **PASSED**, and
+  the long-run env-step budget is set by the learner side, not by env simulation.
+- **R = 3 LOCKED** (the [D-23] default, confirmed not deviated). All R are GREEN and turtle-healthy
+  (PASS B global decisive 85–95%, ≫ the 60% floor Ivan set); warm-book learner-relative decisiveRate
+  95.3% at R=3. Nothing forces R lower (throughput is GREEN everywhere) or higher (no turtle), so keep
+  the full [D-15] defense — 3 distinct aggressive baselines every game + 3 PFSP snapshot seats. Even
+  R=0 (all-snapshot) is 90.5% global-decisive: **the PPO/BC snapshot field does not turtle.**
+- **MAX_EDGES = 64 holds:** numEdges p100 ≤ 27, 0 overflow on the snapshot-heavy field.
+- **Cadence `N` (open-Q4) resolved:** per-move cost is **pool-size-invariant** and per-snapshot memory
+  is ~2 MB resident in Node's ESM registry, so on 128 GB shodan memory is unconstrained at realistic
+  `N`. `N` is **decoupled from throughput** — pick it for pool freshness (fill to `poolCap=40` within
+  the first budget unit), a task-C/E tuning knob, not a budget constraint.
+- **Snapshot per-move cost** ~1.2 ms single-thread / ~2.2 ms under 14-worker contention on 16 cores
+  (vs [D-20]'s ~0.8 ms on a lighter box) — still GREEN by a wide margin.
+
+**Kill threshold (unchanged, [D-19] pt4 / [D-22]).** After one budget unit of the long run, `npm run
+ppo:gate` paired Δ vs `ai_lookahead@596f781`; if the 95% CI lower bound is not > 0 → declare plateau,
+fall back to the shipped BC / Track-A bot rather than pour in more compute. Pre-launch turtle floor =
+global decisiveRate ≥ 60% on the snapshot-heavy field — passed (92% at R=3).
+
+**Decisions made with Ivan.** (1) drive the shodan run directly over `ssh`; (2) probe + lock against the
+**D-23 standard field**; (3) let the sweep decide R with R=3 as the default → it confirmed R=3; (4) turtle
+floor **~60%**.
+
+**Caveat.** The probe measures the **env-sim** rate only (the [D-19] assumed bottleneck); the real trainer
+rate is `min(env-sim, GPU/learner-consume)`. B5 establishes that env-sim has ~25–45× headroom, so the
+learner loop is the lever — sized in task C/E.
+
+**Grounding.** Two multi-agent workflows: a 7-agent scope (4 code-readers → 2 design takes → verify+
+synthesize, which caught the two-decisive-rates conflation, the no-`addSnapshot`/manifest-seeding path,
+and the unverified reserve-CSV assumption) and a 5-agent adversarial review (correctness / fidelity-
+silent-failure / tests / verify → synthesize) whose one must-fix — cold start polluting the throughput
+denominator — was fixed before the run (throughput now = `learnerDecisions / max(steady-state shard
+elapsedMs)`, cold start excluded).

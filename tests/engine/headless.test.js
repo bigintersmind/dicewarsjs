@@ -87,9 +87,10 @@ describe('headless engine — no browser APIs', () => {
     }
 
     /*
-     * The fact that all modules imported successfully in jsdom environment
-     * (without CreateJS or other browser-specific libs) proves they don't
-     * depend on browser APIs at module evaluation time.
+     * The fact that all modules imported successfully in the default Node
+     * environment (no browser globals — no window/document, no CreateJS or
+     * other browser-specific libs) proves they don't depend on browser APIs
+     * at module evaluation time.
      */
   });
 

@@ -182,10 +182,20 @@ async function main() {
   let lostError = null;
 
   /*
+   * Learner decisions emitted in the CURRENT episode (reset per episode below). Lets the loop
+   * detect a "zero-decision" episode — the learner eliminated before it ever took a turn, so
+   * chooseAction never fired and no obs frame was sent. Surfacing a terminal for such an episode
+   * would desync the client's reset() (which expects the next episode's first obs, not a bare
+   * terminal); see the skip in the episode loop.
+   */
+  let decisionsThisEpisode = 0;
+
+  /*
    * The learner's synchronous action selector: emit a frame, park (with a watchdog deadline), and
    * either return the validated index or record why the learner was lost and throw.
    */
   const chooseAction = (encoded, botState) => {
+    decisionsThisEpisode++;
     const buf = serializeObsFrame(buildObsFrame({ encoded, botState, maxAreas }));
     Atomics.store(ctrl, STATUS, ST_WAITING);
     worker.postMessage({ type: 'obs', frame: frameToArrayBuffer(buf) });
@@ -243,6 +253,12 @@ async function main() {
   };
 
   let played = 0;
+  /*
+   * Consecutive zero-decision episodes skipped without surfacing a frame; a long run of these means
+   * the learner can never act (degenerate field/seat) — abort loud rather than spin silently.
+   */
+  let consecutiveZeroDecision = 0;
+  const MAX_CONSECUTIVE_ZERO_DECISION = 1000;
   try {
     /*
      * Block until the worker's server is listening and a client has connected (or it failed/closed,
@@ -252,6 +268,7 @@ async function main() {
     for (let ep = 0; episodes === 0 || ep < episodes; ep++) {
       if (closed || lostError) break;
       const seed = seedBase + ep;
+      decisionsThisEpisode = 0;
       let result;
       try {
         result = runSelfPlayEpisode({
@@ -273,6 +290,26 @@ async function main() {
         if (err instanceof EnvClosed) break;
         throw err;
       }
+
+      /*
+       * Zero-decision episode: the learner was eliminated before it ever took a turn, so NO obs
+       * frame was emitted (chooseAction never fired). The wire contract is a run of obs frames then
+       * ONE terminal; a bare terminal with no preceding obs would land in the client's reset() —
+       * which expects the next episode's first decision — and desync it (env.py's reset guard). Such
+       * an episode carries no learner transition for PPO, so surface nothing and roll to the next
+       * seed. Guard against an unbounded silent skip in a degenerate field where the learner can
+       * never move.
+       */
+      if (decisionsThisEpisode === 0) {
+        if (++consecutiveZeroDecision > MAX_CONSECUTIVE_ZERO_DECISION) {
+          throw new Error(
+            `PPO env-server: ${consecutiveZeroDecision} consecutive zero-decision episodes ` +
+              `(learner eliminated before acting every time) — check the opponents/learner-seat config.`
+          );
+        }
+        continue;
+      }
+      consecutiveZeroDecision = 0;
 
       /*
        * Terminal frame: the learner's view of the board at the episode terminal (its elimination,

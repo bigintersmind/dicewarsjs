@@ -30,6 +30,7 @@ byte-identical to the warm-start, a useful sanity floor.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import torch
@@ -237,6 +238,12 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    # Line-buffer stdout/stderr so progress AND a fatal traceback flush immediately even when
+    # redirected to a file. Block buffering (the default for a non-tty) otherwise swallows the
+    # final traceback on a crash — which masked a fatal env desync as a silent "process gone" for
+    # several runs before this was added.
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
     args = build_parser().parse_args()
     _validate_args(args)
     train(args)

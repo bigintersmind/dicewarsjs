@@ -74,6 +74,47 @@ def test_stop_only_episodes_run_end_to_end() -> None:
     assert decisions > 0, "a STOP-only learner should still make at least one decision"
 
 
+def test_zero_decision_episode_does_not_desync() -> None:
+    """A zero-decision episode must not desync reset() (the bug that killed every tracer run).
+
+    On some seeds the learner seat is conquered before its turn ever comes up, so it takes NO action
+    and the episode emits no obs frame. The env-server streams ``(obs*, terminal)`` per episode, so
+    such an episode would otherwise put a BARE terminal where the client's ``reset()`` expects the
+    next episode's first obs → the desync ``RuntimeError`` in :meth:`DiceWarsEnv.reset`. The
+    server-side fix skips zero-decision episodes. With the full 7-player training field, seed 35 is
+    a zero-decision episode (anchored by the JS test ``tests/ml/ppo-env.test.js``); seeding at
+    ``seed_base=35`` puts it first, so the very first ``reset()`` would crash on the old server.
+    ``episodes=0`` (run-until-disconnect) is required: a skipped episode still advances the seed
+    counter, so a fixed quota could surface fewer episodes than requested.
+    """
+    env = DiceWarsEnv(
+        player_count=7,
+        server_kwargs={
+            "opponents": "ai_lookahead,ai_strategist,ai_expectimax,ai_bc,ai_defensive",
+            "seed_base": 35,  # episode 0 (seed 35) is zero-decision — the server must skip it
+            "episodes": 0,
+        },
+    )
+    completed = 0
+    try:
+        for _ in range(3):
+            obs, info = env.reset()
+            _assert_obs(obs)
+            # The crux: a real first decision, never a leaked bare terminal from a skipped episode.
+            assert info["terminal"] == 0
+            terminated = truncated = False
+            while not (terminated or truncated):
+                obs, reward, terminated, truncated, info = env.step(_stop_index(env.action_masks()))
+                _assert_obs(obs)
+            assert info["terminal"] == 1
+            assert info["won"] in (0, 1)
+            completed += 1
+    finally:
+        env.close()
+
+    assert completed == 3, "every surfaced episode should complete cleanly past the skipped one"
+
+
 def _assert_obs(obs: dict) -> None:
     assert obs["nodes"].shape == (DEFAULT_MAX_AREAS, NODE_W)
     assert obs["edge_feat"].shape == (MAX_EDGES, EDGE_W)

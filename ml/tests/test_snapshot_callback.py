@@ -15,9 +15,15 @@ from types import SimpleNamespace
 
 import pytest
 
-import dicewars_ppo.snapshot_callback as snapshot_callback
-from dicewars_bc.manifest import EXPECTED_ENCODING_VERSION
-from dicewars_ppo.snapshot_callback import SnapshotCallback
+# Skip the whole module if the PPO `[rl]` stack is absent (e.g. the CI `ml-test` job, which installs
+# only `.[onnx,dev]`+gymnasium): snapshot_callback imports SB3's BaseCallback. Runs on shodan, where
+# the full stack is installed. Mirrors test_ppo_policy.py.
+pytest.importorskip("torch")
+pytest.importorskip("stable_baselines3")
+
+import dicewars_ppo.snapshot_callback as snapshot_callback  # noqa: E402
+from dicewars_bc.manifest import EXPECTED_ENCODING_VERSION  # noqa: E402
+from dicewars_ppo.snapshot_callback import SnapshotCallback  # noqa: E402
 
 
 def _patch_export(monkeypatch):

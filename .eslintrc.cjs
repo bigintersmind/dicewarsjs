@@ -12,10 +12,19 @@ module.exports = {
       jsx: true,
     },
   },
-  plugins: ['vitest', 'prettier'],
+  plugins: ['vitest', 'prettier', 'react'],
   rules: {
     // Prettier integration
     'prettier/prettier': ['error'],
+
+    /*
+     * Mark JSX-referenced bindings as used. This is a Preact project (JSX compiles
+     * to h()/jsx()), and core no-unused-vars can't see that <TitleScreen /> uses the
+     * `TitleScreen` import — without this rule every screen/component import is a
+     * false-positive "unused". We enable ONLY this rule from eslint-plugin-react;
+     * the rest of its React-centric ruleset doesn't apply to Preact.
+     */
+    'react/jsx-uses-vars': 'error',
 
     // ES6+ features
     'arrow-body-style': ['error', 'as-needed'],
@@ -37,15 +46,12 @@ module.exports = {
     // Allow console for game development
     'no-console': 'off',
 
-    // Encourage descriptive and consistent comments
-    'multiline-comment-style': ['error', 'starred-block'],
+    // Require a space after comment markers (auto-fixable)
     'spaced-comment': ['error', 'always'],
 
-    // Relaxed rules for game development
-    'max-len': [
-      'error',
-      { code: 100, ignoreComments: true, ignoreStrings: true, ignoreTemplateLiterals: true },
-    ],
+    // Line width is owned entirely by Prettier (printWidth: 100). We don't run a
+    // separate ESLint max-len: it only fires on lines Prettier can't break, it
+    // isn't auto-fixable, and it would just block commits on a rare long expression.
 
     // Allow non-camelcase identifiers (due to existing AI implementation)
     camelcase: ['off'],

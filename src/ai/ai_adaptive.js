@@ -75,22 +75,20 @@ const analyzeGameState = game => {
 
   // Process valid territories
   validTerritories.forEach(i => {
-    const { arm: player, dice } = adat[i];
+    const { arm, dice } = adat[i];
 
-    // Count territories and dice by player
+    // Count territories and dice by owning army
     state.territories.total++;
-    state.territories.byPlayer[player]++;
+    state.territories.byPlayer[arm]++;
 
     state.dice.total += dice;
-    state.dice.byPlayer[player] += dice;
+    state.dice.byPlayer[arm] += dice;
 
     // Check if this is a border territory using some() for early exit
-    const isBorder = validTerritories.some(
-      j => i !== j && adat[i].join[j] && adat[j].arm !== player
-    );
+    const isBorder = validTerritories.some(j => i !== j && adat[i].join[j] && adat[j].arm !== arm);
 
     if (isBorder) {
-      state.borderTerritories[player]++;
+      state.borderTerritories[arm]++;
     }
   });
 
@@ -232,7 +230,6 @@ const determineStrategy = (game, gameState, pn) => {
 
   // Find our ranking among players
   const myRanking = gameState.playerRankings.indexOf(pn);
-  const myRelativeStrength = myRanking / Math.max(1, gameState.remainingPlayers - 1);
 
   // Strategy adjustment based on game phase
   const adjustStrategyByPhase = () => {
@@ -433,7 +430,6 @@ const generateMoves = (game, strategy, pn) => {
       const activePlayersCount = Object.values(game.player).filter(p => p.area_c > 0).length;
       const isEndgame = activePlayersCount <= 2;
       const hasMaxDice = attackerDice === 8;
-      const targetHasMaxDice = defenderDice === 8;
 
       // In endgame with 2 players, be more aggressive with max dice territories
       if (diceAdvantage <= 0) {

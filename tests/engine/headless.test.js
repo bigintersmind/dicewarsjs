@@ -71,16 +71,10 @@ describe('headless engine — no browser APIs', () => {
       '../../src/engine/GameRunner.js',
     ];
 
-    const browserAPIs = [
-      'window',
-      'document',
-      'requestIdleCallback',
-      'requestAnimationFrame',
-      'HTMLElement',
-      'canvas',
-      'createjs',
-      'Audio',
-    ];
+    // Engine modules must reference no browser globals at module scope — e.g.
+    // window, document, requestIdleCallback, requestAnimationFrame, HTMLElement,
+    // canvas, createjs, Audio. This is verified below by importing each engine
+    // file: a module-scope reference to an unavailable global throws on import.
 
     for (const file of engineFiles) {
       /*

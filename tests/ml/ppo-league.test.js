@@ -1,5 +1,5 @@
 /**
- * PFSP opponent league — empty-pool parity (ml-bot Phase 3, task B step B1 — [D-23]).
+ * PFSP opponent league — empty-pool parity (ml-bot Phase 3, task B step B1 — [D-22]).
  *
  * The league replaces the env-server's static opponent const with a per-episode
  * `league.draw(seed)`. The load-bearing B1 guarantee is that **the empty-pool field
@@ -90,6 +90,28 @@ describe('ppo-league — drawn seat attribution metadata (B2-ready)', () => {
       'ai_lookahead', // cycled
     ]);
   });
+
+  it('sources drawn[i].id from the opponent field itself (single source of truth)', () => {
+    /*
+     * resolveBaselineField surfaces `id` on each entry; draw() keys `drawn[i].id` off that same
+     * field rather than re-deriving the cycle — so the id↔fn correspondence can never drift.
+     */
+    const ref = resolveBaselineField(DEFAULT_OPPONENTS, COUNT);
+    expect(ref.map(o => o.id)).toEqual([
+      'ai_lookahead',
+      'ai_strategist',
+      'ai_expectimax',
+      'ai_bc',
+      'ai_defensive',
+      'ai_lookahead',
+    ]);
+    const { opponents, drawn } = makeLeague({
+      baselineCsv: DEFAULT_OPPONENTS,
+      count: COUNT,
+      learnerSeat: 0,
+    }).draw(0);
+    drawn.forEach((d, i) => expect(d.id).toBe(opponents[i].id));
+  });
 });
 
 describe('ppo-league — telemetry tally (B1)', () => {
@@ -122,5 +144,31 @@ describe('ppo-league — error handling', () => {
 
   it('throws on an unknown bot id', () => {
     expect(() => resolveBaselineField('ai_not_a_bot', COUNT)).toThrow(/Unknown opponent bot id/);
+  });
+});
+
+describe('ppo-league — construction validation', () => {
+  it('rejects a learnerSeat outside [0, count]', () => {
+    for (const learnerSeat of [-1, COUNT + 1, 99]) {
+      expect(() =>
+        makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: COUNT, learnerSeat })
+      ).toThrow(/learnerSeat .* out of range/);
+    }
+  });
+
+  it('accepts the boundary learner seats 0 and count (learner first / last)', () => {
+    for (const learnerSeat of [0, COUNT]) {
+      expect(() =>
+        makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: COUNT, learnerSeat })
+      ).not.toThrow();
+    }
+  });
+
+  it('rejects a non-positive or fractional count', () => {
+    for (const count of [0, -1, 6.5]) {
+      expect(() => makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count, learnerSeat: 0 })).toThrow(
+        /count must be a positive integer/
+      );
+    }
   });
 });

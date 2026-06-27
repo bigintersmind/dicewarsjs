@@ -1,5 +1,5 @@
 /**
- * PFSP opponent league for the PPO env-server (ml-bot Phase 3, task B — [D-23]).
+ * PFSP opponent league for the PPO env-server (ml-bot Phase 3, task B — [D-22]).
  *
  * The env-server draws its per-episode opponent field from this league instead of a
  * static const. The league owns the opponent pool (built-in baselines + hot-loaded
@@ -10,7 +10,7 @@
  * before — byte-identical, so task A's outcomes reproduce. This file (step **B1**)
  * ships that empty-pool path plus a decisive/truncated telemetry tally; the snapshot
  * pipeline (B3), PFSP weighting (B4), and persistence (B6) extend the same object.
- * See docs/ml-bot/DECISIONS.md D-23 for the full build sequence.
+ * See docs/ml-bot/DECISIONS.md D-22 for the full build sequence.
  *
  * @module scripts/lib/ppo-league
  */
@@ -34,7 +34,10 @@ function parseIds(idCsv) {
  *
  * @param {string} idCsv comma-separated built-in bot ids (e.g. "ai_lookahead,ai_bc")
  * @param {number} count number of opponent seats to fill (= playerCount - 1)
- * @returns {{name: string, fn: Function}[]} length `count`; the seat-cycle index is in the name (`@i`)
+ * @returns {{id: string, name: string, fn: Function}[]} length `count`; the seat-cycle index is in
+ *   the name (`@i`). `id` is the stable bot id (the field is the single source of truth for the
+ *   cycle, so `draw()`'s seat metadata keys on `entry.id` rather than re-deriving the cycle).
+ *   `runSelfPlayEpisode` reads only `name`/`fn` and ignores the extra `id`.
  */
 export function resolveBaselineField(idCsv, count) {
   const ids = parseIds(idCsv);
@@ -45,7 +48,7 @@ export function resolveBaselineField(idCsv, count) {
     if (!bot) {
       throw new Error(`Unknown opponent bot id "${id}". Known: ${[...byId.keys()].join(', ')}.`);
     }
-    return { name: `${bot.name}@${i}`, fn: bot.fn };
+    return { id, name: `${bot.name}@${i}`, fn: bot.fn };
   });
 }
 
@@ -57,7 +60,7 @@ export function resolveBaselineField(idCsv, count) {
  * @param {object} opts
  * @param {string} opts.baselineCsv the resolved `--opponents` CSV. The trainer passes
  *   `DEFAULT_OPPONENTS`; the env-server's own default is `ai_bc`. Threaded in (NOT a
- *   hardcoded default) so the empty-pool field equals the launch's actual field _[D-23]_.
+ *   hardcoded default) so the empty-pool field equals the launch's actual field _[D-22]_.
  * @param {number} opts.count opponent seats per game (= playerCount - 1); `draw()` always
  *   returns exactly this many (holds player_count constant, [D-22]).
  * @param {number} opts.learnerSeat the learner's seat; used to map an opponent's array
@@ -65,10 +68,21 @@ export function resolveBaselineField(idCsv, count) {
  * @returns {{draw: Function, recordResult: Function, stats: Function}}
  */
 export function makeLeague({ baselineCsv, count, learnerSeat }) {
-  const slotIds = (() => {
-    const ids = parseIds(baselineCsv);
-    return Array.from({ length: count }, (_, i) => ids[i % ids.length]);
-  })();
+  /*
+   * Fail loud at construction — both inputs are in scope here, so a bad value is caught at the
+   * cheapest spot rather than surfacing later as a silently-wrong `seatOf` map (B2's win-rate
+   * attribution reads `drawn[k].seat`) or an `Array.from({ length })` that floors/empties without
+   * complaint. playerCount = count + 1 ⇒ valid learner seats are [0, count]. Mirrors the guard in
+   * runSelfPlayEpisode (ppo-env.mjs), which re-validates `learnerSeat` against the same range.
+   */
+  if (!Number.isInteger(count) || count <= 0) {
+    throw new Error(`makeLeague: count must be a positive integer, got ${count}.`);
+  }
+  if (!Number.isInteger(learnerSeat) || learnerSeat < 0 || learnerSeat > count) {
+    throw new Error(
+      `makeLeague: learnerSeat ${learnerSeat} out of range [0, ${count}] for count ${count}.`
+    );
+  }
   const baselineField = resolveBaselineField(baselineCsv, count);
 
   let decisiveGames = 0;
@@ -92,7 +106,7 @@ export function makeLeague({ baselineCsv, count, learnerSeat }) {
       void seed; // unused until B4 (empty-pool draw is deterministic); kept for API stability.
       return {
         opponents: baselineField,
-        drawn: baselineField.map((_, i) => ({ id: slotIds[i], kind: 'baseline', seat: seatOf(i) })),
+        drawn: baselineField.map((bot, i) => ({ id: bot.id, kind: 'baseline', seat: seatOf(i) })),
       };
     },
 

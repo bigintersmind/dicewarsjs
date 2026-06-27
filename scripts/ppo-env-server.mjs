@@ -107,7 +107,7 @@ async function main() {
   // Per-decision watchdog deadline (ms). Generous — inference is sub-second; 0 disables it.
   const decisionTimeoutMs = numArg(opts, 'decision-timeout-ms', 120000);
   /*
-   * The opponent league (ml-bot task B — [D-23]). B1: the pool is empty, so every `draw()` returns
+   * The opponent league (ml-bot task B — [D-22]). B1: the pool is empty, so every `draw()` returns
    * the cycled baseline field — byte-identical to the static field task A trained on (the env-server
    * default is the single bot `ai_bc`; the trainer passes the full `--opponents` CSV). Snapshots
    * (B3) and PFSP weighting (B4) extend the same league; fixed-field is its empty-pool mode.

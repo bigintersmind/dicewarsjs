@@ -46,6 +46,17 @@ jobs:
       - name: Run benchmarks
         run: npm run test:benchmark
 
+      # PPO env-server transport smokes (ml-bot Phase 3). Each forks the Node env-server
+      # + a live socket — pure Node, no Python/torch — so they belong here (the Python
+      # `ML CI` job has no `node`). Fast + deterministic; bash errexit fails the step on
+      # the first non-zero exit. booking-smoke guards the B2 "book before the zero-decision
+      # wire gate" reordering, which no vitest test covers (the book is internal Node state).
+      - name: PPO env-server smoke checks
+        run: |
+          npm run ppo:env-smoke
+          npm run ppo:disconnect-smoke
+          npm run ppo:booking-smoke
+
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:

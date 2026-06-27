@@ -33,9 +33,10 @@ unchanged — B3 only _loads_ snapshots; B4 samples them, so episode outcomes ar
   diffs by stable id, dynamic-`import()`s each new snapshot's `.weights.js` (fresh filename → ESM URL
   cache never serves a stale module), wraps it with `makeBC({ policy })`, FIFO-evicts past `poolCap`,
   and GCs the evicted `.js`. An evicted id stays in `loadedIds` so it is never re-imported from its
-  deleted file. `makeBC`/`ENCODING_VERSION` are dynamic-imported in `refresh()` for code locality
-  only — they defer no load cost (the ~2 MB `bcPolicyWeights.js` is already pulled in eagerly via the
-  top-level `BUILT_IN_BOTS` import → `ai_bc.js`; corrected post-review). `stats()` now reports real `poolSize` +
+  deleted file. `makeBC`/`ENCODING_VERSION` are top-level static imports with no extra load cost (the
+  ~2 MB `bcPolicyWeights.js` `makeBC` pulls in is already loaded eagerly via the top-level
+  `BUILT_IN_BOTS` import → `ai_bc.js`; the per-snapshot `.weights.js` load stays a dynamic `import()`
+  since its filename is runtime-generated — both corrected/simplified post-review). `stats()` now reports real `poolSize` +
   `loadedSnapshots`. Env-server: `--snapshot-manifest`/`--snapshot-pool-cap` flags + `await
 league.refresh()` at each episode boundary (a one-`statSync` no-op without a manifest; an
   encoding-version skew throws and stops the run — the frozen-`ENCODING_VERSION` invariant).

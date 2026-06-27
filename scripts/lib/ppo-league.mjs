@@ -25,15 +25,15 @@ import { readFileSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { makeBC } from '../../src/ai/ai_bc.js';
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
+import { ENCODING_VERSION } from '../../src/arena/encodeObservation.js';
 
 /*
- * `makeBC` + `ENCODING_VERSION` are dynamic-imported inside `refresh()` purely for code locality —
- * they are only referenced once a real manifest exists. This defers no LOAD cost: the ~2 MB
- * `bcPolicyWeights.js` is already pulled in eagerly at the top of this module via `BUILT_IN_BOTS`
- * (→ `ai_bc.js` → `bcPolicyWeights.js`), and the env-server imports `BC_POLICY` directly too, so the
- * `import()` below just hits the module cache. (`ENCODING_VERSION` comes from the far lighter
- * `encodeObservation.js`, also already loaded.) The B1/B2 unit tests pay the weights cost regardless.
+ * `makeBC` (snapshot loader, B3) and `ENCODING_VERSION` (manifest compat gate) are imported
+ * statically with no extra load cost: the ~2 MB `bcPolicyWeights.js` `makeBC` pulls in is already
+ * loaded eagerly via the `BUILT_IN_BOTS` import below (→ `ai_bc.js` → `bcPolicyWeights.js`), and
+ * `ENCODING_VERSION` rides the far lighter `encodeObservation.js`.
  */
 
 /** Split + trim the opponent id CSV, dropping blanks; throws if it resolves to nothing. */
@@ -282,14 +282,6 @@ export function makeLeague({
       if (stat.mtimeMs === manifestMtimeMs) return { added: 0, poolSize: pool.length };
 
       const manifest = JSON.parse(readFileSync(snapshotManifest, 'utf8'));
-      /*
-       * Pull in makeBC/ENCODING_VERSION here for code locality — both are already module-cached
-       * (loaded eagerly via the top-of-file BUILT_IN_BOTS import; see the note there).
-       */
-      const [{ makeBC }, { ENCODING_VERSION }] = await Promise.all([
-        import('../../src/ai/ai_bc.js'),
-        import('../../src/arena/encodeObservation.js'),
-      ]);
       if (manifest.encodingVersion !== ENCODING_VERSION) {
         throw new Error(
           `ppo-league.refresh: snapshot manifest encodingVersion ${manifest.encodingVersion} != ` +

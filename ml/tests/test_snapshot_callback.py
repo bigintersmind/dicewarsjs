@@ -65,7 +65,7 @@ def test_write_manifest_atomic_schema(tmp_path):
             "createdAt": "t1",
         },
     ]
-    cb._write_manifest_atomic()
+    cb._write_manifest_atomic(cb._snapshots)
 
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["encodingVersion"] == EXPECTED_ENCODING_VERSION == 2
@@ -121,3 +121,53 @@ def test_publish_appends_in_step_order(tmp_path, monkeypatch):
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert [s["step"] for s in manifest["snapshots"]] == [100, 200]
     assert manifest["latestStep"] == 200
+
+
+def test_publish_truncates_manifest_and_gcs_old_files(tmp_path, monkeypatch):
+    """Single-writer GC (task E / PR-3): manifest = newest pool_cap; disk = pool_cap + gc_grace."""
+    _patch_export(monkeypatch)
+    cb = SnapshotCallback(tmp_path, snapshot_every=100, pool_cap=2, gc_grace=1)
+    cb.model = SimpleNamespace(policy=SimpleNamespace())
+    cb._on_training_start()
+    for step in (100, 200, 300, 400, 500):
+        cb._publish(step)
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    # Manifest lists only the newest pool_cap (=2).
+    assert [s["step"] for s in manifest["snapshots"]] == [400, 500]
+    assert manifest["latestStep"] == 500
+    # Disk keeps pool_cap + gc_grace (=3): the two manifest files + one grace buffer (step 300).
+    on_disk = sorted(p.name for p in tmp_path.glob("snap-*.weights.js"))
+    assert on_disk == [
+        "snap-000000300.weights.js",
+        "snap-000000400.weights.js",
+        "snap-000000500.weights.js",
+    ]
+    # GC never removes a manifest-referenced file.
+    for s in manifest["snapshots"]:
+        assert (tmp_path / s["weights"]).exists()
+    assert not list(tmp_path.glob("*.pt"))
+    assert not list(tmp_path.glob("manifest.json.tmp"))
+
+
+def test_on_training_start_rehydrates_and_drops_future_entries(tmp_path, monkeypatch):
+    """Resume rehydration (task E / PR-3): adopt the prior manifest minus entries ahead of the
+    resumed step, so re-reaching a step republishes its id exactly once (no duplicate)."""
+    _patch_export(monkeypatch)
+    # A prior run published snapshots at 100, 200, 300.
+    cb0 = SnapshotCallback(tmp_path, snapshot_every=100)
+    cb0.model = SimpleNamespace(policy=SimpleNamespace())
+    cb0._on_training_start()
+    for step in (100, 200, 300):
+        cb0._publish(step)
+
+    # A new run resumes at step 250: snap-300 is AHEAD of the resume point and must be dropped.
+    cb = SnapshotCallback(tmp_path, snapshot_every=100)
+    cb.model = SimpleNamespace(policy=SimpleNamespace(), num_timesteps=250)
+    cb._on_training_start()
+    assert [s["step"] for s in cb._snapshots] == [100, 200]  # future snap-300 dropped
+
+    cb._publish(300)  # re-reached → republished exactly once, no duplicate id
+    steps = [s["step"] for s in json.loads((tmp_path / "manifest.json").read_text())["snapshots"]]
+    assert steps == [100, 200, 300]
+    assert steps.count(300) == 1

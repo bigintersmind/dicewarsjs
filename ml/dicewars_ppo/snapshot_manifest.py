@@ -1,0 +1,58 @@
+"""Pure (torch-free) PFSP snapshot-manifest helpers (Phase 3, task E / PR-3).
+
+Split out of :mod:`dicewars_ppo.snapshot_callback` so the resume-rehydration and single-writer GC
+*logic* can be unit-tested without importing torch / stable-baselines3 (the callback needs both to
+repack the live model; these functions need neither). The callback wires them to the live SB3 model;
+the bookkeeping math lives here, where the lean ``ml-test`` tier and a no-GPU dev box can cover it.
+
+A "snapshot entry" is the dict the producer appends to its manifest:
+``{"id", "step", "weights", "createdAt"}`` (see ``SnapshotCallback._publish``).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Sequence
+
+
+def rehydrate_snapshots(snapshots: Iterable[dict], num_timesteps: int) -> list[dict]:
+    """On resume, keep only entries at or before the step we are resuming at.
+
+    A crashed run may have published snapshots at steps the resumed run has not re-reached yet (the
+    checkpoint that drove the resume lagged the last snapshot). If we kept those "future" entries,
+    re-reaching that step would republish the SAME id — overwriting its ``.weights.js`` and
+    double-seating it in a consumer's pool. Dropping ``step > num_timesteps`` makes the producer's
+    publish cadence monotonic across the restart. Order-preserving.
+    """
+    cutoff = int(num_timesteps)
+    return [s for s in snapshots if int(s["step"]) <= cutoff]
+
+
+def gc_partition(
+    snapshots: Sequence[dict], pool_cap: int, gc_grace: int
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Partition published snapshots (sorted newest-by-step) into the three producer-GC zones.
+
+    Returns ``(manifest_entries, retained, deletable)``:
+
+    - ``manifest_entries`` — the newest ``pool_cap`` entries. This is what the manifest lists, so it
+      is exactly what consumers load into their sampleable pool.
+    - ``retained`` — the newest ``pool_cap + gc_grace`` entries. These are kept ON DISK. The grace
+      zone (``[pool_cap, pool_cap + gc_grace)``) is an on-disk buffer *beyond* the manifest: it lets
+      a consumer that read the manifest just before a truncation still find a file it is mid-import
+      on. (The consumer's ENOENT tolerance is the real backstop; this just shrinks the race window.)
+    - ``deletable`` — every older entry. Its ``.weights.js`` is safe to unlink (single-writer GC).
+
+    Invariants: ``manifest_entries ⊆ retained`` and ``retained ∩ deletable = ∅`` (by step), so the
+    producer never unlinks a file the manifest still references.
+    """
+    if not isinstance(pool_cap, int) or pool_cap <= 0:
+        raise ValueError(f"pool_cap must be a positive int, got {pool_cap!r}")
+    if not isinstance(gc_grace, int) or gc_grace < 0:
+        raise ValueError(f"gc_grace must be a non-negative int, got {gc_grace!r}")
+
+    ordered = sorted(snapshots, key=lambda s: int(s["step"]))
+    keep_disk = pool_cap + gc_grace
+    manifest_entries = ordered[-pool_cap:]
+    retained = ordered[-keep_disk:]
+    deletable = ordered[:-keep_disk] if keep_disk < len(ordered) else []
+    return manifest_entries, retained, deletable

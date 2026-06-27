@@ -479,7 +479,7 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       the 7 gate opponents (incl. all 3 strong ones) were training opponents → partly fixed-field
       _exploitation_ (also beats the 3 held-out bots → partial generalization); this green-lights task
       B. Full record: RESULTS.md + LOG.md + [D-23].
-- [~] **(B) PFSP opponent league ([D-22]) — Node-resident. 🔵 B1–B3 DONE 2026-06-27 (PRs #62/#64 + win-rate book + snapshot pipeline); B4 next → [D-23].** New `scripts/lib/ppo-league.mjs` (pool +
+- [~] **(B) PFSP opponent league ([D-22]) — Node-resident. 🔵 B1–B4 DONE 2026-06-27 (PRs #62/#64/#65 + PFSP sampling on); B5 next → [D-23].** New `scripts/lib/ppo-league.mjs` (pool +
   seeded `mulberry32` sampler + win-rate book) inside the env-server; the loop draws
   `league.draw(seed)` per episode (replaces the static `opponents` const at `ppo-env-server.mjs:259`).
   **Fixed-field is the empty-pool degenerate mode of this same pipeline** — so (A) and (B) share
@@ -508,10 +508,20 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
   deviations from [D-23]: `--snapshot-store` deferred to B6 with `SharedDiskStore`, not a dead flag
   now; `--snapshot-pool-cap` added/forwarded since the pool cap is the consumer setting; the producer
   manifest is append-only — entries are tiny, prune later if needed. `draw()` does NOT sample the pool
-  yet — that is B4 — so B3 is behavior-preserving for episode outcomes.)_ → **B4** PFSP weighting `w(S)=max(ε,1−winRate)^k` + R
-  reserved baselines (seeded `mulberry32`) → **B5** throughput/decisive-rate re-probe on a
-  snapshot-heavy field → **then** lock the env-step budget → **B6** persistence
-  (`toJSON()/restore()`) + `SharedDiskStore` (with task E).
+  yet — that is B4 — so B3 is behavior-preserving for episode outcomes.)_ → **B4 ✅** PFSP weighting
+  **on**: non-empty-pool `draw(seed)` seeds a `mulberry32` (extracted to NEW `scripts/lib/mulberry32.mjs`,
+  re-exported from `ppo-probe-core.mjs`) and seats `count−R` snapshots by `w(S)=max(ε,1−winRate)^k`
+  (`ε=0.05`,`k=2`; cold-start `winRate=0`→max weight; ε-floor keeps total>0 so a mastered snapshot is
+  never starved) **with** replacement + `R=3` DISTINCT aggressive baselines (CSV ids minus `ai_bc`)
+  **without** replacement, then Fisher-Yates shuffles opponent→seat so neither group binds to fixed
+  turn-order seats. **Empty pool stays byte-identical to task A.** Env-server
+  `--reserve-baselines`/`--pfsp-epsilon`/`--pfsp-k`; `train_tracer`/`EnvServerProcess` forward them
+  (only with `--snapshot-dir`, since the knobs only bite a non-empty pool). _(B4 deviation from [D-23]:
+  `mulberry32` extracted to its own module instead of imported from `ppo-probe-core.mjs`, so the league
+  doesn't pull the benchmark tool/env runner into its module graph — probe-core re-exports it, so its
+  test is unchanged.)_ First live exercise on shodan at B5. → **B5** throughput/decisive-rate re-probe
+  on a snapshot-heavy field; re-validate `R` against the real `count` → **then** lock the env-step
+  budget → **B6** persistence (`toJSON()/restore()`) + `SharedDiskStore` (with task E).
 - [ ] **(C)** Scale envs across cores; add the short **from-scratch control** run ([D-19] decision 1).
 - [ ] **(D)** Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
       `F = γΦ(s′)−Φ(s)`, env-side in JS) only if terminal-only learning is too slow.

@@ -30,6 +30,7 @@ byte-identical to the warm-start, a useful sanity floor.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -81,6 +82,9 @@ def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
                 "seed_base": args.seed_base + env_index * 1_000_000,
                 "snapshot_manifest": snapshot_manifest,
                 "snapshot_pool_cap": args.snapshot_pool_cap,
+                "reserve_baselines": args.reserve_baselines,
+                "pfsp_epsilon": args.pfsp_epsilon,
+                "pfsp_k": args.pfsp_k,
             },
         )
 
@@ -260,6 +264,29 @@ def build_parser() -> argparse.ArgumentParser:
         default=40,
         help="Max snapshots the env-server league holds live (FIFO-by-step; forwarded).",
     )
+    # PFSP sampler knobs (B4 / [D-23]). Only bite with --snapshot-dir (a non-empty pool); forwarded
+    # to the env-server league's draw(). w(S) = max(eps, 1 - learnerWinRate(S)) ** k.
+    p.add_argument(
+        "--reserve-baselines",
+        type=int,
+        default=3,
+        help="R baselines reserved per drawn field (turtle-equilibrium defense; distinct non-ai_bc "
+        "ids, no-replacement). Only used with --snapshot-dir.",
+    )
+    p.add_argument(
+        "--pfsp-epsilon",
+        type=float,
+        default=0.05,
+        help="PFSP weight floor eps in (0, 1] for w(S)=max(eps,1-winRate)**k. Only used with "
+        "--snapshot-dir.",
+    )
+    p.add_argument(
+        "--pfsp-k",
+        type=float,
+        default=2.0,
+        help="PFSP weight exponent k (>= 0) for w(S)=max(eps,1-winRate)**k. Only used with "
+        "--snapshot-dir.",
+    )
     return p
 
 
@@ -274,6 +301,18 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--n-envs must be >= 1.")
     if not Path(args.checkpoint).is_file():
         raise SystemExit(f"--checkpoint not found: {args.checkpoint}")
+    # PFSP knobs (B4): validate UNCONDITIONALLY. In fixed-field mode (no --snapshot-dir) these
+    # knobs are NOT forwarded to the env-server — env_server.py only appends them on the snapshot
+    # branch — so Node never sees or validates the Python-supplied value. That makes THIS check the
+    # sole guard there; without it a bad value would be silently dropped (Node falls back to its own
+    # defaults). The bounds mirror the Node makeLeague guards so the two layers stay consistent when
+    # the knobs ARE forwarded; math.isfinite mirrors Number.isFinite so inf/nan fail here.
+    if args.reserve_baselines < 0:
+        raise SystemExit("--reserve-baselines must be >= 0.")
+    if not 0.0 < args.pfsp_epsilon <= 1.0:
+        raise SystemExit("--pfsp-epsilon must be in (0, 1].")
+    if not math.isfinite(args.pfsp_k) or args.pfsp_k < 0:
+        raise SystemExit("--pfsp-k must be a finite number >= 0.")
     if args.snapshot_dir is not None:
         if args.snapshot_every <= 0:
             raise SystemExit("--snapshot-every must be > 0 when --snapshot-dir is set.")

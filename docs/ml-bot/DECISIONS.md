@@ -1294,16 +1294,34 @@ mode-agnostic; C is where cross-worker aggregation becomes load-bearing (intertw
 backend). Task D (reward shaping) — orthogonal (env-side JS reward). Task E (`SubprocVecEnv` +
 checkpoint/resume) — must persist the league pool + book + counters (B6).
 
-**Status: In progress (B0–B3 shipped 2026-06-27).** B0 (PR #62 merged) · B1 (PR #64, empty-pool
+**Status: In progress (B0–B4 shipped 2026-06-27).** B0 (PR #62 merged) · B1 (PR #64, empty-pool
 parity) · B2 (per-seat `seatBeat[]` + win-rate book) · B3 (snapshot pipeline:
-`ml/dicewars_ppo/snapshot_callback.py` + league `refresh()` + the `--snapshot-*` flags). **B3
+`ml/dicewars_ppo/snapshot_callback.py` + league `refresh()` + the `--snapshot-*` flags) · B4 (PFSP
+sampling on in `draw()`). **B3
 deviations from this scope:** (a) `--snapshot-store` deferred to B6 with `SharedDiskStore` rather than
 shipping a dead flag now; (b) `--snapshot-pool-cap` added and forwarded through `EnvServerProcess`
 (the pool cap is the consumer-side setting that must reach the Node league — D-23's literal list only
 named `snapshot_manifest`/`snapshot_store`); (c) the producer `manifest.json` is append-only (entries
 are tiny; prune in B5/B6 if it matters); (d) `draw()` does NOT sample the pool until B4, so B3 is
-behavior-preserving. The Python producer is validated by `py_compile` + a monkeypatched pytest (no
-local torch/sb3); it gets its first live exercise on shodan at B4. **Next: B4** (PFSP weighting on).
+behavior-preserving. **B4 implementation notes.** Non-empty-pool `draw(seed)` seeds a `mulberry32`
+stream and fills `count` seats: `reserveCount = min(R, count, #distinctReserveBaselines)` aggressive
+baselines (CSV ids minus `ai_bc`) sampled WITHOUT replacement, then `count − reserveCount` snapshots
+sampled WITH replacement by `w(S) = max(ε, 1 − learnerWinRate(S))^k` (ε=0.05, k=2; cold-start
+`winRate=0` → weight 1 → sampled hardest; ε>0 floors every weight at ε^k>0 for sane k so a mastered
+snapshot is never starved — with a `total===0 → uniform` fallback for the pathological-k case where
+ε^k underflows to 0.0 in IEEE-754), then a Fisher-Yates shuffle of opponent→seat (same seeded stream)
+so neither group binds to fixed turn-order seats. Deterministic given (seed, pool, book). The PFSP
+knobs are validated UNCONDITIONALLY on both sides (Node `makeLeague` and Python `_validate_args`), and
+the reserve-pool build re-validates ids beyond the cycled `count` (which `resolveBaselineField` skips).
+Knobs are env-server flags `--reserve-baselines`/`--pfsp-epsilon`/`--pfsp-k`, forwarded by
+`train_tracer`/`EnvServerProcess` on the `--snapshot-dir` branch (they only bite a non-empty pool).
+**B4 deviation from this scope:** `mulberry32` was **extracted to NEW `scripts/lib/mulberry32.mjs`**
+(re-exported from `ppo-probe-core.mjs` so its test/consumers are unchanged) instead of imported from
+`ppo-probe-core.mjs` as the file manifest said — the league is a runtime lib and should not pull the
+throughput-benchmark tool (and, through it, the env runner) into its module graph just to borrow a PRNG.
+The Node sampler is unit-tested (`tests/ml/ppo-league-pfsp.test.js`) and the Python flag bridge by
+`ml/tests/test_env_server_argv.py`; it gets its first live exercise on shodan at B5. **Next: B5**
+(throughput/decisive-rate re-probe on a snapshot-heavy field; re-validate `R` against the real `count`).
 
 **Grounding.** 9-agent scoping workflow (4 code-readers mapping env-server / training-snapshot /
 match-stats / locked-decisions → 3 design decisions → synthesize + adversarial verify). One design

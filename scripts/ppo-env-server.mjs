@@ -20,6 +20,12 @@
  *   node scripts/ppo-env-server.mjs [--port=0] [--host=127.0.0.1] [--players=7]
  *        [--learner-seat=0] [--opponents=ai_bc,ai_lookahead] [--max-areas=<N>]
  *        [--max-turns=500] [--episodes=0] [--seed-base=1] [--decision-timeout-ms=120000]
+ *        [--snapshot-manifest=<path>] [--snapshot-pool-cap=40]
+ *        [--reserve-baselines=3] [--pfsp-epsilon=0.05] [--pfsp-k=2]
+ *
+ * The PFSP league flags (`--snapshot-*`, `--reserve-baselines`, `--pfsp-*`) only matter once a
+ * snapshot pool exists; without `--snapshot-manifest` the league runs in empty-pool fixed-field mode
+ * and `draw()` returns the cycled `--opponents` field unchanged (task A). See docs/ml-bot D-22/D-23.
  *
  * `--decision-timeout-ms` is the per-decision watchdog: if the learner sends no action within it,
  * the server aborts loud instead of parking forever (covers a hung learner or a hard worker death).
@@ -32,6 +38,7 @@
  */
 
 import { Worker } from 'node:worker_threads';
+import { pathToFileURL } from 'node:url';
 
 import { createBotState } from '../src/arena/botState.js';
 import { encodeObservationForInference } from '../src/arena/encodeObservation.js';
@@ -68,9 +75,18 @@ const KNOWN_FLAGS = new Set([
    */
   'snapshot-manifest',
   'snapshot-pool-cap',
+  /*
+   * PFSP sampler knobs (B4 / [D-23]). Their draw-time EFFECT needs a non-empty pool (i.e. alongside
+   * `--snapshot-manifest`), but the values are range-validated at launch regardless (makeLeague):
+   * `reserve-baselines` = R baselines reserved per game (turtle defense — distinct, non-`ai_bc`);
+   * `pfsp-epsilon`/`pfsp-k` parameterise the snapshot weight `w(S)=max(ε,1−winRate)^k`.
+   */
+  'reserve-baselines',
+  'pfsp-epsilon',
+  'pfsp-k',
 ]);
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const opts = {};
   for (const arg of argv) {
     const m = /^--([^=]+)=(.*)$/.exec(arg);
@@ -84,7 +100,7 @@ function parseArgs(argv) {
 }
 
 /** Parse a numeric flag, defaulting when absent and rejecting a non-finite value loudly. */
-function numArg(opts, key, fallback) {
+export function numArg(opts, key, fallback) {
   if (opts[key] === undefined) return fallback;
   const v = Number(opts[key]);
   if (!Number.isFinite(v)) throw new Error(`--${key}=${opts[key]} is not a finite number.`);
@@ -128,6 +144,9 @@ async function main() {
     learnerSeat,
     snapshotManifest: opts['snapshot-manifest'] ?? null,
     poolCap: numArg(opts, 'snapshot-pool-cap', 40),
+    reserveBaselines: numArg(opts, 'reserve-baselines', 3),
+    pfspEpsilon: numArg(opts, 'pfsp-epsilon', 0.05),
+    pfspK: numArg(opts, 'pfsp-k', 2),
   });
 
   const sab = new SharedArrayBuffer(8); // 2 × Int32
@@ -371,18 +390,19 @@ async function main() {
 
     /*
      * Emit the league health snapshot on the DONE line (the B5 throughput/decisive-rate re-probe
-     * reads this; it is the only window onto the otherwise-internal win-rate book until B4 wires it
-     * into `draw()`). `played` counts surfaced wire terminals; `decisiveGames` counts every booked
+     * reads this). `played` counts surfaced wire terminals; `decisiveGames` counts every booked
      * decisive episode INCLUDING zero-decision skips — so `episodes < decisiveGames` is the visible
      * signature of a zero-decision episode that was booked but surfaced no frame (the B2 reordering).
-     * env.py drains and drops this line (only the anchored LISTENING line is parsed), so appending
-     * fields is safe.
+     * `noSeatBeatGames` should be 0 — a nonzero value flags a placement-contract break that left the
+     * win-rate book under-credited (PFSP drifting toward uniform). env.py drains and drops this line
+     * (only the anchored LISTENING line is parsed), so appending fields is safe.
      */
     const s = league.stats();
     process.stdout.write(
       `PPO_ENV_SERVER DONE episodes=${played} decisiveGames=${s.decisiveGames} ` +
         `truncatedGames=${s.truncatedGames} decisiveRate=${s.decisiveRate.toFixed(4)} ` +
-        `poolSize=${s.poolSize} loadedSnapshots=${s.loadedSnapshots} bookSize=${s.bookSize}\n`
+        `poolSize=${s.poolSize} loadedSnapshots=${s.loadedSnapshots} bookSize=${s.bookSize} ` +
+        `noSeatBeatGames=${s.noSeatBeatGames}\n`
     );
   } finally {
     /*
@@ -414,7 +434,17 @@ async function shutdownWorker(worker) {
   await worker.terminate();
 }
 
-main().catch(err => {
-  process.stderr.write(`[ppo-env-server] fatal: ${err.stack || err.message}\n`);
-  process.exitCode = 1;
-});
+/*
+ * Run the server only when this file is the process entry point (the Python `EnvServerProcess`
+ * spawns it via `node scripts/ppo-env-server.mjs`). Guarding the launch lets a test `import` the
+ * module to exercise `parseArgs`/`numArg` — the Node side of the PFSP flag bridge — without spawning
+ * a Worker/socket. `pathToFileURL` normalises argv[1] so the compare is robust on every platform.
+ */
+const isEntryPoint =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isEntryPoint) {
+  main().catch(err => {
+    process.stderr.write(`[ppo-env-server] fatal: ${err.stack || err.message}\n`);
+    process.exitCode = 1;
+  });
+}

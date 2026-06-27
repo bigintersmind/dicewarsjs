@@ -17,26 +17,15 @@
  * @module scripts/lib/ppo-probe-core
  */
 
+import { mulberry32 } from './mulberry32.mjs';
 import { runSelfPlayEpisode } from './ppo-env.mjs';
 
-/**
- * Deterministic 32-bit PRNG (mulberry32). Used for the `random` learner so the probe is
- * reproducible (no `Math.random`, which would make the numEdges distribution machine- and
- * run-dependent).
- *
- * @param {number} seed
- * @returns {() => number} next double in [0, 1)
+/*
+ * `mulberry32` (the `random` learner's reproducible PRNG) moved to its own dependency-free module so
+ * the PFSP league can borrow it without importing this benchmark tool. Re-exported here so existing
+ * consumers (and the throughput-probe test) keep importing it from `ppo-probe-core.mjs` unchanged.
  */
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function next() {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+export { mulberry32 };
 
 /**
  * Build a synchronous stub action selector for the learner seat.

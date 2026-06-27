@@ -4,19 +4,25 @@
  * The env-server draws its per-episode opponent field from this league instead of a
  * static const. The league will own the opponent pool (built-in baselines + hot-loaded
  * self-play snapshots), a seeded sampler, and a per-opponent win-rate book — but step
- * **B1** ships only the empty-pool baselines (no snapshots, sampler, or win-rate book yet).
+ * built incrementally across steps **B1–B4** (see the build sequence at the bottom of this header).
  *
  * **Fixed-field (task A) is the empty-pool degenerate mode of this module:** with no
  * snapshots, `draw()` returns exactly the cycled baseline field the env-server used
  * before — content-identical (same names + fn refs), so task A's outcomes reproduce.
- * This file (step **B1**)
- * ships that empty-pool path plus a decisive/truncated telemetry tally; **step B2 adds the
- * per-opponent win-rate book** (`recordResult` crediting + `winRate(id)`); **step B3 adds the
- * snapshot pool + `refresh()`** — poll the producer's `manifest.json`, hot-load each new self-play
- * snapshot via `makeBC` (fresh filename per snapshot → ESM URL cache), FIFO-evict past `poolCap` and
- * GC the evicted `.js`. PFSP weighting (B4, samples the pool in `draw()`) and persistence (B6) extend
- * the same object. See docs/ml-bot/DECISIONS.md D-23 for the full B0–B6 build sequence (D-22 for the
- * league architecture + the win-rate-attribution decision).
+ *
+ * Build sequence (docs/ml-bot/DECISIONS.md D-23; D-22 for the league architecture + the win-rate-
+ * attribution decision):
+ *   - **B1** — the empty-pool path (== task A) plus a decisive/truncated telemetry tally.
+ *   - **B2** — the per-opponent win-rate book (`recordResult` pairwise crediting + `winRate(id)`).
+ *   - **B3** — the snapshot pool + `refresh()`: poll the producer's `manifest.json`, hot-load each
+ *     new self-play snapshot via `makeBC` (fresh filename per snapshot → ESM URL cache), FIFO-evict
+ *     past `poolCap`, GC the evicted `.js`. B3 only *loads* the pool — `draw()` does not seat it yet.
+ *   - **B4** — PFSP weighting **on**: when the pool is non-empty, `draw(seed)` seeds a `mulberry32`
+ *     sampler and seats `count − R` snapshots drawn by `w(S) = max(ε, 1 − learnerWinRate(S))^k`
+ *     (lower learner win-rate → higher weight) plus `R` reserved baselines (the [D-15]
+ *     turtle-equilibrium defense), then shuffles opponent→seat so neither group binds to fixed
+ *     turn-order seats. **Empty pool still returns the byte-identical task-A field** (fixed-field
+ *     stays the empty-pool mode of this one pipeline). Persistence (B6) extends the same object.
  *
  * @module scripts/lib/ppo-league
  */
@@ -28,6 +34,7 @@ import { pathToFileURL } from 'node:url';
 import { makeBC } from '../../src/ai/ai_bc.js';
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
 import { ENCODING_VERSION } from '../../src/arena/encodeObservation.js';
+import { mulberry32 } from './mulberry32.mjs';
 
 /*
  * `makeBC` (snapshot loader, B3) and `ENCODING_VERSION` (manifest compat gate) are imported
@@ -35,6 +42,15 @@ import { ENCODING_VERSION } from '../../src/arena/encodeObservation.js';
  * loaded eagerly via the `BUILT_IN_BOTS` import below (→ `ai_bc.js` → `bcPolicyWeights.js`), and
  * `ENCODING_VERSION` rides the far lighter `encodeObservation.js`.
  */
+
+/*
+ * A decisive game must carry a `seatBeat[]` (both shapers guarantee one for a decided placement). A
+ * single missing vector is tolerated and warned once; this many CUMULATIVELY means a persistent
+ * shaper/contract regression — `recordResult` then throws, because an uncredited win-rate book
+ * silently collapses B4's PFSP sampler to ~uniform (every snapshot stuck at cold-start weight) and
+ * would waste a whole multi-hour training run with no other loud signal.
+ */
+const MAX_NO_SEATBEAT_GAMES = 10;
 
 /** Split + trim the opponent id CSV, dropping blanks; throws if it resolves to nothing. */
 function parseIds(idCsv) {
@@ -74,9 +90,9 @@ export function resolveBaselineField(idCsv, count) {
 /**
  * Construct a league. Step **B1** ships the empty-pool path (== task A's fixed field) plus a
  * decisive/truncated telemetry tally; step **B2** adds the per-opponent win-rate book
- * (`recordResult` pairwise crediting + `winRate(id)`); later steps extend the returned object
- * (B3 `refresh`/`addSnapshot`, B4 PFSP `w(S)=max(ε,1−learnerWinRate(S))^k` weighting, B6
- * `toJSON`/`restore`).
+ * (`recordResult` pairwise crediting + `winRate(id)`); step **B3** adds the snapshot pool +
+ * `refresh()`; step **B4** turns PFSP weighting on in `draw()` (samples the pool by
+ * `w(S)=max(ε,1−learnerWinRate(S))^k` + R reserved baselines); B6 adds `toJSON`/`restore`.
  *
  * @param {object} opts
  * @param {string} opts.baselineCsv the resolved `--opponents` CSV. The trainer passes
@@ -96,7 +112,22 @@ export function resolveBaselineField(idCsv, count) {
  *   module registry retains every dynamic-`import()`ed snapshot module for the process lifetime (each
  *   fresh filename is a distinct, permanently-cached module), so resident weights grow with the total
  *   number of snapshots ever loaded, not `poolCap`. Modest at realistic cadences (~2 MB each); if a
- *   long run needs a hard memory bound, load weights without `import()` caching (B4/B5 concern).
+ *   long run needs a hard memory bound, load weights without `import()` caching (B5 concern).
+ * @param {number} [opts.reserveBaselines=3] **R** — baselines reserved in every drawn field while
+ *   the pool is non-empty (the [D-15] turtle-equilibrium defense). The reserve pool is the DISTINCT
+ *   baseline ids minus `ai_bc` (the STOP/turtle lineage is the ONLY excluded one — so the reserve set
+ *   can include a defensive bot such as `ai_defensive`, not just aggressive ones). Reserved seats are
+ *   sampled WITHOUT replacement, so at most `min(R, count, #distinctReserveBaselines)` seats are
+ *   reserved and the remainder go to PFSP snapshots ([D-23]). 0 disables reservation. Empty-pool mode
+ *   ignores it. With a snapshot manifest configured, a config that reserves ALL `count` seats (so no
+ *   snapshot could ever be drawn) is rejected at construction — see the dead-PFSP guard below.
+ * @param {number} [opts.pfspEpsilon=0.05] **ε** — the PFSP weight floor in `w(S)=max(ε,1−winRate)^k`.
+ *   Must be in (0, 1]: ε>0 floors every snapshot weight at ε^k > 0 (a fully-mastered snapshot is still
+ *   drawn occasionally) for any sane k. (At a pathological k, ε^k can underflow to 0.0 in floating
+ *   point; `draw()` then falls back to uniform sampling so the wheel still selects.) Empty pool ignores it.
+ * @param {number} [opts.pfspK=2] **k** — the PFSP weight exponent in `w(S)=max(ε,1−winRate)^k`.
+ *   Must be ≥ 0; higher k sharpens the bias toward snapshots that beat the learner (k=0 → uniform).
+ *   Empty-pool mode ignores it.
  * @returns {{draw: Function, recordResult: Function, winRate: Function, refresh: Function,
  *   stats: Function}}
  */
@@ -106,6 +137,9 @@ export function makeLeague({
   learnerSeat,
   snapshotManifest = null,
   poolCap = 40,
+  reserveBaselines = 3,
+  pfspEpsilon = 0.05,
+  pfspK = 2,
 }) {
   /*
    * Fail loud at construction — both inputs are in scope here, so a bad value is caught at the
@@ -125,7 +159,66 @@ export function makeLeague({
   if (!Number.isInteger(poolCap) || poolCap <= 0) {
     throw new Error(`makeLeague: poolCap must be a positive integer, got ${poolCap}.`);
   }
+  /*
+   * PFSP sampler knobs (B4). Validate at construction so a typo'd CLI flag fails the launch, not a
+   * mid-run draw: ε must be a positive fraction (ε>0 floors every weight at ε^k > 0 mathematically, so
+   * a mastered snapshot is not starved; ε≤1 since 1−winRate ∈ [0,1]); k must be a finite non-negative
+   * exponent; R a non-negative integer count of reserved seats. (At a pathological k, ε^k can still
+   * underflow to 0.0 in IEEE-754 — `draw()` guards that with a uniform fallback, see below.)
+   */
+  if (!Number.isFinite(pfspEpsilon) || pfspEpsilon <= 0 || pfspEpsilon > 1) {
+    throw new Error(`makeLeague: pfspEpsilon must be in (0, 1], got ${pfspEpsilon}.`);
+  }
+  if (!Number.isFinite(pfspK) || pfspK < 0) {
+    throw new Error(`makeLeague: pfspK must be a finite number >= 0, got ${pfspK}.`);
+  }
+  if (!Number.isInteger(reserveBaselines) || reserveBaselines < 0) {
+    throw new Error(
+      `makeLeague: reserveBaselines must be a non-negative integer, got ${reserveBaselines}.`
+    );
+  }
   const baselineField = resolveBaselineField(baselineCsv, count);
+
+  /*
+   * Reserve pool (B4): the DISTINCT baseline bots minus `ai_bc` (the STOP/turtle lineage — reserving
+   * it would defeat the [D-15] turtle defense it exists to counter). Derived from the full
+   * `baselineCsv`, NOT `baselineField`, so a CSV with more distinct ids than `count` still surfaces
+   * all of them (the count-length cycle would hide the tail). We must re-validate here: above,
+   * `resolveBaselineField` only checks the first `count` CYCLED positions (`ids[i % ids.length]`), so a
+   * typo'd id PAST position `count−1` slips through it and would otherwise crash this `.map` with a
+   * cryptic `undefined.name`. Guard with the same clear message. Bare bot name (the `@i` disambiguator
+   * is appended per draw, mirroring the baseline field). When this is empty (e.g. the env-server bare
+   * default `--opponents=ai_bc`), `draw()` reserves nothing and all seats go to PFSP.
+   */
+  const reserveById = new Map(BUILT_IN_BOTS.map(b => [b.id, b]));
+  const reserveBaselinePool = [...new Set(parseIds(baselineCsv))]
+    .filter(id => id !== 'ai_bc')
+    .map(id => {
+      const bot = reserveById.get(id);
+      if (!bot) {
+        throw new Error(
+          `Unknown opponent bot id "${id}". Known: ${[...reserveById.keys()].join(', ')}.`
+        );
+      }
+      return { id, name: bot.name, fn: bot.fn };
+    });
+  Object.freeze(reserveBaselinePool);
+  /*
+   * Dead-PFSP guard (B4): `draw()` computes `pfspCount = count − min(R, count, #reserveBaselinePool)`,
+   * so when the reserve baselines alone fill every seat (`min(R, #reserveBaselinePool) >= count`) it
+   * seats ZERO snapshots — PFSP is silently a no-op even with a fully-loaded pool. That is only ever a
+   * misconfiguration when a manifest is configured (the operator clearly intends PFSP), and it is
+   * decidable here at construction (the condition is independent of pool contents). Fail the launch
+   * with an actionable message rather than burn a multi-hour run training against baselines only.
+   * Empty-pool fixed-field mode (no manifest) never seats snapshots anyway, so it is exempt.
+   */
+  if (snapshotManifest && Math.min(reserveBaselines, reserveBaselinePool.length) >= count) {
+    throw new Error(
+      `makeLeague: reserveBaselines=${reserveBaselines} with ${reserveBaselinePool.length} distinct ` +
+        `reserve baseline(s) fills all ${count} opponent seat(s), so draw() can never seat a PFSP ` +
+        `snapshot despite a configured snapshot manifest. Lower reserveBaselines or raise the player count.`
+    );
+  }
   /*
    * `draw()` hands out this same array reference every episode, so freeze it (and its entries):
    * a future in-place reorder/mutation throws loudly under ESM strict mode instead of silently
@@ -147,6 +240,13 @@ export function makeLeague({
   const book = new Map();
   // One-shot guard so a broken-contract decisive game (no seatBeat[]) warns once, not per-episode.
   let warnedNoSeatBeat = false;
+  /*
+   * Cumulative count of decisive games that arrived without a `seatBeat[]`. One-off is tolerated
+   * (warn-once above); past `MAX_NO_SEATBEAT_GAMES` it is a persistent contract break that has left
+   * the win-rate book uncredited — `recordResult` throws so PFSP can't quietly run on a ~uniform book.
+   * Surfaced on `stats()` for the DONE-line health window; should always read 0 on a healthy run.
+   */
+  let noSeatBeatGames = 0;
 
   /*
    * Snapshot pool (B3): hot-loaded self-play snapshots the trainer published, FIFO-capped at
@@ -167,19 +267,112 @@ export function makeLeague({
    */
   const seatOf = k => (k < learnerSeat ? k : k + 1);
 
+  /*
+   * The LEARNER's win-rate against opponent `id` — the B2 book read shared by the public `winRate()`
+   * method and B4's PFSP sampler. Unseen / zero-game id → 0 (cold-start ⇒ max PFSP weight; an
+   * opponent the learner has never beaten and one it has never met are deliberately indistinguishable,
+   * both prioritised). Defined as a closure (not via the returned method) so `draw()` can read it
+   * without an extra object hop.
+   */
+  const learnerWinRate = id => {
+    const rec = book.get(id);
+    return rec && rec.games > 0 ? rec.wins / rec.games : 0;
+  };
+
+  /*
+   * Roulette-wheel pick from `items` with parallel non-negative `weights` summing to `total > 0`,
+   * consuming one `rng()` draw. The caller precomputes weights/total once per draw (they are constant
+   * within a draw) and samples WITH replacement, so a small pool can still fill every PFSP seat. The
+   * trailing return covers the float-rounding corner where `r` never quite goes negative.
+   */
+  const sampleByWeight = (rng, items, weights, total) => {
+    let r = rng() * total;
+    for (let i = 0; i < items.length; i++) {
+      r -= weights[i];
+      if (r < 0) return items[i];
+    }
+    return items[items.length - 1];
+  };
+
   return {
     /*
-     * Draw the per-episode opponent field. B1: the pool is empty, so this is the cycled baseline
-     * field — identical for every seed (the episode outcome depends on the ordered fns × the seed,
-     * which the env-server passes to `runSelfPlayEpisode` separately). B4 adds snapshot seats
-     * sampled by `w(S) = max(ε, 1 - learnerWinRate(S))^k`, reserving R aggressive baselines per game.
+     * Draw the per-episode opponent field (length `count`, opponents/drawn index-parallel).
+     *
+     * **Empty pool → byte-identical task-A field.** With no snapshots this returns the cycled
+     * baseline field, seed-invariant (the episode outcome depends on the ordered fns × the seed, which
+     * the env-server passes to `runSelfPlayEpisode` separately). This is the load-bearing fixed-field
+     * parity guarantee — it must stay identical to B1/B2/B3.
+     *
+     * **Non-empty pool → PFSP (B4).** Seed a `mulberry32(seed)` stream and fill `count` seats with:
+     *   1. up to `min(R, count, #reserveBaselinePool)` reserved baselines, sampled WITHOUT
+     *      replacement (distinct non-`ai_bc` opponents — the [D-15] turtle defense), then
+     *   2. the remaining seats with snapshots sampled WITH replacement by
+     *      `w(S) = max(ε, 1 − learnerWinRate(S))^k` (lower learner win-rate → higher weight).
+     * The combined field is then Fisher-Yates shuffled (same rng stream) so the reserve/PFSP split
+     * does not bind to fixed board seats — i.e. snapshots don't systematically inherit the early
+     * (first-to-move) seats. Deterministic given (seed, current pool, current win-rate book).
      */
     draw(seed) {
-      void seed; // unused until B4 (empty-pool draw is deterministic); kept for API stability.
-      return {
-        opponents: baselineField,
-        drawn: baselineField.map((bot, i) => ({ id: bot.id, kind: 'baseline', seat: seatOf(i) })),
-      };
+      if (pool.length === 0) {
+        return {
+          opponents: baselineField,
+          drawn: baselineField.map((bot, i) => ({ id: bot.id, kind: 'baseline', seat: seatOf(i) })),
+        };
+      }
+
+      const rng = mulberry32(seed >>> 0);
+      const field = []; // { id, kind, name, fn } entries, length `count`
+
+      // (1) Reserved baselines (distinct, non-ai_bc) — at most as many distinct ones as exist, no replacement.
+      const reserveCount = Math.min(reserveBaselines, count, reserveBaselinePool.length);
+      const reservePick = reserveBaselinePool.slice();
+      for (let i = 0; i < reserveCount; i++) {
+        const j = i + Math.floor(rng() * (reservePick.length - i)); // partial Fisher-Yates
+        const picked = reservePick[j];
+        reservePick[j] = reservePick[i];
+        reservePick[i] = picked;
+        field.push({ id: picked.id, kind: 'baseline', name: picked.name, fn: picked.fn });
+      }
+
+      /*
+       * (2) PFSP snapshots — weighted by w(S), with replacement. Weights are constant within a draw,
+       * so compute them once. ε>0 floors each weight at ε^k, which is > 0 for any sane k — but at a
+       * pathological k (large enough that ε^k underflows to 0.0 in IEEE-754) AND an all-mastered pool,
+       * every weight can collapse to 0. Fall back to UNIFORM there so the wheel still selects
+       * meaningfully (and deterministically) instead of always degenerating to the last entry.
+       */
+      const pfspCount = count - reserveCount;
+      if (pfspCount > 0) {
+        const weights = pool.map(s =>
+          Math.pow(Math.max(pfspEpsilon, 1 - learnerWinRate(s.id)), pfspK)
+        );
+        let total = 0;
+        for (const w of weights) total += w;
+        if (total === 0) {
+          weights.fill(1);
+          total = pool.length;
+        }
+        for (let i = 0; i < pfspCount; i++) {
+          const snap = sampleByWeight(rng, pool, weights, total);
+          field.push({ id: snap.id, kind: 'snapshot', name: snap.id, fn: snap.fn });
+        }
+      }
+
+      // Shuffle opponent→seat so neither group binds to fixed turn-order seats (still seeded).
+      for (let i = field.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        const tmp = field[i];
+        field[i] = field[j];
+        field[j] = tmp;
+      }
+
+      /*
+       * `@i` disambiguates duplicates (a snapshot/baseline drawn for multiple seats) for runMatch's
+       * unique-name rule, matching the baseline field convention. `drawn[i]` describes `opponents[i]`.
+       */
+      const opponents = field.map((e, i) => ({ id: e.id, name: `${e.name}@${i}`, fn: e.fn }));
+      const drawn = field.map((e, i) => ({ id: e.id, kind: e.kind, seat: seatOf(i) }));
+      return { opponents, drawn };
     },
 
     /*
@@ -203,13 +396,23 @@ export function makeLeague({
          * Both shapers always return a seatBeat[] for a decisive game (ppo-env.mjs), so a missing one
          * means an upstream shaper/contract break. Don't crash a long training run over a single bad
          * outcome — but don't let it silently empty the book either (the failure mode that would make
-         * B4's PFSP sampler quietly collapse to ~uniform). Warn ONCE so the regression is visible.
+         * B4's PFSP sampler quietly collapse to ~uniform). Warn ONCE so the regression is visible, and
+         * fail loud once it is clearly PERSISTENT (past MAX_NO_SEATBEAT_GAMES): a run that never credits
+         * the book is training against an effectively uniform sampler and should stop, not spin on.
          */
+        noSeatBeatGames++;
         if (!warnedNoSeatBeat) {
           warnedNoSeatBeat = true;
           process.stderr.write(
             '[ppo-league] decisive game had no seatBeat[] — win-rate book not credited; check the ' +
               'runSelfPlayEpisode/runMatch placement contract.\n'
+          );
+        }
+        if (noSeatBeatGames >= MAX_NO_SEATBEAT_GAMES) {
+          throw new Error(
+            `ppo-league.recordResult: ${noSeatBeatGames} decisive games had no seatBeat[] — the ` +
+              `win-rate book is not being credited and B4's PFSP sampler has collapsed to uniform. ` +
+              `Fix the runSelfPlayEpisode/runMatch placement contract.`
           );
         }
         return;
@@ -244,8 +447,7 @@ export function makeLeague({
      * game", which is intentional: both should be prioritised by the sampler.
      */
     winRate(id) {
-      const rec = book.get(id);
-      return rec && rec.games > 0 ? rec.wins / rec.games : 0;
+      return learnerWinRate(id);
     },
 
     /**
@@ -327,10 +529,12 @@ export function makeLeague({
 
     /**
      * League health snapshot. The env-server emits this on its `PPO_ENV_SERVER DONE` line (the B5
-     * throughput/decisive-rate re-probe reads it; until B4 wires the book into `draw()` it is the
-     * only external window onto the win-rate book). `decisiveGames` counts every booked decisive
-     * episode incl. zero-decision skips, so `decisiveGames > <wire terminals>` evidences the B2
-     * "book before the zero-decision wire gate" reordering.
+     * throughput/decisive-rate re-probe reads it). `winRate(id)` and `draw()` (which now samples the
+     * book for PFSP weighting, B4) are the other windows onto the win-rate book. `decisiveGames`
+     * counts every booked decisive episode incl. zero-decision skips, so `decisiveGames > <wire
+     * terminals>` evidences the B2 "book before the zero-decision wire gate" reordering.
+     * `noSeatBeatGames` should read 0 on a healthy run — a nonzero value means decisive games whose
+     * placement contract broke (book under-credited; PFSP drifting toward uniform).
      */
     stats() {
       const total = decisiveGames + truncatedGames;
@@ -341,6 +545,7 @@ export function makeLeague({
         decisiveGames,
         truncatedGames,
         decisiveRate: total > 0 ? decisiveGames / total : 0,
+        noSeatBeatGames,
       };
     },
   };

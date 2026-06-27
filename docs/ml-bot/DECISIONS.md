@@ -1173,3 +1173,129 @@ day 2–3 (empty pool = tracer field, no snapshot callback needed yet). Groundin
 needs no new code, but its _defaults_ are tracer-low (won't learn) and it has **no checkpoint/resume,
 no TensorBoard/CSV, and uses `DummyVecEnv`** (sequential) — fine for a bounded diagnostic, but the
 durable **shodan training-ops** task (PLAN Phase-3 scaling) is the prerequisite for the long BEAT run.
+
+---
+
+## D-23 — Task B build scope: the PFSP opponent league (Node-resident) · Proposed (2026-06-27) · follows [D-22](#d-22--pfsp-league-is-node-resident-build-one-league-pipeline-and-run-fixed-field-as-its-empty-pool-mode-cheap-does-ppo-learn-gate-first--accepted-2026-06-26) · **hard prerequisite: PR #62**
+
+**Context.** The fixed-field 1M run passed the headline gate (PR #63, paired **Δ +33.4 pp** vs
+`ai_lookahead` — first BEAT), which per [D-22]'s material-gain branch green-lights Task B: a
+**Prioritised Fictitious Self-Play (PFSP)** opponent league so the learner trains against an
+ever-growing pool of _its own past snapshots_, weighted toward the ones that beat it, instead of a
+static field it can overfit over the long horizon ([D-19]). Scoped via a 9-agent workflow (4
+code-readers → 3 design takes → synthesize + adversarial verify; verdict "mostly-sound" — the
+corrections below are folded in). The league is **Node-resident** ([D-22], forced by the i32-only
+wire). Task B is one behavioral change: replace the loop-invariant `opponents` const in
+`scripts/ppo-env-server.mjs` with a per-episode `league.draw(seed)`. **Fixed-field (Task A, shipped)
+is the empty-pool degenerate mode of this same pipeline** — A and B share all draw/record/refresh
+code.
+
+**File manifest.**
+
+- NEW `scripts/lib/ppo-league.mjs` — pool + seeded `mulberry32` sampler + win-rate book + R reserved
+  baselines. (imports `mulberry32` from `ppo-probe-core.mjs:30`, `makeBC` from `ai_bc.js:67`,
+  `BUILT_IN_BOTS`.)
+- NEW `scripts/lib/ppo-league-store.mjs` — pluggable win-rate backend: `InMemoryStore` (default,
+  per-worker) + `SharedDiskStore` (opt-in, lands with Task E).
+- NEW `ml/dicewars_ppo/snapshot_callback.py` — `SnapshotCallback(BaseCallback)`: periodic repack →
+  `export_weights(..., fixture_path=None)` → atomic `manifest.json`.
+- MOD `scripts/ppo-env-server.mjs`: `:127` const → `makeLeague(...)`; loop-top `league.refresh()`;
+  `:259` draw `league.draw(seed)`; post-episode `league.recordResult(drawn, result)` (inside PR
+  #62's per-episode decision-count gate); `KNOWN_FLAGS` (`:52-63`) gains
+  `snapshot-manifest`/`snapshot-store`.
+- MOD `scripts/lib/ppo-env.mjs`: add a per-seat `seatBeat[]` vector to BOTH `summarizeOutcome`
+  (`:259`) and `eliminationOutcome` (`:299`); thread a `coElimSeats` Set out of `guardedOnTurn`
+  (`:209-230`, which already iterates the same-turn co-eliminations for `abortCoElimAbove`).
+- MOD `ml/dicewars_ppo/train_tracer.py:150`: attach `SnapshotCallback`; add `--snapshot-dir` /
+  `--snapshot-every` / `--snapshot-pool-cap` to `build_parser`.
+- MOD `ml/dicewars_ppo/env_server.py`: **extend the `EnvServerProcess.__init__` signature (`:72-90`,
+  keyword-only, no `**kwargs`)** for `snapshot*manifest`/`snapshot_store` AND forward them in the
+argv builder (`:104-118`) — *[verifier correction: a new kwarg cannot flow opaquely through_
+  `DiceWarsEnv` → `EnvServerProcess(**server_kwargs)` _without the param existing, so it would
+  `TypeError`; `env.py` itself needs no change].\_
+
+**League API (`makeLeague`).** `draw(seed) → {opponents:{name,fn}[], drawn:{id,kind,seat}[]}` (both
+length `count`, index-parallel; empty-pool branch returns `resolveOpponents(csv, count)` verbatim →
+byte-identical to Task A, since outcome depends only on seed × ordered fns); `recordResult(drawn,
+result)`; `refresh()` (poll manifest, hot-load new snapshots via `makeBC({policy})` with a **fresh
+filename per snapshot** — ESM caches by URL); `addSnapshot`; `winRate(id)`; `stats()` (the [D-22]
+decisive-rate health metric); `toJSON()/restore()` (Task-E checkpoint/resume). **`baselines` are
+threaded from the resolved `opts.opponents` (the trainer passes `DEFAULT_OPPONENTS`), NOT a hardcoded
+default inside `makeLeague`** — the env-server's own bare default is `ai_bc` (a single cycled bot),
+so empty-pool == fixed-field parity holds per-launch only when the resolved csv is used _[verifier
+correction]._
+
+**Win-rate attribution** (the [D-22] "real work item"). Book = `Map<id,{wins,games}>` keyed by stable
+opponent id (snapshot id / baseline id), **never** the `uniquifyNames` `#N` display name. Strict
+**pairwise placement-relative** (exactly `elo.js:56-67` restricted to learner-containing pairs); one
+FFA game with `m` snapshot seats → `m` independent records. The one code extension is a per-seat
+`seatBeat[]` on both outcome shapers so the league reads it path-agnostically: the full-game path
+compares `placements`; the early-elimination path (the common one under `terminateOnElimination:true`,
+`placements===null`) derives it from `players[s].eliminated` + the same-turn `coElimSeats` seat-id
+tie-break, **preserving the ~2× throughput win** instead of paying for full `placements`.
+`recordResult` EXCLUDES `result.truncated` (maxTurns stalemate) entirely — counting stalemates as
+losses would bias the sampler back toward turtle fields.
+
+**Snapshot pipeline + stats locality.** Producer: `SnapshotCallback._on_step()` every N steps →
+`repack_to_bc_checkpoint` (`policy.py:261`) → `export(tmp.pt, snap-<step>.weights.js,
+fixture_path=None)` → atomic publish (weights fsynced **first**, then `os.replace(manifest.tmp,
+manifest.json)`; schema `{encodingVersion:2, snapshots:[{id,step,weights,createdAt}], latestStep}` —
+a NEW manifest, distinct from the BC-corpus `manifest.py` one). Consumer: Node `refresh()` diffs the
+manifest and `makeBC`s each new id (NOT `loadExportedPolicy` — that mandates the absent parity
+fixture; `makeBC` needs only weights + matching `encodingVersion`/`maxAreas`). **Frozen invariant:
+`ENCODING_VERSION = 2` for the whole run** (`makeBC` hard-throws on skew → a mid-run bump makes pooled
+snapshots _unloadable_, not gracefully degraded). **Stats locality (chosen): ship the pluggable
+`store` now, default `InMemoryStore` (per-worker); land `SharedDiskStore` with Task E** when
+`SubprocVecEnv` makes per-worker books noisy ([D-22] leans shared-disk-global; the interface makes it
+a one-line swap). **Disk retention: GC the evicted snapshots' `.js` files** — `poolCap` bounds the
+in-memory pool only, and the mandatory fresh-filename guarantees unbounded disk growth otherwise
+_[verifier correction]._
+
+**Sampler params (chosen defaults — all CLI knobs).** `w(S)=max(ε,1−winRate(S))^k`; `ε=0.05`, `k=2`,
+`poolCap=40` (FIFO-by-step eviction — keeps the most recent/hardest snapshots; FIFO avoids the
+catastrophic-forgetting risk of "evict most-mastered"), cold-start `winRate=0` (a new snapshot gets
+max weight → sampled hardest first). **Reserve `R=3` aggressive baselines every game** (the [D-15]
+turtle-equilibrium defense; reserve set = baselines minus `ai_bc`, the STOP/turtle lineage).
+**`count = playerCount − 1 = 6` at the default `playerCount = 7`** (NB the env trains 7-FFA while the
+gate evaluates 8-FFA), so R=3 leaves **3** PFSP seats _[verifier correction — the synthesis's "4 PFSP
+seats / count=7" was off by one]._ `R` must be re-validated against the real `count` on a
+snapshot-heavy field (B5).
+
+**Build sequence (incremental, individually testable).**
+
+- **B0 — merge/rebase PR #62 first** (hard prerequisite, below) + add the CLI flags + document the
+  `ENCODING_VERSION=2` run-invariant. No behavior change.
+- **B1 — empty-pool league == Task A** (the parity milestone): `makeLeague` + `draw` empty-pool branch
+  wired at `:127`/`:259`; `recordResult` telemetry-only. **Acceptance: byte-identical rosters/outcomes
+  to the current fixed field** (same seeds → same field → same `placements`/`won`).
+- **B2 — `seatBeat[]` + win-rate book** (both shapers, `coElimSeats` threaded; truncations excluded).
+- **B3 — snapshot pipeline** (callback → repack → `export(..., fixture_path=None)` → atomic manifest;
+  Node hot-load via `makeBC`, fresh filename).
+- **B4 — PFSP weighting on** (`w(S)` + R reservation; seeded-deterministic, weight-monotone in
+  `1−winRate`, empty-pool fallback).
+- **B5 — throughput / decisive-rate re-probe** (snapshot-heavy field via `league.stats()` / the
+  throughput probe; BC-forward seats cost ~0.8 ms/move vs ~0.02–0.4 ms heuristic — [D-20]); tune
+  `R`/cadence, **THEN lock the env-step budget** (the [D-22] gate).
+- **B6 — persistence + `SharedDiskStore`** (`toJSON()/restore()`; with Task E).
+
+**Open questions (for Ivan).** (1) **stats locality** — confirm shared-disk-global is wanted for Task
+E, or accept noisier per-worker. (2) **zero-decision episodes (PR #62 interaction)** — skipped for PPO
+(no transition) but a real, decisive placement loss; **recommend recording it for win-rate** (it
+correctly up-weights a field that crushes the learner fast — exactly what PFSP wants), but it's a
+genuine policy call, and the `recordResult` call must sit where it can see the skip flag. (3) sampler
+HPs are reasoned, not tuned. (4) snapshot cadence `N` coupled with `R` in the B5 re-probe.
+
+**Dependencies.** **PR #62 (`fix(ml): skip zero-decision episodes`, `5a665ff`) is a HARD, currently
+OPEN prerequisite** — it touches the exact episode loop Task B modifies, and the zero-decision skip
+interacts with `recordResult` attribution; **merge or rebase it first (= B0).** Task A (shipped) —
+empty-pool reproduces it. Task C (from-scratch control + cross-core) — the snapshot callback is
+mode-agnostic; C is where cross-worker aggregation becomes load-bearing (intertwined with the `store`
+backend). Task D (reward shaping) — orthogonal (env-side JS reward). Task E (`SubprocVecEnv` +
+checkpoint/resume) — must persist the league pool + book + counters (B6).
+
+**Status: Proposed.** Implementation pending Ivan's go + the PR #62 merge.
+
+**Grounding.** 9-agent scoping workflow (4 code-readers mapping env-server / training-snapshot /
+match-stats / locked-decisions → 3 design decisions → synthesize + adversarial verify). One design
+agent (stats-locality) hit the structured-output retry cap; the synthesizer reconstructed that piece
+from the maps, and the verifier confirmed it against the code.

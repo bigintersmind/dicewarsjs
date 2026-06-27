@@ -652,22 +652,42 @@ per-run Δwin% vs `ai_lookahead@596f781`** — the valid signal (absolute win% i
 chance baseline is 12.5% in an 8-way FFA, with Strategist + Expectimax also strong). Both rows:
 default config, **3040 games** (20 runs × 19 seeds × 8 seat rotations), judged on **win%, not ELO**.
 
-| Candidate (gate)                               | Cand win% (95% CI) | Lookahead win% | Paired Δ (cand − bar)       | Verdict   |
-| ---------------------------------------------- | ------------------ | -------------- | --------------------------- | --------- |
-| **BC v2 anchor** (`bcPolicyWeights.js`)        | 12.4 ± 1.4         | 16.1 ± 1.4     | **−3.7 ± 2.4 [−6.1, −1.3]** | ❌ BEHIND |
-| **PPO tracer** (`ppo-tracer`, 2048 steps, #61) | 11.5 ± 1.3         | 15.1 ± 1.1     | **−3.6 ± 1.7 [−5.3, −1.9]** | ❌ BEHIND |
+| Candidate (gate)                                     | Cand win% (95% CI) | Lookahead win% | Paired Δ (cand − bar)        | Verdict     |
+| ---------------------------------------------------- | ------------------ | -------------- | ---------------------------- | ----------- |
+| **BC v2 anchor** (`bcPolicyWeights.js`)              | 12.4 ± 1.4         | 16.1 ± 1.4     | **−3.7 ± 2.4 [−6.1, −1.3]**  | ❌ BEHIND   |
+| **PPO tracer** (`ppo-tracer`, 2048 steps, #61)       | 11.5 ± 1.3         | 15.1 ± 1.1     | **−3.6 ± 1.7 [−5.3, −1.9]**  | ❌ BEHIND   |
+| **PPO fixed-field 1M** (task A, `feat/…-1M-weights`) | 45.2 ± 2.0         | 11.8 ± 0.7     | **+33.4 ± 2.4 [31.0, 35.8]** | ✅ **BEAT** |
 
 **Takeaway.** BC anchor (−3.7) ≈ PPO tracer (−3.6) — **statistically identical**. The 2048-step
 tracer did **not** learn past the BC warm-start (exactly the loop-closer expectation). So the
 clean Phase-3 baseline any real run must beat is **Δ ≈ −3.7 pp** (BC level). The earlier −8.8 in
 the LOG was a noisier smaller validation run; −3.7 is the canonical-config number.
 
-**In flight (2026-06-26).** First fixed-field scaling diagnostic ([D-22] task A): `train_tracer`
-warm-started from v2-BC, fixed heterogeneous field, learning-enabled HPs (`lr 2.5e-4`,
-`ent_coef 0.01`, 1M steps), on `shodan`. **Measured throughput ~72 fps** (real policy +
-`ai_lookahead`-heavy field, single-threaded `DummyVecEnv`) → ~3.85 h for 1M; the probe's 644/s
-used a stub learner. Result + the export→`ppo:gate` Δ to follow. A material move above −3.7 →
-PPO learns past BC → green-light the PFSP league ([D-22] task B); flat → plateau signal (and
-motivates [D-22] task E: `SubprocVecEnv` parallel envs + a longer run before concluding).
+**Resolved 2026-06-27 — task A PASSED, the first real Phase-3 learning signal.** The fixed-field
+scaling diagnostic ([D-22] task A: `train_tracer` warm-started from v2-BC, fixed heterogeneous
+field `ai_lookahead,ai_strategist,ai_expectimax,ai_bc,ai_defensive`, learning-enabled HPs
+`lr 2.5e-4`/`ent_coef 0.01`, 1M steps, `seed 0`) completed clean on `shodan` (`TRAIN_EXIT=0`,
+489 iters / 1.001M steps, ~4 h, flat memory; launched via the teardown-immune **schtasks** `ppoff`
+task — see LOG). Export (`ppo:export` recipe, `--ckpt checkpoints/ppo-fixedfield-1M.pt`) →
+`npm run ppo:gate` (3040 seat-fair games, parity 1.2e-5): **PPO 45.2 ± 2.0%** vs Lookahead
+**11.8 ± 0.7%**, **paired Δ +33.4 ± 2.4 [31.0, 35.8] → ✅ BEAT** (STOP 48.7%, atk-win 65.6%). A
+~37-pt swing off the −3.7 BC-anchor baseline → **the D-7 headline BEAT gate is met**, and the binary
+task-A question (does PPO move past the BC ceiling at all?) is answered emphatically-yes.
+
+**Caveat — read this as "dominates the field it trained on," not yet "robustly general."** 4 of the
+7 gate opponents (including all three strong ones — Lookahead/Strategist/Expectimax) were training
+opponents, so the dominance is partly fixed-field _exploitation_; it also beats the 3 genuinely
+held-out bots (Example/Default/Adaptive → partial generalization). That overfitting gap is exactly
+what task B (PFSP league) is built to close. **Per [D-22]'s material-gain branch → green-light task
+B.** Corroboration: training-log `explained_variance` held healthy (~0.68–0.88); there's no
+`ep_rew_mean` (no SB3 Monitor wrapper), so the like-for-like gate Δ itself (same pipeline/gate,
+tracer −3.7 → 1M +33.4) is the learning evidence. Weights on PR branch
+`feat/ml-ppo-fixedfield-1M-weights` (off master, sha256-verified `1a754eef…`); checkpoint on shodan
+`~/dicewarsjs/ml/checkpoints/ppo-fixedfield-1M.pt`.
+
+**Repro:** on shodan, `cd ml && .venv/bin/python -m dicewars_bc.export_weights --ckpt
+checkpoints/ppo-fixedfield-1M.pt --out ../src/ai/ppoPolicyWeights.js --fixture
+../tests/fixtures/bc/ppoForwardCases.json`; then on the Mac `npm run ppo:gate` (default weights =
+`ppoPolicyWeights.js`).
 
 **Repro:** BC anchor — `npm run ppo:gate -- --weights src/ai/bcPolicyWeights.js --fixture tests/fixtures/bc/forwardCases.json --name BCanchor`; PPO — `npm run ppo:gate` (default weights = `ppoPolicyWeights.js`).

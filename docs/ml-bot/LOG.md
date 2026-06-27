@@ -21,6 +21,56 @@ Entry template:
 
 ---
 
+## 2026-06-27 — Task A PASSED: fixed-field 1M PPO BEATS the gate (Δ +33.4)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Launched the fixed-field 1M diagnostic ([D-22] task A) durably via a Windows Scheduled Task**
+  (`schtasks /create /tn ppoff /tr "wsl bash …/ppo-fixedfield-task.sh" …; schtasks /run /tn ppoff`)
+  — the only WSL-teardown-immune launch. Prior tmux/setsid attempts died inside the 15–25 min
+  distro-teardown window; the scheduled task cleared it and ran ~4 h to **`TRAIN_EXIT=0` (489 iters
+  / 1.001M steps, flat memory)**. The desync fix (PR #62) was present in the running code (verified
+  by `decisionsThisEpisode` grep).
+- **Exported on shodan** (`export_weights --ckpt checkpoints/ppo-fixedfield-1M.pt`), pulled
+  `ppoPolicyWeights.js` + `ppoForwardCases.json` to the Mac over the base64 ssh channel,
+  **sha256-verified byte-identical** (`1a754eef…`).
+- **`npm run ppo:gate` (3040 seat-fair games, parity 1.2e-5): PPO 45.2 ± 2.0% vs Lookahead
+  11.8 ± 0.7%, paired Δ +33.4 ± 2.4 [31.0, 35.8] → ✅ BEAT** (STOP 48.7%, atk-win 65.6%).
+- Moved the weights to a clean PR branch `feat/ml-ppo-fixedfield-1M-weights` off origin/master (NOT
+  entangled with the PR #62 infra fix). Updated RESULTS / PLAN / DECISIONS + the ml-bot memory.
+
+**Learned / decided:**
+
+- **The D-7 headline BEAT gate is met — first time.** A ~37-pt swing off the −3.7 BC-anchor
+  baseline; PPO unambiguously learned past the BC clone on a like-for-like basis (same pipeline /
+  gate, tracer −3.6 → 1M +33.4). Task A's binary question ("does PPO move past the BC ceiling at
+  all?") is answered emphatically-yes.
+- **Caveat that shapes task B:** trained against `DEFAULT_OPPONENTS`
+  (lookahead/strategist/expectimax/bc/defensive) — 4 of the 7 gate opponents (incl. all 3 strong)
+  were training opponents → partly fixed-field _exploitation_; it also beats the 3 held-out bots
+  (example/default/adaptive) → partial generalization. Not yet "robustly general."
+- **Per [D-22]'s material-gain branch → green-light task B (PFSP league).** Started scoping it.
+
+**Dead ends / surprises:**
+
+- schtasks issued from the PowerShell `ssh shodan` lands in creates a **Task-Scheduler-owned**
+  job that's session-independent — so the launch needn't happen physically on shodan; it survives
+  the very teardown that killed the SSH-detached runs. (Re-confirms the [[infra_shodan_gpu_pc]]
+  gotcha — but proven this time end-to-end across a 4 h run.)
+- No `ep_rew_mean` in the SB3 log (no Monitor wrapper) — the gate Δ is the learning signal;
+  `explained_variance` (~0.68–0.88) corroborated a healthy value head.
+
+**Next:**
+
+- Open the weights PR; land the task-B scope (DECISIONS D-23 / expanded PLAN bullet) once the
+  scoping workflow returns.
+- Implement task B (PFSP league): `scripts/lib/ppo-league.mjs` + SB3 snapshot callback + win-rate
+  attribution, with fixed-field as the empty-pool degenerate mode (shared pipeline with task A).
+
+---
+
 ## 2026-06-25 — Phase-3 step 7 CLOSED: first real PPO-tracer gate number (on shodan)
 
 **Phase:** 3 · **Who:** Ivan + Claude

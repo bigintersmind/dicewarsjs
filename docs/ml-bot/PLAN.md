@@ -464,7 +464,7 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
 
 **Tasks — scaling (after the tracer slice closes the loop). Design + sequencing fixed in [D-22].**
 
-- [ ] **(A) Fixed-field diagnostic gate — FIRST, zero new code ([D-22] decision 3).** Scale the
+- [x] **(A) Fixed-field diagnostic gate — FIRST, zero new code ([D-22] decision 3). ✅ PASSED 2026-06-27.** Scale the
       existing `train_tracer.py` run on the fixed heterogeneous field (no PFSP) with **learning-enabled
       HPs** (its defaults are tracer-low — `lr=1e-4`, `ent_coef=0`, 2048 steps — and won't learn by
       design), then `npm run ppo:export` + `npm run ppo:gate`. Answers the one binary unknown cheaply:
@@ -472,7 +472,14 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       kill-signal (reward/credit-assignment/encoding, not opponent distribution). **Limitation:**
       `train_tracer` has no checkpoint/resume/logging and uses `DummyVecEnv` (sequential) — fine for a
       bounded diagnostic, but task (E) is the prerequisite for the long run.
-- [ ] **(B) PFSP opponent league ([D-22]) — Node-resident.** New `scripts/lib/ppo-league.mjs` (pool +
+      **DONE 2026-06-27 — emphatic PASS.** The 1M-step run (warm-start v2-BC, `lr 2.5e-4`/`ent_coef
+0.01`, on shodan via a teardown-immune schtasks task) scored `npm run ppo:gate` **Δ +33.4 ±2.4
+      [31.0, 35.8]** (PPO 45.2% vs Lookahead 11.8%, 3040 seat-fair games) → the **first BEAT** of the
+      D-7 headline gate, a ~37-pt move off the −3.7 BC anchor. Weights = **PR #63**. **Caveat:** 4 of
+      the 7 gate opponents (incl. all 3 strong ones) were training opponents → partly fixed-field
+      _exploitation_ (also beats the 3 held-out bots → partial generalization); this green-lights task
+      B. Full record: RESULTS.md + LOG.md + [D-23].
+- [ ] **(B) PFSP opponent league ([D-22]) — Node-resident. 🟢 SCOPED 2026-06-27 → [D-23].** New `scripts/lib/ppo-league.mjs` (pool +
       seeded `mulberry32` sampler + win-rate book) inside the env-server; the loop draws
       `league.draw(seed)` per episode (replaces the static `opponents` const at `ppo-env-server.mjs:259`).
       **Fixed-field is the empty-pool degenerate mode of this same pipeline** — so (A) and (B) share
@@ -484,6 +491,17 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       `maxTurns` truncations**. Honor: freeze `ENCODING_VERSION`; dedup via `uniquifyNames` `#N`;
       re-probe decisive-rate + throughput on a snapshot-heavy field before locking the budget.
       _Open: per-worker vs shared-disk-global stats — lean shared-disk-global, pluggable ([D-22])._
+      **Build sequence — scoped in [D-23]** (verifier-corrected: `count = playerCount−1 = 6`, so R=3
+      leaves 3 PFSP seats; baselines threaded from the resolved `opts.opponents`; extend the
+      `EnvServerProcess` signature; GC evicted snapshot `.js` files): **B0** rebase/merge **PR #62
+      (hard prereq)** + `snapshot-manifest`/`-store` flags + freeze `ENCODING_VERSION=2` → **B1**
+      empty-pool league `== task A` (byte-identical parity — the milestone) → **B2** per-seat
+      `seatBeat[]` on both outcome shapers + win-rate book (exclude `truncated`) → **B3** snapshot
+      pipeline (SB3 callback → repack → `export(…, fixture_path=None)` → atomic manifest → Node
+      hot-load via `makeBC`, fresh filename) → **B4** PFSP weighting `w(S)=max(ε,1−winRate)^k` + R
+      reserved baselines (seeded `mulberry32`) → **B5** throughput/decisive-rate re-probe on a
+      snapshot-heavy field → **then** lock the env-step budget → **B6** persistence
+      (`toJSON()/restore()`) + `SharedDiskStore` (with task E).
 - [ ] **(C)** Scale envs across cores; add the short **from-scratch control** run ([D-19] decision 1).
 - [ ] **(D)** Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
       `F = γΦ(s′)−Φ(s)`, env-side in JS) only if terminal-only learning is too slow.

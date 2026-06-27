@@ -69,6 +69,7 @@ class DiceWarsEnv(gym.Env):
         port: int | None = None,
         server_kwargs: dict[str, Any] | None = None,
         connect_timeout_s: float = 30.0,
+        read_timeout_s: float = 180.0,
     ) -> None:
         super().__init__()
         self.max_areas = max_areas
@@ -79,6 +80,7 @@ class DiceWarsEnv(gym.Env):
         self._port = port
         self._server_kwargs = dict(server_kwargs or {})
         self._connect_timeout_s = connect_timeout_s
+        self._read_timeout_s = read_timeout_s
 
         if not managed and (host is None or port is None):
             raise ValueError("managed=False requires explicit host and port.")
@@ -122,7 +124,13 @@ class DiceWarsEnv(gym.Env):
             host, port = self._host, self._port
         try:
             sock = socket.create_connection((host, port), timeout=self._connect_timeout_s)
-            sock.settimeout(None)  # blocking reads for the rest of the episode
+            # A finite per-recv read deadline (not None) so a wedged env-server surfaces as a loud
+            # socket.timeout instead of an infinite client hang. The server's OWN decision watchdog
+            # only covers a hung learner (it parks in Atomics.wait inside chooseAction); it cannot
+            # catch an opponent bot stuck in a synchronous compute loop, because then the server's
+            # main thread never reaches chooseAction. This client deadline is the backstop for that
+            # case. Generous: >> any legal inter-frame gap (a full opponent round is sub-second).
+            sock.settimeout(self._read_timeout_s)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         except OSError as exc:
             # Reap the just-launched managed server so a failed connect can't orphan it,

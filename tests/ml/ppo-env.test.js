@@ -21,6 +21,7 @@ import { runMatch } from '../../src/arena/matchRunner.js';
 import { ai_bc } from '../../src/ai/ai_bc.js';
 import { forward, argmax } from '../../src/ai/bcForward.js';
 import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
+import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
 
 import {
   runSelfPlayEpisode,
@@ -56,6 +57,16 @@ const mimicAiBc = encoded => argmax(forward(BC_POLICY, encoded).logits);
 
 /** A learner that always ends its turn immediately (STOP slot is last). */
 const alwaysStop = encoded => encoded.moves.length - 1;
+
+/** The training opponent field ([D-15]); the env-server cycles it to fill the non-learner seats. */
+const FULL_FIELD = ['ai_lookahead', 'ai_strategist', 'ai_expectimax', 'ai_bc', 'ai_defensive'];
+const fieldOpponents = count => {
+  const byId = new Map(BUILT_IN_BOTS.map(b => [b.id, b]));
+  return Array.from({ length: count }, (_, i) => {
+    const bot = byId.get(FULL_FIELD[i % FULL_FIELD.length]);
+    return { name: `${bot.name}@${i}`, fn: bot.fn };
+  });
+};
 
 /** Compare the salient, data-only parts of two final states. */
 function projectState(s) {
@@ -171,6 +182,40 @@ describe('runSelfPlayEpisode — STOP and reward semantics', () => {
     // Winner ⇒ best placement (1.0); a present seat is always ranked.
     if (ep.winner === ep.learnerSeat) expect(ep.placement).toBe(1);
     expect(ep.playerCount).toBe(PLAYER_COUNT);
+  });
+});
+
+describe('runSelfPlayEpisode — zero-decision episodes (the env-server desync hazard)', () => {
+  it('a learner eliminated before its first turn makes zero decisions (server must skip it)', () => {
+    /*
+     * On some seeds the learner seat is conquered before its turn ever comes up in the order, so the
+     * episode ends with the learner having taken NO action — chooseAction never fires (here the seat
+     * even starts with 5 areas; it is wiped by turn 6, all before its first turn). The env-server
+     * streams a run of obs frames then ONE terminal per episode, so a zero-decision episode would put
+     * a BARE terminal where the client's reset() expects the next episode's first obs → the desync
+     * RuntimeError in env.py's reset guard. The server-side fix (ppo-env-server.mjs) skips such
+     * episodes. seed 35 / 7-player full field is the canonical anchor — also the seed_base the Python
+     * e2e regression (ml/tests/test_ppo_env.py) spawns a real server on. If the engine RNG changes and
+     * this assertion fails, re-find a zero-decision seed and update both tests in lockstep.
+     */
+    let decisions = 0;
+    const ep = runSelfPlayEpisode({
+      seed: 35,
+      opponents: fieldOpponents(PLAYER_COUNT - 1),
+      learnerSeat: 0,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: encoded => {
+        decisions++;
+        return alwaysStop(encoded);
+      },
+      terminateOnElimination: true,
+    });
+
+    expect(decisions).toBe(0); // the learner never got to act → no obs frame would be emitted
+    expect(ep.eliminated).toBe(true); // ended by elimination, not a win or stalemate cap
+    expect(ep.won).toBe(0);
+    expect(ep.truncated).toBe(false); // a genuine terminal (elimination), not a maxTurns truncation
   });
 });
 

@@ -1104,7 +1104,6 @@ describe('GameController', () => {
     });
 
     it('skips visual effects when reduced motion is on', async () => {
-      const { applyAction } = await import('../../src/engine/index.js');
       store.setState({ preferences: { reducedMotion: 'on', animationSpeed: 1 } });
 
       await controller.startNewGame({ playerCount: 2, spectator: false });

@@ -28,7 +28,7 @@ describe('createGame', () => {
 describe('simulateGame', () => {
   it('runs a full game with all ai_example players', () => {
     const aiAssignments = new Array(7).fill(ai_example);
-    const { finalState, turnCount, winner } = simulateGame({
+    const { finalState, turnCount } = simulateGame({
       config: { seed: 42 },
       aiAssignments,
       maxTurns: 500,

@@ -30,10 +30,17 @@ import {
   buildSnapshotManifest,
   makePolicyChooseAction,
   mergeLeagueShards,
+  steadyStateSec,
   projectBudget,
   runLeagueProbeShard,
 } from '../../scripts/lib/ppo-league-probe-core.mjs';
-import { parseArgs, numArg, parseRSweep, emptyLeagueShard } from '../../scripts/ppo-league-probe.mjs';
+import {
+  parseArgs,
+  numArg,
+  parseRSweep,
+  emptyLeagueShard,
+  assertPoolCapFitsPool,
+} from '../../scripts/ppo-league-probe.mjs';
 
 const DEFAULT_OPPONENTS = 'ai_lookahead,ai_strategist,ai_expectimax,ai_bc,ai_defensive';
 
@@ -208,7 +215,25 @@ describe('runLeagueProbeShard — record/decisive semantics (small integration)'
 
   it('throws loudly if the pool fails to load the expected snapshot count', async () => {
     const cfg = { ...baseCfg, manifestPath, terminateOnElimination: true, record: true, expectedSnapshots: 99 };
-    await expect(runLeagueProbeShard(cfg)).rejects.toThrow(/loaded 4 snapshots, expected 99/);
+    await expect(runLeagueProbeShard(cfg)).rejects.toThrow(
+      /loaded 4 snapshots \(live pool 4\), expected 99/
+    );
+  });
+
+  it('throws if poolCap evicts the live pool below the expected count (loaded ok, sampleable shrunk)', async () => {
+    // poolCap=2 < 4 snapshots → refresh() loads all 4 (loadedSnapshots stays 4) but FIFO-evicts the
+    // live pool to 2, so draw() would sample a smaller/skewed field. The strengthened guard catches it.
+    const cfg = {
+      ...baseCfg,
+      manifestPath,
+      leagueOpts: { ...baseCfg.leagueOpts, poolCap: 2 },
+      terminateOnElimination: true,
+      record: true,
+      expectedSnapshots: 4,
+    };
+    await expect(runLeagueProbeShard(cfg)).rejects.toThrow(
+      /loaded 4 snapshots \(live pool 2\), expected 4/
+    );
   });
 });
 
@@ -340,6 +365,31 @@ describe('projectBudget', () => {
     expect(projectBudget(perSec(5e5)).verdict).toBe('YELLOW'); // exactly 0.5M → YELLOW (>=)
     expect(projectBudget(perSec(5e5 - 1)).verdict).toBe('RED');
     expect(projectBudget(100).steps12h).toBeCloseTo(100 * 12 * 3600, 6);
+  });
+});
+
+describe('steadyStateSec (cold-start-excluded throughput basis — the B5 review must-fix)', () => {
+  it('uses the MAX per-shard elapsedMs (concurrent shards), NOT the sum and NOT the wall', () => {
+    // Concurrent shards: steady-state wall ≈ the slowest shard's loop. Sum (0.4s) or wall would deflate
+    // stepsPerSec and could falsely downgrade a GREEN verdict — the exact bug the must-fix addressed.
+    expect(steadyStateSec([{ elapsedMs: 100 }, { elapsedMs: 300 }], 9999)).toBeCloseTo(0.3, 10);
+  });
+  it('ignores zero-elapsed (empty / workers>episodes) shards', () => {
+    expect(steadyStateSec([{ elapsedMs: 0 }, { elapsedMs: 200 }], 9999)).toBeCloseTo(0.2, 10);
+  });
+  it('falls back to wallMs ONLY when every shard is zero-elapsed (and on an empty shard list)', () => {
+    expect(steadyStateSec([{ elapsedMs: 0 }], 500)).toBeCloseTo(0.5, 10);
+    expect(steadyStateSec([], 500)).toBeCloseTo(0.5, 10);
+  });
+});
+
+describe('assertPoolCapFitsPool (no-eviction premise)', () => {
+  it('passes when poolCap >= poolSize', () => {
+    expect(() => assertPoolCapFitsPool(40, 8)).not.toThrow();
+    expect(() => assertPoolCapFitsPool(8, 8)).not.toThrow(); // exactly equal → no eviction
+  });
+  it('throws when poolCap < poolSize (eviction would shrink/skew the field and crash the R-sweep)', () => {
+    expect(() => assertPoolCapFitsPool(2, 6)).toThrow(/--pool-cap 2 < pool size 6/);
   });
 });
 

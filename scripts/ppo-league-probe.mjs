@@ -44,6 +44,7 @@ import {
   reserveDistinctCount,
   runLeagueProbeShard,
   mergeLeagueShards,
+  steadyStateSec,
   projectBudget,
   percentilesFromHist,
   recommendMaxEdges,
@@ -118,6 +119,27 @@ export function parseRSweep(opts, fallback) {
       }
       return v;
     });
+}
+
+/**
+ * Reject `poolCap < poolSize` up front: the league FIFO-evicts the live pool down to `poolCap`
+ * (`ppo-league.mjs`), so a smaller cap would (a) make the probe sample a SMALLER, skewed field than
+ * the requested mix, and (b) `unlinkSync` the evicted shims from the shared scratch dir — which a
+ * `--workers>1` R-sweep then re-`import()`s on the next R from a cold module cache, crashing with a
+ * bare `ENOENT`. This tool never wants eviction, so fail the launch with an actionable message instead.
+ *
+ * @param {number} poolCap
+ * @param {number} poolSize - the number of snapshots the manifest will seat (`specs.length`)
+ */
+export function assertPoolCapFitsPool(poolCap, poolSize) {
+  if (poolCap < poolSize) {
+    throw new Error(
+      `--pool-cap ${poolCap} < pool size ${poolSize}: the league would FIFO-evict ` +
+        `${poolSize - poolCap} snapshot(s), so the probe would sample a smaller/skewed field than ` +
+        `requested (and a multi-worker R-sweep would crash on the GC'd shim). Raise --pool-cap to >= ` +
+        `the pool size — this tool assumes no eviction.`
+    );
+  }
 }
 
 const mixSeed = (base, w) => (base ^ ((w + 1) * 0x9e3779b1)) >>> 0;
@@ -233,16 +255,11 @@ async function runPass({
   const merged = mergeLeagueShards(shards);
 
   /*
-   * Throughput basis: STEADY-STATE per-shard loop time, NOT the parent wall clock. Each shard's
-   * `elapsedMs` is timed around its episode loop ONLY — it excludes Worker spawn + the cold re-parse of
-   * the ~4 MB policy modules + `refresh()`'s pool load, which the long-lived training env-server
-   * amortizes to ~0. Shards run concurrently, so the steady-state wall ≈ the slowest shard's loop
-   * (`max elapsedMs`). Using the parent wall (incl. cold start) would deflate stepsPerSec ~15-35% at
-   * shodan scale and could falsely downgrade a GREEN budget verdict ([B5 review must-fix]). `wallSec`
-   * is kept and reported for transparency (it bounds the steady-state number from above).
+   * Throughput basis: STEADY-STATE per-shard loop time (cold start excluded), NOT the parent wall —
+   * see `steadyStateSec`, which carries the full rationale and is unit-tested ([B5 review must-fix]).
+   * `wallSec` is kept and reported for transparency (it bounds the steady-state number from above).
    */
-  const steadyMs = Math.max(0, ...shards.map(s => s.elapsedMs).filter(ms => ms > 0));
-  const throughputSec = (steadyMs > 0 ? steadyMs : wallMs) / 1000;
+  const throughputSec = steadyStateSec(shards, wallMs);
   const wallSec = wallMs / 1000;
   const edge = percentilesFromHist(merged.hist, PCTS);
   const botBreakdown = Object.keys(merged.botMs)
@@ -380,6 +397,7 @@ async function main() {
   const poolSize = numArg(opts, 'pool-size', 8);
   const specs = buildProxySpecs({ poolSize, mix: opts['snapshot-mix'] });
   shared.poolSize = specs.length; // the expected loaded-snapshot count the shard guard asserts
+  assertPoolCapFitsPool(shared.poolCap, shared.poolSize); // no-eviction premise — fail loud, not silently shrink
 
   // Scratch dir for the proxy manifest + re-export shims (cleaned on exit).
   const scratchDir = opts['snapshot-dir'] ?? join(os.tmpdir(), `dwjs-b5-${process.pid}`);

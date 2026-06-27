@@ -246,6 +246,10 @@ export function buildSnapshotManifest(dir, { specs, createdAt = 0 }) {
  * @param {number} cfg.maxEdgesCap
  * @param {boolean} cfg.terminateOnElimination - true = PASS A (learner-relative); false = PASS B (global)
  * @param {boolean} cfg.record - feed results to `recordResult` (PASS A) — false keeps the book clean (PASS B)
+ * @param {number} [cfg.expectedSnapshots] - if set, `refresh()` must load EXACTLY this many snapshots
+ *   AND keep them all live (`loadedSnapshots === poolSize === expectedSnapshots`) or the shard throws;
+ *   guards against silently measuring the cheap baseline field (0 loaded) or an eviction-shrunk pool
+ *   (`poolCap < poolSize`). Omit to skip the check.
  * @returns {Promise<Object>} shard accumulation incl. `leagueStats`
  */
 export async function runLeagueProbeShard({
@@ -268,19 +272,26 @@ export async function runLeagueProbeShard({
   await league.refresh(); // load the snapshot pool once — the manifest is static for the probe
 
   /*
-   * Guard the one invariant every B5 number depends on: the snapshot pool actually loaded. If
-   * `refresh()` ever seated 0 snapshots, `draw()` would fall through to the cycled BASELINE field — a
-   * completely different (cheap-heuristic) regime — and the probe would lock a wrong budget with
-   * nothing failing loud. Defense-in-depth: it cannot trigger in the normal flow, but it makes the
-   * snapshot-heavy premise non-negotiable instead of a silent baseline fallback.
+   * Guard the one invariant every B5 number depends on: the snapshot pool actually loaded AND is fully
+   * sampleable. Two distinct ways `draw()` could silently sample the wrong field:
+   *   - 0 loaded → `draw()` falls through to the cycled BASELINE field, a completely different
+   *     (cheap-heuristic) regime (`stats().loadedSnapshots`).
+   *   - `poolCap < poolSize` → `refresh()` loads every snapshot (so `loadedSnapshots` still matches —
+   *     it counts every id EVER imported) but FIFO-evicts the live `pool` down to `poolCap`, so `draw()`
+   *     samples a SMALLER, skewed field than requested (`stats().poolSize`, the live sampleable set).
+   * Either would lock a wrong budget with nothing failing loud, so assert BOTH equal the expected count
+   * (the CLI also rejects `poolCap < poolSize` up front via `assertPoolCapFitsPool`; this is the
+   * defense-in-depth at the measurement seam, and the only guard when `runLeagueProbeShard` is driven
+   * directly with a custom `leagueOpts.poolCap`).
    */
   if (expectedSnapshots !== undefined) {
-    const loaded = league.stats().loadedSnapshots;
-    if (loaded !== expectedSnapshots) {
+    const { loadedSnapshots, poolSize } = league.stats();
+    if (loadedSnapshots !== expectedSnapshots || poolSize !== expectedSnapshots) {
       throw new Error(
-        `runLeagueProbeShard: refresh() loaded ${loaded} snapshots, expected ${expectedSnapshots} ` +
-          `(manifest ${manifestPath}). The probe would silently measure the baseline field, not the ` +
-          `snapshot-heavy one — aborting so a wrong budget is never locked.`
+        `runLeagueProbeShard: refresh() loaded ${loadedSnapshots} snapshots (live pool ${poolSize}), ` +
+          `expected ${expectedSnapshots} (manifest ${manifestPath}). The probe would silently measure ` +
+          `the wrong field (baseline fallback if 0 loaded, or an eviction-shrunk pool if poolCap < ` +
+          `poolSize) — aborting so a wrong budget is never locked.`
       );
     }
   }
@@ -431,6 +442,28 @@ export function mergeLeagueShards(shards) {
       noSeatBeatGames,
     },
   };
+}
+
+/**
+ * The seconds to divide aggregate learner-decisions by for the steady-state throughput rate. Uses the
+ * MAX of the per-shard steady-state loop times (`elapsedMs`) — NOT their sum, and NOT the parent wall
+ * clock: the shards run CONCURRENTLY, so the steady-state wall ≈ the slowest shard's loop, and each
+ * shard's `elapsedMs` is already timed around its episode loop only (it excludes Worker spawn + the
+ * cold ~4 MB policy re-parse + `refresh()`, which the long-lived training env-server amortizes to ~0).
+ * Zero-elapsed shards (the `workers > episodes` empty-shard path) are filtered out; if EVERY shard is
+ * zero (degenerate, e.g. `episodes = 0`) it falls back to `wallMs`, which BOUNDS the steady-state rate
+ * from above — so the fallback can only DOWNGRADE a verdict, never falsely upgrade one to GREEN.
+ *
+ * This is the [B5 review must-fix] made testable: summing instead of MAXing, or using the wall incl.
+ * cold start, deflated stepsPerSec ~15–35% at shodan scale and could falsely downgrade a GREEN budget.
+ *
+ * @param {{elapsedMs:number}[]} shards - per-shard accumulations (each carries its steady-state `elapsedMs`)
+ * @param {number} wallMs - parent wall-clock around the concurrent shards (the all-zero fallback)
+ * @returns {number} seconds to use as the throughput denominator
+ */
+export function steadyStateSec(shards, wallMs) {
+  const steadyMs = Math.max(0, ...shards.map(s => s.elapsedMs).filter(ms => ms > 0));
+  return (steadyMs > 0 ? steadyMs : wallMs) / 1000;
 }
 
 /**

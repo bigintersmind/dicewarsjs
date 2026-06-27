@@ -20,6 +20,12 @@
  *   node scripts/ppo-env-server.mjs [--port=0] [--host=127.0.0.1] [--players=7]
  *        [--learner-seat=0] [--opponents=ai_bc,ai_lookahead] [--max-areas=<N>]
  *        [--max-turns=500] [--episodes=0] [--seed-base=1] [--decision-timeout-ms=120000]
+ *        [--snapshot-manifest=<path>] [--snapshot-pool-cap=40]
+ *        [--reserve-baselines=3] [--pfsp-epsilon=0.05] [--pfsp-k=2]
+ *
+ * The PFSP league flags (`--snapshot-*`, `--reserve-baselines`, `--pfsp-*`) only matter once a
+ * snapshot pool exists; without `--snapshot-manifest` the league runs in empty-pool fixed-field mode
+ * and `draw()` returns the cycled `--opponents` field unchanged (task A). See docs/ml-bot D-22/D-23.
  *
  * `--decision-timeout-ms` is the per-decision watchdog: if the learner sends no action within it,
  * the server aborts loud instead of parking forever (covers a hung learner or a hard worker death).
@@ -68,6 +74,14 @@ const KNOWN_FLAGS = new Set([
    */
   'snapshot-manifest',
   'snapshot-pool-cap',
+  /*
+   * PFSP sampler knobs (B4 / [D-23]). Only take effect with a non-empty pool (i.e. alongside
+   * `--snapshot-manifest`): `reserve-baselines` = R aggressive baselines reserved per game (turtle
+   * defense); `pfsp-epsilon`/`pfsp-k` parameterise the snapshot weight `w(S)=max(ε,1−winRate)^k`.
+   */
+  'reserve-baselines',
+  'pfsp-epsilon',
+  'pfsp-k',
 ]);
 
 function parseArgs(argv) {
@@ -128,6 +142,9 @@ async function main() {
     learnerSeat,
     snapshotManifest: opts['snapshot-manifest'] ?? null,
     poolCap: numArg(opts, 'snapshot-pool-cap', 40),
+    reserveBaselines: numArg(opts, 'reserve-baselines', 3),
+    pfspEpsilon: numArg(opts, 'pfsp-epsilon', 0.05),
+    pfspK: numArg(opts, 'pfsp-k', 2),
   });
 
   const sab = new SharedArrayBuffer(8); // 2 × Int32

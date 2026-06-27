@@ -21,6 +21,83 @@ Entry template:
 
 ---
 
+## 2026-06-27 — Task B step B4: PFSP weighting on (the sampler goes live)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:** Turned the PFSP sampler on in `scripts/lib/ppo-league.mjs` `draw()`. B3 only _loaded_ the
+snapshot pool; B4 seats it. With a non-empty pool, `draw(seed)` seeds a `mulberry32` stream and fills
+the `count` opponent seats with:
+
+- `reserveCount = min(R, count, #distinctReserveBaselines)` aggressive baselines (the resolved
+  `--opponents` ids, **distinct, minus `ai_bc`** — the [D-15] turtle-equilibrium defense), sampled
+  WITHOUT replacement; then
+- `count − reserveCount` snapshots sampled WITH replacement by `w(S) = max(ε, 1 − learnerWinRate(S))^k`
+  (`ε=0.05`, `k=2`): lower learner win-rate ⇒ higher weight, cold-start `winRate=0` ⇒ weight 1
+  (sampled hardest first), and ε>0 floors every weight at `ε^k > 0` so a fully-mastered snapshot is
+  never starved (with a uniform fallback if a pathological k underflows `ε^k` to 0 — see post-review);
+
+then a Fisher-Yates shuffle (same seeded stream) of opponent→seat so neither group binds to fixed
+turn-order seats. **Empty pool still returns the byte-identical task-A field** — fixed-field stays the
+empty-pool mode of this one pipeline.
+
+- **Knobs as CLI flags.** Env-server `--reserve-baselines`/`--pfsp-epsilon`/`--pfsp-k` → `makeLeague`;
+  `train_tracer.py` args + `_validate_args` bounds (ε∈(0,1], k≥0, R≥0, mirroring the Node guards) +
+  `EnvServerProcess` argv forwarding. The PFSP knobs ride the `--snapshot-dir`/`snapshot_manifest`
+  branch since they only bite a non-empty pool; Node↔Python defaults agree (R=3, ε=0.05, k=2).
+- **Tests.** NEW `tests/ml/ppo-league-pfsp.test.js` (17 tests: field shape, reserve rules incl. the
+  cap and the empty-reserve `ai_bc`-only case, seeded determinism, win-rate-monotone weighting +
+  the higher-k-sharpens check, the ε floor / all-mastered pool, draw→record→winRate loop, new-knob
+  validation). NEW `ml/tests/test_env_server_argv.py` (the Python→Node flag bridge — the only
+  automated guard on argv forwarding, runs torch-free). Updated the one B3 test that asserted "B4
+  hasn't happened yet" to assert snapshots ARE now seated.
+
+**Learned / decided:**
+
+- **Extracted `mulberry32` to its own module** (`scripts/lib/mulberry32.mjs`, re-exported from
+  `ppo-probe-core.mjs`) rather than importing it from the probe tool as [D-23]'s file manifest said:
+  the league is runtime code and shouldn't pull the throughput-benchmark tool (→ the env runner) into
+  its module graph just to borrow an 8-line PRNG. Re-export keeps the existing probe test/imports green.
+- **Shuffle opponent→seat** (a [D-23]-unstated addition): without it, reserve baselines would always
+  occupy the low array indices and thus the early (first-to-move) board seats — a systematic
+  turn-order pattern the learner could overfit. The shuffle is seeded, so determinism holds.
+- **Reserve baselines without replacement, capped at the distinct count** (`min(R, count, #reserve)`):
+  guarantees R _distinct_ aggressive opponents when enough exist, and degrades gracefully (more PFSP
+  seats) when the CSV has fewer than R aggressive bots or is `ai_bc`-only (→ 0 reserved, all PFSP).
+
+**Post-review hardening (5-dimension adversarial workflow → 12 confirmed findings, all minor):**
+
+- **Reserve lookup now guarded.** `resolveBaselineField` only validates the first `count` _cycled_
+  positions, so a typo'd opponent id PAST position `count−1` slipped past it and crashed the new
+  reserve-pool build with a cryptic `undefined.name`. Added the same clear `Unknown opponent bot id`
+  throw + corrected the false "cannot miss" comment.
+- **ε^k FP-underflow fallback.** At a pathological `k` (≥~249 for ε=0.05), `ε^k` underflows to 0.0 in
+  IEEE-754; with an all-mastered pool that zeroes the roulette total and `sampleByWeight` would
+  degenerate to "always the last entry". Added a `total === 0 → uniform` fallback (and scoped the
+  "never 0" claims to non-underflowing k).
+- **Python validation tightened.** Moved the three PFSP guards OUT of the `--snapshot-dir` branch so
+  they validate unconditionally (matching Node's always-on `makeLeague`), and added `math.isfinite`
+  for `--pfsp-k` (was accepting inf/nan).
+- **Test gaps closed.** Added: a shuffle anti-coupling test (a snapshot reaches the earliest seat and
+  a baseline the latest — disabling the shuffle now fails); a default-pin test (default field sequence
+  == explicit `{ε:0.05,k:2}`, ≠ other ε); the underflow-fallback test; the reserve-typo guard test;
+  and a torch-gated `test_train_tracer_args.py` (parser defaults, `_validate_args` rejections, the
+  `_make_env_thunk → server_kwargs` forwarding hop). Final: 1064 JS tests + ruff/lint/build all green.
+
+**Dead ends / surprises:**
+
+- Local `ml` pytest shows 6 pre-existing failures in `test_export_onnx.py` (`zip(strict=True)` needs
+  Python 3.10+; this box has 3.9) — unrelated to B4, untouched files. The B4 Python (`train_tracer`
+  imports SB3) is validated by `py_compile` + the torch-free argv test, per the B3 precedent.
+- Several review agents initially read a stale/phantom `ppo-league.mjs` and "found" that B4 was
+  unimplemented; the adversarial verify pass caught and rejected all of those against ground truth.
+
+**Next:**
+
+- **B5** — throughput / decisive-rate re-probe on a snapshot-heavy field (BC-forward snapshot seats
+  cost ~0.8 ms/move vs ~0.02–0.4 ms heuristic); re-validate `R` against the real `count`, then lock
+  the env-step budget. First live exercise of the sampler runs on shodan here.
+
 ## 2026-06-27 — Task B step B3: the snapshot pipeline (Python producer → Node hot-load)
 
 **Phase:** 3 · **Who:** Ivan + Claude

@@ -82,6 +82,9 @@ class EnvServerProcess:
         decision_timeout_ms: int = 120_000,
         snapshot_manifest: str | None = None,
         snapshot_pool_cap: int = 40,
+        reserve_baselines: int = 3,
+        pfsp_epsilon: float = 0.05,
+        pfsp_k: float = 2.0,
         host: str = "127.0.0.1",
         node_bin: str | None = None,
         start_timeout_s: float = 30.0,
@@ -120,9 +123,14 @@ class EnvServerProcess:
             argv.append(f"--max-areas={max_areas}")
         # PFSP snapshot pool (B3): point the server's league at the producer manifest and bound its
         # live pool. Absent ⇒ the server runs in empty-pool fixed-field mode (task A / B1 / B2).
+        # The PFSP sampler knobs (B4) only bite once that pool is non-empty, so they ride the same
+        # branch — in fixed-field mode `draw()` ignores them and the env-server defaults suffice.
         if snapshot_manifest is not None:
             argv.append(f"--snapshot-manifest={snapshot_manifest}")
             argv.append(f"--snapshot-pool-cap={snapshot_pool_cap}")
+            argv.append(f"--reserve-baselines={reserve_baselines}")
+            argv.append(f"--pfsp-epsilon={pfsp_epsilon}")
+            argv.append(f"--pfsp-k={pfsp_k}")
         self._argv = argv
 
     def start(self) -> EnvServerProcess:

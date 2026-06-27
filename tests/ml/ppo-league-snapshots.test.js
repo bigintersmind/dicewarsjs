@@ -90,14 +90,16 @@ describe('ppo-league snapshots — hot-loading into the pool', () => {
     expect(lg.stats()).toMatchObject({ poolSize: 2, loadedSnapshots: 2 });
   });
 
-  it('does NOT seat snapshots in draw() yet (B3 only loads; B4 samples)', async () => {
+  it('seats snapshots in draw() once the pool is non-empty (B4 sampling on)', async () => {
     const lg = league(writeManifest([snap(100), snap(200)]));
-    const before = lg.draw(7).opponents.map(o => o.name);
+    // Before refresh the pool is empty → the pure task-A baseline field (no snapshot seats).
+    expect(lg.draw(7).drawn.every(d => d.kind === 'baseline')).toBe(true);
     await lg.refresh();
-    const after = lg.draw(7).opponents.map(o => o.name);
-    // The drawn field is byte-identical baselines before and after snapshots enter the pool.
-    expect(after).toEqual(before);
-    expect(after).not.toContain('snap-100');
+    // After refresh the pool is non-empty → PFSP now seats snapshots (player_count still held).
+    const after = lg.draw(7).drawn;
+    expect(after).toHaveLength(COUNT);
+    expect(after.some(d => d.kind === 'snapshot')).toBe(true);
+    // The detailed sampling/weighting behavior is pinned in ppo-league-pfsp.test.js.
   });
 
   it('re-refresh with an unchanged manifest loads nothing (mtime short-circuit)', async () => {

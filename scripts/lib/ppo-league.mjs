@@ -2,12 +2,14 @@
  * PFSP opponent league for the PPO env-server (ml-bot Phase 3, task B — [D-22]).
  *
  * The env-server draws its per-episode opponent field from this league instead of a
- * static const. The league owns the opponent pool (built-in baselines + hot-loaded
- * self-play snapshots), a seeded sampler, and a per-opponent win-rate book.
+ * static const. The league will own the opponent pool (built-in baselines + hot-loaded
+ * self-play snapshots), a seeded sampler, and a per-opponent win-rate book — but step
+ * **B1** ships only the empty-pool baselines (no snapshots, sampler, or win-rate book yet).
  *
  * **Fixed-field (task A) is the empty-pool degenerate mode of this module:** with no
  * snapshots, `draw()` returns exactly the cycled baseline field the env-server used
- * before — byte-identical, so task A's outcomes reproduce. This file (step **B1**)
+ * before — content-identical (same names + fn refs), so task A's outcomes reproduce.
+ * This file (step **B1**)
  * ships that empty-pool path plus a decisive/truncated telemetry tally; the snapshot
  * pipeline (B3), PFSP weighting (B4), and persistence (B6) extend the same object.
  * See docs/ml-bot/DECISIONS.md D-22 for the full build sequence.
@@ -55,7 +57,7 @@ export function resolveBaselineField(idCsv, count) {
 /**
  * Construct a league. Step **B1** ships the empty-pool path (== task A's fixed field)
  * plus a decisive/truncated telemetry tally; later steps extend the returned object
- * (B3 `refresh`/`addSnapshot`, B4 PFSP `winRate` weighting, B6 `toJSON`/`restore`).
+ * (B3 `refresh`/`addSnapshot`, B4 PFSP `learnerWinRate` weighting, B6 `toJSON`/`restore`).
  *
  * @param {object} opts
  * @param {string} opts.baselineCsv the resolved `--opponents` CSV. The trainer passes
@@ -84,6 +86,13 @@ export function makeLeague({ baselineCsv, count, learnerSeat }) {
     );
   }
   const baselineField = resolveBaselineField(baselineCsv, count);
+  /*
+   * `draw()` hands out this same array reference every episode, so freeze it (and its entries):
+   * a future in-place reorder/mutation throws loudly under ESM strict mode instead of silently
+   * poisoning every later draw. Near-zero cost — the fns are shared from BUILT_IN_BOTS anyway.
+   */
+  baselineField.forEach(entry => Object.freeze(entry));
+  Object.freeze(baselineField);
 
   let decisiveGames = 0;
   let truncatedGames = 0;
@@ -91,7 +100,8 @@ export function makeLeague({ baselineCsv, count, learnerSeat }) {
   /*
    * Opponent-array index → seat: the learner sits at `learnerSeat`; opponents fill the remaining
    * seats in order (mirrors the seat-fill in ppo-env.mjs). Computed here so B2's win-rate
-   * attribution reads `drawn[k].seat` instead of reverse-engineering the `#N`-mangled roster names.
+   * attribution reads `drawn[k].seat` instead of reverse-engineering it from the `@i`-suffixed
+   * roster names (whose index is the opponent array slot, not the board seat).
    */
   const seatOf = k => (k < learnerSeat ? k : k + 1);
 
@@ -100,7 +110,7 @@ export function makeLeague({ baselineCsv, count, learnerSeat }) {
      * Draw the per-episode opponent field. B1: the pool is empty, so this is the cycled baseline
      * field — identical for every seed (the episode outcome depends on the ordered fns × the seed,
      * which the env-server passes to `runSelfPlayEpisode` separately). B4 adds snapshot seats
-     * sampled by `w(S) = max(ε, 1 - winRate(S))^k`, reserving R aggressive baselines per game.
+     * sampled by `w(S) = max(ε, 1 - learnerWinRate(S))^k`, reserving R aggressive baselines per game.
      */
     draw(seed) {
       void seed; // unused until B4 (empty-pool draw is deterministic); kept for API stability.

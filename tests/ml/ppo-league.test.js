@@ -26,6 +26,20 @@ describe('ppo-league — empty-pool field == task A (B1)', () => {
     const league = makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: COUNT, learnerSeat: 0 });
     const ref = resolveBaselineField(DEFAULT_OPPONENTS, COUNT);
     expectSameField(league.draw(1).opponents, ref);
+    /*
+     * External golden: pin the exact field names independently of the producer. `expectSameField`
+     * compares draw() against resolveBaselineField, but makeLeague builds the field BY calling
+     * resolveBaselineField — so a future change to its naming would move both sides together and
+     * slip through. This anchors the actual task-A field (the load-bearing parity claim).
+     */
+    expect(league.draw(1).opponents.map(o => o.name)).toEqual([
+      'Lookahead@0',
+      'Strategist@1',
+      'Expectimax@2',
+      'BC@3',
+      'Defensive@4',
+      'Lookahead@5', // 5 ids cycled over 6 slots
+    ]);
   });
 
   it('draw() reproduces the env-server bare default (single bot `ai_bc`, cycled)', () => {
@@ -54,6 +68,18 @@ describe('ppo-league — empty-pool field == task A (B1)', () => {
   it('empty-pool field is seed-invariant (no sampling until B4)', () => {
     const league = makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: COUNT, learnerSeat: 0 });
     expectSameField(league.draw(1).opponents, league.draw(999_999).opponents);
+  });
+
+  it('returns a frozen field (in-place mutation throws, not silently corrupts later draws)', () => {
+    const league = makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: COUNT, learnerSeat: 0 });
+    const { opponents } = league.draw(1);
+    expect(Object.isFrozen(opponents)).toBe(true);
+    expect(Object.isFrozen(opponents[0])).toBe(true);
+    expect(() => {
+      opponents[0].name = 'tampered';
+    }).toThrow(TypeError);
+    // A later draw still sees the original, untampered field.
+    expect(league.draw(2).opponents[0].name).toBe('Lookahead@0');
   });
 
   it('names use the seat-cycle index `@i`, not the seat', () => {

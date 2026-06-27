@@ -21,6 +21,33 @@ Entry template:
 
 ---
 
+## 2026-06-27 — Task B step B5: snapshot-heavy throughput/decisive-rate re-probe (first live shodan exercise of the sampler)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:** Built `npm run ppo:league-probe` (NEW `scripts/ppo-league-probe.mjs` + `scripts/lib/ppo-league-probe-core.mjs` + `-worker.mjs`, 23 tests in `tests/ml/ppo-league-probe.test.js`) and ran the B5 re-probe **on shodan** (16-core, Node v22). Unlike the [D-20] throughput probe (fixed field, no league), B5 drives the **real** `makeLeague` PFSP sampler end-to-end — `refresh → draw → runSelfPlayEpisode → recordResult → stats` — on a **snapshot-heavy** field, the genuine "first live exercise of the sampler" ([D-23]). Scoped + adversarially reviewed via two multi-agent workflows (7-agent scope, 5-agent review → one must-fix + should-fixes applied).
+
+- **Snapshots without the Python producer:** `buildSnapshotManifest` writes a `refresh()`-loadable manifest + one tiny **re-export shim** per snapshot pointing at the real `ppoPolicyWeights.js` / `bcPolicyWeights.js` modules → `refresh()` `makeBC`-wraps the SAME ~2 MB module (no per-snapshot copy, no eviction at poolCap≥pool). Pool = 4 ppo + 4 bc (two distinct behaviors so the win-rate book differentiates).
+- **Two decisive-rates, never conflated** (the scope-verify's central correction): **PASS A** learner-relative (`terminateOnElim:true`, the trainer's exact regime → `league.stats().decisiveRate`, the budget basis) vs **PASS B** global/[D-15] turtle (`terminateOnElim:false`, `winner!=null`). Greedy PPO-policy learner (a random learner just dies fast and skews PASS A).
+- **Run** (HEAD `d3ceeec`, D-23 standard field, count=6) in an **isolated git worktree** so shodan's dirty main tree (Ivan's task-A/B state, on `ml-bot/phase3-ppo-tracer-run`) was untouched. R-sweep R∈{0,2,3,4}: RUN1 multi-worker(14) policy (throughput+turtle), RUN2 single-worker policy (warm-book decisiveRate), RUN3 multi(14) random R=3 (comparability). Full numbers + sha256 in RESULTS.md.
+
+**Learned / decided ([D-24]):**
+
+- **env-sim is NOT the bottleneck on a snapshot-heavy field.** GREEN at EVERY R: **50.7M (R=0, all-snapshot) → 89.9M (R=4) env-steps/12h** at 14 workers, ~25–45× the ≳2M bar. The [D-19] worry — in-process net-policy opponents could make env-steps prohibitive — is **refuted**. The real binding rate is the SB3/PPO learner loop (task-A's 1M run was GPU/DummyVecEnv-bound at ~17 eff steps/s, not env-sim-bound) → lifted by task C/E `SubprocVecEnv`. B5 closes the [D-22] env-sim question.
+- **R = 3 LOCKED** (D-23 default confirmed). All R are GREEN and turtle-healthy (global 85–95%, ≫ the 60% floor); warm-book learner-relative decisiveRate 95.3% at R=3. No throughput or turtle pressure to deviate, so keep the full [D-15] defense (3 aggressive baselines/game). The snapshot field does **not** turtle — even R=0 (all-snapshot) is 90.5% global-decisive.
+- **MAX_EDGES 64 still safe:** numEdges p100 ≤ 27, 0 overflow on the snapshot-heavy field.
+- **Cadence N (open-Q4) resolved:** per-move cost is pool-size-invariant; ~2 MB/snapshot resident in the ESM registry → on 128 GB shodan, memory is unconstrained at realistic N. Decouple N from throughput; pick N so the pool fills to poolCap=40 within the first budget unit (task-C/E tuning).
+- **Snapshot per-move cost** ~1.2 ms single-thread / ~2.2 ms under 14-worker contention on 16 cores (vs [D-20]'s ~0.8 ms on a lighter field/box) — still GREEN by a wide margin.
+
+**Dead ends / surprises:**
+
+- **shodan ssh is triple-nested** (Mac→Windows cmd→`wsl`→bash): the `shodan-wsl` alias has `RemoteCommand wsl ~` so it rejects an inline command, and `ssh shodan "wsl bash -lc '…'"` lets **cmd.exe** eat `|` and mangle `$()`/`(`. Fix: pipe a script via **stdin** (`ssh shodan "wsl bash" < script.sh`) — zero metacharacters on the command line. Also: WSL tears down `/tmp` (tmpfs) between separate ssh sessions, so the run must be **one session** with the worktree under `/home`.
+- Review must-fix caught a real one: the throughput denominator originally included per-worker **cold start** (re-parsing the ~4 MB policy modules + `refresh()`), which deflates steps/s ~15–35% at scale and could falsely downgrade a GREEN verdict. Now throughput = `learnerDecisions / max(per-shard steady-state elapsedMs)` (cold start excluded), wall reported separately.
+
+**Next:**
+
+- **B6** — league persistence (`toJSON()/restore()`, the snapshot pool + win-rate book + counters) for idempotent checkpoint/resume, landing with task E (`SubprocVecEnv`). Then the long BEAT run (task C/E) at R=3, gated by `npm run ppo:gate` vs `ai_lookahead@596f781`.
+
 ## 2026-06-27 — Task B step B4: PFSP weighting on (the sampler goes live)
 
 **Phase:** 3 · **Who:** Ivan + Claude

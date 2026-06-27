@@ -37,6 +37,7 @@
     "ppo:disconnect-smoke": "node scripts/ppo-env-disconnect-smoke.mjs",
     "ppo:booking-smoke": "node scripts/ppo-env-booking-smoke.mjs",
     "ppo:throughput-probe": "node scripts/ppo-throughput-probe.mjs",
+    "ppo:league-probe": "node scripts/ppo-league-probe.mjs",
     "ppo:export": "cd ml && python -m dicewars_bc.export_weights --ckpt checkpoints/ppo-tracer.pt --out ../src/ai/ppoPolicyWeights.js --fixture ../tests/fixtures/bc/ppoForwardCases.json",
     "ppo:gate": "node scripts/ppo-gate.mjs"
   },

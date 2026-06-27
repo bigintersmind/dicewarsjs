@@ -1392,3 +1392,73 @@ and the unverified reserve-CSV assumption) and a 5-agent adversarial review (cor
 silent-failure / tests / verify → synthesize) whose one must-fix — cold start polluting the throughput
 denominator — was fixed before the run (throughput now = `learnerDecisions / max(steady-state shard
 elapsedMs)`, cold start excluded).
+
+---
+
+## D-25 — B6: league persistence (`toJSON`/`restore`) + pluggable `SharedDiskStore`, as a standalone Node PR · Accepted (2026-06-27) · closes [D-23](#d-23--task-b-build-scope-the-pfsp-opponent-league-node-resident--proposed-2026-06-27--follows-d-22--hard-prerequisite-pr-62) step B6 · feeds Task E
+
+**Context.** [D-23] step B6 = the league-side checkpoint/resume primitive Task E's idempotent resume will
+drive, plus the pluggable win-rate `store` ([D-22] leans shared-disk-global once `SubprocVecEnv` makes
+per-worker books noisy). D-23 worded it "lands WITH Task E"; most of it is Node-side and testable with no
+GPU, so **two forks were put to Ivan and both confirmed: (1) ship B6 as a STANDALONE Node PR** (Python
+forwarding + `SubprocVecEnv` + live cross-worker validation ride Task E); \*\*(2) implement `SharedDiskStore`
+
+- unit-test it single-process, but gate its live multi-worker path until Task E.\*\* Mirrors the B3→B4
+  "plumbing before consumer" precedent.
+
+**Decision.**
+
+- **Pluggable store seam** (NEW `scripts/lib/ppo-league-store.mjs`). `makeInMemoryStore()` (default,
+  per-process `Map`, byte-identical to the B2–B5 inline book) + `makeSharedDiskStore({dir,workerId})`
+  (own book in memory; `flush()` writes a full `book-shard-<workerId>.json` atomically; `refreshGlobal()`
+  recomputes the PEER merge from scratch — own shard excluded — so the fold is idempotent + order-
+  independent and a worker never double-counts itself). `winRate = (own+peers)/(own+peers games)`.
+  **`workerId` = the env `seed_base`** (disjoint, restart-stable — NEVER a PID, which would orphan a shard
+  on resume). The store is injected into `makeLeague` (`opts.store`); the league's three book touchpoints
+  route through `record`/`winRate`/`size`. `flush`/`refreshGlobal` are the only syscalls and are driven by
+  the env-server at the episode boundary, never on the decision hot path; both are no-ops for the in-memory
+  store. **The snapshot pool stays convergent for free** — every worker polls the same producer manifest;
+  only the win-rate book is the cross-worker-shared part.
+- **`toJSON()`/`restore()` on `makeLeague`.** `toJSON` is plain JSON (no `fn`/`Map`/`Set`): counters, the
+  book (`store.toJSON()` → entry copies for memory, `null` for disk since it lives in shards), `storeKind`,
+  the pool as `{id,step,weightsPath}` in CURRENT array order (NOT re-sorted — `draw()`'s PFSP weighting is
+  pool-index-parallel), and `loadedIds`. `restore()` gates BEFORE any mutation/import — **version,
+  `encodingVersion`, fingerprint, `storeKind`** — then rebuilds the pool into a LOCAL (atomic: a bad
+  snapshot leaves the league unmutated) by re-importing each `weightsPath` via `makeBC`, and resets
+  `manifestMtimeMs=-1` (force a fresh manifest re-poll, picking up snapshots published between checkpoint
+  and crash). An evicted/unlinked weights file → WARN+skip+KEEP id in `loadedIds` (so a later `refresh()`
+  never re-imports the deleted file; the book record is preserved); any OTHER import error throws.
+  **`fingerprint` covers every draw/eviction-determining arg** (`count`/`learnerSeat`/`poolCap`/
+  `reserveBaselines`/`pfspEpsilon`/`pfspK`/ordered baseline ids), so a resume under drifted CLI args fails
+  loud rather than diverging.
+- **Env-server wiring (opt-in, no-op when absent).** New flags `--snapshot-store=memory|disk` /
+  `--league-state-dir=<dir>` / `--league-dump-every=50` + an exported `resolveLeaguePersistence`
+  (store selection + per-worker `league-state-<seedBase>.json` path). Restore-on-startup;
+  `store.refreshGlobal()` at the episode boundary; periodic dump after `recordResult` and **before** the
+  zero-decision `continue` (so a zero-decision storm still flushes on cadence); final + best-effort SIGTERM
+  dumps. **Persistence is OPT-IN** (enabled only by `--league-state-dir` OR `--snapshot-store=disk`); with
+  none of the three flags the run is byte-identical to B5 — the 91-case B1–B5 league suite passes unchanged.
+
+**Review-hardening (5-agent adversarial review → SHIP-AFTER-FIXES, no blockers, zero phantom findings).**
+Folded all worthwhile findings into this PR: **S1** mkdir the state dir at launch (fail loud, not silent
+zero-checkpoints); **S2** dump-failure tracking → `dumpFailures=` on the DONE line + fail loud after 10
+consecutive (silent non-durability is worse than aborting); **S3** `storeKind` gate (a backend switch on
+resume would zero the book); **S4** reject a pooled module with no `BC_POLICY` export in BOTH `restore()`
+and `refresh()` — `makeBC`'s default param would otherwise silently load the SHIPPED BC as a corrupt
+snapshot (empirically confirmed); **S5** `refreshGlobal` distinguishes benign skips from real FS errors;
+**S6** the disk store recovers its own shard at CONSTRUCTION (own-book recovery independent of the state
+file); plus atomic `restore()` and `--league-dump-every≥1` validation.
+
+**Deferred to Task E** (with `SubprocVecEnv`, its sole live consumer): Python forwarding of the new flags
+through `env_server.py`/`train_tracer.py`; the `refresh()` **multi-worker snapshot-GC race** (a peer
+`unlinkSync` racing a late worker's backfill import — kept out to keep the B5-locked `refresh()` byte-
+identical; a hard E precondition); the env-server `main()` persistence-wiring integration test; and live
+cross-worker `SharedDiskStore` validation. None block B6 (single-process B6 can't spawn a second league).
+
+**Status: shipped 2026-06-27** (branch `ml-bot/phase3-ppo-league-b6`). `tests/ml/` 190 green, full suite
+1141 green, eslint + build clean. **Task B (PFSP league) is now feature-complete (B0–B6); the remaining
+Phase-3 work is task C/E (cross-core + training-ops) → the long BEAT run.**
+
+**Grounding.** Two multi-agent workflows: a 12-agent design (4 code-readers → 3 design takes → synthesize
+→ 3 adversarial-verify lenses → finalize) producing the vetted blueprint, and a 5-agent review
+(correctness / silent-failure / tests / grounding → verify-and-synthesize against ground truth).

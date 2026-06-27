@@ -22,6 +22,7 @@
  *        [--max-turns=500] [--episodes=0] [--seed-base=1] [--decision-timeout-ms=120000]
  *        [--snapshot-manifest=<path>] [--snapshot-pool-cap=40]
  *        [--reserve-baselines=3] [--pfsp-epsilon=0.05] [--pfsp-k=2]
+ *        [--snapshot-store=memory|disk] [--league-state-dir=<dir>] [--league-dump-every=50]
  *
  * The PFSP league flags (`--snapshot-*`, `--reserve-baselines`, `--pfsp-*`) only matter once a
  * snapshot pool exists; without `--snapshot-manifest` the league runs in empty-pool fixed-field mode
@@ -37,6 +38,8 @@
  * @module scripts/ppo-env-server
  */
 
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 
@@ -46,6 +49,11 @@ import { BC_POLICY } from '../src/ai/bcPolicyWeights.js';
 
 import { runSelfPlayEpisode } from './lib/ppo-env.mjs';
 import { makeLeague } from './lib/ppo-league.mjs';
+import {
+  makeInMemoryStore,
+  makeSharedDiskStore,
+  writeJsonAtomic,
+} from './lib/ppo-league-store.mjs';
 import { buildObsFrame, serializeObsFrame } from './lib/obs-frame.mjs';
 
 const STATUS = 0;
@@ -70,8 +78,8 @@ const KNOWN_FLAGS = new Set([
   /*
    * Snapshot pool (B3 / [D-23]). `snapshot-manifest` = the producer's manifest.json to poll for new
    * self-play snapshots; absent → empty-pool fixed-field mode. `snapshot-pool-cap` bounds the live
-   * in-memory pool (FIFO-by-step). (`snapshot-store` — the pluggable shared-disk win-rate backend —
-   * lands with B6/Task-E, so it is intentionally NOT a flag yet.)
+   * in-memory pool (FIFO-by-step). (The pluggable win-rate backend `snapshot-store` is a B6 flag,
+   * grouped with the other persistence knobs below.)
    */
   'snapshot-manifest',
   'snapshot-pool-cap',
@@ -84,6 +92,19 @@ const KNOWN_FLAGS = new Set([
   'reserve-baselines',
   'pfsp-epsilon',
   'pfsp-k',
+  /*
+   * League persistence (B6 / [D-23]). `snapshot-store=memory|disk` picks the win-rate backend:
+   * `memory` (default) is the per-process book (byte-identical to B2–B5); `disk` is the cross-worker
+   * `SharedDiskStore` (own shard + folded peers) for Task-E `SubprocVecEnv`. Checkpoint/resume is opted
+   * into by EITHER `--league-state-dir=<dir>` OR `--snapshot-store=disk` (which derives the dir from
+   * `--league-state-dir`, else the snapshot manifest's dir): the env-server then dumps
+   * `league-state-<seedBase>.json` there every `league-dump-every` booked episodes (+ on SIGTERM / at the
+   * DONE line) and restores it on launch. With none of these opting in, persistence is a strict no-op
+   * (the empty-pool fixed-field run is byte-identical to B5).
+   */
+  'snapshot-store',
+  'league-state-dir',
+  'league-dump-every',
 ]);
 
 export function parseArgs(argv) {
@@ -112,6 +133,50 @@ function frameToArrayBuffer(buf) {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 }
 
+/**
+ * Resolve the B6 league-persistence config from the parsed flags. Exported so it is unit-testable
+ * without spawning the worker/socket (its store-selection + per-worker path derivation are the whole
+ * of B6's env-server logic). Pure given its inputs except that the `disk` branch constructs a
+ * `SharedDiskStore` (which only validates its args — no I/O until `flush`/`refreshGlobal`/`restore`).
+ *
+ * Persistence is OPT-IN: it is enabled (a non-null `leagueStatePath`) only when `--league-state-dir`
+ * is given, or `--snapshot-store=disk` (which derives the shared dir from `--league-state-dir`, else
+ * the snapshot manifest's dir). With none of the three flags set, `store` is the default in-memory
+ * book and `leagueStatePath` is null — the env-server then never restores or dumps, so the empty-pool
+ * fixed-field run is byte-identical to B5. The per-worker filename is keyed on `seedBase` (the env's
+ * disjoint, restart-stable id) so N `SubprocVecEnv` workers sharing one dir never collide.
+ *
+ * @param {Record<string,string>} opts parsed flags (`parseArgs` output).
+ * @param {{seedBase:number, snapshotManifest:(string|null)}} ctx
+ * @returns {{store: import('./lib/ppo-league.mjs').LeagueStore, snapshotStore:string,
+ *   leagueStateDir:(string|null), leagueStatePath:(string|null)}}
+ */
+export function resolveLeaguePersistence(opts, { seedBase, snapshotManifest }) {
+  const snapshotStore = opts['snapshot-store'] ?? 'memory';
+  if (snapshotStore !== 'memory' && snapshotStore !== 'disk') {
+    throw new Error(`--snapshot-store=${snapshotStore} unknown (expected memory|disk).`);
+  }
+  const explicitDir = opts['league-state-dir'] ?? null;
+  // disk store needs a shared dir; fall back to the manifest's dir when no explicit one is given.
+  const leagueStateDir =
+    explicitDir ??
+    (snapshotStore === 'disk' && snapshotManifest ? dirname(snapshotManifest) : null);
+  if (snapshotStore === 'disk' && !leagueStateDir) {
+    throw new Error(
+      '--snapshot-store=disk needs a shared directory: pass --league-state-dir=<dir> or ' +
+        '--snapshot-manifest=<path> (whose dir is then used for the win-rate shards).'
+    );
+  }
+  const store =
+    snapshotStore === 'disk'
+      ? makeSharedDiskStore({ dir: leagueStateDir, workerId: String(seedBase) })
+      : makeInMemoryStore();
+  const leagueStatePath = leagueStateDir
+    ? join(leagueStateDir, `league-state-${seedBase}.json`)
+    : null;
+  return { store, snapshotStore, leagueStateDir, leagueStatePath };
+}
+
 async function main() {
   /*
    * A learner client (or the parent reading our stdout) can vanish mid-run; a broken
@@ -138,16 +203,100 @@ async function main() {
    * hot-loads published self-play snapshots into the pool; PFSP weighting (B4) then samples them in
    * `draw()`. Fixed-field stays the empty-pool mode of this one pipeline.
    */
+  const snapshotManifest = opts['snapshot-manifest'] ?? null;
+  /*
+   * League persistence (B6 / [D-23]). Picks the win-rate `store` (in-memory default, or the
+   * cross-worker `SharedDiskStore` under `--snapshot-store=disk`) and the per-worker checkpoint path.
+   * `leagueStatePath` is null unless persistence is opted into (see resolveLeaguePersistence) → the
+   * restore-on-startup and the dump triggers below are then strict no-ops (byte-identical to B5).
+   */
+  const { store, leagueStateDir, leagueStatePath } = resolveLeaguePersistence(opts, {
+    seedBase,
+    snapshotManifest,
+  });
+  const dumpEvery = numArg(opts, 'league-dump-every', 50);
+  if (!Number.isInteger(dumpEvery) || dumpEvery < 1) {
+    throw new Error(
+      `--league-dump-every must be a positive integer, got ${opts['league-dump-every']}.`
+    );
+  }
+  /*
+   * Create the shared persistence dir up front (B6, S1): a typo'd / not-yet-created `--league-state-dir`
+   * must fail the LAUNCH, not silently on the first dump — where the best-effort catch below would
+   * swallow the ENOENT and the run would write zero checkpoints while reporting success.
+   */
+  if (leagueStateDir) mkdirSync(leagueStateDir, { recursive: true });
   const league = makeLeague({
     baselineCsv: opts.opponents ?? 'ai_bc',
     count: playerCount - 1,
     learnerSeat,
-    snapshotManifest: opts['snapshot-manifest'] ?? null,
+    snapshotManifest,
     poolCap: numArg(opts, 'snapshot-pool-cap', 40),
     reserveBaselines: numArg(opts, 'reserve-baselines', 3),
     pfspEpsilon: numArg(opts, 'pfsp-epsilon', 0.05),
     pfspK: numArg(opts, 'pfsp-k', 2),
+    store,
   });
+
+  /*
+   * Resume (B6): if a prior checkpoint exists, restore the win-rate book, counters, and snapshot pool
+   * before the episode loop. restore() re-imports the pooled snapshot weights (async) and resets the
+   * manifest mtime so the loop's first refresh() re-polls. A missing file is a clean fresh start; a
+   * version/encoding/fingerprint mismatch throws (fail loud — never resume a divergent league).
+   */
+  if (leagueStatePath && existsSync(leagueStatePath)) {
+    const summary = await league.restore(JSON.parse(readFileSync(leagueStatePath, 'utf8')));
+    process.stderr.write(
+      `[ppo-env-server] resumed league from ${leagueStatePath}: ${JSON.stringify(summary)}\n`
+    );
+  }
+
+  /*
+   * Atomically checkpoint the league (B6). No-op unless persistence is opted in. Flush the store's own
+   * win-rate shard FIRST (the disk store's book lives there; toJSON emits null for it), then write the
+   * counters/pool/loadedIds state. Best-effort: a dump failure must never crash a multi-hour run.
+   */
+  let bookedSinceDump = 0;
+  let dumpFailures = 0; // total failed dumps — surfaced on the DONE line (should read 0 on a healthy run)
+  let consecutiveDumpFailures = 0;
+  const MAX_CONSECUTIVE_DUMP_FAILURES = 10;
+  const dumpLeagueState = () => {
+    if (!leagueStatePath) return;
+    try {
+      store.flush();
+      writeJsonAtomic(leagueStatePath, league.toJSON());
+      consecutiveDumpFailures = 0;
+    } catch (err) {
+      /*
+       * Best-effort — a transient dump failure must not crash a multi-hour run. But a PERSISTENTLY dead
+       * checkpoint path (full disk, unwritable dir) would otherwise write zero checkpoints for the whole
+       * run while still printing a normal DONE line — exactly the silent non-durability this feature
+       * exists to prevent. Track failures, surface the count on DONE, and fail loud after a sustained run
+       * of them so the operator fixes the path instead of losing the entire resume window.
+       */
+      dumpFailures++;
+      process.stderr.write(
+        `[ppo-env-server] league-state dump #${dumpFailures} failed: ${err.message}\n`
+      );
+      if (++consecutiveDumpFailures >= MAX_CONSECUTIVE_DUMP_FAILURES) {
+        throw new Error(
+          `PPO env-server: ${consecutiveDumpFailures} consecutive league-state dumps failed to ` +
+            `${leagueStatePath} — checkpoint path unwritable; aborting (last: ${err.message}).`
+        );
+      }
+    }
+  };
+  /*
+   * Best-effort flush on a graceful kill (SIGTERM). A signal landing mid-decision can't run until the
+   * main thread unparks from Atomics.wait, so the periodic dump below — not this — is the durability
+   * guarantee; this just narrows the loss window on a clean shutdown. Registered only when persisting.
+   */
+  if (leagueStatePath) {
+    process.on('SIGTERM', () => {
+      dumpLeagueState();
+      process.exit(143); // 128 + SIGTERM(15)
+    });
+  }
 
   const sab = new SharedArrayBuffer(8); // 2 × Int32
   const ctrl = new Int32Array(sab);
@@ -298,6 +447,12 @@ async function main() {
        * unloadable pool).
        */
       await league.refresh();
+      /*
+       * B6 (disk store only): re-fold peer workers' win-rate shards into the global view before this
+       * episode's draw. A no-op for the in-memory store. Co-located with refresh() at the episode
+       * boundary — NOT on the hot path — so draw()'s per-snapshot winRate reads stay syscall-free.
+       */
+      store.refreshGlobal();
       const seed = seedBase + ep;
       decisionsThisEpisode = 0;
       // Draw this episode's opponent field from the league (B1: the empty-pool baseline field).
@@ -334,6 +489,17 @@ async function main() {
        * episode always carries a real terminal result.)
        */
       league.recordResult(drawn, result);
+
+      /*
+       * Periodic league checkpoint (B6) — the durability guarantee. Placed right after recordResult and
+       * BEFORE the zero-decision `continue` below, so a zero-decision storm (every episode books a loss
+       * but skips the wire frame) still flushes on cadence. Between episodes, never mid-decision, and the
+       * JSON is tiny — it cannot block a decision parked on Atomics.wait. No-op when not persisting.
+       */
+      if (leagueStatePath && ++bookedSinceDump >= dumpEvery) {
+        bookedSinceDump = 0;
+        dumpLeagueState();
+      }
 
       /*
        * Zero-decision episode: the learner was eliminated before it ever took a turn, so NO obs
@@ -397,12 +563,15 @@ async function main() {
      * win-rate book under-credited (PFSP drifting toward uniform). env.py drains and drops this line
      * (only the anchored LISTENING line is parsed), so appending fields is safe.
      */
+    // Final checkpoint on a clean loop exit (B6) — captures the tail of episodes since the last
+    // periodic dump. No-op when not persisting.
+    dumpLeagueState();
     const s = league.stats();
     process.stdout.write(
       `PPO_ENV_SERVER DONE episodes=${played} decisiveGames=${s.decisiveGames} ` +
         `truncatedGames=${s.truncatedGames} decisiveRate=${s.decisiveRate.toFixed(4)} ` +
         `poolSize=${s.poolSize} loadedSnapshots=${s.loadedSnapshots} bookSize=${s.bookSize} ` +
-        `noSeatBeatGames=${s.noSeatBeatGames}\n`
+        `noSeatBeatGames=${s.noSeatBeatGames} dumpFailures=${dumpFailures}\n`
     );
   } finally {
     /*

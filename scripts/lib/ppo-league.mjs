@@ -35,6 +35,7 @@ import { makeBC } from '../../src/ai/ai_bc.js';
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
 import { ENCODING_VERSION } from '../../src/arena/encodeObservation.js';
 import { mulberry32 } from './mulberry32.mjs';
+import { makeInMemoryStore } from './ppo-league-store.mjs';
 
 /*
  * `makeBC` (snapshot loader, B3) and `ENCODING_VERSION` (manifest compat gate) are imported
@@ -51,6 +52,23 @@ import { mulberry32 } from './mulberry32.mjs';
  * would waste a whole multi-hour training run with no other loud signal.
  */
 const MAX_NO_SEATBEAT_GAMES = 10;
+
+/**
+ * `toJSON()` checkpoint schema version (B6). `restore()` rejects an unknown version rather than
+ * silently mis-reading an older/newer layout. Bump only on a breaking shape change to the snapshot.
+ */
+const STATE_SCHEMA_VERSION = 1;
+
+/**
+ * @typedef {object} LeagueStore the pluggable win-rate backend (see ppo-league-store.mjs).
+ * @property {(id: string, beat: number) => void} record fold a pairwise result (`beat ∈ {0,0.5,1}`).
+ * @property {(id: string) => number} winRate the learner's win-rate vs `id` (0 for unseen).
+ * @property {() => number} size distinct booked opponent ids (the `stats().bookSize` health metric).
+ * @property {() => (Array|null)} toJSON serialize the book (entries array; `null` if it lives off-band).
+ * @property {(entries: Array|null) => void} restore reload the book from a `toJSON()` payload.
+ * @property {() => void} flush persist this worker's book (no-op for the in-memory store).
+ * @property {() => void} refreshGlobal re-fold peer books (no-op for the in-memory store).
+ */
 
 /** Split + trim the opponent id CSV, dropping blanks; throws if it resolves to nothing. */
 function parseIds(idCsv) {
@@ -128,8 +146,14 @@ export function resolveBaselineField(idCsv, count) {
  * @param {number} [opts.pfspK=2] **k** — the PFSP weight exponent in `w(S)=max(ε,1−winRate)^k`.
  *   Must be ≥ 0; higher k sharpens the bias toward snapshots that beat the learner (k=0 → uniform).
  *   Empty-pool mode ignores it.
+ * @param {LeagueStore} [opts.store] the win-rate backend (B6). Defaults to a fresh
+ *   `makeInMemoryStore()` — a per-process `Map`, byte-identical to the B2–B5 inline book. The
+ *   env-server passes `makeSharedDiskStore(...)` under `--snapshot-store=disk` for cross-worker
+ *   (Task-E `SubprocVecEnv`) aggregation. `recordResult`/`winRate`/`stats().bookSize` route through
+ *   it; the store's `flush()`/`refreshGlobal()` syscall methods are driven by the env-server at the
+ *   episode boundary, not by the league (so `draw()`/`recordResult` stay synchronous + I/O-free).
  * @returns {{draw: Function, recordResult: Function, winRate: Function, refresh: Function,
- *   stats: Function}}
+ *   stats: Function, toJSON: Function, restore: Function}}
  */
 export function makeLeague({
   baselineCsv,
@@ -140,6 +164,7 @@ export function makeLeague({
   reserveBaselines = 3,
   pfspEpsilon = 0.05,
   pfspK = 2,
+  store = makeInMemoryStore(),
 }) {
   /*
    * Fail loud at construction — both inputs are in scope here, so a bad value is caught at the
@@ -227,6 +252,25 @@ export function makeLeague({
   baselineField.forEach(entry => Object.freeze(entry));
   Object.freeze(baselineField);
 
+  /*
+   * Persistence fingerprint (B6): every construction arg that steers `draw()`'s output OR FIFO
+   * eviction (which `unlinkSync`s files). `restore()` throws unless the persisted fingerprint matches
+   * this league's, because a resume under drifted CLI args must fail loud, not sample/GC divergently —
+   * `pfspEpsilon`/`pfspK`/`reserveBaselines`/`poolCap`/baseline identity are as load-bearing as
+   * `count`/`learnerSeat`. `baselineIds` is the trimmed ordered id list (the full determinant of both
+   * the cycled `baselineField` and the `reserveBaselinePool`), normalized so cosmetic CSV whitespace
+   * does not spuriously reject an otherwise-identical resume.
+   */
+  const fingerprint = Object.freeze({
+    count,
+    learnerSeat,
+    poolCap,
+    reserveBaselines,
+    pfspEpsilon,
+    pfspK,
+    baselineIds: Object.freeze(parseIds(baselineCsv)),
+  });
+
   let decisiveGames = 0;
   let truncatedGames = 0;
   /*
@@ -236,8 +280,12 @@ export function makeLeague({
    * Keyed on the stable id, never the `uniquifyNames` `#N` display name. B4 samples snapshots by
    * `w(S) = max(ε, 1 − winRate(S))^k`, so a lower learner-win-rate (an opponent that beats the
    * learner) earns a higher weight. maxTurns truncations are excluded (see recordResult).
+   *
+   * B6: the book now lives behind the injected `store` (default `makeInMemoryStore()` — a `Map`,
+   * byte-identical to the prior inline book). `recordResult` writes via `store.record`, `winRate`/the
+   * PFSP sampler read via `store.winRate`, `stats().bookSize` via `store.size`. Persistence
+   * (`toJSON`/`restore`) round-trips it via `store.toJSON`/`store.restore`.
    */
-  const book = new Map();
   // One-shot guard so a broken-contract decisive game (no seatBeat[]) warns once, not per-episode.
   let warnedNoSeatBeat = false;
   /*
@@ -274,10 +322,7 @@ export function makeLeague({
    * both prioritised). Defined as a closure (not via the returned method) so `draw()` can read it
    * without an extra object hop.
    */
-  const learnerWinRate = id => {
-    const rec = book.get(id);
-    return rec && rec.games > 0 ? rec.wins / rec.games : 0;
-  };
+  const learnerWinRate = id => store.winRate(id);
 
   /*
    * Roulette-wheel pick from `items` with parallel non-negative `weights` summing to `total > 0`,
@@ -430,13 +475,7 @@ export function makeLeague({
               `desync (a corrupt win-rate book would poison B4's PFSP sampler).`
           );
         }
-        let rec = book.get(d.id);
-        if (!rec) {
-          rec = { wins: 0, games: 0 };
-          book.set(d.id, rec);
-        }
-        rec.games++;
-        rec.wins += beat;
+        store.record(d.id, beat);
       }
     },
 
@@ -501,6 +540,14 @@ export function makeLeague({
       for (const snap of fresh) {
         const weightsPath = resolve(dir, snap.weights);
         const mod = await import(pathToFileURL(weightsPath).href);
+        if (!mod.BC_POLICY) {
+          // No BC_POLICY export ⇒ makeBC's default param would silently load the SHIPPED BC as this
+          // snapshot (a corrupt/truncated published artifact masquerading as a trained policy). Fail loud.
+          throw new Error(
+            `ppo-league.refresh: snapshot ${snap.id} (${weightsPath}) exports no BC_POLICY — ` +
+              `corrupt/truncated weights module.`
+          );
+        }
         const fn = makeBC({ policy: mod.BC_POLICY }); // re-checks encodingVersion per snapshot
         pool.push({ id: snap.id, step: snap.step, fn, weightsPath });
         loadedIds.add(snap.id);
@@ -541,12 +588,162 @@ export function makeLeague({
       return {
         poolSize: pool.length,
         loadedSnapshots: loadedIds.size,
-        bookSize: book.size,
+        bookSize: store.size(),
         decisiveGames,
         truncatedGames,
         decisiveRate: total > 0 ? decisiveGames / total : 0,
         noSeatBeatGames,
       };
+    },
+
+    /**
+     * Serialize the league's mutable state to a plain-JSON checkpoint (B6) — the counters, the
+     * win-rate book (via `store.toJSON()`), and the snapshot pool as `{id, step, weightsPath}` (NOT
+     * the `fn`, which `restore()` rebuilds by re-importing the weights). No `Map`/`Set`/function leaks,
+     * so `JSON.stringify` round-trips it losslessly. The env-server writes this atomically at the
+     * episode boundary; a relaunched env-server feeds it back through `restore()`. The pool is emitted
+     * in its CURRENT array order (NOT re-sorted) because `draw()`'s PFSP weighting is pool-index-
+     * parallel and global step-monotonicity across restarts is not guaranteed.
+     *
+     * @returns {object} a JSON-serializable checkpoint (see `restore`).
+     */
+    toJSON() {
+      return {
+        version: STATE_SCHEMA_VERSION,
+        encodingVersion: ENCODING_VERSION,
+        fingerprint,
+        decisiveGames,
+        truncatedGames,
+        noSeatBeatGames,
+        warnedNoSeatBeat,
+        storeKind: store.kind, // restore() rejects a backend switch — see the store-kind gate there
+        book: store.toJSON(), // in-memory → entry copies; shared-disk → null (book lives in shards)
+        pool: pool.map(s => ({ id: s.id, step: s.step, weightsPath: s.weightsPath })),
+        loadedIds: [...loadedIds], // superset of pool ids (includes since-evicted ones)
+      };
+    },
+
+    /**
+     * Restore from a `toJSON()` checkpoint (B6) — the resume path for Task-E's idempotent
+     * checkpoint/resume. Every cheap gate fires BEFORE any mutation or `import`, so a bad payload can
+     * never half-apply. Must be a closure method (not an external helper) because it reassigns the
+     * league's `let` counters and the captured `manifestMtimeMs`. Idempotent: re-restoring the same
+     * state clears + reassigns, never accumulates.
+     *
+     * Gates, in order: (1) known `version`; (2) `encodingVersion === ENCODING_VERSION` — fail loud on
+     * skew before importing anything (a mid-run encoding bump makes pooled snapshots unloadable, [D-23]);
+     * (3) `fingerprint` matches this league's config (drifted sampler/eviction args ⇒ divergent draws/GC);
+     * (4) `storeKind` matches this league's store — a checkpoint written by a `disk` store carries
+     * `book: null` (the book lives in shards), so blindly restoring it into an in-memory store (or vice
+     * versa) would silently zero the win-rate book and collapse the PFSP sampler to cold-start.
+     *
+     * **Atomic.** All re-imports happen into a LOCAL pool first (the only throw source past the gates);
+     * the league's counters, book, pool, and `manifestMtimeMs` are mutated only AFTER every snapshot
+     * loaded, so a bad payload leaves the league fully unmutated rather than half-applied. The reset
+     * `manifestMtimeMs = -1` forces the next `refresh()` to re-poll (picking up snapshots published
+     * between checkpoint and crash). A weights file FIFO-evicted/unlinked since the checkpoint (import
+     * throws `ENOENT`/`ERR_MODULE_NOT_FOUND`) is WARN-skipped but its id is KEPT in `loadedIds`, so a
+     * later `refresh()` never re-imports the deleted file and its book record is preserved. Any OTHER
+     * import error — a missing `BC_POLICY` export (a truncated/corrupt snapshot, which would otherwise
+     * fall through to `makeBC`'s default and silently load the shipped BC), or a per-snapshot encoding
+     * skew — throws. Idempotent: re-restoring the same state replaces, never accumulates.
+     *
+     * @param {object} state a payload from `toJSON()` (post-`JSON.parse`).
+     * @returns {Promise<{restoredPool:number, droppedPool:number, bookSize:number}>} a resume summary.
+     */
+    async restore(state) {
+      if (!state || state.version !== STATE_SCHEMA_VERSION) {
+        throw new Error(
+          `ppo-league.restore: unknown checkpoint version ${state?.version} (expected ${STATE_SCHEMA_VERSION}).`
+        );
+      }
+      if (state.encodingVersion !== ENCODING_VERSION) {
+        throw new Error(
+          `ppo-league.restore: checkpoint encodingVersion ${state.encodingVersion} != encoder ` +
+            `ENCODING_VERSION ${ENCODING_VERSION}. The run must freeze ENCODING_VERSION — re-export ` +
+            `the snapshots / start a fresh run against the current encoding.`
+        );
+      }
+      const fp = state.fingerprint;
+      const fpOk =
+        fp &&
+        fp.count === fingerprint.count &&
+        fp.learnerSeat === fingerprint.learnerSeat &&
+        fp.poolCap === fingerprint.poolCap &&
+        fp.reserveBaselines === fingerprint.reserveBaselines &&
+        fp.pfspEpsilon === fingerprint.pfspEpsilon &&
+        fp.pfspK === fingerprint.pfspK &&
+        Array.isArray(fp.baselineIds) &&
+        fp.baselineIds.length === fingerprint.baselineIds.length &&
+        fp.baselineIds.every((id, i) => id === fingerprint.baselineIds[i]);
+      if (!fpOk) {
+        throw new Error(
+          `ppo-league.restore: checkpoint fingerprint ${JSON.stringify(fp)} != this league's ` +
+            `${JSON.stringify(fingerprint)}. A resume must use the same league config (count/learnerSeat/` +
+            `poolCap/reserveBaselines/pfspEpsilon/pfspK/opponents) — sampling and eviction would diverge.`
+        );
+      }
+      if (state.storeKind !== store.kind) {
+        throw new Error(
+          `ppo-league.restore: checkpoint storeKind "${state.storeKind}" != this league's store ` +
+            `"${store.kind}". The win-rate book is serialized differently per backend — a backend ` +
+            `switch on resume would silently zero the book. Relaunch with the same --snapshot-store.`
+        );
+      }
+
+      /*
+       * Rebuild the pool into a LOCAL first — the only throw source past the gates — so the league stays
+       * fully unmutated if a snapshot fails to load (atomic restore). Serialized array order is preserved
+       * (NOT re-sorted): draw()'s PFSP weighting is pool-index-parallel.
+       */
+      const nextPool = [];
+      let droppedPool = 0;
+      for (const snap of state.pool ?? []) {
+        let mod;
+        try {
+          mod = await import(pathToFileURL(snap.weightsPath).href);
+        } catch (err) {
+          if (err.code === 'ENOENT' || err.code === 'ERR_MODULE_NOT_FOUND') {
+            // FIFO-evicted/unlinked since the checkpoint — keep the id in loadedIds (below) so a later
+            // refresh() never re-imports the deleted file; the book record stays credited.
+            droppedPool++;
+            process.stderr.write(
+              `[ppo-league] restore: snapshot ${snap.id} weights gone (${snap.weightsPath}); ` +
+                `dropped from the live pool, id retained.\n`
+            );
+            continue;
+          }
+          throw err; // any non-missing-file import error — fail loud
+        }
+        if (!mod.BC_POLICY) {
+          // A parseable module with no BC_POLICY export would fall through to makeBC's default param and
+          // silently load the SHIPPED BC as this snapshot — a corrupt/truncated artifact masquerading as
+          // a trained policy. Reject it instead of swapping identities under the hood.
+          throw new Error(
+            `ppo-league.restore: snapshot ${snap.id} (${snap.weightsPath}) exports no BC_POLICY — ` +
+              `corrupt/truncated weights module.`
+          );
+        }
+        nextPool.push({
+          id: snap.id,
+          step: snap.step,
+          fn: makeBC({ policy: mod.BC_POLICY }), // re-checks encodingVersion per snapshot
+          weightsPath: snap.weightsPath,
+        });
+      }
+
+      // All gates passed and every snapshot loaded — apply (no throw past here).
+      store.restore(state.book);
+      decisiveGames = state.decisiveGames ?? 0;
+      truncatedGames = state.truncatedGames ?? 0;
+      noSeatBeatGames = state.noSeatBeatGames ?? 0;
+      warnedNoSeatBeat = state.warnedNoSeatBeat ?? false;
+      manifestMtimeMs = -1; // never trust a persisted mtime — force a fresh manifest re-poll
+      pool.length = 0;
+      pool.push(...nextPool);
+      loadedIds.clear();
+      for (const id of state.loadedIds ?? []) loadedIds.add(id);
+      return { restoredPool: pool.length, droppedPool, bookSize: store.size() };
     },
   };
 }

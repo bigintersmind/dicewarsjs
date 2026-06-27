@@ -21,6 +21,84 @@ Entry template:
 
 ---
 
+## 2026-06-27 — Task B step B6: league persistence + SharedDiskStore (toJSON/restore; standalone PR)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:** Built B6 — the league-side checkpoint/resume primitive Task E's idempotent resume will drive —
+as a **standalone Node PR** (no Python touched). Scoped + adversarially reviewed via two multi-agent
+workflows (12-agent design → blueprint; 5-agent review → SHIP-AFTER-FIXES, no blockers, zero phantom
+findings). Two forks confirmed with Ivan up front: **standalone B6 PR** (vs bundling with E), and
+**SharedDiskStore implemented + unit-tested but its live multi-worker path gated until E**.
+
+- **B6a — store module** (NEW `scripts/lib/ppo-league-store.mjs`): `makeInMemoryStore()` (default,
+  per-process `Map`, byte-identical to the B2–B5 inline book), `makeSharedDiskStore({dir,workerId})`
+  (own book in memory + full-shard-on-`flush()` + fold-peers-on-`refreshGlobal()`, single-writer-per-
+  shard lock-free, `workerId` = the env `seed_base` so it's restart-stable and never a PID), and
+  `writeJsonAtomic` (tmp + `fsync` + `rename`, matching the snapshot producer's durability story).
+- **B6b — route the book through the store** (`ppo-league.mjs`): injected `opts.store` (default
+  `makeInMemoryStore`); the 3 book touchpoints (`recordResult` write, `learnerWinRate` read,
+  `stats().bookSize`) go through it. **Behavior-preserving — the existing 91-case league suite passes
+  unchanged.** `refresh()`/`draw()` untouched.
+- **B6c — `toJSON()`/`async restore()`** (`ppo-league.mjs`): plain-JSON snapshot (counters, the win-rate
+  book via `store.toJSON()`, the pool as `{id,step,weightsPath}` — NO `fn`, current array order, never
+  re-sorted — and `loadedIds`). `restore()` gates BEFORE any mutation/import: version, encodingVersion,
+  fingerprint (every draw/eviction-determining arg), and storeKind; rebuilds the pool by re-importing
+  each `weightsPath` via `makeBC`; resets `manifestMtimeMs=-1` (force a fresh manifest re-poll). Atomic
+  (imports into a local pool first, then applies). An evicted/unlinked weights file → WARN+skip+keep id
+  in `loadedIds` (book record preserved); any other import error throws.
+- **B6d — env-server wiring** (`ppo-env-server.mjs`): new flags `--snapshot-store=memory|disk` /
+  `--league-state-dir=<dir>` / `--league-dump-every=50` + exported `resolveLeaguePersistence` (store
+  selection + per-worker `league-state-<seedBase>.json` path). Restore-on-startup; `store.refreshGlobal()`
+  at the episode boundary (no-op for memory); periodic dump after `recordResult` and **before** the
+  zero-decision `continue`; final + SIGTERM dumps. **Persistence is OPT-IN — with none of the three flags
+  the run is a strict no-op, byte-identical to B5.**
+
+**Learned / decided:**
+
+- **Fixed-field / snapshot-mode is byte-identical to B5** because every persistence side-effect is gated
+  on `leagueStatePath` (null unless opted in) or is a store no-op for `memory`. The 91-case suite is the
+  proof. `--snapshot-manifest` alone does NOT auto-enable persistence (no surprise side-files).
+- **`SharedDiskStore` is shippable now without E** because the full fold algorithm is testable single-
+  process: two store instances over one temp dir exercise the merge (idempotent, order-independent,
+  own-shard recovery, peer fold, torn-shard skip). Only the genuinely-multi-worker properties wait for E.
+- **The `fingerprint` must cover every sampler/eviction arg, not just `count`** — `pfspEpsilon`/`pfspK`/
+  `reserveBaselines`/`poolCap`/baseline-id identity all steer `draw()` and FIFO eviction, so a resume
+  under drifted CLI args fails loud rather than sampling/GC-ing divergently.
+
+**Review-hardening (5-agent adversarial review → folded all worthwhile findings):**
+
+- **S1** mkdir the league-state dir at launch (a typo'd/missing dir fails the launch, not silently on the
+  first dump). **S2** dump-failure tracking — count, surface `dumpFailures=` on the DONE line, fail loud
+  after 10 consecutive (a durability feature silently never persisting is worse than aborting). **S3**
+  emit `storeKind` + reject a backend switch on resume (would silently zero the book). **S4** reject a
+  pooled module with no `BC_POLICY` export in BOTH `restore()` and `refresh()` — `makeBC`'s default param
+  would otherwise silently load the SHIPPED BC as a corrupt snapshot (empirically confirmed). **S5**
+  `refreshGlobal` distinguishes benign skips (ENOENT/SyntaxError) from real FS errors (warn-once). **S6**
+  the disk store recovers its own shard at CONSTRUCTION, so own-book recovery doesn't depend on the
+  state file existing. Plus: atomic `restore()` (no half-apply), validate `--league-dump-every≥1`, and
+  test arms for `learnerSeat` drift / store-kind switch / missing-`BC_POLICY` / book-retention-on-drop /
+  the disk-store-through-`makeLeague` round-trip + peer fold.
+
+**Tests:** NEW `ppo-league-store.test.js` (16) + `ppo-league-persist.test.js` (16); `ppo-env-server-args.test.js`
+4→12. `tests/ml/` 190 green; full suite **1141 green**; eslint + build clean.
+
+**Dead ends / surprises:**
+
+- The env-server `main()` persistence WIRING (restore-on-startup, the dump call-sites/ordering, SIGTERM)
+  is only indirectly covered (via `resolveLeaguePersistence` + the league-level persist tests) — the
+  `isEntryPoint` guard blocks importing `main()`, and a full integration test needs the socket-client
+  harness. **Deferred to Task E** (which runs the env-server live on shodan and needs that harness anyway).
+
+**Next:**
+
+- **Task E** (the long-BEAT-run prerequisite): schtasks-wrapped WSL launch; idempotent SB3 checkpoint/
+  resume of policy+optimizer+VecNormalize+RNG+step; `DummyVecEnv`→`SubprocVecEnv`; TensorBoard+CSV; and
+  the B6-deferred items — Python forwarding of `--snapshot-store`/`--league-state-dir`, the `refresh()`
+  multi-worker snapshot-GC race hardening (a peer `unlinkSync` racing a late worker's backfill import),
+  and the env-server `main()` persistence integration test + live cross-worker `SharedDiskStore`
+  validation. Then the long run at R=3, gated by `npm run ppo:gate` vs `ai_lookahead@596f781`.
+
 ## 2026-06-27 — Task B step B5: snapshot-heavy throughput/decisive-rate re-probe (first live shodan exercise of the sampler)
 
 **Phase:** 3 · **Who:** Ivan + Claude

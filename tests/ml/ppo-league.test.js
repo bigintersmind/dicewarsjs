@@ -161,6 +161,85 @@ describe('ppo-league — telemetry tally (B1)', () => {
   });
 });
 
+describe('ppo-league — win-rate book (B2)', () => {
+  /*
+   * The book credits the LEARNER's pairwise record against each drawn opponent, reading the result's
+   * per-board-seat `seatBeat[]` at `drawn[k].seat`. These tests drive `recordResult` with hand-built
+   * `seatBeat` vectors (the shaper correctness is pinned separately in ppo-env.test.js) and assert the
+   * id-keyed `winRate`. count=6 over DEFAULT_OPPONENTS cycles ai_lookahead onto two seats, so one game
+   * yields two records for it — the load-bearing "cycled baseline → independent per-seat records" case.
+   */
+  const newLeague = (learnerSeat = 0) =>
+    makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: COUNT, learnerSeat });
+
+  it('credits each opponent id pairwise from seatBeat, double-recording a cycled baseline', () => {
+    const league = newLeague(0);
+    const { drawn } = league.draw(0); // seats [1..6], ids [look, strat, expect, bc, def, look]
+    // seatBeat indexed by board seat (learner seat 0 → null): beat seats 1,3,5; lost seats 2,4,6.
+    league.recordResult(drawn, { truncated: false, seatBeat: [null, 1, 0, 1, 0, 1, 0] });
+
+    expect(league.winRate('ai_lookahead')).toBeCloseTo(0.5, 10); // seat1 beat + seat6 lost → 1/2
+    expect(league.winRate('ai_strategist')).toBe(0); // seat2 lost
+    expect(league.winRate('ai_expectimax')).toBe(1); // seat3 beat
+    expect(league.winRate('ai_bc')).toBe(0); // seat4 lost
+    expect(league.winRate('ai_defensive')).toBe(1); // seat5 beat
+    expect(league.stats().bookSize).toBe(5); // 5 distinct ids (ai_lookahead counted once)
+  });
+
+  it('reads seatBeat at the BOARD seat, not the opponent-array index (interior learner)', () => {
+    /*
+     * learnerSeat=3 → opponents fill seats [0,1,2,4,5,6]; the array index and the board seat diverge,
+     * so a book that keyed on the array index instead of `drawn[k].seat` would mis-credit. seatBeat is
+     * board-seat indexed with null at seat 3.
+     */
+    const league = newLeague(3);
+    const { drawn } = league.draw(0); // ids [look@0, strat@1, expect@2, bc@4, def@5, look@6]
+    league.recordResult(drawn, { truncated: false, seatBeat: [1, 0, 1, null, 0, 1, 0] });
+
+    expect(league.winRate('ai_lookahead')).toBeCloseTo(0.5, 10); // seat0 beat + seat6 lost
+    expect(league.winRate('ai_strategist')).toBe(0); // seat1 lost
+    expect(league.winRate('ai_expectimax')).toBe(1); // seat2 beat
+    expect(league.winRate('ai_bc')).toBe(0); // seat4 lost
+    expect(league.winRate('ai_defensive')).toBe(1); // seat5 beat
+  });
+
+  it('accumulates win-rate across games', () => {
+    const league = newLeague(0);
+    const { drawn } = league.draw(0);
+    // Game 1: beat strategist (seat 2). Game 2: lost to strategist. → 1/2.
+    league.recordResult(drawn, { truncated: false, seatBeat: [null, 0, 1, 0, 0, 0, 0] });
+    league.recordResult(drawn, { truncated: false, seatBeat: [null, 0, 0, 0, 0, 0, 0] });
+    expect(league.winRate('ai_strategist')).toBeCloseTo(0.5, 10);
+    expect(league.stats().decisiveGames).toBe(2);
+  });
+
+  it('EXCLUDES maxTurns truncations from the book (counts only the truncated tally)', () => {
+    const league = newLeague(0);
+    const { drawn } = league.draw(0);
+    // A truncated game carries a seatBeat, but it must NOT touch the win-rate book ([D-22] decision 5).
+    league.recordResult(drawn, { truncated: true, seatBeat: [null, 1, 1, 1, 1, 1, 1] });
+    expect(league.winRate('ai_lookahead')).toBe(0); // unchanged — cold-start
+    expect(league.stats()).toMatchObject({ bookSize: 0, truncatedGames: 1, decisiveGames: 0 });
+  });
+
+  it('returns winRate 0 for an unseen id (cold-start = max PFSP weight), same as all-losses', () => {
+    const league = newLeague(0);
+    expect(league.winRate('ai_lookahead')).toBe(0); // never recorded
+    expect(league.winRate('totally-unknown-snapshot')).toBe(0);
+    // A recorded all-losses id is also 0 — intentionally indistinguishable; both want max weight.
+    const { drawn } = league.draw(0);
+    league.recordResult(drawn, { truncated: false, seatBeat: [null, 0, 0, 0, 0, 0, 0] });
+    expect(league.winRate('ai_strategist')).toBe(0);
+  });
+
+  it('counts the decisive game but books nothing when no seatBeat is present (defensive)', () => {
+    const league = newLeague(0);
+    const { drawn } = league.draw(0);
+    league.recordResult(drawn, { truncated: false }); // no seatBeat
+    expect(league.stats()).toMatchObject({ bookSize: 0, decisiveGames: 1 });
+  });
+});
+
 describe('ppo-league — error handling', () => {
   it('throws on an empty opponents CSV', () => {
     expect(() => makeLeague({ baselineCsv: '  ,  ', count: COUNT, learnerSeat: 0 })).toThrow(

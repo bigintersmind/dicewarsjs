@@ -142,9 +142,10 @@ export function scaledPlacement(placements, learnerSeat, playerCount) {
  *   off keeps the full-game result byte-identical (the integration oracle). When the learner
  *   instead survives to win/stalemate, the flag is a pure no-op.
  * @returns {{winner:number|null, won:number, placement:number, placements:number[]|null,
- *   turnCount:number, learnerSeat:number, playerCount:number, eliminated:boolean,
- *   truncated:boolean, finalState:import('../../src/engine/types.js').GameState,
- *   botStats:Object[]|null}} `placements`/`botStats` are null on an early elimination (the match
+ *   seatBeat:(number|null)[]|null, turnCount:number, learnerSeat:number, playerCount:number,
+ *   eliminated:boolean, truncated:boolean, finalState:import('../../src/engine/types.js').GameState,
+ *   botStats:Object[]|null}} `seatBeat[s]` = did the learner outplace seat `s` (1/0, null at its own
+ *   seat) — the league's per-opponent win-rate input ([D-22]/[D-23]). `placements`/`botStats` are null on an early elimination (the match
  *   was aborted before `runMatch` computed them); `eliminated` flags that path. `truncated` is
  *   true ONLY when the learner survived to the `maxTurns` stalemate cap (a Gym truncation — the
  *   game did not actually end, so the learner's value should be bootstrapped); a win or an
@@ -204,7 +205,7 @@ export function runSelfPlayEpisode(cfg) {
      */
     let abortState = null;
     let abortTurn = 0;
-    let abortCoElimAbove = 0;
+    let abortCoElimSeats = null;
     let prevEliminated = new Set();
     const guardedOnTurn = (turnCount, state) => {
       if (onTurn) onTurn(turnCount, state);
@@ -213,13 +214,17 @@ export function runSelfPlayEpisode(cfg) {
          * Co-eliminees: players who lost their last territory on this SAME turn as the learner.
          * `runMatch` appends simultaneous eliminations to its eliminationOrder in ascending seat-id
          * order and `calculatePlacements` reverses that, so a same-turn co-eliminee with a HIGHER
-         * seat id than the learner finishes ABOVE it. `aliveCount` cannot see them (they are
-         * eliminated, not alive), so count them here and add them to the rank — making the
-         * synthesized placement match `calculatePlacements` exactly even on a multi-elimination turn.
+         * seat id than the learner finishes ABOVE it (a LOWER one below). Capture the whole same-turn
+         * set — the seats newly eliminated this turn, learner included — so `eliminationOutcome` can
+         * both correct the synthesized RANK and attribute the per-seat win/loss (`seatBeat`) exactly
+         * as `calculatePlacements` would, even on a multi-elimination turn. `aliveCount` cannot see
+         * these seats (they are eliminated, not alive).
          */
+        const coElimSeats = new Set();
         for (const p of state.players) {
-          if (p.id > learnerSeat && p.eliminated && !prevEliminated.has(p.id)) abortCoElimAbove++;
+          if (p.eliminated && !prevEliminated.has(p.id)) coElimSeats.add(p.id);
         }
+        abortCoElimSeats = coElimSeats;
         abortState = state;
         abortTurn = turnCount;
         throw LEARNER_ELIMINATED;
@@ -241,12 +246,42 @@ export function runSelfPlayEpisode(cfg) {
     } catch (err) {
       // re-raise a user onTurn throw (e.g. the env-server's EnvClosed disconnect signal).
       if (err !== LEARNER_ELIMINATED) throw err;
-      return eliminationOutcome(abortState, abortTurn, learnerSeat, playerCount, abortCoElimAbove);
+      return eliminationOutcome(abortState, abortTurn, learnerSeat, playerCount, abortCoElimSeats);
     }
   }
 
   const result = runMatch({ bots: roster, seed, maxTurns, recordHistory: false, onTurn });
   return summarizeOutcome(result, learnerSeat, playerCount);
+}
+
+/**
+ * Per-seat pairwise outcome vector for the league's win-rate book (ml-bot task B — [D-22]/[D-23]).
+ * `seatBeat[s]` answers "did the LEARNER outplace the player at board seat `s`?" — `1` yes, `0` no,
+ * `null` for the learner's own seat (and any seat the order can't rank). Strict pairwise
+ * placement-relative comparison (the `elo.js` pairwise rule restricted to learner-containing pairs),
+ * so the league can attribute one FFA game to one win/loss record per opponent seat. Built from the
+ * authoritative placement order (best-first list of seat ids); a total order means no `0.5` ties in
+ * practice, but the rule is kept defensively. Index = board seat (`state.players[i].id === i`).
+ *
+ * @param {number[]} placements - placement order, best-first (seat ids); `placements.indexOf(seat)` = rank.
+ * @param {number} learnerSeat
+ * @param {number} playerCount
+ * @returns {(number|null)[]} length `playerCount`, indexed by seat.
+ */
+function seatBeatFromPlacements(placements, learnerSeat, playerCount) {
+  const rank = new Array(playerCount).fill(-1);
+  placements.forEach((seat, i) => {
+    rank[seat] = i;
+  });
+  const learnerRank = rank[learnerSeat];
+  return Array.from({ length: playerCount }, (_, seat) => {
+    if (seat === learnerSeat) return null;
+    const r = rank[seat];
+    if (r < 0 || learnerRank < 0) return null; // seat absent from the order — unrankable
+    if (learnerRank < r) return 1; // learner placed higher (lower index) → beat seat
+    if (learnerRank > r) return 0;
+    return 0.5; // exact tie — unreachable for a strict placement order, kept for elo parity
+  });
 }
 
 /**
@@ -262,6 +297,14 @@ function summarizeOutcome(result, learnerSeat, playerCount) {
     won: result.winner === learnerSeat ? 1 : 0,
     placement: scaledPlacement(result.placements, learnerSeat, playerCount),
     placements: result.placements,
+    /*
+     * Per-seat pairwise win/loss for the league's win-rate book ([D-22] decision 5). The completed-
+     * match path has the full placement order, so derive it directly. `recordResult` excludes
+     * `maxTurns` truncations from the book, so the value on a stalemate is computed-but-unused.
+     */
+    seatBeat: Array.isArray(result.placements)
+      ? seatBeatFromPlacements(result.placements, learnerSeat, playerCount)
+      : null,
     turnCount: result.turnCount,
     learnerSeat,
     playerCount,
@@ -284,25 +327,46 @@ function summarizeOutcome(result, learnerSeat, playerCount) {
  * PRIOR turn finished below it. So the base rank is `#players still alive` (`aliveCount`), plus a
  * correction for same-turn co-eliminees that outrank the learner: `runMatch` orders simultaneous
  * eliminations by ascending seat id and `calculatePlacements` reverses that, so a co-eliminee with
- * a higher seat id than the learner places above it (`coElimAbove`, counted by the caller).
+ * a higher seat id than the learner places above it (`coElimAbove`, derived here from `coElimSeats`).
  * `aliveCount + coElimAbove` reproduces `calculatePlacements`' game-over rank exactly, with no tail
  * simulated. `winner` is the engine's winner when the eliminating turn also ended the game (learner
  * = runner-up), else null (game still undecided); the reward is `won = 0` either way.
  * `placements`/`botStats` are null — the match was aborted before `runMatch` built them.
  *
+ * The same `coElimSeats` set also yields the per-seat win-rate vector (`seatBeat`) without the tail:
+ * every still-alive seat outlives the learner (`0`); a same-turn co-eliminee is split by the seat-id
+ * tie-break (higher id placed above → `0`, lower id below → `1`); every prior-turn elimination was
+ * outlived by the learner (`1`). This reproduces `seatBeatFromPlacements` over the never-built
+ * game-over placements exactly, preserving the ~2× early-termination throughput.
+ *
  * @param {import('../../src/engine/types.js').GameState} state - board at the learner's elimination.
  * @param {number} turnCount - turns played when the learner was eliminated.
  * @param {number} learnerSeat
  * @param {number} playerCount
- * @param {number} [coElimAbove=0] - same-turn co-eliminees with a higher seat id than the learner.
+ * @param {Set<number>|null} [coElimSeats=null] - seats eliminated on the learner's death turn
+ *   (learner included); same-turn co-eliminees with a higher seat id than the learner outrank it.
  */
-function eliminationOutcome(state, turnCount, learnerSeat, playerCount, coElimAbove = 0) {
+function eliminationOutcome(state, turnCount, learnerSeat, playerCount, coElimSeats = null) {
   const aliveCount = state.players.filter(p => !p.eliminated).length; // players who outlive the learner
+  const coElim = coElimSeats ?? new Set();
+  // Same-turn co-eliminees with a higher seat id than the learner finish ABOVE it (the rank correction).
+  let coElimAbove = 0;
+  for (const id of coElim) if (id > learnerSeat) coElimAbove++;
   return {
     winner: state.winner,
     won: 0,
     placement: scaledPlacementFromRank(aliveCount + coElimAbove, playerCount),
     placements: null,
+    /*
+     * Per-seat pairwise win/loss synthesized at the learner's death — no game-over placements exist,
+     * but this matches what `seatBeatFromPlacements` would return for the full game (see doc above).
+     */
+    seatBeat: state.players.map(p => {
+      if (p.id === learnerSeat) return null;
+      if (!p.eliminated) return 0; // alive → outlives the learner → learner did NOT beat it
+      if (coElim.has(p.id)) return p.id > learnerSeat ? 0 : 1; // same-turn tie-break by seat id
+      return 1; // eliminated on a prior turn → the learner outlived it
+    }),
     turnCount,
     learnerSeat,
     playerCount,

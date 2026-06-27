@@ -479,29 +479,39 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       the 7 gate opponents (incl. all 3 strong ones) were training opponents → partly fixed-field
       _exploitation_ (also beats the 3 held-out bots → partial generalization); this green-lights task
       B. Full record: RESULTS.md + LOG.md + [D-23].
-- [ ] **(B) PFSP opponent league ([D-22]) — Node-resident. 🟢 SCOPED 2026-06-27 → [D-23].** New `scripts/lib/ppo-league.mjs` (pool +
-      seeded `mulberry32` sampler + win-rate book) inside the env-server; the loop draws
-      `league.draw(seed)` per episode (replaces the static `opponents` const at `ppo-env-server.mjs:259`).
-      **Fixed-field is the empty-pool degenerate mode of this same pipeline** — so (A) and (B) share
-      code. Snapshots: Python SB3 callback `repack → export_weights` (weights-only — no per-snapshot
-      fixture needed, [D-22] decision 6) → atomic `manifest.json`; Node hot-loads via `makeBC({policy})`
-      (fresh filename per snapshot — ESM URL cache). Sample `w(S)=max(ε,1−learnerWinRate(S))^k`; reserve
-      **R≈3–4 aggressive baselines every game** ([D-15] turtle defense); hold `player_count` constant.
-      **Win-rate attribution is the real work item** — pairwise/placement-relative, **excluding
-      `maxTurns` truncations**. Honor: freeze `ENCODING_VERSION`; dedup via `uniquifyNames` `#N`;
-      re-probe decisive-rate + throughput on a snapshot-heavy field before locking the budget.
-      _Open: per-worker vs shared-disk-global stats — lean shared-disk-global, pluggable ([D-22])._
-      **Build sequence — scoped in [D-23]** (verifier-corrected: `count = playerCount−1 = 6`, so R=3
-      leaves 3 PFSP seats; baselines threaded from the resolved `opts.opponents`; extend the
-      `EnvServerProcess` signature; GC evicted snapshot `.js` files): **B0** rebase/merge **PR #62
-      (hard prereq)** + `snapshot-manifest`/`-store` flags + freeze `ENCODING_VERSION=2` → **B1**
-      empty-pool league `== task A` (byte-identical parity — the milestone) → **B2** per-seat
-      `seatBeat[]` on both outcome shapers + win-rate book (exclude `truncated`) → **B3** snapshot
-      pipeline (SB3 callback → repack → `export(…, fixture_path=None)` → atomic manifest → Node
-      hot-load via `makeBC`, fresh filename) → **B4** PFSP weighting `w(S)=max(ε,1−winRate)^k` + R
-      reserved baselines (seeded `mulberry32`) → **B5** throughput/decisive-rate re-probe on a
-      snapshot-heavy field → **then** lock the env-step budget → **B6** persistence
-      (`toJSON()/restore()`) + `SharedDiskStore` (with task E).
+- [~] **(B) PFSP opponent league ([D-22]) — Node-resident. 🔵 B1–B3 DONE 2026-06-27 (PRs #62/#64 + win-rate book + snapshot pipeline); B4 next → [D-23].** New `scripts/lib/ppo-league.mjs` (pool +
+  seeded `mulberry32` sampler + win-rate book) inside the env-server; the loop draws
+  `league.draw(seed)` per episode (replaces the static `opponents` const at `ppo-env-server.mjs:259`).
+  **Fixed-field is the empty-pool degenerate mode of this same pipeline** — so (A) and (B) share
+  code. Snapshots: Python SB3 callback `repack → export_weights` (weights-only — no per-snapshot
+  fixture needed, [D-22] decision 6) → atomic `manifest.json`; Node hot-loads via `makeBC({policy})`
+  (fresh filename per snapshot — ESM URL cache). Sample `w(S)=max(ε,1−learnerWinRate(S))^k`; reserve
+  **R≈3–4 aggressive baselines every game** ([D-15] turtle defense); hold `player_count` constant.
+  **Win-rate attribution is the real work item** — pairwise/placement-relative, **excluding
+  `maxTurns` truncations**. Honor: freeze `ENCODING_VERSION`; dedup via `uniquifyNames` `#N`;
+  re-probe decisive-rate + throughput on a snapshot-heavy field before locking the budget.
+  _Open: per-worker vs shared-disk-global stats — lean shared-disk-global, pluggable ([D-22])._
+  **Build sequence — scoped in [D-23]** (verifier-corrected: `count = playerCount−1 = 6`, so R=3
+  leaves 3 PFSP seats; baselines threaded from the resolved `opts.opponents`; extend the
+  `EnvServerProcess` signature; GC evicted snapshot `.js` files): **B0 ✅** **PR #62 (hard prereq)
+  MERGED** (`snapshot-manifest`/`-store` flags + `ENCODING_VERSION=2` freeze deferred to B3, when
+  snapshots first need them) → **B1 ✅** empty-pool league `== task A` (content-identical parity —
+  the milestone; PR #64) → **B2 ✅** per-seat `seatBeat[]` on both outcome shapers
+  (`summarizeOutcome` from placements, `eliminationOutcome` synthesized from `coElimSeats`) +
+  id-keyed win-rate book (`recordResult` credits, `winRate(id)`; truncations excluded;
+  zero-decision episodes booked per [D-23] open-Q2) → **B3 ✅** snapshot
+  pipeline: NEW `ml/dicewars_ppo/snapshot_callback.py` (`SnapshotCallback` → repack →
+  `export(…, fixture_path=None)` → fsync-then-`os.replace` atomic `manifest.json`); league `refresh()`
+  polls the manifest at each episode boundary, `makeBC`-loads new snapshots (fresh filename → ESM URL
+  cache), FIFO-evicts past `poolCap` + GCs the `.js`; env-server `--snapshot-manifest`/`-pool-cap`
+  flags; `train_tracer` `--snapshot-dir`/`-every`/`-pool-cap`; `EnvServerProcess` forwards them. _(B3
+  deviations from [D-23]: `--snapshot-store` deferred to B6 with `SharedDiskStore`, not a dead flag
+  now; `--snapshot-pool-cap` added/forwarded since the pool cap is the consumer setting; the producer
+  manifest is append-only — entries are tiny, prune later if needed. `draw()` does NOT sample the pool
+  yet — that is B4 — so B3 is behavior-preserving for episode outcomes.)_ → **B4** PFSP weighting `w(S)=max(ε,1−winRate)^k` + R
+  reserved baselines (seeded `mulberry32`) → **B5** throughput/decisive-rate re-probe on a
+  snapshot-heavy field → **then** lock the env-step budget → **B6** persistence
+  (`toJSON()/restore()`) + `SharedDiskStore` (with task E).
 - [ ] **(C)** Scale envs across cores; add the short **from-scratch control** run ([D-19] decision 1).
 - [ ] **(D)** Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
       `F = γΦ(s′)−Φ(s)`, env-side in JS) only if terminal-only learning is too slow.

@@ -10,14 +10,28 @@
  * snapshots, `draw()` returns exactly the cycled baseline field the env-server used
  * before — content-identical (same names + fn refs), so task A's outcomes reproduce.
  * This file (step **B1**)
- * ships that empty-pool path plus a decisive/truncated telemetry tally; the snapshot
- * pipeline (B3), PFSP weighting (B4), and persistence (B6) extend the same object.
- * See docs/ml-bot/DECISIONS.md D-22 for the full build sequence.
+ * ships that empty-pool path plus a decisive/truncated telemetry tally; **step B2 adds the
+ * per-opponent win-rate book** (`recordResult` crediting + `winRate(id)`); **step B3 adds the
+ * snapshot pool + `refresh()`** — poll the producer's `manifest.json`, hot-load each new self-play
+ * snapshot via `makeBC` (fresh filename per snapshot → ESM URL cache), FIFO-evict past `poolCap` and
+ * GC the evicted `.js`. PFSP weighting (B4, samples the pool in `draw()`) and persistence (B6) extend
+ * the same object. See docs/ml-bot/DECISIONS.md D-23 for the full B0–B6 build sequence (D-22 for the
+ * league architecture + the win-rate-attribution decision).
  *
  * @module scripts/lib/ppo-league
  */
 
+import { readFileSync, statSync, unlinkSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
+
+/*
+ * `makeBC` + `ENCODING_VERSION` are lazy-imported inside `refresh()` (they pull in the ~2 MB deployed
+ * BC weights via ai_bc.js) so the empty-pool fixed-field path — the common B1/B2 case and its fast unit
+ * tests — never loads them. They are imported once, on the first refresh that actually has a manifest.
+ */
 
 /** Split + trim the opponent id CSV, dropping blanks; throws if it resolves to nothing. */
 function parseIds(idCsv) {
@@ -55,9 +69,11 @@ export function resolveBaselineField(idCsv, count) {
 }
 
 /**
- * Construct a league. Step **B1** ships the empty-pool path (== task A's fixed field)
- * plus a decisive/truncated telemetry tally; later steps extend the returned object
- * (B3 `refresh`/`addSnapshot`, B4 PFSP `learnerWinRate` weighting, B6 `toJSON`/`restore`).
+ * Construct a league. Step **B1** ships the empty-pool path (== task A's fixed field) plus a
+ * decisive/truncated telemetry tally; step **B2** adds the per-opponent win-rate book
+ * (`recordResult` pairwise crediting + `winRate(id)`); later steps extend the returned object
+ * (B3 `refresh`/`addSnapshot`, B4 PFSP `w(S)=max(ε,1−learnerWinRate(S))^k` weighting, B6
+ * `toJSON`/`restore`).
  *
  * @param {object} opts
  * @param {string} opts.baselineCsv the resolved `--opponents` CSV. The trainer passes
@@ -67,9 +83,22 @@ export function resolveBaselineField(idCsv, count) {
  *   returns exactly this many (holds player_count constant, [D-22]).
  * @param {number} opts.learnerSeat the learner's seat; used to map an opponent's array
  *   index to its seat for the (B2) win-rate attribution.
- * @returns {{draw: Function, recordResult: Function, stats: Function}}
+ * @param {string|null} [opts.snapshotManifest=null] path to the producer's snapshot `manifest.json`
+ *   (B3). When set, `refresh()` polls it and hot-loads new self-play snapshots into the pool via
+ *   `makeBC`. `null` (the default / no `--snapshot-manifest`) keeps the empty-pool fixed-field mode —
+ *   `refresh()` is a no-op, so B3 is fully backward-compatible with task A / B1 / B2.
+ * @param {number} [opts.poolCap=40] max snapshots held live in memory (B3). FIFO-by-step eviction
+ *   keeps the most recent/hardest snapshots ([D-23]); the evicted snapshot's `.js` file is GC'd.
+ * @returns {{draw: Function, recordResult: Function, winRate: Function, refresh: Function,
+ *   stats: Function}}
  */
-export function makeLeague({ baselineCsv, count, learnerSeat }) {
+export function makeLeague({
+  baselineCsv,
+  count,
+  learnerSeat,
+  snapshotManifest = null,
+  poolCap = 40,
+}) {
   /*
    * Fail loud at construction — both inputs are in scope here, so a bad value is caught at the
    * cheapest spot rather than surfacing later as a silently-wrong `seatOf` map (B2's win-rate
@@ -85,6 +114,9 @@ export function makeLeague({ baselineCsv, count, learnerSeat }) {
       `makeLeague: learnerSeat ${learnerSeat} out of range [0, ${count}] for count ${count}.`
     );
   }
+  if (!Number.isInteger(poolCap) || poolCap <= 0) {
+    throw new Error(`makeLeague: poolCap must be a positive integer, got ${poolCap}.`);
+  }
   const baselineField = resolveBaselineField(baselineCsv, count);
   /*
    * `draw()` hands out this same array reference every episode, so freeze it (and its entries):
@@ -96,6 +128,26 @@ export function makeLeague({ baselineCsv, count, learnerSeat }) {
 
   let decisiveGames = 0;
   let truncatedGames = 0;
+  /*
+   * Win-rate book (B2): stable opponent id → the LEARNER's pairwise record against it. `wins` is the
+   * count of decisive games in which the learner outplaced that opponent; `games` the decisive games
+   * the opponent appeared in (a cycled baseline seated twice in one game contributes two records).
+   * Keyed on the stable id, never the `uniquifyNames` `#N` display name. B4 samples snapshots by
+   * `w(S) = max(ε, 1 − winRate(S))^k`, so a lower learner-win-rate (an opponent that beats the
+   * learner) earns a higher weight. maxTurns truncations are excluded (see recordResult).
+   */
+  const book = new Map();
+
+  /*
+   * Snapshot pool (B3): hot-loaded self-play snapshots the trainer published, FIFO-capped at
+   * `poolCap`. `pool` holds the LIVE snapshots (ascending step → `shift()` evicts the oldest); B4's
+   * `draw()` samples from it. `loadedIds` records every id ever imported — an evicted id stays here so
+   * `refresh()` never re-imports it after its `.js` is GC'd (a re-import would hit a deleted file).
+   * `manifestMtimeMs` is a cheap no-change guard so the per-episode poll re-parses only on a rewrite.
+   */
+  const pool = [];
+  const loadedIds = new Set();
+  let manifestMtimeMs = -1;
 
   /*
    * Opponent-array index → seat: the learner sits at `learnerSeat`; opponents fill the remaining
@@ -121,20 +173,122 @@ export function makeLeague({ baselineCsv, count, learnerSeat }) {
     },
 
     /*
-     * Tally the episode outcome. B1: telemetry only — count decisive vs maxTurns-truncated games
-     * (the [D-22] decisive-rate health metric). B2 adds per-opponent pairwise win-rate attribution
-     * via a per-seat `seatBeat[]` vector keyed on `drawn[k].id`, EXCLUDING truncations.
+     * Tally the episode outcome. Decisive vs maxTurns-truncated counters feed the [D-22] decisive-
+     * rate health metric. B2: a decisive game also credits the win-rate book — for each drawn
+     * opponent, read the learner's pairwise result at that opponent's board seat from
+     * `result.seatBeat[seat]` and fold it into `book[id]`. maxTurns truncations are EXCLUDED from the
+     * book entirely ([D-22] decision 5: counting stalemates as losses biases the sampler toward
+     * turtle fields) — they bump only the truncated counter. A cycled baseline seated at two seats
+     * yields two independent records for its id (one per seat), which is correct.
      */
     recordResult(drawn, result) {
-      if (result.truncated) truncatedGames++;
-      else decisiveGames++;
+      if (result.truncated) {
+        truncatedGames++;
+        return;
+      }
+      decisiveGames++;
+      const { seatBeat } = result;
+      if (!Array.isArray(seatBeat)) return; // no attribution available (defensive)
+      for (const d of drawn) {
+        const beat = seatBeat[d.seat];
+        if (typeof beat !== 'number') continue; // learner's own seat / an unrankable seat
+        let rec = book.get(d.id);
+        if (!rec) {
+          rec = { wins: 0, games: 0 };
+          book.set(d.id, rec);
+        }
+        rec.games++;
+        rec.wins += beat;
+      }
+    },
+
+    /**
+     * The LEARNER's win-rate against opponent `id` (B2) — the [D-19]/[D-22] PFSP signal. Returns
+     * `0` for an unseen id (cold-start: a never-recorded snapshot then earns max weight
+     * `w = max(ε, 1)^k`, so it is sampled hardest first — [D-23]). Indistinguishable from "lost every
+     * game", which is intentional: both should be prioritised by the sampler.
+     */
+    winRate(id) {
+      const rec = book.get(id);
+      return rec && rec.games > 0 ? rec.wins / rec.games : 0;
+    },
+
+    /**
+     * Poll the producer's snapshot manifest and hot-load any new self-play snapshots into the pool
+     * (B3). Called at each episode boundary by the env-server. No manifest configured → a no-op
+     * (empty-pool fixed-field mode). Cheap when nothing changed: a single `statSync` mtime check short-
+     * circuits before any parse/import. On a rewrite it diffs the manifest by stable id, dynamic-
+     * `import()`s each NEW snapshot's `.js` (a fresh filename per snapshot, so the ESM URL cache never
+     * serves a stale module), wraps it with `makeBC({ policy })`, and FIFO-evicts past `poolCap`,
+     * GC-ing the evicted snapshot's `.js` file (the manifest still lists it, but `loadedIds` stops it
+     * being re-imported — restart recovery is a B6 concern). `draw()` does not sample the pool until
+     * B4, so in B3 this only grows `poolSize`; episode outcomes are unchanged.
+     *
+     * @returns {Promise<{added:number, poolSize:number}>}
+     */
+    async refresh() {
+      if (!snapshotManifest) return { added: 0, poolSize: pool.length };
+      let stat;
+      try {
+        stat = statSync(snapshotManifest);
+      } catch {
+        return { added: 0, poolSize: pool.length }; // not written yet — no snapshots to load
+      }
+      if (stat.mtimeMs === manifestMtimeMs) return { added: 0, poolSize: pool.length };
+
+      const manifest = JSON.parse(readFileSync(snapshotManifest, 'utf8'));
+      // Lazy-load the heavy ai_bc deps only now that a real manifest exists (see top-of-file note).
+      const [{ makeBC }, { ENCODING_VERSION }] = await Promise.all([
+        import('../../src/ai/ai_bc.js'),
+        import('../../src/arena/encodeObservation.js'),
+      ]);
+      if (manifest.encodingVersion !== ENCODING_VERSION) {
+        throw new Error(
+          `ppo-league.refresh: snapshot manifest encodingVersion ${manifest.encodingVersion} != ` +
+            `encoder ENCODING_VERSION ${ENCODING_VERSION} (${snapshotManifest}). The run must freeze ` +
+            `ENCODING_VERSION — re-export the snapshots against the current encoding.`
+        );
+      }
+
+      const dir = dirname(snapshotManifest);
+      const fresh = (manifest.snapshots ?? [])
+        .filter(s => !loadedIds.has(s.id))
+        .sort((a, b) => a.step - b.step); // ascending step → push order == FIFO eviction order
+
+      let added = 0;
+      for (const snap of fresh) {
+        const weightsPath = resolve(dir, snap.weights);
+        const mod = await import(pathToFileURL(weightsPath).href);
+        const fn = makeBC({ policy: mod.BC_POLICY }); // re-checks encodingVersion per snapshot
+        pool.push({ id: snap.id, step: snap.step, fn, weightsPath });
+        loadedIds.add(snap.id);
+        added++;
+      }
+
+      /*
+       * FIFO eviction: keep the most recent `poolCap`; GC the evicted snapshot's `.js` (D-23 disk
+       * retention — `poolCap` bounds memory, not disk, and the fresh-filename rule grows disk forever).
+       */
+      while (pool.length > poolCap) {
+        const evicted = pool.shift();
+        try {
+          unlinkSync(evicted.weightsPath);
+        } catch {
+          /* already gone / shared / read-only — best-effort GC, never fail a refresh on it */
+        }
+      }
+
+      manifestMtimeMs = stat.mtimeMs; // commit only after a clean load, so a throw retries next poll
+      return { added, poolSize: pool.length };
     },
 
     /** League health snapshot (the throughput/decisive-rate re-probe in B5 reads this). */
     stats() {
       const total = decisiveGames + truncatedGames;
       return {
-        poolSize: 0,
+        poolSize: pool.length,
+        loadedSnapshots: loadedIds.size,
+        bookSize: book.size,
         decisiveGames,
         truncatedGames,
         decisiveRate: total > 0 ? decisiveGames / total : 0,

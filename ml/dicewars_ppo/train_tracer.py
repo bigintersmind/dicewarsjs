@@ -245,7 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--snapshot-dir",
         default=None,
-        help="Publish self-play snapshots (weights + manifest.json) here for the league to hot-load; "
+        help="Publish snapshots (weights + manifest.json) here for the league to hot-load; "
         "unset ⇒ fixed-field (no PFSP).",
     )
     p.add_argument(
@@ -258,7 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--snapshot-pool-cap",
         type=int,
         default=40,
-        help="Max snapshots the env-server league holds live (FIFO-by-step; forwarded to the server).",
+        help="Max snapshots the env-server league holds live (FIFO-by-step; forwarded).",
     )
     return p
 
@@ -279,8 +279,8 @@ def _validate_args(args: argparse.Namespace) -> None:
             raise SystemExit("--snapshot-every must be > 0 when --snapshot-dir is set.")
         if args.snapshot_pool_cap <= 0:
             raise SystemExit("--snapshot-pool-cap must be > 0.")
-        # Absolutize so the producer (this process) and the Node consumers (cwd=repo-root) resolve the
-        # same manifest path; create it now so the env-servers can stat() it from episode 0.
+        # Absolutize so the producer (this process) and the Node consumers (cwd=repo-root)
+        # resolve the same manifest path; create it now so env-servers can stat() it from ep 0.
         args.snapshot_dir = str(Path(args.snapshot_dir).resolve())
         Path(args.snapshot_dir).mkdir(parents=True, exist_ok=True)
 

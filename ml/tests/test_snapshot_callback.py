@@ -1,11 +1,11 @@
 """Tests for the PFSP snapshot publisher (Phase 3, task B step B3 — [D-22]/[D-23]).
 
 The callback's NEW logic is the atomic manifest publish + the schema the Node consumer
-(``scripts/lib/ppo-league.mjs`` ``refresh()``) reads. The repack→export step it wraps is the exact
-step-7 gate path, already proven to produce a ``makeBC``-loadable module — so these tests monkeypatch
-``repack_to_bc_checkpoint`` + ``export`` and focus on the cadence, the atomic publish, and the manifest
-schema. A torn or schema-drifted manifest is the failure these guard against; the JS side's
-``ppo-league-snapshots.test.js`` proves the same schema loads.
+(``scripts/lib/ppo-league.mjs`` ``refresh()``) reads. The repack→export step it wraps is the
+exact step-7 gate path, already proven to produce a ``makeBC``-loadable module — so these tests
+monkeypatch ``repack_to_bc_checkpoint`` + ``export`` and focus on the cadence, the atomic
+publish, and the manifest schema. A torn or schema-drifted manifest is the failure these guard
+against; the JS side's ``ppo-league-snapshots.test.js`` proves the same schema loads.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from dicewars_ppo.snapshot_callback import SnapshotCallback
 
 
 def _patch_export(monkeypatch):
-    """Replace repack+export with cheap fakes: repack returns a tiny dict; export writes a stub .js."""
+    """Replace repack+export with fakes: repack returns a dict; export writes a stub .js."""
 
     def fake_repack(policy, *, extra=None):
         return {"fake_state": 1, "extra": dict(extra or {})}
@@ -46,8 +46,18 @@ def test_write_manifest_atomic_schema(tmp_path):
     cb = SnapshotCallback(tmp_path, snapshot_every=10)
     cb._on_training_start()
     cb._snapshots = [
-        {"id": "snap-000000010", "step": 10, "weights": "snap-000000010.weights.js", "createdAt": "t0"},
-        {"id": "snap-000000020", "step": 20, "weights": "snap-000000020.weights.js", "createdAt": "t1"},
+        {
+            "id": "snap-000000010",
+            "step": 10,
+            "weights": "snap-000000010.weights.js",
+            "createdAt": "t0",
+        },
+        {
+            "id": "snap-000000020",
+            "step": 20,
+            "weights": "snap-000000020.weights.js",
+            "createdAt": "t1",
+        },
     ]
     cb._write_manifest_atomic()
 

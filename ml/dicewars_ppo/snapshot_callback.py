@@ -1,29 +1,32 @@
-"""Periodic self-play snapshot publisher for the PFSP league (Phase 3, task B step B3 — [D-22]/[D-23]).
+"""Periodic self-play snapshot publisher for the PFSP league (Phase 3, task B step B3).
 
-An SB3 :class:`~stable_baselines3.common.callbacks.BaseCallback` that, every ``snapshot_every`` env
-steps, repacks the live PPO actor back into BC-checkpoint format, exports it to a ``.weights.js``
-module in ``snapshot_dir``, and atomically republishes ``manifest.json`` listing every snapshot. The
-Node env-server's ``league.refresh()`` (``scripts/lib/ppo-league.mjs``) polls that manifest at each
-episode boundary and hot-loads the new snapshots as in-process ``ai_bc`` opponents — the PFSP pool the
-learner trains against.
+An SB3 :class:`~stable_baselines3.common.callbacks.BaseCallback` that, every
+``snapshot_every`` env steps, repacks the live PPO actor back into BC-checkpoint format,
+exports it to a ``.weights.js`` module in ``snapshot_dir``, and atomically republishes
+``manifest.json`` listing every snapshot. The Node env-server's ``league.refresh()``
+(``scripts/lib/ppo-league.mjs``) polls that manifest at each episode boundary and hot-loads
+the new snapshots as in-process ``ai_bc`` opponents — the PFSP pool the learner trains on.
+See [D-22]/[D-23].
 
-This is the **producer half** only: the pool, the seeded sampler, the win-rate book, and the
-``poolCap`` FIFO/disk-GC are all Node-resident ([D-22], forced by the bare-i32 learner↔env wire — the
-trainer cannot select opponents per-episode over it). The producer just publishes artifacts.
+This is the **producer half** only: the pool, the seeded sampler, the win-rate book, and
+the ``poolCap`` FIFO/disk-GC are all Node-resident ([D-22], forced by the bare-i32
+learner-env wire — the trainer cannot select opponents per-episode over it). The producer
+just publishes artifacts.
 
-Reuse, not reinvention: ``repack_to_bc_checkpoint`` + ``export`` are the exact step-7 gate path
-(PR #61), already proven to produce a module ``makeBC`` accepts — so a snapshot needs **no per-snapshot
-parity fixture** ([D-22] decision 6); ``fixture_path=None``.
+Reuse, not reinvention: ``repack_to_bc_checkpoint`` + ``export`` are the exact step-7 gate
+path (PR #61), already proven to produce a module ``makeBC`` accepts — so a snapshot needs
+**no per-snapshot parity fixture** ([D-22] decision 6); ``fixture_path=None``.
 
 Atomic publish ordering (so a poller never sees a torn or dangling reference):
 
 1. write the ``.weights.js`` to its final path and ``fsync`` it — durable FIRST;
-2. write ``manifest.json`` to a temp file, ``fsync``, then ``os.replace`` it into place — atomic on
-   POSIX, and the now-referenced weights file is already on disk.
+2. write ``manifest.json`` to a temp file, ``fsync``, then ``os.replace`` it into place —
+   atomic on POSIX, and the now-referenced weights file is already on disk.
 
-Frozen invariant: the manifest stamps ``encodingVersion = EXPECTED_ENCODING_VERSION`` (2). The whole
-run must hold it — ``makeBC`` hard-throws on skew, so a mid-run bump makes pooled snapshots unloadable
-(the Node ``refresh()`` rejects a skewed manifest loudly rather than training on a broken pool).
+Frozen invariant: the manifest stamps ``encodingVersion = EXPECTED_ENCODING_VERSION`` (2).
+The whole run must hold it — ``makeBC`` hard-throws on skew, so a mid-run bump makes pooled
+snapshots unloadable (the Node ``refresh()`` rejects a skewed manifest loudly rather than
+training on a broken pool).
 """
 
 from __future__ import annotations
@@ -73,8 +76,8 @@ class SnapshotCallback(BaseCallback):
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     def _on_step(self) -> bool:
-        # ``num_timesteps`` is SB3's total-env-steps counter (summed over vec-envs). Publish the first
-        # time it crosses a multiple of the cadence; never at step 0 (that snapshot is just the
+        # ``num_timesteps`` is SB3's total env steps (summed over vec-envs). Publish the first
+        # time it crosses a cadence multiple; never at step 0 (that snapshot is just the
         # warm-start = the ai_bc baseline, already in the field).
         if self.num_timesteps - self._last_snapshot_step >= self.snapshot_every:
             self._last_snapshot_step = self.num_timesteps
@@ -97,7 +100,7 @@ class SnapshotCallback(BaseCallback):
         tmp_pt = Path(tmp_name)
         try:
             torch.save(repacked, tmp_pt)
-            # 2) export the JS weights module — no parity fixture (makeBC needs only weights, [D-22]).
+            # 2) export the JS weights module — no parity fixture (makeBC needs weights only).
             export(tmp_pt, weights_path, fixture_path=None)
         finally:
             tmp_pt.unlink(missing_ok=True)
@@ -119,12 +122,12 @@ class SnapshotCallback(BaseCallback):
             print(f"[snapshot] published {snap_id} ({len(self._snapshots)} total) → {weights_path}")
 
     def _write_manifest_atomic(self) -> None:
-        """Rewrite ``manifest.json`` via temp-file + ``os.replace`` (atomic; never torn for a poller).
+        """Rewrite ``manifest.json`` via temp-file + ``os.replace`` (atomic; never torn).
 
-        Schema (a NEW manifest, distinct from the BC-corpus ``manifest.py`` one) — mirrored by the Node
-        consumer ``ppo-league.refresh()``::
+        Schema (a NEW manifest, distinct from the BC-corpus ``manifest.py`` one), mirrored by
+        the Node consumer ``ppo-league.refresh()``::
 
-            {"encodingVersion": 2, "snapshots": [{"id","step","weights","createdAt"}], "latestStep": N}
+            {"encodingVersion":2, "snapshots":[{"id","step","weights","createdAt"}], "latestStep":N}
         """
         manifest = {
             "encodingVersion": EXPECTED_ENCODING_VERSION,

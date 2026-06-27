@@ -1455,7 +1455,7 @@ through `env_server.py`/`train_tracer.py`; the `refresh()` **multi-worker snapsh
 identical; a hard E precondition); the env-server `main()` persistence-wiring integration test; and live
 cross-worker `SharedDiskStore` validation. None block B6 (single-process B6 can't spawn a second league).
 
-**Status: shipped 2026-06-27** (branch `ml-bot/phase3-ppo-league-b6`). `tests/ml/` 190 green, full suite
+**Status: MERGED 2026-06-27** (PR #69, squash `d637a06` on master). `tests/ml/` 190 green, full suite
 1141 green, eslint + build clean. **Task B (PFSP league) is now feature-complete (B0–B6); the remaining
 Phase-3 work is task C/E (cross-core + training-ops) → the long BEAT run.**
 

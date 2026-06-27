@@ -479,7 +479,7 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       the 7 gate opponents (incl. all 3 strong ones) were training opponents → partly fixed-field
       _exploitation_ (also beats the 3 held-out bots → partial generalization); this green-lights task
       B. Full record: RESULTS.md + LOG.md + [D-23].
-- [x] **(B) PFSP opponent league ([D-22]) — Node-resident. ✅ B0–B6 DONE 2026-06-27 (PRs #62/#64/#65/#66/#68 + B6 persistence → [D-23]/[D-24]/[D-25]). Feature-complete; remaining Phase-3 work is task C/E.** New `scripts/lib/ppo-league.mjs` (pool +
+- [x] **(B) PFSP opponent league ([D-22]) — Node-resident. ✅ B0–B6 DONE 2026-06-27 (PRs #62/#64/#65/#66/#68/#69 → [D-23]/[D-24]/[D-25]). Feature-complete; remaining Phase-3 work is task C/E.** New `scripts/lib/ppo-league.mjs` (pool +
       seeded `mulberry32` sampler + win-rate book) inside the env-server; the loop draws
       `league.draw(seed)` per episode (replaces the static `opponents` const at `ppo-env-server.mjs:259`).
       **Fixed-field is the empty-pool degenerate mode of this same pipeline** — so (A) and (B) share
@@ -524,7 +524,7 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       the bottleneck:** GREEN at every R (50.7M–89.9M env-steps/12h, ~25–45× the ≳2M bar), refuting the
       [D-19] in-process-opponent worry — the binding rate is the SB3 learner loop (task C/E). **R=3 locked**
       (turtle global 92% ≫ 60% floor; warm decisiveRate 95.3%); MAX_EDGES 64 holds (p100≤27); cadence `N`
-      decoupled from throughput (open-Q4 resolved). → **B6 ✅ DONE 2026-06-27 ([D-25])** — league persistence
+      decoupled from throughput (open-Q4 resolved). → **B6 ✅ DONE 2026-06-27 (PR #69, squash `d637a06`; [D-25])** — league persistence
       as a **standalone Node PR**: NEW `scripts/lib/ppo-league-store.mjs` (`makeInMemoryStore` default +
       `makeSharedDiskStore`, live-gated until task E) + `toJSON()`/`restore()` on `makeLeague` (fingerprint +
       `storeKind` + dual encoding gates, atomic, evicted-file drop-keep-loaded, `manifestMtimeMs=-1` reset) +

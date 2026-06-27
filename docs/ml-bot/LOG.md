@@ -21,7 +21,7 @@ Entry template:
 
 ---
 
-## 2026-06-27 — Task B step B6: league persistence + SharedDiskStore (toJSON/restore; standalone PR)
+## 2026-06-27 — Task B step B6: league persistence + SharedDiskStore (toJSON/restore; standalone PR #69, squash `d637a06`)
 
 **Phase:** 3 · **Who:** Ivan + Claude
 

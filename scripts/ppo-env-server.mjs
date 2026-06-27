@@ -33,12 +33,12 @@
 
 import { Worker } from 'node:worker_threads';
 
-import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
 import { createBotState } from '../src/arena/botState.js';
 import { encodeObservationForInference } from '../src/arena/encodeObservation.js';
 import { BC_POLICY } from '../src/ai/bcPolicyWeights.js';
 
 import { runSelfPlayEpisode } from './lib/ppo-env.mjs';
+import { makeLeague } from './lib/ppo-league.mjs';
 import { buildObsFrame, serializeObsFrame } from './lib/obs-frame.mjs';
 
 const STATUS = 0;
@@ -83,24 +83,6 @@ function numArg(opts, key, fallback) {
   return v;
 }
 
-/** Resolve `count` opponent bot fns from BUILT_IN_BOTS, cycling the id list to fill. */
-function resolveOpponents(idCsv, count) {
-  const ids = idCsv
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean);
-  if (ids.length === 0) throw new Error('--opponents resolved to an empty list.');
-  const byId = new Map(BUILT_IN_BOTS.map(b => [b.id, b]));
-  return Array.from({ length: count }, (_, i) => {
-    const id = ids[i % ids.length];
-    const bot = byId.get(id);
-    if (!bot) {
-      throw new Error(`Unknown opponent bot id "${id}". Known: ${[...byId.keys()].join(', ')}.`);
-    }
-    return { name: `${bot.name}@${i}`, fn: bot.fn };
-  });
-}
-
 /** A fresh standalone ArrayBuffer holding exactly the frame's bytes (safe to clone). */
 function frameToArrayBuffer(buf) {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
@@ -124,7 +106,17 @@ async function main() {
   const seedBase = numArg(opts, 'seed-base', 1);
   // Per-decision watchdog deadline (ms). Generous — inference is sub-second; 0 disables it.
   const decisionTimeoutMs = numArg(opts, 'decision-timeout-ms', 120000);
-  const opponents = resolveOpponents(opts.opponents ?? 'ai_bc', playerCount - 1);
+  /*
+   * The opponent league (ml-bot task B — [D-23]). B1: the pool is empty, so every `draw()` returns
+   * the cycled baseline field — byte-identical to the static field task A trained on (the env-server
+   * default is the single bot `ai_bc`; the trainer passes the full `--opponents` CSV). Snapshots
+   * (B3) and PFSP weighting (B4) extend the same league; fixed-field is its empty-pool mode.
+   */
+  const league = makeLeague({
+    baselineCsv: opts.opponents ?? 'ai_bc',
+    count: playerCount - 1,
+    learnerSeat,
+  });
 
   const sab = new SharedArrayBuffer(8); // 2 × Int32
   const ctrl = new Int32Array(sab);
@@ -269,6 +261,8 @@ async function main() {
       if (closed || lostError) break;
       const seed = seedBase + ep;
       decisionsThisEpisode = 0;
+      // Draw this episode's opponent field from the league (B1: the empty-pool baseline field).
+      const { opponents, drawn } = league.draw(seed);
       let result;
       try {
         result = runSelfPlayEpisode({
@@ -310,6 +304,12 @@ async function main() {
         continue;
       }
       consecutiveZeroDecision = 0;
+
+      /*
+       * Tally the decisive episode into the league (B1: decisive/truncated counters; B2 adds
+       * per-opponent win-rate attribution). Zero-decision skips above are intentionally not counted.
+       */
+      league.recordResult(drawn, result);
 
       /*
        * Terminal frame: the learner's view of the board at the episode terminal (its elimination,

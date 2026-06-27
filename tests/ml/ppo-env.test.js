@@ -68,6 +68,24 @@ const fieldOpponents = count => {
   });
 };
 
+/**
+ * Independent oracle for the win-rate `seatBeat[]` vector (task B / [D-22]): derive "did the learner
+ * outplace seat `s`?" straight from a FINISHED game's placement order. Both outcome shapers
+ * (`summarizeOutcome` from placements, `eliminationOutcome` synthesized at death) must agree with
+ * this — deliberately a separate, simpler reimplementation than the production code so the assertion
+ * is a real cross-check, not a tautology. Placements are a strict total order, so no `0.5` ties.
+ */
+function seatBeatOracle(placements, learnerSeat, playerCount) {
+  const rank = new Array(playerCount).fill(-1);
+  placements.forEach((seat, i) => {
+    rank[seat] = i;
+  });
+  const learnerRank = rank[learnerSeat];
+  return Array.from({ length: playerCount }, (_, seat) =>
+    seat === learnerSeat ? null : learnerRank < rank[seat] ? 1 : 0
+  );
+}
+
 /** Compare the salient, data-only parts of two final states. */
 function projectState(s) {
   return {
@@ -216,6 +234,17 @@ describe('runSelfPlayEpisode — zero-decision episodes (the env-server desync h
     expect(ep.eliminated).toBe(true); // ended by elimination, not a win or stalemate cap
     expect(ep.won).toBe(0);
     expect(ep.truncated).toBe(false); // a genuine terminal (elimination), not a maxTurns truncation
+    /*
+     * The env-server now BOOKS zero-decision episodes into the league win-rate (a real decisive loss
+     * — [D-23] open-Q2, Ivan's call), so the outcome must still carry a well-formed seatBeat even
+     * though no obs frame was ever emitted: length playerCount, null at the learner's own seat, every
+     * other seat a 0/1. The learner was wiped before acting, so it beat nobody who outlived it.
+     */
+    expect(ep.seatBeat).toHaveLength(PLAYER_COUNT);
+    expect(ep.seatBeat[0]).toBeNull();
+    ep.seatBeat.forEach((v, s) => {
+      if (s !== 0) expect(v === 0 || v === 1).toBe(true);
+    });
   });
 });
 
@@ -293,6 +322,8 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
     expect(early.turnCount).toBe(firstElimTurn);
     // Placement synthesized at death (rank = #alive) equals calculatePlacements at game-over.
     expect(early.placement).toBe(scaledPlacement(full.placements, 2, PLAYER_COUNT));
+    // ...and so does the per-seat win/loss vector the league books for win-rate attribution.
+    expect(early.seatBeat).toEqual(seatBeatOracle(full.placements, 2, PLAYER_COUNT));
   });
 
   /*
@@ -344,6 +375,15 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
     expect(deathElims).toBeGreaterThan(1); // precondition: this seed really IS a co-elimination turn
     expect(early.eliminated).toBe(true);
     expect(early.placement).toBe(scaledPlacement(full.placements, seat, PLAYER_COUNT));
+    /*
+     * The win-rate `seatBeat[]` from BOTH shapers agrees with the engine's placement order even on a
+     * multi-elimination turn — the early path synthesizes it from alive/co-elim with the seat-id
+     * tie-break (higher-id co-eliminee placed above the learner), the full path reads placements, and
+     * both equal the independent oracle. This is the load-bearing B2 attribution correctness check.
+     */
+    const oracle = seatBeatOracle(full.placements, seat, PLAYER_COUNT);
+    expect(early.seatBeat).toEqual(oracle);
+    expect(full.seatBeat).toEqual(oracle);
   });
 
   it('an elimination that also ends the game reports the engine winner with won=0 (runner-up)', async () => {
@@ -379,6 +419,10 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
     expect(early.won).toBe(0);
     // Exact parity with the engine's game-over placement, not just a [0,1] bounds check.
     expect(early.placement).toBe(scaledPlacement(full.placements, seat, PLAYER_COUNT));
+    // Runner-up: the learner outplaced everyone except the game's winner → exactly one 0 in seatBeat.
+    const oracle = seatBeatOracle(full.placements, seat, PLAYER_COUNT);
+    expect(early.seatBeat).toEqual(oracle);
+    expect(oracle.filter(v => v === 0)).toHaveLength(1);
   });
 
   it('is a no-op when the learner wins — identical to the full game', async () => {
@@ -407,6 +451,10 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
     expect(early.placement).toBe(full.placement);
     expect(early.placements).toEqual(full.placements);
     expect(projectState(early.finalState)).toEqual(projectState(full.finalState));
+    // A winning learner outplaces every other seat → seatBeat is all 1s, null only at its own seat.
+    expect(early.seatBeat).toEqual(full.seatBeat);
+    expect(early.seatBeat[0]).toBeNull();
+    expect(early.seatBeat.filter(v => v === 1)).toHaveLength(PLAYER_COUNT - 1);
   });
 });
 

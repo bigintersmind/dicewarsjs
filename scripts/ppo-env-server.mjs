@@ -60,6 +60,14 @@ const KNOWN_FLAGS = new Set([
   'seed-base',
   'opponents',
   'decision-timeout-ms',
+  /*
+   * Snapshot pool (B3 / [D-23]). `snapshot-manifest` = the producer's manifest.json to poll for new
+   * self-play snapshots; absent → empty-pool fixed-field mode. `snapshot-pool-cap` bounds the live
+   * in-memory pool (FIFO-by-step). (`snapshot-store` — the pluggable shared-disk win-rate backend —
+   * lands with B6/Task-E, so it is intentionally NOT a flag yet.)
+   */
+  'snapshot-manifest',
+  'snapshot-pool-cap',
 ]);
 
 function parseArgs(argv) {
@@ -107,15 +115,19 @@ async function main() {
   // Per-decision watchdog deadline (ms). Generous — inference is sub-second; 0 disables it.
   const decisionTimeoutMs = numArg(opts, 'decision-timeout-ms', 120000);
   /*
-   * The opponent league (ml-bot task B — [D-22]). B1: the pool is empty, so every `draw()` returns
-   * the cycled baseline field — content-identical to the static field task A trained on (the env-server
-   * default is the single bot `ai_bc`; the trainer passes the full `--opponents` CSV). Snapshots
-   * (B3) and PFSP weighting (B4) extend the same league; fixed-field is its empty-pool mode.
+   * The opponent league (ml-bot task B — [D-22]). With no `--snapshot-manifest` the pool is empty, so
+   * every `draw()` returns the cycled baseline field — content-identical to the static field task A
+   * trained on (the env-server default is the single bot `ai_bc`; the trainer passes the full
+   * `--opponents` CSV). B3: when a manifest is given, `league.refresh()` (polled per episode below)
+   * hot-loads published self-play snapshots into the pool; PFSP weighting (B4) then samples them in
+   * `draw()`. Fixed-field stays the empty-pool mode of this one pipeline.
    */
   const league = makeLeague({
     baselineCsv: opts.opponents ?? 'ai_bc',
     count: playerCount - 1,
     learnerSeat,
+    snapshotManifest: opts['snapshot-manifest'] ?? null,
+    poolCap: numArg(opts, 'snapshot-pool-cap', 40),
   });
 
   const sab = new SharedArrayBuffer(8); // 2 × Int32
@@ -259,6 +271,14 @@ async function main() {
     await connected;
     for (let ep = 0; episodes === 0 || ep < episodes; ep++) {
       if (closed || lostError) break;
+      /*
+       * Poll the snapshot manifest at the episode boundary (B3): hot-load any newly published
+       * self-play snapshots into the league pool before drawing this episode's field. No
+       * `--snapshot-manifest` → a cheap no-op (one `statSync`); an encoding-version skew throws and
+       * stops the run (the frozen-`ENCODING_VERSION` run-invariant — fail loud, never train on an
+       * unloadable pool).
+       */
+      await league.refresh();
       const seed = seedBase + ep;
       decisionsThisEpisode = 0;
       // Draw this episode's opponent field from the league (B1: the empty-pool baseline field).
@@ -286,6 +306,17 @@ async function main() {
       }
 
       /*
+       * Book this game into the league BEFORE the wire zero-decision gate below. A zero-decision
+       * episode (learner eliminated before it ever acts) emits no wire frame, but it is a real,
+       * decisive loss — recording it keeps the win-rate book and decisive-rate honest and up-weights
+       * the fields that crush the learner fastest (PFSP, [D-22]/[D-23]). The wire-skip is a frame
+       * concern; the Node-side league is orthogonal. `recordResult` excludes maxTurns truncations
+       * from the win-rate book internally. (Disconnect/error paths break/throw above, so a booked
+       * episode always carries a real terminal result.)
+       */
+      league.recordResult(drawn, result);
+
+      /*
        * Zero-decision episode: the learner was eliminated before it ever took a turn, so NO obs
        * frame was emitted (chooseAction never fired). The wire contract is a run of obs frames then
        * ONE terminal; a bare terminal with no preceding obs would land in the client's reset() —
@@ -304,12 +335,6 @@ async function main() {
         continue;
       }
       consecutiveZeroDecision = 0;
-
-      /*
-       * Tally the decisive episode into the league (B1: decisive/truncated counters; B2 adds
-       * per-opponent win-rate attribution). Zero-decision skips above are intentionally not counted.
-       */
-      league.recordResult(drawn, result);
 
       /*
        * Terminal frame: the learner's view of the board at the episode terminal (its elimination,
@@ -344,7 +369,21 @@ async function main() {
       await new Promise(res => setImmediate(res));
     }
 
-    process.stdout.write(`PPO_ENV_SERVER DONE episodes=${played}\n`);
+    /*
+     * Emit the league health snapshot on the DONE line (the B5 throughput/decisive-rate re-probe
+     * reads this; it is the only window onto the otherwise-internal win-rate book until B4 wires it
+     * into `draw()`). `played` counts surfaced wire terminals; `decisiveGames` counts every booked
+     * decisive episode INCLUDING zero-decision skips — so `episodes < decisiveGames` is the visible
+     * signature of a zero-decision episode that was booked but surfaced no frame (the B2 reordering).
+     * env.py drains and drops this line (only the anchored LISTENING line is parsed), so appending
+     * fields is safe.
+     */
+    const s = league.stats();
+    process.stdout.write(
+      `PPO_ENV_SERVER DONE episodes=${played} decisiveGames=${s.decisiveGames} ` +
+        `truncatedGames=${s.truncatedGames} decisiveRate=${s.decisiveRate.toFixed(4)} ` +
+        `poolSize=${s.poolSize} loadedSnapshots=${s.loadedSnapshots} bookSize=${s.bookSize}\n`
+    );
   } finally {
     /*
      * Always reap the worker — otherwise its still-listening server keeps the process alive (a

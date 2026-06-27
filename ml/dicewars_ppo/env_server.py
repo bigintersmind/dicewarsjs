@@ -80,6 +80,8 @@ class EnvServerProcess:
         episodes: int = 0,
         seed_base: int = 1,
         decision_timeout_ms: int = 120_000,
+        snapshot_manifest: str | None = None,
+        snapshot_pool_cap: int = 40,
         host: str = "127.0.0.1",
         node_bin: str | None = None,
         start_timeout_s: float = 30.0,
@@ -116,6 +118,11 @@ class EnvServerProcess:
         ]
         if max_areas is not None:
             argv.append(f"--max-areas={max_areas}")
+        # PFSP snapshot pool (B3): point the server's league at the producer manifest and bound its
+        # live pool. Absent ⇒ the server runs in empty-pool fixed-field mode (task A / B1 / B2).
+        if snapshot_manifest is not None:
+            argv.append(f"--snapshot-manifest={snapshot_manifest}")
+            argv.append(f"--snapshot-pool-cap={snapshot_pool_cap}")
         self._argv = argv
 
     def start(self) -> EnvServerProcess:

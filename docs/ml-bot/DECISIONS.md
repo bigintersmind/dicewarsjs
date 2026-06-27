@@ -1248,8 +1248,9 @@ snapshots _unloadable_, not gracefully degraded). **Stats locality (chosen): shi
 `store` now, default `InMemoryStore` (per-worker); land `SharedDiskStore` with Task E** when
 `SubprocVecEnv` makes per-worker books noisy ([D-22] leans shared-disk-global; the interface makes it
 a one-line swap). **Disk retention: GC the evicted snapshots' `.js` files** — `poolCap` bounds the
-in-memory pool only, and the mandatory fresh-filename guarantees unbounded disk growth otherwise
-_[verifier correction]._
+live (sampleable) pool and, via the GC, disk; it does NOT bound process memory (Node's ESM registry
+retains every dynamic-`import()`ed snapshot module for the run), and the mandatory fresh-filename
+guarantees unbounded disk growth without the GC _[verifier correction; memory caveat added post-review]._
 
 **Sampler params (chosen defaults — all CLI knobs).** `w(S)=max(ε,1−winRate(S))^k`; `ε=0.05`, `k=2`,
 `poolCap=40` (FIFO-by-step eviction — keeps the most recent/hardest snapshots; FIFO avoids the
@@ -1293,7 +1294,16 @@ mode-agnostic; C is where cross-worker aggregation becomes load-bearing (intertw
 backend). Task D (reward shaping) — orthogonal (env-side JS reward). Task E (`SubprocVecEnv` +
 checkpoint/resume) — must persist the league pool + book + counters (B6).
 
-**Status: Proposed.** Implementation pending Ivan's go + the PR #62 merge.
+**Status: In progress (B0–B3 shipped 2026-06-27).** B0 (PR #62 merged) · B1 (PR #64, empty-pool
+parity) · B2 (per-seat `seatBeat[]` + win-rate book) · B3 (snapshot pipeline:
+`ml/dicewars_ppo/snapshot_callback.py` + league `refresh()` + the `--snapshot-*` flags). **B3
+deviations from this scope:** (a) `--snapshot-store` deferred to B6 with `SharedDiskStore` rather than
+shipping a dead flag now; (b) `--snapshot-pool-cap` added and forwarded through `EnvServerProcess`
+(the pool cap is the consumer-side setting that must reach the Node league — D-23's literal list only
+named `snapshot_manifest`/`snapshot_store`); (c) the producer `manifest.json` is append-only (entries
+are tiny; prune in B5/B6 if it matters); (d) `draw()` does NOT sample the pool until B4, so B3 is
+behavior-preserving. The Python producer is validated by `py_compile` + a monkeypatched pytest (no
+local torch/sb3); it gets its first live exercise on shodan at B4. **Next: B4** (PFSP weighting on).
 
 **Grounding.** 9-agent scoping workflow (4 code-readers mapping env-server / training-snapshot /
 match-stats / locked-decisions → 3 design decisions → synthesize + adversarial verify). One design

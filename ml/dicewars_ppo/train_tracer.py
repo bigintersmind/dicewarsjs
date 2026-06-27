@@ -46,6 +46,7 @@ from .policy import (
     repack_to_bc_checkpoint,
     warm_start_from_bc,
 )
+from .snapshot_callback import SnapshotCallback
 
 # Fixed, seed-pure, heterogeneous baseline field ([D-15]: strong bots in every game
 # keep it decisive; no Math.random bots so episodes stay reproducible). resolveOpponents
@@ -62,6 +63,13 @@ def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
     replay identical episodes.
     """
 
+    # All vec-env servers poll the SAME producer manifest, so they share one snapshot pool ([D-22]).
+    # `snapshot_dir` is resolved absolute in _validate_args so producer (this process) and consumers
+    # (the Node servers, cwd=repo-root) agree on the path regardless of cwd.
+    snapshot_manifest = (
+        str(Path(args.snapshot_dir) / "manifest.json") if args.snapshot_dir else None
+    )
+
     def _thunk() -> DiceWarsEnv:
         return DiceWarsEnv(
             max_areas=cfg.max_areas,
@@ -71,6 +79,8 @@ def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
                 "max_turns": args.max_turns,
                 "learner_seat": args.learner_seat,
                 "seed_base": args.seed_base + env_index * 1_000_000,
+                "snapshot_manifest": snapshot_manifest,
+                "snapshot_pool_cap": args.snapshot_pool_cap,
             },
         )
 
@@ -146,9 +156,19 @@ def train(args: argparse.Namespace) -> Path:
         f"timesteps={args.timesteps} n_steps={args.n_steps} lr={args.lr} gamma={args.gamma}"
     )
 
+    # PFSP snapshot publisher (B3): periodically repack+export the live actor so the env-servers'
+    # leagues hot-load it as a self-play opponent. Off unless --snapshot-dir is given (fixed-field).
+    callback = None
+    if args.snapshot_dir:
+        callback = SnapshotCallback(args.snapshot_dir, args.snapshot_every, teacher="ppo-snapshot")
+        print(
+            f"snapshot publisher: every {args.snapshot_every} steps → {args.snapshot_dir} "
+            f"(consumer pool_cap={args.snapshot_pool_cap})"
+        )
+
     model, venv = build_model(cfg, ckpt, args)
     try:
-        model.learn(total_timesteps=args.timesteps, progress_bar=False)
+        model.learn(total_timesteps=args.timesteps, progress_bar=False, callback=callback)
     finally:
         # Always reap the env-servers (each DiceWarsEnv owns a Node child) even on error.
         venv.close()
@@ -221,6 +241,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0, help="PPO/torch seed")
     p.add_argument("--seed-base", type=int, default=1, help="Env-server episode seed base")
     p.add_argument("--device", default="cpu", help="torch device (cpu is fine — the net is tiny)")
+    # PFSP snapshots (B3 / [D-22]). --snapshot-dir off ⇒ fixed-field (task A) empty-pool mode.
+    p.add_argument(
+        "--snapshot-dir",
+        default=None,
+        help="Publish snapshots (weights + manifest.json) here for the league to hot-load; "
+        "unset ⇒ fixed-field (no PFSP).",
+    )
+    p.add_argument(
+        "--snapshot-every",
+        type=int,
+        default=50_000,
+        help="Snapshot cadence in total env steps (only used with --snapshot-dir).",
+    )
+    p.add_argument(
+        "--snapshot-pool-cap",
+        type=int,
+        default=40,
+        help="Max snapshots the env-server league holds live (FIFO-by-step; forwarded).",
+    )
     return p
 
 
@@ -235,6 +274,15 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--n-envs must be >= 1.")
     if not Path(args.checkpoint).is_file():
         raise SystemExit(f"--checkpoint not found: {args.checkpoint}")
+    if args.snapshot_dir is not None:
+        if args.snapshot_every <= 0:
+            raise SystemExit("--snapshot-every must be > 0 when --snapshot-dir is set.")
+        if args.snapshot_pool_cap <= 0:
+            raise SystemExit("--snapshot-pool-cap must be > 0.")
+        # Absolutize so the producer (this process) and the Node consumers (cwd=repo-root)
+        # resolve the same manifest path; create it now so env-servers can stat() it from ep 0.
+        args.snapshot_dir = str(Path(args.snapshot_dir).resolve())
+        Path(args.snapshot_dir).mkdir(parents=True, exist_ok=True)
 
 
 def main() -> None:

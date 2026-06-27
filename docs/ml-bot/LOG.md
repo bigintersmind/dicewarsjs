@@ -21,6 +21,115 @@ Entry template:
 
 ---
 
+## 2026-06-27 — Task B step B3: the snapshot pipeline (Python producer → Node hot-load)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:** Built the full PFSP snapshot pipeline end-to-end (producer + consumer), keeping `draw()`
+unchanged — B3 only _loads_ snapshots; B4 samples them, so episode outcomes are still the fixed field.
+
+- **Consumer (Node, fully tested locally).** `scripts/lib/ppo-league.mjs` gained `snapshotManifest` +
+  `poolCap` and an async `refresh()`: an mtime-guarded poll of the producer `manifest.json` that
+  diffs by stable id, dynamic-`import()`s each new snapshot's `.weights.js` (fresh filename → ESM URL
+  cache never serves a stale module), wraps it with `makeBC({ policy })`, FIFO-evicts past `poolCap`,
+  and GCs the evicted `.js`. An evicted id stays in `loadedIds` so it is never re-imported from its
+  deleted file. `makeBC`/`ENCODING_VERSION` are top-level static imports with no extra load cost (the
+  ~2 MB `bcPolicyWeights.js` `makeBC` pulls in is already loaded eagerly via the top-level
+  `BUILT_IN_BOTS` import → `ai_bc.js`; the per-snapshot `.weights.js` load stays a dynamic `import()`
+  since its filename is runtime-generated — both corrected/simplified post-review). `stats()` now reports real `poolSize` +
+  `loadedSnapshots`. Env-server: `--snapshot-manifest`/`--snapshot-pool-cap` flags + `await
+league.refresh()` at each episode boundary (a one-`statSync` no-op without a manifest; an
+  encoding-version skew throws and stops the run — the frozen-`ENCODING_VERSION` invariant).
+- **Producer (Python).** NEW `ml/dicewars_ppo/snapshot_callback.py` — `SnapshotCallback(BaseCallback)`
+  publishes every `--snapshot-every` env steps: `repack_to_bc_checkpoint` → temp `.pt` →
+  `export(…, fixture_path=None)` (the exact gate-proven path, no per-snapshot fixture) → fsync the
+  weights → atomic `manifest.json` via temp + `os.replace`. `train_tracer.py` got
+  `--snapshot-dir`/`-every`/`-pool-cap` (absolutized so producer & consumers agree on the path) and
+  attaches the callback; `EnvServerProcess.__init__` forwards `snapshot_manifest`/`snapshot_pool_cap`
+  into the server argv (`env.py` already splats `server_kwargs`).
+- **Tests.** NEW `tests/ml/ppo-league-snapshots.test.js` (11): no-op/empty-pool, incremental
+  diff-by-id, mtime short-circuit, FIFO eviction + disk GC, the `loadedIds`-vs-deleted-file guard, and
+  the encoding-version fail-loud (manifest-level + per-snapshot). NEW `ml/tests/test_snapshot_callback.py`
+  (5): cadence, atomic manifest schema (mirrors the JS consumer), publish orchestration (monkeypatched
+  repack/export), append order. `tests/ml/` 89 green; JS lint/prettier clean; Python `py_compile` OK.
+
+**Learned / decided:**
+
+- Clean B3↔B4 seam: **load in B3, sample in B4.** Snapshots enter the pool but `draw()` ignores them,
+  so B3 is behavior-preserving and independently testable (pool grows; the drawn field is byte-identical).
+- The snapshot manifest is a NEW file distinct from the BC-corpus `manifest.py` — same name, different
+  dir + schema (`{encodingVersion, snapshots:[{id,step,weights,createdAt}], latestStep}`).
+- **Deviations from [D-23]** (folded into PLAN/D-23): `--snapshot-store` deferred to B6 with
+  `SharedDiskStore` (no dead flag now); `--snapshot-pool-cap` added/forwarded (the cap is a consumer
+  setting that genuinely needs to reach Node); producer manifest is append-only (tiny entries).
+
+**Dead ends / surprises:**
+
+- **No local Python env** (no torch/sb3 on this Mac), so the producer is validated by `py_compile` +
+  its monkeypatched pytest, which must run on **shodan / CI** — not locally. The `repack→export` step
+  it wraps is already gate-proven (PR #61), so the untested-locally surface is only the new
+  orchestration (atomic manifest + cadence), which the pytest covers.
+
+**Next:**
+
+- **B4** — turn PFSP weighting on in `draw()`: sample the pool by `w(S)=max(ε,1−winRate(S))^k`, reserve
+  R=3 aggressive baselines, seeded `mulberry32(seedBase+ep)`, empty-pool fallback. **First step the
+  league must run on shodan with Python** (the producer publishing into a live consumer pool) — the B3
+  Python side gets its first real exercise there.
+
+---
+
+## 2026-06-27 — Task B step B2: per-seat `seatBeat[]` + the id-keyed win-rate book
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Reviewed the post-review hardening that landed on the merged PRs.** PR #63 (weights + docs) and
+  PR #64 (B1) are both merged. #64 carried two Ivan-authored hardening commits on top of my B1:
+  `1fda04c` (validate `count`/`learnerSeat` at `makeLeague`; fold the stable `id` into the resolved
+  field → single source of truth; correct dangling `[D-23]`→`[D-22]` citations) and `10f2aaa`
+  (`Object.freeze` the empty-pool field + entries; external name golden; comment accuracy). All sound;
+  the `id`-on-field change directly feeds B2's `recordResult` keying.
+- **Implemented B2 — the [D-22] "real work item" (pairwise win-rate attribution).**
+  - `scripts/lib/ppo-env.mjs`: added a per-board-seat `seatBeat[]` vector to **both** outcome shapers.
+    `summarizeOutcome` derives it from the final placement order (`seatBeatFromPlacements`);
+    `eliminationOutcome` synthesizes it at the learner's death from alive / prior-elim / same-turn
+    co-elim, threading a `coElimSeats` **Set** out of `guardedOnTurn` (replacing the old scalar
+    `coElimAbove` count, which is now derived from the set) — so the ~2× early-termination throughput
+    is preserved with no full `placements` build.
+  - `scripts/lib/ppo-league.mjs`: added the id-keyed win-rate book (`Map<id,{wins,games}>`).
+    `recordResult` now credits `book[id].wins += seatBeat[seat]` per drawn opponent (excluding
+    `maxTurns` truncations); new `winRate(id)` returns `wins/games`, **0 on cold-start** (→ max PFSP
+    weight, [D-23]); `stats()` gains `bookSize`. A cycled baseline seated twice yields two independent
+    records — verified.
+  - `scripts/ppo-env-server.mjs`: moved `league.recordResult(drawn, result)` **above** the wire
+    zero-decision gate so a zero-decision episode (a real decisive loss) **is** booked — Ivan's call on
+    [D-23] open-Q2 (the wire-skip is a frame concern; the Node-side league is orthogonal).
+- **Tests.** Threaded a `seatBeat` oracle (independent reimpl) into the existing full-vs-early fixtures
+  in `ppo-env.test.js` — both shapers validated against the engine's placement order across a plain
+  mid-game elimination, the three co-elimination tie-break seeds, a runner-up, a learner win, and the
+  zero-decision seed — **zero extra match runs**. Added 7 win-rate-book tests to `ppo-league.test.js`
+  (pairwise crediting, cycled-baseline double-record, interior-learner board-seat indexing, accrual,
+  truncation exclusion, cold-start, no-seatBeat defensive). `tests/ml/` 78 green; lint clean.
+
+**Learned / decided:**
+
+- `placements` is a **best-first ordered list of seat ids** (rank = `indexOf`), so "learner beat seat
+  s" = `rank[learnerSeat] < rank[s]` — strict, no ties. The early path reproduces this exactly via the
+  `runMatch` ascending-seat-id / `calculatePlacements`-reversal tie-break, which the existing
+  co-elimination fixtures already pin — they doubled as the B2 attribution oracle.
+- Booking zero-decision episodes keeps the win-rate honest about fast-crushing fields (what PFSP wants)
+  without touching the wire contract — the two concerns are cleanly separable.
+
+**Next:**
+
+- **B3** — the snapshot pipeline (Python SB3 `SnapshotCallback` → `repack` → `export(…,
+fixture_path=None)` → atomic manifest → Node `refresh()` hot-load via `makeBC`, fresh filename). B0's
+  deferred `snapshot-manifest`/`-store` CLI flags + the `ENCODING_VERSION=2` freeze doc land here too.
+
+---
+
 ## 2026-06-27 — Task A PASSED: fixed-field 1M PPO BEATS the gate (Δ +33.4)
 
 **Phase:** 3 · **Who:** Ivan + Claude

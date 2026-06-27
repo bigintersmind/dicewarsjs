@@ -85,6 +85,9 @@ class EnvServerProcess:
         reserve_baselines: int = 3,
         pfsp_epsilon: float = 0.05,
         pfsp_k: float = 2.0,
+        snapshot_store: str | None = None,
+        league_state_dir: str | None = None,
+        league_dump_every: int | None = None,
         host: str = "127.0.0.1",
         node_bin: str | None = None,
         start_timeout_s: float = 30.0,
@@ -131,6 +134,19 @@ class EnvServerProcess:
             argv.append(f"--reserve-baselines={reserve_baselines}")
             argv.append(f"--pfsp-epsilon={pfsp_epsilon}")
             argv.append(f"--pfsp-k={pfsp_k}")
+        # League persistence (B6 / task E). Independent of the snapshot manifest: a fixed-field run
+        # (no manifest) still checkpoints/resumes via --league-state-dir, so these ride their OWN
+        # gate, not the snapshot branch above. Each is forwarded only when set, so an unset value
+        # yields byte-identical argv to B5 and the Node server falls back to its own defaults
+        # (snapshot-store=memory, league-dump-every=50, persistence off). The values themselves are
+        # range-validated on the Node side (resolveLeaguePersistence / the dump-every guard) and by
+        # the train CLI; EnvServerProcess stays a thin forwarder, mirroring the PFSP flags above.
+        if snapshot_store is not None:
+            argv.append(f"--snapshot-store={snapshot_store}")
+        if league_state_dir is not None:
+            argv.append(f"--league-state-dir={league_state_dir}")
+        if league_dump_every is not None:
+            argv.append(f"--league-dump-every={league_dump_every}")
         self._argv = argv
 
     def start(self) -> EnvServerProcess:

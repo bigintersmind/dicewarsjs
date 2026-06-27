@@ -45,7 +45,7 @@ empty-pool mode of this one pipeline.
   `train_tracer.py` args + `_validate_args` bounds (ε∈(0,1], k≥0, R≥0, mirroring the Node guards) +
   `EnvServerProcess` argv forwarding. The PFSP knobs ride the `--snapshot-dir`/`snapshot_manifest`
   branch since they only bite a non-empty pool; Node↔Python defaults agree (R=3, ε=0.05, k=2).
-- **Tests.** NEW `tests/ml/ppo-league-pfsp.test.js` (17 tests: field shape, reserve rules incl. the
+- **Tests.** NEW `tests/ml/ppo-league-pfsp.test.js` (21 tests: field shape, reserve rules incl. the
   cap and the empty-reserve `ai_bc`-only case, seeded determinism, win-rate-monotone weighting +
   the higher-k-sharpens check, the ε floor / all-mastered pool, draw→record→winRate loop, new-knob
   validation). NEW `ml/tests/test_env_server_argv.py` (the Python→Node flag bridge — the only
@@ -83,6 +83,31 @@ empty-pool mode of this one pipeline.
   == explicit `{ε:0.05,k:2}`, ≠ other ε); the underflow-fallback test; the reserve-typo guard test;
   and a torch-gated `test_train_tracer_args.py` (parser defaults, `_validate_args` rejections, the
   `_make_env_thunk → server_kwargs` forwarding hop). Final: 1064 JS tests + ruff/lint/build all green.
+
+**Second-pass review hardening (multi-agent `/review-pr`, follow-up commit).** A 5-agent review (code /
+tests / silent-failure / comments / type-design) found no correctness bug in the production path but
+flagged four silent-degradation footguns, all fixed:
+
+- **Dead-PFSP guard (was: silent no-op).** When reserved baselines fill every seat
+  (`min(R, #reserveBaselinePool) >= count`, e.g. default `R=3` on a 4-player game ⇒ `count=3`),
+  `draw()` seated ZERO snapshots despite a loaded pool — PFSP silently off, `stats()` still healthy.
+  `makeLeague` now throws at construction when a manifest is configured (decidable from config alone;
+  fixed-field mode is exempt). The production 7-player path (`count=6`) is unaffected.
+- **Persistent no-seatBeat now fails loud.** A one-off missing `seatBeat[]` stays warn-once, but past
+  `MAX_NO_SEATBEAT_GAMES` (10) `recordResult` throws — a persistent contract break leaves the win-rate
+  book uncredited and collapses PFSP to uniform, which the warn-once alone let run silently for hours.
+  The cumulative count is exposed on `stats()` and the `PPO_ENV_SERVER DONE` line (`noSeatBeatGames=`).
+- **Node-side flag bridge now tested.** NEW `tests/ml/ppo-env-server-args.test.js` covers the middle
+  hop the Python argv test couldn't reach: `parseArgs`/`numArg` actually parse `--reserve-baselines`/
+  `--pfsp-epsilon`/`--pfsp-k` and default them to the B4 values. `ppo-env-server.mjs` now guards its
+  `main()` behind an `isEntryPoint` check and exports `parseArgs`/`numArg` so a test can import without
+  spawning the server.
+- **Doc fixes.** Corrected the misleading `train_tracer._validate_args` comment (in fixed-field mode the
+  knobs are NOT forwarded, so the Python guard is the _sole_ check — not "Node validates anyway");
+  retired the stale "until B4 wires the book into `draw()`" note on `stats()`; relabelled "aggressive
+  baselines" → "non-`ai_bc` baselines" (the reserve set includes `ai_defensive`); fixed the "17 tests"
+  count above to 21. New tests: 3 dead-PFSP-guard cases + 1 persistent-no-seatBeat case + the 4 Node
+  flag-bridge cases.
 
 **Dead ends / surprises:**
 

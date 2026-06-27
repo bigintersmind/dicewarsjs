@@ -270,8 +270,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--reserve-baselines",
         type=int,
         default=3,
-        help="R aggressive baselines reserved per drawn field (turtle-equilibrium defense; "
-        "distinct, no-replacement). Only used with --snapshot-dir.",
+        help="R baselines reserved per drawn field (turtle-equilibrium defense; distinct non-ai_bc "
+        "ids, no-replacement). Only used with --snapshot-dir.",
     )
     p.add_argument(
         "--pfsp-epsilon",
@@ -301,10 +301,12 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--n-envs must be >= 1.")
     if not Path(args.checkpoint).is_file():
         raise SystemExit(f"--checkpoint not found: {args.checkpoint}")
-    # PFSP knobs (B4): validate UNCONDITIONALLY — the Node-side makeLeague guards (ppo-league.mjs)
-    # run on every launch regardless of the pool, so a bad value is rejected even in fixed-field
-    # mode (where the knob is forwarded as a no-op) rather than silently swallowed. math.isfinite
-    # mirrors Node's Number.isFinite so inf/nan fail here, not later at server spawn.
+    # PFSP knobs (B4): validate UNCONDITIONALLY. In fixed-field mode (no --snapshot-dir) these
+    # knobs are NOT forwarded to the env-server — env_server.py only appends them on the snapshot
+    # branch — so Node never sees or validates the Python-supplied value. That makes THIS check the
+    # sole guard there; without it a bad value would be silently dropped (Node falls back to its own
+    # defaults). The bounds mirror the Node makeLeague guards so the two layers stay consistent when
+    # the knobs ARE forwarded; math.isfinite mirrors Number.isFinite so inf/nan fail here.
     if args.reserve_baselines < 0:
         raise SystemExit("--reserve-baselines must be >= 0.")
     if not 0.0 < args.pfsp_epsilon <= 1.0:

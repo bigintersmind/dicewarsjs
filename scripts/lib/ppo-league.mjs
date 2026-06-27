@@ -19,7 +19,7 @@
  *     past `poolCap`, GC the evicted `.js`. B3 only *loads* the pool — `draw()` does not seat it yet.
  *   - **B4** — PFSP weighting **on**: when the pool is non-empty, `draw(seed)` seeds a `mulberry32`
  *     sampler and seats `count − R` snapshots drawn by `w(S) = max(ε, 1 − learnerWinRate(S))^k`
- *     (lower learner win-rate → higher weight) plus `R` reserved aggressive baselines (the [D-15]
+ *     (lower learner win-rate → higher weight) plus `R` reserved baselines (the [D-15]
  *     turtle-equilibrium defense), then shuffles opponent→seat so neither group binds to fixed
  *     turn-order seats. **Empty pool still returns the byte-identical task-A field** (fixed-field
  *     stays the empty-pool mode of this one pipeline). Persistence (B6) extends the same object.
@@ -42,6 +42,15 @@ import { mulberry32 } from './mulberry32.mjs';
  * loaded eagerly via the `BUILT_IN_BOTS` import below (→ `ai_bc.js` → `bcPolicyWeights.js`), and
  * `ENCODING_VERSION` rides the far lighter `encodeObservation.js`.
  */
+
+/*
+ * A decisive game must carry a `seatBeat[]` (both shapers guarantee one for a decided placement). A
+ * single missing vector is tolerated and warned once; this many CUMULATIVELY means a persistent
+ * shaper/contract regression — `recordResult` then throws, because an uncredited win-rate book
+ * silently collapses B4's PFSP sampler to ~uniform (every snapshot stuck at cold-start weight) and
+ * would waste a whole multi-hour training run with no other loud signal.
+ */
+const MAX_NO_SEATBEAT_GAMES = 10;
 
 /** Split + trim the opponent id CSV, dropping blanks; throws if it resolves to nothing. */
 function parseIds(idCsv) {
@@ -104,11 +113,14 @@ export function resolveBaselineField(idCsv, count) {
  *   fresh filename is a distinct, permanently-cached module), so resident weights grow with the total
  *   number of snapshots ever loaded, not `poolCap`. Modest at realistic cadences (~2 MB each); if a
  *   long run needs a hard memory bound, load weights without `import()` caching (B5 concern).
- * @param {number} [opts.reserveBaselines=3] **R** — aggressive baselines reserved in every drawn
- *   field while the pool is non-empty (the [D-15] turtle-equilibrium defense). The reserve pool is
- *   the DISTINCT baseline ids minus `ai_bc` (the STOP/turtle lineage); reserved seats are sampled
- *   WITHOUT replacement, so at most `min(R, count, #distinctReserveBaselines)` seats are reserved and
- *   the remainder go to PFSP snapshots ([D-23]). 0 disables reservation. Empty-pool mode ignores it.
+ * @param {number} [opts.reserveBaselines=3] **R** — baselines reserved in every drawn field while
+ *   the pool is non-empty (the [D-15] turtle-equilibrium defense). The reserve pool is the DISTINCT
+ *   baseline ids minus `ai_bc` (the STOP/turtle lineage is the ONLY excluded one — so the reserve set
+ *   can include a defensive bot such as `ai_defensive`, not just aggressive ones). Reserved seats are
+ *   sampled WITHOUT replacement, so at most `min(R, count, #distinctReserveBaselines)` seats are
+ *   reserved and the remainder go to PFSP snapshots ([D-23]). 0 disables reservation. Empty-pool mode
+ *   ignores it. With a snapshot manifest configured, a config that reserves ALL `count` seats (so no
+ *   snapshot could ever be drawn) is rejected at construction — see the dead-PFSP guard below.
  * @param {number} [opts.pfspEpsilon=0.05] **ε** — the PFSP weight floor in `w(S)=max(ε,1−winRate)^k`.
  *   Must be in (0, 1]: ε>0 floors every snapshot weight at ε^k > 0 (a fully-mastered snapshot is still
  *   drawn occasionally) for any sane k. (At a pathological k, ε^k can underflow to 0.0 in floating
@@ -192,6 +204,22 @@ export function makeLeague({
     });
   Object.freeze(reserveBaselinePool);
   /*
+   * Dead-PFSP guard (B4): `draw()` computes `pfspCount = count − min(R, count, #reserveBaselinePool)`,
+   * so when the reserve baselines alone fill every seat (`min(R, #reserveBaselinePool) >= count`) it
+   * seats ZERO snapshots — PFSP is silently a no-op even with a fully-loaded pool. That is only ever a
+   * misconfiguration when a manifest is configured (the operator clearly intends PFSP), and it is
+   * decidable here at construction (the condition is independent of pool contents). Fail the launch
+   * with an actionable message rather than burn a multi-hour run training against baselines only.
+   * Empty-pool fixed-field mode (no manifest) never seats snapshots anyway, so it is exempt.
+   */
+  if (snapshotManifest && Math.min(reserveBaselines, reserveBaselinePool.length) >= count) {
+    throw new Error(
+      `makeLeague: reserveBaselines=${reserveBaselines} with ${reserveBaselinePool.length} distinct ` +
+        `reserve baseline(s) fills all ${count} opponent seat(s), so draw() can never seat a PFSP ` +
+        `snapshot despite a configured snapshot manifest. Lower reserveBaselines or raise the player count.`
+    );
+  }
+  /*
    * `draw()` hands out this same array reference every episode, so freeze it (and its entries):
    * a future in-place reorder/mutation throws loudly under ESM strict mode instead of silently
    * poisoning every later draw. Near-zero cost — the fns are shared from BUILT_IN_BOTS anyway.
@@ -212,6 +240,13 @@ export function makeLeague({
   const book = new Map();
   // One-shot guard so a broken-contract decisive game (no seatBeat[]) warns once, not per-episode.
   let warnedNoSeatBeat = false;
+  /*
+   * Cumulative count of decisive games that arrived without a `seatBeat[]`. One-off is tolerated
+   * (warn-once above); past `MAX_NO_SEATBEAT_GAMES` it is a persistent contract break that has left
+   * the win-rate book uncredited — `recordResult` throws so PFSP can't quietly run on a ~uniform book.
+   * Surfaced on `stats()` for the DONE-line health window; should always read 0 on a healthy run.
+   */
+  let noSeatBeatGames = 0;
 
   /*
    * Snapshot pool (B3): hot-loaded self-play snapshots the trainer published, FIFO-capped at
@@ -269,8 +304,8 @@ export function makeLeague({
      * parity guarantee — it must stay identical to B1/B2/B3.
      *
      * **Non-empty pool → PFSP (B4).** Seed a `mulberry32(seed)` stream and fill `count` seats with:
-     *   1. up to `min(R, count, #reserveBaselinePool)` aggressive baselines, sampled WITHOUT
-     *      replacement (distinct aggressive opponents — the [D-15] turtle defense), then
+     *   1. up to `min(R, count, #reserveBaselinePool)` reserved baselines, sampled WITHOUT
+     *      replacement (distinct non-`ai_bc` opponents — the [D-15] turtle defense), then
      *   2. the remaining seats with snapshots sampled WITH replacement by
      *      `w(S) = max(ε, 1 − learnerWinRate(S))^k` (lower learner win-rate → higher weight).
      * The combined field is then Fisher-Yates shuffled (same rng stream) so the reserve/PFSP split
@@ -288,7 +323,7 @@ export function makeLeague({
       const rng = mulberry32(seed >>> 0);
       const field = []; // { id, kind, name, fn } entries, length `count`
 
-      // (1) Reserved aggressive baselines — at most as many distinct ones as exist, no replacement.
+      // (1) Reserved baselines (distinct, non-ai_bc) — at most as many distinct ones as exist, no replacement.
       const reserveCount = Math.min(reserveBaselines, count, reserveBaselinePool.length);
       const reservePick = reserveBaselinePool.slice();
       for (let i = 0; i < reserveCount; i++) {
@@ -361,13 +396,23 @@ export function makeLeague({
          * Both shapers always return a seatBeat[] for a decisive game (ppo-env.mjs), so a missing one
          * means an upstream shaper/contract break. Don't crash a long training run over a single bad
          * outcome — but don't let it silently empty the book either (the failure mode that would make
-         * B4's PFSP sampler quietly collapse to ~uniform). Warn ONCE so the regression is visible.
+         * B4's PFSP sampler quietly collapse to ~uniform). Warn ONCE so the regression is visible, and
+         * fail loud once it is clearly PERSISTENT (past MAX_NO_SEATBEAT_GAMES): a run that never credits
+         * the book is training against an effectively uniform sampler and should stop, not spin on.
          */
+        noSeatBeatGames++;
         if (!warnedNoSeatBeat) {
           warnedNoSeatBeat = true;
           process.stderr.write(
             '[ppo-league] decisive game had no seatBeat[] — win-rate book not credited; check the ' +
               'runSelfPlayEpisode/runMatch placement contract.\n'
+          );
+        }
+        if (noSeatBeatGames >= MAX_NO_SEATBEAT_GAMES) {
+          throw new Error(
+            `ppo-league.recordResult: ${noSeatBeatGames} decisive games had no seatBeat[] — the ` +
+              `win-rate book is not being credited and B4's PFSP sampler has collapsed to uniform. ` +
+              `Fix the runSelfPlayEpisode/runMatch placement contract.`
           );
         }
         return;
@@ -484,10 +529,12 @@ export function makeLeague({
 
     /**
      * League health snapshot. The env-server emits this on its `PPO_ENV_SERVER DONE` line (the B5
-     * throughput/decisive-rate re-probe reads it; until B4 wires the book into `draw()` it is the
-     * only external window onto the win-rate book). `decisiveGames` counts every booked decisive
-     * episode incl. zero-decision skips, so `decisiveGames > <wire terminals>` evidences the B2
-     * "book before the zero-decision wire gate" reordering.
+     * throughput/decisive-rate re-probe reads it). `winRate(id)` and `draw()` (which now samples the
+     * book for PFSP weighting, B4) are the other windows onto the win-rate book. `decisiveGames`
+     * counts every booked decisive episode incl. zero-decision skips, so `decisiveGames > <wire
+     * terminals>` evidences the B2 "book before the zero-decision wire gate" reordering.
+     * `noSeatBeatGames` should read 0 on a healthy run — a nonzero value means decisive games whose
+     * placement contract broke (book under-credited; PFSP drifting toward uniform).
      */
     stats() {
       const total = decisiveGames + truncatedGames;
@@ -498,6 +545,7 @@ export function makeLeague({
         decisiveGames,
         truncatedGames,
         decisiveRate: total > 0 ? decisiveGames / total : 0,
+        noSeatBeatGames,
       };
     },
   };

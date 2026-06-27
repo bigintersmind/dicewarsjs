@@ -370,3 +370,45 @@ describe('ppo-league PFSP — construction validation (B4 knobs)', () => {
     ).toThrow(/Unknown opponent bot id "ai_not_a_bot"/);
   });
 });
+
+describe('ppo-league PFSP — dead-PFSP guard (reserves must not crowd out every snapshot seat)', () => {
+  it('rejects a manifest config where reserved baselines fill EVERY seat (pfspCount would be 0)', () => {
+    /*
+     * count=3, default R=3, and DEFAULT_OPPONENTS carries 4 distinct non-ai_bc reserves, so
+     * reserveCount = min(3, 3, 4) = 3 = count ⇒ pfspCount = 0: draw() could never seat a PFSP snapshot
+     * even with a fully-loaded pool. With a snapshot manifest configured (PFSP clearly intended) that is
+     * a misconfiguration — fail the launch instead of silently training against baselines only.
+     */
+    expect(() =>
+      makeLeague({
+        baselineCsv: DEFAULT_OPPONENTS,
+        count: 3,
+        learnerSeat: 0,
+        snapshotManifest: join(dir, 'unused-manifest.json'),
+      })
+    ).toThrow(/can never seat a PFSP snapshot/);
+  });
+
+  it('does NOT apply the guard in fixed-field mode (no manifest) — that is a legitimate task-A config', () => {
+    /*
+     * Same starving R/count, but with no manifest the empty-pool path never seats snapshots anyway,
+     * so this is the ordinary fixed-field mode and must construct cleanly.
+     */
+    expect(() =>
+      makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: 3, learnerSeat: 0 })
+    ).not.toThrow();
+  });
+
+  it('allows a small-count manifest config that still leaves at least one PFSP seat', () => {
+    // count=3, R=2 ⇒ reserveCount=2, pfspCount=1: PFSP can still seat a snapshot, so it is allowed.
+    expect(() =>
+      makeLeague({
+        baselineCsv: DEFAULT_OPPONENTS,
+        count: 3,
+        learnerSeat: 0,
+        reserveBaselines: 2,
+        snapshotManifest: join(dir, 'unused-manifest.json'),
+      })
+    ).not.toThrow();
+  });
+});

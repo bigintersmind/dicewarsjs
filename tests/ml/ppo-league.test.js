@@ -254,6 +254,38 @@ describe('ppo-league — win-rate book (B2)', () => {
     }
   });
 
+  it('fails loud once no-seatBeat decisive games become PERSISTENT (PFSP-collapse guard)', () => {
+    /*
+     * A one-off missing seatBeat is tolerated (warn-once, above), but a PERSISTENT absence means the
+     * win-rate book is never credited and B4's PFSP sampler silently collapses to uniform — so
+     * recordResult must eventually throw rather than spin on and waste a whole training run.
+     */
+    const league = newLeague(0);
+    const { drawn } = league.draw(0);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      let recorded = 0;
+      let thrown = null;
+      for (let i = 0; i < 100 && thrown === null; i++) {
+        try {
+          league.recordResult(drawn, { truncated: false }); // no seatBeat
+          recorded++;
+        } catch (err) {
+          thrown = err;
+        }
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.message).toMatch(/collapsed to uniform/);
+      // Tolerated a bounded handful before failing — not on the first call, and well before 100.
+      expect(recorded).toBeGreaterThan(0);
+      expect(recorded).toBeLessThan(100);
+      // The cumulative break count is surfaced for the DONE-line health window (recorded + the throwing call).
+      expect(league.stats().noSeatBeatGames).toBe(recorded + 1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('throws on an out-of-domain seatBeat value (shaper/seat desync — never folds garbage into wins)', () => {
     const league = newLeague(0);
     const { drawn } = league.draw(0);

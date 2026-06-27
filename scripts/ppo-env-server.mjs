@@ -252,9 +252,18 @@ async function main() {
   }
 
   /*
-   * Atomically checkpoint the league (B6). No-op unless persistence is opted in. Flush the store's own
-   * win-rate shard FIRST (the disk store's book lives there; toJSON emits null for it), then write the
-   * counters/pool/loadedIds state. Best-effort: a dump failure must never crash a multi-hour run.
+   * Atomically checkpoint the league (B6). No-op unless persistence is opted in.
+   *
+   * Write order (task E / PR-1, HOLE-B): the state file (`league.toJSON()`, carrying `episodeCount`)
+   * is written FIRST, then the disk store's own win-rate shard is flushed. The two are separate files
+   * for the disk store (the shard holds the book; toJSON emits `book: null`), so a crash can land
+   * between them. Writing state first means a crash in that window leaves `episodeCount` AHEAD of the
+   * shard — on resume the env-server skips those seeds, so the at-most-`dumpEvery` un-flushed games are
+   * simply LOST (the already-accepted bounded skew). Flushing the shard first would instead leave it
+   * ahead of `episodeCount`, and resume would replay those seeds and re-fold them into the shard —
+   * a silent DOUBLE-COUNT that biases the PFSP sampler. Lose-a-few beats count-twice. (For the
+   * in-memory store the book rides inside `league.toJSON()`, so it is always atomic with the cursor and
+   * the order is moot.) Best-effort: a dump failure must never crash a multi-hour run.
    */
   let bookedSinceDump = 0;
   let dumpFailures = 0; // total failed dumps — surfaced on the DONE line (should read 0 on a healthy run)
@@ -263,8 +272,8 @@ async function main() {
   const dumpLeagueState = () => {
     if (!leagueStatePath) return;
     try {
-      store.flush();
       writeJsonAtomic(leagueStatePath, league.toJSON());
+      store.flush();
       consecutiveDumpFailures = 0;
     } catch (err) {
       /*
@@ -437,7 +446,20 @@ async function main() {
      * which resolves `connected` with `closed`/exitCode already set so the loop exits immediately).
      */
     await connected;
-    for (let ep = 0; episodes === 0 || ep < episodes; ep++) {
+    /*
+     * Resume seed-cursor (task E / PR-1, HOLE-A): start the loop at the league's booked-episode count
+     * so a relaunched env-server CONTINUES the seed sequence (`seed = seedBase + ep`) instead of
+     * replaying seeds from 0 and re-folding their outcomes into the restored win-rate book — a silent
+     * double-count. A fresh start reads 0 (behavior unchanged). For a fixed `--episodes=N`, N is the
+     * run TOTAL across restarts, not per-launch (mirrors the Python-side `remaining` budget).
+     */
+    const resumeEp = league.stats().episodeCount;
+    if (resumeEp > 0) {
+      process.stderr.write(
+        `[ppo-env-server] resuming episode loop at ep=${resumeEp} (seed-cursor).\n`
+      );
+    }
+    for (let ep = resumeEp; episodes === 0 || ep < episodes; ep++) {
       if (closed || lostError) break;
       /*
        * Poll the snapshot manifest at the episode boundary (B3): hot-load any newly published
@@ -567,12 +589,23 @@ async function main() {
     // periodic dump. No-op when not persisting.
     dumpLeagueState();
     const s = league.stats();
-    process.stdout.write(
+    const doneLine =
       `PPO_ENV_SERVER DONE episodes=${played} decisiveGames=${s.decisiveGames} ` +
-        `truncatedGames=${s.truncatedGames} decisiveRate=${s.decisiveRate.toFixed(4)} ` +
-        `poolSize=${s.poolSize} loadedSnapshots=${s.loadedSnapshots} bookSize=${s.bookSize} ` +
-        `noSeatBeatGames=${s.noSeatBeatGames} dumpFailures=${dumpFailures}\n`
-    );
+      `truncatedGames=${s.truncatedGames} decisiveRate=${s.decisiveRate.toFixed(4)} ` +
+      `poolSize=${s.poolSize} loadedSnapshots=${s.loadedSnapshots} bookSize=${s.bookSize} ` +
+      `episodeCount=${s.episodeCount} refreshSkips=${s.refreshSkips} ` +
+      `noSeatBeatGames=${s.noSeatBeatGames} dumpFailures=${dumpFailures}`;
+    process.stdout.write(`${doneLine}\n`);
+    /*
+     * Mirror the health summary to STDERR (task E / PR-1): env.py drains and DROPS stdout (only the
+     * anchored LISTENING line is parsed), so this window is invisible to the trainer's logs unless it
+     * also lands on stderr (which the Python parent inherits). `refreshSkips` (peer GC race),
+     * `dumpFailures` (unwritable checkpoint path), and `noSeatBeatGames` (broken placement contract)
+     * should all read 0 on a healthy run — a nonzero value is often the ONLY signal of a silent fault
+     * on a multi-day shodan run. Appending fields to the stdout line stays safe (env.py drops it; the
+     * probes parse a key=value map).
+     */
+    process.stderr.write(`[ppo-env-server] ${doneLine}\n`);
   } finally {
     /*
      * Always reap the worker — otherwise its still-listening server keeps the process alive (a

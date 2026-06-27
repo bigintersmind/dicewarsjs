@@ -123,10 +123,11 @@ export function parseRSweep(opts, fallback) {
 
 /**
  * Reject `poolCap < poolSize` up front: the league FIFO-evicts the live pool down to `poolCap`
- * (`ppo-league.mjs`), so a smaller cap would (a) make the probe sample a SMALLER, skewed field than
- * the requested mix, and (b) `unlinkSync` the evicted shims from the shared scratch dir — which a
- * `--workers>1` R-sweep then re-`import()`s on the next R from a cold module cache, crashing with a
- * bare `ENOENT`. This tool never wants eviction, so fail the launch with an actionable message instead.
+ * (`ppo-league.mjs`), so a smaller cap would make the probe sample a SMALLER, skewed field than the
+ * requested mix. (Eviction no longer unlinks shims — disk GC moved to the producer in task E / PR-3,
+ * and a missing shim is now tolerated by `refresh()` regardless — but a shrunk sampleable field still
+ * misreports throughput/decisive-rate.) This tool never wants eviction, so fail the launch with an
+ * actionable message instead.
  *
  * @param {number} poolCap
  * @param {number} poolSize - the number of snapshots the manifest will seat (`specs.length`)

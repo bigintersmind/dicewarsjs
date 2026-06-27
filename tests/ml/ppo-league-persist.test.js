@@ -158,11 +158,55 @@ describe('toJSON / restore — pool reconstruction edge cases', () => {
   });
 });
 
+describe('toJSON / restore — resume seed-cursor (task E / PR-1, HOLE-A)', () => {
+  it('tracks episodeCount as the booked-episode count and round-trips it as the resume cursor', async () => {
+    const a = league(null);
+    record(a, a.draw(0).drawn, { 1: 1 }); // decisive
+    a.recordResult(a.draw(1).drawn, { truncated: true, seatBeat: null }); // truncated (still booked)
+    record(a, a.draw(2).drawn, { 2: 0 }); // decisive
+    const s = a.stats();
+    expect(s.episodeCount).toBe(3);
+    // The invariant the env-server's resume cursor relies on (seed = seedBase + episodeCount).
+    expect(s.episodeCount).toBe(s.decisiveGames + s.truncatedGames);
+
+    const b = league(null);
+    await b.restore(JSON.parse(JSON.stringify(a.toJSON())));
+    expect(b.stats().episodeCount).toBe(3); // the seed-cursor survives the restart
+    // A post-resume booking advances the cursor (resume continues, never replays seed 0..2).
+    record(b, b.draw(3).drawn, { 1: 1 });
+    expect(b.stats().episodeCount).toBe(4);
+  });
+
+  it('persists a nonzero refreshSkips across a restart (run-total health metric)', async () => {
+    // Drive a GC-race skip (the producer GCd a file before this worker loaded it), then prove the
+    // counter carries through toJSON/restore.
+    const f100 = snap(100);
+    const manifest = writeManifest([f100, snap(200), snap(300)]);
+    rmSync(join(dir, f100.weights), { force: true }); // gone before refresh imports it
+    const b = league(manifest);
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    await b.refresh(); // skips the gone snap-100 → refreshSkips = 1
+    warn.mockRestore();
+    expect(b.stats().refreshSkips).toBe(1);
+
+    const c = league(manifest);
+    await c.restore(JSON.parse(JSON.stringify(b.toJSON())));
+    expect(c.stats().refreshSkips).toBe(1);
+  });
+});
+
 describe('toJSON / restore — fail-loud gates', () => {
   it('rejects an unknown checkpoint version without mutating', async () => {
     const b = league(null);
     await expect(b.restore({ version: 999 })).rejects.toThrow(/version/);
     await expect(b.restore(null)).rejects.toThrow(/version/);
+  });
+
+  it('rejects a stale v1 checkpoint (schema bumped to v2 for the resume cursor)', async () => {
+    // B6 (v1) never ran live, but a v1 payload must still fail loud rather than resume with a missing
+    // episodeCount and replay seeds from 0. (restore() back-fills the cursor only for a v2 payload.)
+    const b = league(null);
+    await expect(b.restore({ version: 1 })).rejects.toThrow(/version/);
   });
 
   it('rejects a top-level encodingVersion skew before importing anything', async () => {

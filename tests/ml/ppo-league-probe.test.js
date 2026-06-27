@@ -44,6 +44,15 @@ import {
 
 const DEFAULT_OPPONENTS = 'ai_lookahead,ai_strategist,ai_expectimax,ai_bc,ai_defensive';
 
+/*
+ * The `runLeagueProbeShard` integration tests run real `runSelfPlayEpisode` games. Under CI coverage
+ * instrumentation the engine is several-fold slower, so the default 5 s per-test timeout is too tight
+ * (the same reason `ppo-env.test.js` raises it). 30 s is the backstop; the integration `baseCfg` below
+ * also caps `maxTurns` to keep each synchronous episode block short. The pure-helper tests finish in ms,
+ * so the raised ceiling never masks a real hang.
+ */
+vi.setConfig({ testTimeout: 30_000 });
+
 describe('fieldShape', () => {
   it('matches the league reserveCount = min(R, count, reserveDistinct), pfspCount = count - reserveCount', () => {
     // count=6, reserveDistinct=4 (the default CSV) — the real B5 field.
@@ -185,7 +194,10 @@ describe('runLeagueProbeShard — record/decisive semantics (small integration)'
     learner: 'policy',
     learnerSeat: 0,
     maxAreas: 32,
-    maxTurns: 500,
+    // Short cap: the record/decisive invariants asserted here are turn-count-independent (a decisive
+    // game stays wins+eliminations; the rest truncate), so a short cap keeps each synchronous episode
+    // block fast under CI coverage without changing what the test proves.
+    maxTurns: 60,
     seedBase: 1,
     episodes: 5,
     prngSeed: 7,

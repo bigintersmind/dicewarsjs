@@ -13,7 +13,11 @@
  * spawning a worker or binding a socket.
  */
 
-import { numArg, parseArgs } from '../../scripts/ppo-env-server.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { numArg, parseArgs, resolveLeaguePersistence } from '../../scripts/ppo-env-server.mjs';
 
 describe('ppo-env-server — PFSP flag bridge (Node side)', () => {
   it('parses the PFSP/snapshot knobs and reads them back round-trip', () => {
@@ -45,5 +49,89 @@ describe('ppo-env-server — PFSP flag bridge (Node side)', () => {
 
   it('rejects a non-finite numeric knob', () => {
     expect(() => numArg(parseArgs(['--pfsp-k=notnum']), 'pfsp-k', 2)).toThrow(/not a finite number/);
+  });
+
+  it('knows the B6 persistence flags', () => {
+    const opts = parseArgs([
+      '--snapshot-store=disk',
+      '--league-state-dir=/tmp/league',
+      '--league-dump-every=25',
+    ]);
+    expect(opts['snapshot-store']).toBe('disk');
+    expect(opts['league-state-dir']).toBe('/tmp/league');
+    expect(numArg(opts, 'league-dump-every', 50)).toBe(25);
+  });
+});
+
+describe('ppo-env-server — B6 league persistence resolution (resolveLeaguePersistence)', () => {
+  let dir;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'ppo-envargs-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('no flags ⇒ in-memory store, persistence OFF (strict B5 no-op)', () => {
+    const r = resolveLeaguePersistence(parseArgs([]), { seedBase: 1, snapshotManifest: null });
+    expect(r.store.kind).toBe('memory');
+    expect(r.leagueStatePath).toBeNull(); // → no restore, no dump
+  });
+
+  it('--snapshot-manifest alone (memory) does NOT auto-enable persistence', () => {
+    const manifest = join(dir, 'manifest.json');
+    const r = resolveLeaguePersistence(parseArgs([`--snapshot-manifest=${manifest}`]), {
+      seedBase: 1,
+      snapshotManifest: manifest,
+    });
+    expect(r.store.kind).toBe('memory');
+    expect(r.leagueStatePath).toBeNull(); // snapshot mode stays byte-identical to B5 unless opted in
+  });
+
+  it('--league-state-dir opts a memory run into checkpoint/resume with a per-worker path', () => {
+    const r = resolveLeaguePersistence(parseArgs([`--league-state-dir=${dir}`]), {
+      seedBase: 7,
+      snapshotManifest: null,
+    });
+    expect(r.store.kind).toBe('memory');
+    expect(r.leagueStatePath).toBe(join(dir, 'league-state-7.json')); // keyed on seedBase
+  });
+
+  it('--snapshot-store=disk derives the shared dir from the manifest when no dir is given', () => {
+    const manifest = join(dir, 'manifest.json');
+    const r = resolveLeaguePersistence(parseArgs(['--snapshot-store=disk']), {
+      seedBase: 3,
+      snapshotManifest: manifest,
+    });
+    expect(r.store.kind).toBe('disk');
+    expect(r.leagueStateDir).toBe(dir);
+    expect(r.leagueStatePath).toBe(join(dir, 'league-state-3.json'));
+  });
+
+  it('per-worker paths never collide across seedBases sharing one dir', () => {
+    const mk = seedBase =>
+      resolveLeaguePersistence(parseArgs([`--league-state-dir=${dir}`]), {
+        seedBase,
+        snapshotManifest: null,
+      }).leagueStatePath;
+    expect(mk(0)).not.toBe(mk(1000)); // disjoint env seed_bases → distinct shard/state files
+  });
+
+  it('--snapshot-store=disk with no resolvable dir fails loud', () => {
+    expect(() =>
+      resolveLeaguePersistence(parseArgs(['--snapshot-store=disk']), {
+        seedBase: 1,
+        snapshotManifest: null,
+      })
+    ).toThrow(/needs a shared directory/);
+  });
+
+  it('rejects an unknown --snapshot-store value', () => {
+    expect(() =>
+      resolveLeaguePersistence(parseArgs(['--snapshot-store=redis']), {
+        seedBase: 1,
+        snapshotManifest: null,
+      })
+    ).toThrow(/unknown/);
   });
 });

@@ -479,53 +479,59 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       the 7 gate opponents (incl. all 3 strong ones) were training opponents → partly fixed-field
       _exploitation_ (also beats the 3 held-out bots → partial generalization); this green-lights task
       B. Full record: RESULTS.md + LOG.md + [D-23].
-- [~] **(B) PFSP opponent league ([D-22]) — Node-resident. 🔵 B0–B5 DONE 2026-06-27 (PRs #62/#64/#65/#66 + PFSP sampling on + B5 re-probe); B6 (persistence, with task E) next → [D-23]/[D-24].** New `scripts/lib/ppo-league.mjs` (pool +
-  seeded `mulberry32` sampler + win-rate book) inside the env-server; the loop draws
-  `league.draw(seed)` per episode (replaces the static `opponents` const at `ppo-env-server.mjs:259`).
-  **Fixed-field is the empty-pool degenerate mode of this same pipeline** — so (A) and (B) share
-  code. Snapshots: Python SB3 callback `repack → export_weights` (weights-only — no per-snapshot
-  fixture needed, [D-22] decision 6) → atomic `manifest.json`; Node hot-loads via `makeBC({policy})`
-  (fresh filename per snapshot — ESM URL cache). Sample `w(S)=max(ε,1−learnerWinRate(S))^k`; reserve
-  **R≈3–4 aggressive baselines every game** ([D-15] turtle defense); hold `player_count` constant.
-  **Win-rate attribution is the real work item** — pairwise/placement-relative, **excluding
-  `maxTurns` truncations**. Honor: freeze `ENCODING_VERSION`; dedup via `uniquifyNames` `#N`;
-  re-probe decisive-rate + throughput on a snapshot-heavy field before locking the budget.
-  _Open: per-worker vs shared-disk-global stats — lean shared-disk-global, pluggable ([D-22])._
-  **Build sequence — scoped in [D-23]** (verifier-corrected: `count = playerCount−1 = 6`, so R=3
-  leaves 3 PFSP seats; baselines threaded from the resolved `opts.opponents`; extend the
-  `EnvServerProcess` signature; GC evicted snapshot `.js` files): **B0 ✅** **PR #62 (hard prereq)
-  MERGED** (`snapshot-manifest`/`-store` flags + `ENCODING_VERSION=2` freeze deferred to B3, when
-  snapshots first need them) → **B1 ✅** empty-pool league `== task A` (content-identical parity —
-  the milestone; PR #64) → **B2 ✅** per-seat `seatBeat[]` on both outcome shapers
-  (`summarizeOutcome` from placements, `eliminationOutcome` synthesized from `coElimSeats`) +
-  id-keyed win-rate book (`recordResult` credits, `winRate(id)`; truncations excluded;
-  zero-decision episodes booked per [D-23] open-Q2) → **B3 ✅** snapshot
-  pipeline: NEW `ml/dicewars_ppo/snapshot_callback.py` (`SnapshotCallback` → repack →
-  `export(…, fixture_path=None)` → fsync-then-`os.replace` atomic `manifest.json`); league `refresh()`
-  polls the manifest at each episode boundary, `makeBC`-loads new snapshots (fresh filename → ESM URL
-  cache), FIFO-evicts past `poolCap` + GCs the `.js`; env-server `--snapshot-manifest`/`-pool-cap`
-  flags; `train_tracer` `--snapshot-dir`/`-every`/`-pool-cap`; `EnvServerProcess` forwards them. _(B3
-  deviations from [D-23]: `--snapshot-store` deferred to B6 with `SharedDiskStore`, not a dead flag
-  now; `--snapshot-pool-cap` added/forwarded since the pool cap is the consumer setting; the producer
-  manifest is append-only — entries are tiny, prune later if needed. `draw()` does NOT sample the pool
-  yet — that is B4 — so B3 is behavior-preserving for episode outcomes.)_ → **B4 ✅** PFSP weighting
-  **on**: non-empty-pool `draw(seed)` seeds a `mulberry32` (extracted to NEW `scripts/lib/mulberry32.mjs`,
-  re-exported from `ppo-probe-core.mjs`) and seats `count−R` snapshots by `w(S)=max(ε,1−winRate)^k`
-  (`ε=0.05`,`k=2`; cold-start `winRate=0`→max weight; ε-floor keeps total>0 so a mastered snapshot is
-  never starved) **with** replacement + `R=3` DISTINCT aggressive baselines (CSV ids minus `ai_bc`)
-  **without** replacement, then Fisher-Yates shuffles opponent→seat so neither group binds to fixed
-  turn-order seats. **Empty pool stays byte-identical to task A.** Env-server
-  `--reserve-baselines`/`--pfsp-epsilon`/`--pfsp-k`; `train_tracer`/`EnvServerProcess` forward them
-  (only with `--snapshot-dir`, since the knobs only bite a non-empty pool). _(B4 deviation from [D-23]:
-  `mulberry32` extracted to its own module instead of imported from `ppo-probe-core.mjs`, so the league
-  doesn't pull the benchmark tool/env runner into its module graph — probe-core re-exports it, so its
-  test is unchanged.)_ → **B5 ✅ DONE 2026-06-27 ([D-24])** — `npm run ppo:league-probe` drives the
-  real `makeLeague` sampler on a snapshot-heavy field (first live shodan exercise). **env-sim is NOT
-  the bottleneck:** GREEN at every R (50.7M–89.9M env-steps/12h, ~25–45× the ≳2M bar), refuting the
-  [D-19] in-process-opponent worry — the binding rate is the SB3 learner loop (task C/E). **R=3 locked**
-  (turtle global 92% ≫ 60% floor; warm decisiveRate 95.3%); MAX_EDGES 64 holds (p100≤27); cadence `N`
-  decoupled from throughput (open-Q4 resolved). → **B6** persistence (`toJSON()/restore()`) +
-  `SharedDiskStore` (with task E).
+- [x] **(B) PFSP opponent league ([D-22]) — Node-resident. ✅ B0–B6 DONE 2026-06-27 (PRs #62/#64/#65/#66/#68 + B6 persistence → [D-23]/[D-24]/[D-25]). Feature-complete; remaining Phase-3 work is task C/E.** New `scripts/lib/ppo-league.mjs` (pool +
+      seeded `mulberry32` sampler + win-rate book) inside the env-server; the loop draws
+      `league.draw(seed)` per episode (replaces the static `opponents` const at `ppo-env-server.mjs:259`).
+      **Fixed-field is the empty-pool degenerate mode of this same pipeline** — so (A) and (B) share
+      code. Snapshots: Python SB3 callback `repack → export_weights` (weights-only — no per-snapshot
+      fixture needed, [D-22] decision 6) → atomic `manifest.json`; Node hot-loads via `makeBC({policy})`
+      (fresh filename per snapshot — ESM URL cache). Sample `w(S)=max(ε,1−learnerWinRate(S))^k`; reserve
+      **R≈3–4 aggressive baselines every game** ([D-15] turtle defense); hold `player_count` constant.
+      **Win-rate attribution is the real work item** — pairwise/placement-relative, **excluding
+      `maxTurns` truncations**. Honor: freeze `ENCODING_VERSION`; dedup via `uniquifyNames` `#N`;
+      re-probe decisive-rate + throughput on a snapshot-heavy field before locking the budget.
+      _Open: per-worker vs shared-disk-global stats — lean shared-disk-global, pluggable ([D-22])._
+      **Build sequence — scoped in [D-23]** (verifier-corrected: `count = playerCount−1 = 6`, so R=3
+      leaves 3 PFSP seats; baselines threaded from the resolved `opts.opponents`; extend the
+      `EnvServerProcess` signature; GC evicted snapshot `.js` files): **B0 ✅** **PR #62 (hard prereq)
+      MERGED** (`snapshot-manifest`/`-store` flags + `ENCODING_VERSION=2` freeze deferred to B3, when
+      snapshots first need them) → **B1 ✅** empty-pool league `== task A` (content-identical parity —
+      the milestone; PR #64) → **B2 ✅** per-seat `seatBeat[]` on both outcome shapers
+      (`summarizeOutcome` from placements, `eliminationOutcome` synthesized from `coElimSeats`) +
+      id-keyed win-rate book (`recordResult` credits, `winRate(id)`; truncations excluded;
+      zero-decision episodes booked per [D-23] open-Q2) → **B3 ✅** snapshot
+      pipeline: NEW `ml/dicewars_ppo/snapshot_callback.py` (`SnapshotCallback` → repack →
+      `export(…, fixture_path=None)` → fsync-then-`os.replace` atomic `manifest.json`); league `refresh()`
+      polls the manifest at each episode boundary, `makeBC`-loads new snapshots (fresh filename → ESM URL
+      cache), FIFO-evicts past `poolCap` + GCs the `.js`; env-server `--snapshot-manifest`/`-pool-cap`
+      flags; `train_tracer` `--snapshot-dir`/`-every`/`-pool-cap`; `EnvServerProcess` forwards them. _(B3
+      deviations from [D-23]: `--snapshot-store` deferred to B6 with `SharedDiskStore`, not a dead flag
+      now; `--snapshot-pool-cap` added/forwarded since the pool cap is the consumer setting; the producer
+      manifest is append-only — entries are tiny, prune later if needed. `draw()` does NOT sample the pool
+      yet — that is B4 — so B3 is behavior-preserving for episode outcomes.)_ → **B4 ✅** PFSP weighting
+      **on**: non-empty-pool `draw(seed)` seeds a `mulberry32` (extracted to NEW `scripts/lib/mulberry32.mjs`,
+      re-exported from `ppo-probe-core.mjs`) and seats `count−R` snapshots by `w(S)=max(ε,1−winRate)^k`
+      (`ε=0.05`,`k=2`; cold-start `winRate=0`→max weight; ε-floor keeps total>0 so a mastered snapshot is
+      never starved) **with** replacement + `R=3` DISTINCT aggressive baselines (CSV ids minus `ai_bc`)
+      **without** replacement, then Fisher-Yates shuffles opponent→seat so neither group binds to fixed
+      turn-order seats. **Empty pool stays byte-identical to task A.** Env-server
+      `--reserve-baselines`/`--pfsp-epsilon`/`--pfsp-k`; `train_tracer`/`EnvServerProcess` forward them
+      (only with `--snapshot-dir`, since the knobs only bite a non-empty pool). _(B4 deviation from [D-23]:
+      `mulberry32` extracted to its own module instead of imported from `ppo-probe-core.mjs`, so the league
+      doesn't pull the benchmark tool/env runner into its module graph — probe-core re-exports it, so its
+      test is unchanged.)_ → **B5 ✅ DONE 2026-06-27 ([D-24])** — `npm run ppo:league-probe` drives the
+      real `makeLeague` sampler on a snapshot-heavy field (first live shodan exercise). **env-sim is NOT
+      the bottleneck:** GREEN at every R (50.7M–89.9M env-steps/12h, ~25–45× the ≳2M bar), refuting the
+      [D-19] in-process-opponent worry — the binding rate is the SB3 learner loop (task C/E). **R=3 locked**
+      (turtle global 92% ≫ 60% floor; warm decisiveRate 95.3%); MAX_EDGES 64 holds (p100≤27); cadence `N`
+      decoupled from throughput (open-Q4 resolved). → **B6 ✅ DONE 2026-06-27 ([D-25])** — league persistence
+      as a **standalone Node PR**: NEW `scripts/lib/ppo-league-store.mjs` (`makeInMemoryStore` default +
+      `makeSharedDiskStore`, live-gated until task E) + `toJSON()`/`restore()` on `makeLeague` (fingerprint +
+      `storeKind` + dual encoding gates, atomic, evicted-file drop-keep-loaded, `manifestMtimeMs=-1` reset) +
+      env-server `--snapshot-store`/`--league-state-dir`/`--league-dump-every` (OPT-IN, byte-identical to B5
+      when absent). 12-agent design + 5-agent review (SHIP-AFTER-FIXES, no blockers); folded S1–S6. Deferred
+      to task E: Python flag forwarding, the multi-worker `refresh()` snapshot-GC race, the `main()`
+      persistence integration test, live cross-worker validation.
 - [ ] **(C)** Scale envs across cores; add the short **from-scratch control** run ([D-19] decision 1).
 - [ ] **(D)** Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
       `F = γΦ(s′)−Φ(s)`, env-side in JS) only if terminal-only learning is too slow.

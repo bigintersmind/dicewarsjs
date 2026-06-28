@@ -282,3 +282,128 @@ def test_resolve_no_from_scratch_attr_is_noop_warm_start():
     tc.resolve_from_scratch(args)
     assert args.lr == 1e-4
     assert args.ent_coef == 0.0
+
+
+# --- B6 league-persistence flag forwarding (PR-5 / task E, [D-26]) -----------------------------
+
+
+def test_league_persistence_flags_default_none(tmp_path):
+    # All three default None ⇒ the OFF path is byte-identical to B5 (EnvServerProcess None-gates
+    # each in the Node argv), and the tracer's golden surface is unchanged.
+    a = _args(tmp_path)
+    assert a.snapshot_store is None
+    assert a.league_state_dir is None
+    assert a.league_dump_every is None
+
+
+def test_snapshot_store_choices_reject_bogus(tmp_path):
+    # argparse `choices=("memory","disk")` rejects anything else at parse time.
+    with pytest.raises(SystemExit):
+        _args(tmp_path, snapshot_store="bogus")
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_validate_rejects_nonpositive_league_dump_every(tmp_path, bad):
+    a = _args(tmp_path, league_dump_every=bad)
+    with pytest.raises(SystemExit, match="league-dump-every"):
+        tc._validate_args(a)
+
+
+def test_validate_rejects_disk_store_without_a_dir(tmp_path):
+    # --snapshot-store=disk needs a derivable shared dir (--league-state-dir or --snapshot-dir);
+    # with neither, fail HERE (Node would otherwise throw at spawn → opaque startup timeout).
+    a = _args(tmp_path, snapshot_store="disk")
+    with pytest.raises(SystemExit, match="shared directory"):
+        tc._validate_args(a)
+
+
+def test_validate_accepts_disk_store_with_league_state_dir(tmp_path):
+    rel = tmp_path / "league"
+    a = _args(tmp_path, snapshot_store="disk", league_state_dir=str(rel))
+    tc._validate_args(a)  # no raise
+    assert Path(a.league_state_dir).is_absolute()
+    assert Path(a.league_state_dir).is_dir()
+
+
+def test_validate_accepts_disk_store_with_snapshot_dir(tmp_path):
+    # --snapshot-dir alone satisfies the disk-store dir requirement (Node derives the league dir
+    # from the manifest's dir), even without an explicit --league-state-dir.
+    a = _args(tmp_path, snapshot_store="disk", snapshot_dir=str(tmp_path / "snaps"))
+    tc._validate_args(a)  # no raise
+
+
+def test_validate_absolutizes_and_creates_league_state_dir(tmp_path):
+    rel = tmp_path / "lstate"
+    a = _args(tmp_path, league_state_dir=str(rel))
+    tc._validate_args(a)
+    assert Path(a.league_state_dir).is_absolute()
+    assert Path(a.league_state_dir).is_dir()
+
+
+def test_make_env_thunk_forwards_league_persistence(tmp_path, monkeypatch):
+    captured = {}
+
+    class FakeEnv:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(tc, "DiceWarsEnv", FakeEnv)
+    a = _args(
+        tmp_path,
+        snapshot_store="disk",
+        league_state_dir=str(tmp_path / "lstate"),
+        league_dump_every=20,
+    )
+    tc._validate_args(a)  # absolutizes league_state_dir
+    cfg = SimpleNamespace(max_areas=32, player_count=7)
+    tc._make_env_thunk(cfg, a, 0)()
+
+    sk = captured["server_kwargs"]
+    assert sk["snapshot_store"] == "disk"
+    assert sk["league_state_dir"] == a.league_state_dir  # the absolutized value
+    assert sk["league_dump_every"] == 20
+
+
+def test_make_env_thunk_shares_league_state_dir_across_workers(tmp_path, monkeypatch):
+    # Per-worker uniqueness is the Node-side league-state-<seedBase>.json filename, NOT a per-env
+    # subdir: every env_index gets the SAME league_state_dir.
+    dirs = []
+
+    class FakeEnv:
+        def __init__(self, **kwargs):
+            dirs.append(kwargs["server_kwargs"]["league_state_dir"])
+
+    monkeypatch.setattr(tc, "DiceWarsEnv", FakeEnv)
+    a = _args(tmp_path, league_state_dir=str(tmp_path / "lstate"))
+    tc._validate_args(a)
+    cfg = SimpleNamespace(max_areas=32, player_count=7)
+    tc._make_env_thunk(cfg, a, 0)()
+    tc._make_env_thunk(cfg, a, 3)()
+    assert dirs == [a.league_state_dir, a.league_state_dir]
+
+
+def test_make_env_thunk_league_persistence_none_when_unset(tmp_path, monkeypatch):
+    captured = {}
+
+    class FakeEnv:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(tc, "DiceWarsEnv", FakeEnv)
+    a = _args(tmp_path)  # no league flags ⇒ trio None (byte-identical OFF path)
+    cfg = SimpleNamespace(max_areas=32, player_count=7)
+    tc._make_env_thunk(cfg, a, 0)()
+    sk = captured["server_kwargs"]
+    assert sk["snapshot_store"] is None
+    assert sk["league_state_dir"] is None
+    assert sk["league_dump_every"] is None
+
+
+# --- _remaining_timesteps (HOLE-D budget cap, [D-26]) -----------------------------------------
+
+
+def test_remaining_timesteps_caps_absolute_budget():
+    assert tc._remaining_timesteps(1000, 0) == 1000  # fresh
+    assert tc._remaining_timesteps(1000, 400) == 600  # mid-run resume
+    assert tc._remaining_timesteps(1000, 1000) == 0  # budget exactly met ⇒ no-op
+    assert tc._remaining_timesteps(1000, 1500) == 0  # overshoot clamps to 0, never negative

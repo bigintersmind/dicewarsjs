@@ -81,6 +81,13 @@ def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
                 "reserve_baselines": args.reserve_baselines,
                 "pfsp_epsilon": args.pfsp_epsilon,
                 "pfsp_k": args.pfsp_k,
+                # League persistence (B6 / task E). Read off `args` (already captured) — no new
+                # closure free-var, so the torch-free thunk stays primitive-only. The SAME
+                # league_state_dir goes to every env_index: per-worker uniqueness is the Node-side
+                # `league-state-<seedBase>.json` filename (the seed_base offset above).
+                "snapshot_store": args.snapshot_store,
+                "league_state_dir": args.league_state_dir,
+                "league_dump_every": args.league_dump_every,
             },
         )
 
@@ -187,6 +194,32 @@ def build_parser(description: str | None = None) -> argparse.ArgumentParser:
         help="PFSP weight exponent k (>= 0) for w(S)=max(eps,1-winRate)**k. Only used with "
         "--snapshot-dir.",
     )
+    # League persistence (B6 / task E, [D-26]). The Node env-server's resume half: each worker
+    # checkpoints its PFSP pool + win-rate book. All default None so an unset value yields argv
+    # byte-identical to B5 (EnvServerProcess None-gates each, env_server.py:144-149) — the tracer's
+    # golden surface is unchanged. Forwarded to the env-server via _make_env_thunk's server_kwargs.
+    p.add_argument(
+        "--snapshot-store",
+        choices=("memory", "disk"),
+        default=None,
+        help="League win-rate backend: 'disk' = cross-worker store, 'memory' = per-worker "
+        "(the env-server default). Needs a shared dir (--league-state-dir or --snapshot-dir) when "
+        "'disk'. Unset ⇒ not forwarded (env-server default).",
+    )
+    p.add_argument(
+        "--league-state-dir",
+        default=None,
+        help="Directory each Node worker dumps its league pool+book into "
+        "(league-state-<seedBase>.json) — enables the league-side resume half ([D-26] Q3). Unset ⇒ "
+        "league persistence off.",
+    )
+    p.add_argument(
+        "--league-dump-every",
+        type=int,
+        default=None,
+        help="Node worker league-state dump cadence in BOOKED episodes (only used with league "
+        "persistence). Unset ⇒ the env-server default (50).",
+    )
     return p
 
 
@@ -236,6 +269,27 @@ def _validate_args(args: argparse.Namespace) -> None:
         # resolve the same manifest path; create it now so env-servers can stat() it from ep 0.
         args.snapshot_dir = str(Path(args.snapshot_dir).resolve())
         Path(args.snapshot_dir).mkdir(parents=True, exist_ok=True)
+    # League persistence (B6 / task E, [D-26]). Front-run the Node guards (resolveLeaguePersistence
+    # + the dump-every guard, scripts/ppo-env-server.mjs) so a misconfig fails HERE at launch with a
+    # clear message instead of as an opaque env-server LISTENING timeout after the worker spawns.
+    if args.league_dump_every is not None and args.league_dump_every < 1:
+        # Node validates this unconditionally (Number.isInteger || <1 throws); we just fail faster.
+        raise SystemExit(
+            f"--league-dump-every must be a positive integer (got {args.league_dump_every})."
+        )
+    if args.snapshot_store == "disk" and not (args.league_state_dir or args.snapshot_dir):
+        # Node derives the disk dir from --league-state-dir, else the snapshot manifest's dir; with
+        # neither it throws at spawn (resolveLeaguePersistence), seen only as a startup timeout.
+        # This is the load-bearing guard (unlike dump-every, which Node also checks).
+        raise SystemExit(
+            "--snapshot-store=disk needs a shared directory: pass --league-state-dir=<dir> "
+            "or --snapshot-dir=<dir>."
+        )
+    if args.league_state_dir is not None:
+        # Absolutize + create so this process and the Node consumers (cwd=repo-root) agree on the
+        # path, mirroring the snapshot_dir handling above.
+        args.league_state_dir = str(Path(args.league_state_dir).resolve())
+        Path(args.league_state_dir).mkdir(parents=True, exist_ok=True)
 
 
 def resolve_from_scratch(args: argparse.Namespace) -> None:
@@ -271,3 +325,18 @@ def resolve_from_scratch(args: argparse.Namespace) -> None:
         args.lr = 1e-3 if from_scratch else 1e-4
     if getattr(args, "ent_coef", None) is None:
         args.ent_coef = 0.01 if from_scratch else 0.0
+
+
+def _remaining_timesteps(total: int, num_timesteps: int) -> int:
+    """Env steps left in an absolute ``--timesteps`` budget after a resume ([D-26] HOLE-D).
+
+    On resume ``train.py`` calls ``model.learn(total_timesteps=_remaining_timesteps(args.timesteps,
+    model.num_timesteps), reset_num_timesteps=False)``. Under ``reset_num_timesteps=False`` SB3's
+    ``_setup_learn`` adds ``num_timesteps`` back internally, so the run stops at the ABSOLUTE
+    ``--timesteps`` rather than an extra ``num_timesteps`` per relaunch — without this cap a
+    crash-loop makes ``--timesteps`` additive and trains unbounded. Clamped at 0 so an already-met
+    budget is a clean no-op (``learn`` is skipped), never a negative SB3 would reject.
+
+    Torch-free (pure arithmetic) so the lean CI tier proves the cap without importing the learner.
+    """
+    return max(int(total) - int(num_timesteps), 0)

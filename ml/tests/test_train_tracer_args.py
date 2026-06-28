@@ -66,6 +66,9 @@ def test_tracer_parser_golden_defaults():
     assert (a.max_turns, a.seed, a.seed_base, a.device) == (500, 0, 1, "cpu")
     assert a.freeze_trunk is False
     assert (a.snapshot_dir, a.snapshot_every, a.snapshot_pool_cap) == (None, 50_000, 40)
+    # B6 league-persistence flags (PR-5) live in the SHARED parser now, so pin them OFF here too:
+    # the tracer must never carry them set, or its byte-identical Node argv would drift.
+    assert (a.snapshot_store, a.league_state_dir, a.league_dump_every) == (None, None, None)
     assert a.opponents == tc.DEFAULT_OPPONENTS
     # the tracer threads its OWN __doc__ as the --help description (help-text wiring is preserved)
     assert tt.build_parser().description == tt.__doc__

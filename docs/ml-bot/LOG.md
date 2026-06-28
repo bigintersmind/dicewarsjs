@@ -21,6 +21,34 @@ Entry template:
 
 ---
 
+## 2026-06-27 — Task C/E PR-5 — idempotent checkpoint/resume core (+ B6 flag forwarding, per-session CSV)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Built PR-5** ([D-26] build sequence; branch `ml-bot/task-ce-pr5-resume` off master @ PR #71 `f1224ee`). Python-side only — the Node league resume half shipped in #70.
+- **Grounding workflow** mapped the _current_ code + the SB3 resume API + test seams, then adversarially verified the blueprint. Surfaced 3 genuine forks → Ivan chose: dedicated `--state-dir`+`--checkpoint-every` (50k); auto-detect a valid `latest.json`; land per-session CSV now.
+- **Three deliverables:** (1) **HOLE-D** budget cap — torch-free `_remaining_timesteps` + `learn(..., reset_num_timesteps=False)`; `remaining==0` skips `learn` but still re-exports. (2) **Resume core** split into torch+sb3-FREE `resume_state.py` (RNG sidecar, atomic `latest.json` written LAST + dir-fsync, GC keep-N, pointer validation, `save_resume_checkpoint`) + sb3 `resume.py` (`load_resume_checkpoint` via `MaskablePPO.load(env=venv)` = PATH A/HOLE-C; `ResumeCheckpointCallback`). (3) **B6 flag forwarding** — `--snapshot-store`/`--league-state-dir`/`--league-dump-every` into the shared parser + `server_kwargs` (`EnvServerProcess` already emitted them since PR-2); Node-mirrored validation. Plus: per-session CSV via explicit `output_formats`; auto-detect resume (corrupt `latest.json`⇒loud warn+fresh); `--freeze-trunk`+`--state-dir` rejected eagerly.
+- **4-lens implementation review** (idempotency / torch-free / SB3-API / tests+contract) on the real diff.
+
+**Learned / decided:**
+
+- **Split `resume_state.py` (torch, sb3-FREE) from `resume.py` (sb3)** mirroring `snapshot_manifest`/`snapshot_callback`: the lean CI tier has torch but no sb3, so keeping the riskiest hinge logic (atomic `latest.json`, GC, RNG `weights_only` round-trip) sb3-free makes it **CI-testable** (`test_resume_state.py` 13 green locally) instead of shodan-only.
+- **Test-tier topology (Phase-3 PPO):** torch+sb3-free → runs anywhere w/ torch; torch-free-but-gymnasium (lean CI: `test_train_common_args`) → needs gymnasium; torch+sb3 (`test_resume`, `test_train_args`, …) → SHODAN-ONLY. Captured in the mini-env memory.
+
+**Dead ends / surprises:**
+
+- **Review caught 2 blockers I introduced** (both untested by the green tiers): (a) the RNG sidecar was loaded with `map_location=device`, so a `--device cuda` resume relocates the CPU RNG ByteTensor to GPU and `torch.set_rng_state` raises `TypeError` — **crashed EVERY GPU resume** (the shodan BEAT target). Fixed: `load_rng_sidecar` is CPU-pinned (no device param) + a CUDA-gated regression test. (b) two `_make_logger` test sites 3-unpacked its 2-tuple → the **sb3 tier was RED** and the per-session-CSV/TB-degrade branches had zero coverage. Fixed. Both folded with regression coverage.
+- Also folded: eager `--freeze-trunk`+`--state-dir` rejection (else every checkpoint is un-resumable, discovered only after a crash); dir-fsync after `os.replace` (the pair is the only model copy); width-agnostic `_CKPT_RE` (`:09d` is a min-width → 10-digit leak at ≥1e9 steps); softened the CSV docstring (a same-step crash-loop still truncates — bounded, observability-only).
+
+**Next:**
+
+- **Shodan validation before merge** (sb3 tier can't run locally): `MaskablePPO.load` needs no `custom_objects`; `--device cuda` RNG restore; `_setup_learn` caps at the absolute `--timesteps` (HOLE-D); live forkserver two-half resume. Then commit + open the PR-5 PR.
+- **PR-6** = committed shodan launcher + schtasks runbook → then the long BEAT run.
+
+---
+
 ## 2026-06-27 — Task C/E PR-4 — `train.py` + torch-free `_train_common.py` (SubprocVecEnv + TB/CSV + `--from-scratch`)
 
 **Phase:** 3 · **Who:** Ivan + Claude

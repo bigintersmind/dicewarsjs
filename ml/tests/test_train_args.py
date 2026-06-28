@@ -37,6 +37,9 @@ def test_parser_adds_from_scratch_and_sentinels(tmp_path):
     # distinct output so a bare train.py run can't clobber a tracer checkpoint
     assert a.out == "checkpoints/ppo.pt"
     assert a.start_method == "forkserver"
+    # resume off by default; cadence matches --snapshot-every (PR-5)
+    assert a.state_dir is None
+    assert a.checkpoint_every == 50_000
 
 
 def test_validate_rejects_from_scratch_with_freeze_trunk(tmp_path):
@@ -94,9 +97,12 @@ def test_train_wraps_subproc_then_vecmonitor(tmp_path, monkeypatch, from_scratch
     class FakeModel:
         def __init__(self):
             self.policy = object()
+            self.num_timesteps = 0  # train() reads this for the per-session CSV name (PR-5)
 
         def learn(self, **kwargs):
-            calls.append(("learn",))
+            calls.append(
+                ("learn", kwargs.get("total_timesteps"), kwargs.get("reset_num_timesteps"))
+            )
 
         def set_logger(self, logger):
             calls.append(("set_logger",))
@@ -128,6 +134,9 @@ def test_train_wraps_subproc_then_vecmonitor(tmp_path, monkeypatch, from_scratch
     assert calls.index(subproc) < calls.index(("VecMonitor", True))  # SubprocVecEnv FIRST
     assert captured["venv_is_monitor"] is True  # build_model got the monitored venv
     assert ("close",) in calls  # env workers reaped in finally
+    # Fresh run: learn() gets the ABSOLUTE --timesteps and the default reset (reset_num_timesteps
+    # not passed ⇒ None here), NOT the resume path's remaining/reset_num_timesteps=False.
+    assert ("learn", a.timesteps, None) in calls
 
     assert captured["extra"]["teacher"] == "ppo"
     assert captured["extra"]["from_scratch"] is from_scratch
@@ -173,15 +182,23 @@ def test_build_model_warm_start_gated_on_from_scratch(tmp_path, monkeypatch, fro
     assert warm_calls == ([] if from_scratch else [True])
 
 
+def _patch_logger_formats(monkeypatch):
+    """Stub the SB3 output-format classes + Logger so _make_logger does no real file/TB I/O.
+
+    Each fake records a tagged tuple; Logger captures its output_formats so a test can assert which
+    sinks were wired and the per-session CSV filename — all without opening files or importing
+    tensorboard (PR-5 builds output_formats explicitly instead of configure()).
+    """
+    monkeypatch.setattr(tr, "HumanOutputFormat", lambda stream: ("human",))
+    monkeypatch.setattr(tr, "CSVOutputFormat", lambda path: ("csv", path))
+    monkeypatch.setattr(tr, "TensorBoardOutputFormat", lambda d: ("tb", d))
+    monkeypatch.setattr(
+        tr, "Logger", lambda folder, output_formats: ("LOGGER", folder, output_formats)
+    )
+
+
 def test_make_logger_sink_selection(tmp_path, monkeypatch):
-    captured = {}
-
-    def fake_configure(folder, sinks):
-        captured["folder"] = folder
-        captured["sinks"] = list(sinks)
-        return "LOGGER"
-
-    monkeypatch.setattr(tr, "configure", fake_configure)
+    _patch_logger_formats(monkeypatch)
     monkeypatch.setattr(tr, "_tensorboard_available", lambda: True)
 
     # no --log-dir → SB3 keeps its stdout default (no configured logger, empty sink list)
@@ -189,32 +206,49 @@ def test_make_logger_sink_selection(tmp_path, monkeypatch):
     tr._validate(a)
     assert tr._make_logger(a) == (None, [])
 
-    # --log-dir → stdout + csv + tensorboard; the RETURNED sinks mirror what configure() got, so
-    # train()'s status line is built from reality rather than from the --no-tensorboard flag.
+    # --log-dir → stdout + csv + tensorboard; the RETURNED sinks mirror the actual output_formats,
+    # so train()'s status line is built from reality rather than from the --no-tensorboard flag.
     b = _args(tmp_path, extra=["--log-dir", str(tmp_path / "runs")])
     tr._validate(b)
     logger, sinks = tr._make_logger(b)
-    assert logger == "LOGGER"
     assert sinks == ["stdout", "csv", "tensorboard"]
-    assert captured["sinks"] == ["stdout", "csv", "tensorboard"]
+    tag, folder, formats = logger
+    assert tag == "LOGGER"
+    assert [f[0] for f in formats] == ["human", "csv", "tb"]
 
-    # --log-dir + --no-tensorboard → stdout + csv only
-    captured.clear()
+    # --log-dir + --no-tensorboard → stdout + csv only (no TB output format wired)
     c = _args(tmp_path, extra=["--log-dir", str(tmp_path / "runs"), "--no-tensorboard"])
     tr._validate(c)
-    _, sinks = tr._make_logger(c)
+    # _make_logger returns (logger, sinks); the fake Logger IS the ("LOGGER", folder, formats).
+    (_, _, formats), sinks = tr._make_logger(c)
     assert sinks == ["stdout", "csv"]
-    assert captured["sinks"] == ["stdout", "csv"]
+    assert [f[0] for f in formats] == ["human", "csv"]
 
     # --log-dir but tensorboard missing → degrade to csv only (no raise); the returned sinks reflect
     # the drop, so train() reports "csv" not "csv+tensorboard" (the contradiction this guards).
-    captured.clear()
     monkeypatch.setattr(tr, "_tensorboard_available", lambda: False)
     d = _args(tmp_path, extra=["--log-dir", str(tmp_path / "runs")])
     tr._validate(d)
     _, sinks = tr._make_logger(d)
     assert sinks == ["stdout", "csv"]
-    assert captured["sinks"] == ["stdout", "csv"]
+
+
+def test_make_logger_csv_is_per_session(tmp_path, monkeypatch):
+    # PR-5: the CSV is progress-<resumed_step>.csv so a resume never truncates a prior session's
+    # rows. resumed_step=0 (fresh) and a non-zero resume step name distinct files.
+    _patch_logger_formats(monkeypatch)
+    monkeypatch.setattr(tr, "_tensorboard_available", lambda: True)
+    a = _args(tmp_path, extra=["--log-dir", str(tmp_path / "runs")])
+    tr._validate(a)
+
+    # _make_logger returns (logger, sinks); the fake Logger IS the ("LOGGER", folder, formats).
+    (_, _, fresh_formats), _ = tr._make_logger(a, resumed_step=0)
+    (_, _, resumed_formats), _ = tr._make_logger(a, resumed_step=123_456)
+    fresh_csv = next(f[1] for f in fresh_formats if f[0] == "csv")
+    resumed_csv = next(f[1] for f in resumed_formats if f[0] == "csv")
+    assert fresh_csv.endswith("progress-000000000.csv")
+    assert resumed_csv.endswith("progress-000123456.csv")
+    assert fresh_csv != resumed_csv  # a resume never reuses (and truncates) the prior session's CSV
 
 
 def test_train_wires_snapshot_callback_and_logger(tmp_path, monkeypatch):
@@ -239,6 +273,7 @@ def test_train_wires_snapshot_callback_and_logger(tmp_path, monkeypatch):
     class FakeModel:
         def __init__(self):
             self.policy = object()
+            self.num_timesteps = 0  # train() reads this for the per-session CSV name (PR-5)
 
         def set_logger(self, logger):
             calls.append(("set_logger", logger))
@@ -248,7 +283,12 @@ def test_train_wires_snapshot_callback_and_logger(tmp_path, monkeypatch):
             calls.append(("learn", type(kwargs.get("callback")).__name__))
 
     monkeypatch.setattr(tr, "build_model", lambda cfg, ckpt, args, venv=None: (FakeModel(), venv))
-    monkeypatch.setattr(tr, "configure", lambda folder, sinks: "LOGGER")
+    # PR-5 builds output_formats explicitly (no configure()); stub them so set_logger gets "LOGGER"
+    # without real file/TB I/O.
+    monkeypatch.setattr(tr, "HumanOutputFormat", lambda stream: ("human",))
+    monkeypatch.setattr(tr, "CSVOutputFormat", lambda path: ("csv", path))
+    monkeypatch.setattr(tr, "TensorBoardOutputFormat", lambda d: ("tb", d))
+    monkeypatch.setattr(tr, "Logger", lambda folder, output_formats: "LOGGER")
     monkeypatch.setattr(tr, "_tensorboard_available", lambda: True)
     monkeypatch.setattr(
         tr,
@@ -281,3 +321,213 @@ def test_train_wires_snapshot_callback_and_logger(tmp_path, monkeypatch):
     # set_logger fired, and BEFORE learn() (the "must precede learn()" invariant)
     assert ("set_logger", "LOGGER") in calls
     assert calls.index(("set_logger", "LOGGER")) < calls.index(("learn", "FakeSnapshotCallback"))
+
+
+# --- idempotent resume wiring (PR-5, [D-26] HOLE-C/D) -----------------------------------------
+
+
+def _stub_train_io(monkeypatch, calls):
+    """Stub train()'s I/O boundary (ckpt load, vec-env, repack/save/verify) for the resume tests."""
+    fake_cfg = SimpleNamespace(max_areas=32, player_count=7, context_hidden=64)
+    monkeypatch.setattr(tr, "load_bc_checkpoint", lambda ckpt: (fake_cfg, {"k": "v"}))
+    monkeypatch.setattr(tr, "SubprocVecEnv", lambda thunks, start_method=None: SimpleNamespace())
+    monkeypatch.setattr(
+        tr, "VecMonitor", lambda venv: SimpleNamespace(close=lambda: calls.append(("close",)))
+    )
+    monkeypatch.setattr(
+        tr,
+        "repack_to_bc_checkpoint",
+        lambda policy, *, extra=None: {"state_dict": {}, "config": {}, "encoding_version": 2},
+    )
+    monkeypatch.setattr(tr.torch, "save", lambda obj, path: calls.append(("save",)))
+    monkeypatch.setattr(tr, "_verify_repack_exportable", lambda out, cfg: calls.append(("verify",)))
+    return fake_cfg
+
+
+def test_resume_passes_remaining_and_skips_build_model(tmp_path, monkeypatch):
+    """A resumed run loads the checkpoint and calls learn(total_timesteps=remaining,
+    reset_num_timesteps=False) — the HOLE-D budget cap — and must NOT warm-start via build_model."""
+    calls = []
+    _stub_train_io(monkeypatch, calls)
+
+    class FakeModel:
+        def __init__(self):
+            self.policy = object()
+            self.num_timesteps = 400  # already trained 400 of the 1000 budget
+
+        def learn(self, **kwargs):
+            calls.append(
+                ("learn", kwargs.get("total_timesteps"), kwargs.get("reset_num_timesteps"))
+            )
+
+    monkeypatch.setattr(tr, "has_resume_checkpoint", lambda d: True)
+    monkeypatch.setattr(tr, "load_resume_checkpoint", lambda d, venv, device: FakeModel())
+
+    def _no_build(*a, **k):
+        raise AssertionError("build_model must not run on a resume (load brings back the weights)")
+
+    monkeypatch.setattr(tr, "build_model", _no_build)
+
+    a = _args(
+        tmp_path,
+        extra=[
+            "--state-dir", str(tmp_path / "state"),
+            "--timesteps", "1000",
+            "--out", str(tmp_path / "o.pt"),
+        ],
+    )
+    tr._validate(a)
+    tr.train(a)
+
+    # remaining = 1000 - 400 = 600; reset_num_timesteps=False so SB3 stops at the ABSOLUTE 1000.
+    assert ("learn", 600, False) in calls
+    assert ("save",) in calls and ("verify",) in calls  # still re-exports the repacked artifact
+
+
+def test_resume_zero_remaining_skips_learn_but_exports(tmp_path, monkeypatch):
+    """When the budget is already met, learn() is skipped entirely but the repack/export still runs
+    (so a same-budget relaunch is a clean no-op re-export, not an overshoot)."""
+    calls = []
+    _stub_train_io(monkeypatch, calls)
+
+    class FakeModel:
+        def __init__(self):
+            self.policy = object()
+            self.num_timesteps = 1000
+
+        def learn(self, **kwargs):
+            calls.append(("learn",))
+
+    monkeypatch.setattr(tr, "has_resume_checkpoint", lambda d: True)
+    monkeypatch.setattr(tr, "load_resume_checkpoint", lambda d, venv, device: FakeModel())
+    monkeypatch.setattr(
+        tr, "build_model", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no build"))
+    )
+
+    a = _args(
+        tmp_path,
+        extra=[
+            "--state-dir", str(tmp_path / "state"),
+            "--timesteps", "1000",
+            "--out", str(tmp_path / "o.pt"),
+        ],
+    )
+    tr._validate(a)
+    tr.train(a)
+
+    assert ("learn",) not in calls  # budget met ⇒ learn skipped
+    assert ("save",) in calls and ("verify",) in calls
+
+
+def test_fresh_run_when_state_dir_empty(tmp_path, monkeypatch):
+    """--state-dir with no valid latest.json ⇒ a fresh run (build_model, absolute --timesteps)."""
+    calls = []
+    _stub_train_io(monkeypatch, calls)
+
+    class FakeModel:
+        def __init__(self):
+            self.policy = object()
+            self.num_timesteps = 0
+
+        def learn(self, **kwargs):
+            calls.append(
+                ("learn", kwargs.get("total_timesteps"), kwargs.get("reset_num_timesteps"))
+            )
+
+    monkeypatch.setattr(tr, "build_model", lambda cfg, ckpt, args, venv=None: (FakeModel(), venv))
+
+    def _no_load(*a, **k):
+        raise AssertionError("load_resume_checkpoint must not run for a fresh --state-dir")
+
+    monkeypatch.setattr(tr, "load_resume_checkpoint", _no_load)
+
+    a = _args(
+        tmp_path,
+        extra=[
+            "--state-dir", str(tmp_path / "fresh-state"),
+            "--timesteps", "2048",
+            "--out", str(tmp_path / "o.pt"),
+        ],
+    )
+    tr._validate(a)  # state_dir is empty (no latest.json) ⇒ has_resume_checkpoint reads False
+    tr.train(a)
+
+    assert ("learn", 2048, None) in calls  # absolute budget, default reset (fresh)
+
+
+def test_freeze_trunk_plus_state_dir_rejected_eagerly(tmp_path):
+    """--freeze-trunk + --state-dir is rejected EAGERLY at _validate (not only after a crash): load
+    doesn't restore the build-time freeze, so the run could never resume and every checkpoint it
+    wrote would be un-resumable. Fail at launch, before any checkpoint is written."""
+    a = _args(tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--freeze-trunk"])
+    with pytest.raises(SystemExit, match="freeze-trunk"):
+        tr._validate(a)
+
+
+def test_corrupt_latest_warns_and_runs_fresh(tmp_path, monkeypatch, capsys):
+    """A PRESENT-but-invalid latest.json warns loudly and starts fresh — never a silent restart."""
+    calls = []
+    _stub_train_io(monkeypatch, calls)
+
+    class FakeModel:
+        def __init__(self):
+            self.policy = object()
+            self.num_timesteps = 0
+
+        def learn(self, **kwargs):
+            calls.append(("learn",))
+
+    monkeypatch.setattr(tr, "build_model", lambda cfg, ckpt, args, venv=None: (FakeModel(), venv))
+    monkeypatch.setattr(tr, "has_resume_checkpoint", lambda d: False)  # invalid ⇒ no usable point
+    monkeypatch.setattr(tr, "latest_pointer_exists", lambda d: True)  # but a file IS present
+
+    a = _args(
+        tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--out", str(tmp_path / "o.pt")]
+    )
+    tr._validate(a)
+    tr.train(a)
+
+    assert "FRESH run" in capsys.readouterr().err
+    assert ("learn",) in calls  # ran fresh (did not abort)
+
+
+def test_both_callbacks_wrapped_in_callbacklist(tmp_path, monkeypatch):
+    """With both --state-dir and --snapshot-dir, learn() gets a CallbackList of BOTH callbacks."""
+    calls = []
+    _stub_train_io(monkeypatch, calls)
+
+    class FakeModel:
+        def __init__(self):
+            self.policy = object()
+            self.num_timesteps = 0
+
+        def learn(self, **kwargs):
+            calls.append(("learn", kwargs.get("callback")))
+
+    monkeypatch.setattr(tr, "build_model", lambda cfg, ckpt, args, venv=None: (FakeModel(), venv))
+
+    class FakeSnap:
+        def __init__(self, *a, **k):
+            pass
+
+    class FakeResume:
+        def __init__(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(tr, "SnapshotCallback", FakeSnap)
+    monkeypatch.setattr(tr, "ResumeCheckpointCallback", FakeResume)
+
+    a = _args(
+        tmp_path,
+        extra=[
+            "--state-dir", str(tmp_path / "fresh-state"),
+            "--snapshot-dir", str(tmp_path / "league"),
+            "--out", str(tmp_path / "o.pt"),
+        ],
+    )
+    tr._validate(a)
+    tr.train(a)
+
+    cb = next(c[1] for c in calls if c[0] == "learn")
+    assert isinstance(cb, tr.CallbackList)
+    assert {type(x).__name__ for x in cb.callbacks} == {"FakeSnap", "FakeResume"}

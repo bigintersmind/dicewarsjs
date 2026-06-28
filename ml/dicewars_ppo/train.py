@@ -37,11 +37,17 @@ not fixed-field BC exploitation. It still loads ``--checkpoint`` for the archite
 (``ModelConfig``), is mutually exclusive with ``--freeze-trunk``, and relaxes the
 ``--lr``/``--ent-coef`` defaults (see ``_train_common.resolve_from_scratch``).
 
-Scope (PR-4). Fresh runs only. Full idempotent checkpoint/resume (policy + optimizer +
-RNG + ``num_timesteps`` + league pool/book, ``reset_num_timesteps=False``, CSV
-continuation) is PR-5; the committed shodan launcher + schtasks runbook is PR-6. See the
-``TODO(PR-5)`` at ``model.learn`` and ``_train_common.resolve_from_scratch``'s note on
-production HPs.
+Idempotent checkpoint/resume (PR-5, [D-26] Q3). Pass ``--state-dir`` to make a run resumable:
+``ResumeCheckpointCallback`` checkpoints policy + optimizer + ``num_timesteps`` + process RNG every
+``--checkpoint-every`` steps (atomic ``latest.json`` written LAST, the crash hinge — see
+``resume.py``). A relaunch of the SAME command auto-resumes from a valid ``latest.json`` (a
+corrupt/version-skewed one warns and starts fresh), going through ``MaskablePPO.load`` and
+``learn(reset_num_timesteps=False, total_timesteps=_remaining_timesteps(...))`` so the absolute
+``--timesteps`` budget is honored across crashes (HOLE-D), not made additive. The Node league's own
+resume half (``--league-state-dir`` etc.) is independent ([D-26] Q3) and forwarded via
+``_train_common``. CSV is per-session (``progress-<resumed_step>.csv``) so a resume never truncates
+a prior session; TensorBoard stays one continuous run (merged by ``num_timesteps``). The committed
+shodan launcher + schtasks runbook is PR-6.
 """
 
 from __future__ import annotations
@@ -52,11 +58,25 @@ import sys
 from pathlib import Path
 
 import torch
-from stable_baselines3.common.logger import configure
+from stable_baselines3.common.callbacks import CallbackList
+from stable_baselines3.common.logger import (
+    CSVOutputFormat,
+    HumanOutputFormat,
+    Logger,
+    TensorBoardOutputFormat,
+)
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 
 from . import _train_common
 from .policy import load_bc_checkpoint, repack_to_bc_checkpoint
+from .resume import (
+    POINTER_ABSENT,
+    POINTER_VALID,
+    ResumeCheckpointCallback,
+    classify_latest_pointer,
+    describe_pointer_rejection,
+    load_resume_checkpoint,
+)
 from .snapshot_callback import SnapshotCallback
 from .train_tracer import _verify_repack_exportable, build_model
 
@@ -95,12 +115,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="SubprocVecEnv worker start method (CUDA inits at MaskablePPO construction, AFTER the "
         "envs fork — [D-26] Q4). forkserver is the safe default; spawn is the portable fallback.",
     )
+    # Idempotent resume (PR-5, [D-26] Q3). --state-dir holds the SB3 zip + RNG sidecar + latest.json
+    # (the crash hinge). Set it to make the run resumable: a relaunch of the SAME command resumes
+    # from a valid latest.json (a corrupt/stale one warns and starts fresh). This is the PYTHON
+    # resume half; it is INDEPENDENT of the Node league's --league-state-dir (the other half).
+    p.add_argument(
+        "--state-dir",
+        default=None,
+        help="Directory for the Python resume checkpoint (SB3 zip + RNG sidecar + latest.json). "
+        "Unset ⇒ no checkpointing/resume. Independent of --league-state-dir ([D-26] Q3).",
+    )
+    p.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=50_000,
+        help="Resume-checkpoint cadence in total env steps (only with --state-dir). Defaults to "
+        "50000 (the same default as --snapshot-every, but NOT dynamically coupled to it — set this "
+        "explicitly if you change --snapshot-every and want checkpoints to follow).",
+    )
     return p
 
 
 def _validate(args: argparse.Namespace) -> None:
     _train_common._validate_args(args)
     _train_common.resolve_from_scratch(args)
+    if args.checkpoint_every <= 0:
+        raise SystemExit(f"--checkpoint-every must be > 0 (got {args.checkpoint_every}).")
+    if args.freeze_trunk and args.state_dir is not None:
+        # Reject EAGERLY (not only at resume time): MaskablePPO.load does not restore the build-time
+        # requires_grad freeze, so a resumed --freeze-trunk run would train the trunk it should
+        # freeze. If we let the run START, every checkpoint it writes is un-resumable and the user
+        # only finds out after the first crash. So fail at launch. (train() keeps a backstop guard.)
+        raise SystemExit(
+            "--freeze-trunk + --state-dir (resume) is unsupported: load does not restore the "
+            "build-time trunk freeze, so the run could never resume. Drop one of the two flags."
+        )
+    if args.state_dir is not None:
+        # Absolutize so resume detection (parent) and the callback agree on the path regardless of
+        # cwd. Do NOT mkdir here — save_resume_checkpoint creates it, and a missing dir reads as
+        # "no resume point" (fresh), which is correct.
+        args.state_dir = str(Path(args.state_dir).resolve())
 
 
 def _tensorboard_available() -> bool:
@@ -108,25 +162,42 @@ def _tensorboard_available() -> bool:
     return importlib.util.find_spec("tensorboard") is not None
 
 
-def _make_logger(args: argparse.Namespace):
-    """Configure the SB3 logger sinks for ``--log-dir``; returns ``(logger, sinks)``.
+def _make_logger(args: argparse.Namespace, resumed_step: int = 0):
+    """Build the SB3 logger for ``--log-dir`` with a PER-SESSION CSV; returns ``(logger, sinks)``.
 
-    Returns ``(configured Logger, [sink names])`` — the caller passes the logger to
-    ``model.set_logger`` BEFORE ``learn`` and reports the ACTUAL ``sinks`` (so the status line
-    can't claim a sink the degradation path dropped) — or ``(None, [])`` when ``--log-dir`` is
-    unset (SB3 keeps its stdout default). ``VecMonitor`` (not this logger) is what populates the
-    ``rollout/ep_rew_mean`` / ``ep_len_mean`` keys these sinks then record.
+    Returns ``(Logger, [sink names])`` — the caller passes the logger to ``model.set_logger`` BEFORE
+    ``learn`` and reports the ACTUAL ``sinks`` (so the status line can't claim a sink the
+    degradation path dropped) — or ``(None, [])`` when ``--log-dir`` is unset (SB3 keeps stdout).
+    ``VecMonitor`` (not this logger) is what populates the ``rollout/ep_rew_mean`` / ``ep_len_mean``
+    keys these sinks then record.
 
-    SB3's ``TensorBoardOutputFormat`` HARD-imports the ``tensorboard`` package and RAISES if it
-    is absent (it does NOT silently no-op). ``tensorboard`` is in the ``[rl]`` extra, so the normal
-    path has it; but rather than crash a long run on a partial env, degrade to CSV-only with a loud
-    warning (on stderr) when it is missing (``--no-tensorboard`` opts out of the TB sink entirely).
+    Cross-session continuation (PR-5, [D-26]). SB3's ``CSVOutputFormat`` opens its target file with
+    mode ``"w+t"`` (TRUNCATING it) — under ``configure()`` it is ``progress.csv``, so a resume
+    into the same ``--log-dir`` would erase the prior session's rows. So we build the output formats
+    EXPLICITLY (instead of ``configure()``) and point the CSV at a per-session
+    ``progress-<resumed_step>.csv`` — so a session that REACHED A LATER
+    CHECKPOINT (and thus resumes at a higher step) never truncates an earlier one (concatenate
+    offline). The one residual collision is a crash-loop *within* a single ``--checkpoint-every``
+    window: it resumes from the SAME step and re-truncates that step's CSV — bounded, observability-
+    only loss (TB still merges by ``num_timesteps``). The single ``TensorBoardOutputFormat`` over
+    ``--log-dir`` keeps ONE continuous TB run because, under ``learn(reset_num_timesteps=False)``,
+    events merge by ``num_timesteps``.
+
+    ``TensorBoardOutputFormat.__init__`` HARD-imports ``tensorboard`` and RAISES if absent (it does
+    NOT silently no-op); ``tensorboard`` is in the ``[rl]`` extra, so the normal path has it, but
+    rather than crash a long run on a partial env we degrade to CSV-only with a loud stderr warning
+    when it is missing (``--no-tensorboard`` opts out of the TB sink entirely).
     """
     if args.log_dir is None:
         return None, []
+    log_dir = Path(args.log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
     sinks = ["stdout", "csv"]
+    csv_path = log_dir / f"progress-{int(resumed_step):09d}.csv"
+    output_formats = [HumanOutputFormat(sys.stdout), CSVOutputFormat(str(csv_path))]
     if not args.no_tensorboard:
         if _tensorboard_available():
+            output_formats.append(TensorBoardOutputFormat(str(log_dir)))
             sinks.append("tensorboard")
         else:
             print(
@@ -134,11 +205,7 @@ def _make_logger(args: argparse.Namespace):
                 "CSV only. Install the [rl] extra for TensorBoard, or pass --no-tensorboard.",
                 file=sys.stderr,
             )
-    # NOTE: SB3's CSVOutputFormat opens <log_dir>/progress.csv with mode "w+t", TRUNCATING it on
-    # each run, and configure() starts a FRESH TB event file (old events.out.tfevents.* are left in
-    # place, so re-running the same --log-dir accumulates overlapping curves). PR-4 is fresh-run
-    # only; cross-session continuation (re-set_logger after a resume load) is PR-5's resume work.
-    return configure(str(Path(args.log_dir)), sinks), sinks
+    return Logger(folder=str(log_dir), output_formats=output_formats), sinks
 
 
 def train(args: argparse.Namespace) -> Path:
@@ -148,7 +215,34 @@ def train(args: argparse.Namespace) -> Path:
         f"max_areas={cfg.max_areas} player_count={cfg.player_count} "
         f"context_hidden={cfg.context_hidden}"
     )
-    mode = "from-scratch" if args.from_scratch else "warm-start"
+    # Resume detection ([D-26] Q3, auto-detect). classify_latest_pointer (torch-free, CI-tested)
+    # says WHY the pointer is (un)usable: VALID ⇒ continue the run; ABSENT ⇒ a fresh run; any other
+    # reason ⇒ warn LOUDLY with a CAUSE-SPECIFIC message and fall back to fresh — never a silent
+    # restart-from-0 that would discard days of progress (and re-trains the absolute --timesteps
+    # budget from scratch). describe_pointer_rejection steers AWAY from deleting latest.json when
+    # on-disk ckpt pairs are still recoverable (corrupt-pointer / dangling-ref).
+    resuming = False
+    if args.state_dir:
+        reason = classify_latest_pointer(args.state_dir)
+        if reason == POINTER_VALID:
+            resuming = True
+        elif reason != POINTER_ABSENT:
+            print(
+                f"WARNING: {args.state_dir}: {describe_pointer_rejection(reason)} "
+                "Starting a FRESH run (NO resume).",
+                file=sys.stderr,
+            )
+    if resuming and args.freeze_trunk:
+        # MaskablePPO.load restores weights+optimizer but NOT the build-time requires_grad freeze
+        # (it lives in build_model, which resume SKIPS), so a resumed --freeze-trunk run would
+        # silently train the trunk it was meant to freeze. Reject rather than change the regime.
+        raise SystemExit(
+            "--freeze-trunk + resume is unsupported: MaskablePPO.load does not restore the "
+            "build-time requires_grad freeze, so a resumed run would silently train the trunk. "
+            "Re-run without --freeze-trunk, or from a fresh --state-dir."
+        )
+
+    mode = "resume" if resuming else ("from-scratch" if args.from_scratch else "warm-start")
     print(
         f"train config: mode={mode} n_envs={args.n_envs} start_method={args.start_method} "
         f"opponents=[{args.opponents}] timesteps={args.timesteps} n_steps={args.n_steps} "
@@ -180,11 +274,33 @@ def train(args: argparse.Namespace) -> Path:
     )
     venv = VecMonitor(venv)
 
-    # build_model constructs MaskablePPO on this venv (CUDA inits here, after the fork) and either
-    # warm-starts or, with --from-scratch, leaves the fresh init.
-    model, venv = build_model(cfg, ckpt, args, venv=venv)
+    if resuming:
+        # PATH A ([D-26] HOLE-C/D): MaskablePPO.load restores policy + optimizer + num_timesteps in
+        # one call (BEFORE learn, so SnapshotCallback rehydrates against the resumed step, not 0) +
+        # the RNG sidecar. SKIP build_model entirely — load brings back the trained weights, so
+        # a warm-start would clobber them.
+        model = load_resume_checkpoint(args.state_dir, venv, args.device)
+        print(f"resumed from {args.state_dir} at num_timesteps={model.num_timesteps}")
+    else:
+        # build_model constructs MaskablePPO on this venv (CUDA inits here, after the fork) and
+        # either warm-starts or, with --from-scratch, leaves the fresh init.
+        model, venv = build_model(cfg, ckpt, args, venv=venv)
 
-    logger, sinks = _make_logger(args)
+    # Assemble the callbacks: the PFSP snapshot publisher (if any) + the resume checkpointer (if
+    # --state-dir). CallbackList only when both fire; a single callback / None otherwise.
+    callbacks = []
+    if callback is not None:
+        callbacks.append(callback)
+    if args.state_dir:
+        callbacks.append(ResumeCheckpointCallback(args.state_dir, args.checkpoint_every))
+        print(f"resume checkpointer: every {args.checkpoint_every} steps → {args.state_dir}")
+    learn_callback = (
+        CallbackList(callbacks) if len(callbacks) > 1 else (callbacks[0] if callbacks else None)
+    )
+
+    # Per-session CSV keyed on the resumed step (0 for a fresh run) so a resume never truncates a
+    # prior session's progress.csv ([D-26]); TensorBoard stays one continuous run.
+    logger, sinks = _make_logger(args, resumed_step=int(model.num_timesteps))
     if logger is not None:
         model.set_logger(logger)  # must precede learn()
         # Report the ACTUAL sinks (the TB-missing degradation path drops "tensorboard"), so this
@@ -192,11 +308,30 @@ def train(args: argparse.Namespace) -> Path:
         print(f"logging: {' + '.join(sinks)} → {args.log_dir}")
 
     try:
-        # PR-4 trains FRESH runs only: reset_num_timesteps defaults True ⇒ num_timesteps starts at 0
-        # and --timesteps is the absolute budget. TODO(PR-5 / [D-26] HOLE-D): resume must pass
-        # reset_num_timesteps=False AND cap remaining = max(timesteps - num_timesteps, 0), else a
-        # crash-loop makes --timesteps additive and trains unbounded.
-        model.learn(total_timesteps=args.timesteps, progress_bar=False, callback=callback)
+        if resuming:
+            # [D-26] HOLE-D: cap the run at the ABSOLUTE --timesteps. Under reset_num_timesteps=
+            # False SB3 adds num_timesteps back internally, so passing `remaining` makes it stop at
+            # --timesteps rather than training an extra num_timesteps per relaunch (an unbounded
+            # crash-loop). remaining==0 ⇒ the budget is already met: skip learn(), just re-export.
+            remaining = _train_common._remaining_timesteps(args.timesteps, model.num_timesteps)
+            if remaining > 0:
+                model.learn(
+                    total_timesteps=remaining,
+                    reset_num_timesteps=False,
+                    progress_bar=False,
+                    callback=learn_callback,
+                )
+            else:
+                print(
+                    f"resume: budget already met (num_timesteps={model.num_timesteps} >= "
+                    f"--timesteps={args.timesteps}); skipping learn(), re-exporting."
+                )
+        else:
+            # Fresh run: reset_num_timesteps defaults True ⇒ num_timesteps starts at 0 and
+            # --timesteps is the absolute budget.
+            model.learn(
+                total_timesteps=args.timesteps, progress_bar=False, callback=learn_callback
+            )
     finally:
         # Always reap the env workers (each owns a Node child) even on error. Guard the close: when
         # learn() raised because a SubprocVecEnv worker already died (the common failure here), the
@@ -210,6 +345,11 @@ def train(args: argparse.Namespace) -> Path:
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Provenance from `args` (the relaunch flags). On a RESUME these reflect this invocation, not
+    # necessarily the original training run — MaskablePPO.load restores the model's own optimizer/HP
+    # state, so a changed --lr/--gamma/--ent-coef on the relaunch is ignored but still
+    # stamped here. Metadata-only (no training impact); kept simple to avoid lr-schedule-callable
+    # extraction MaskablePPO would otherwise require.
     repacked = repack_to_bc_checkpoint(
         model.policy,
         extra={

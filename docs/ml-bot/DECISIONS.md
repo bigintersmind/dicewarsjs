@@ -1522,7 +1522,7 @@ producer GC, consumer `unlinkSync` removed (DONE, #70) · PR-4 `_train_common.py
   shodan launcher + schtasks runbook · PR-7 deferred test-hardening (env-server `main()` persistence
   integration test; live cross-worker `SharedDiskStore`).
 
-**Status: IN PROGRESS — foundation PR-1→PR-3 MERGED (#70); PR-4 DONE locally (branch `ml-bot/task-ce-pr4-train`). Next: PR-5 resume core.** PR-1:
+**Status: IN PROGRESS — foundation PR-1→PR-3 MERGED (#70); PR-4 MERGED (#71, `f1224ee`); PR-5 DONE locally (branch `ml-bot/task-ce-pr5-resume`). Next: PR-6 shodan launcher + runbook.** PR-1:
 `episodeCount` resume-cursor, `dumpLeagueState` state-then-flush order, `refresh()` ENOENT-tolerance +
 id-dedup + `refreshSkips` health counter (stderr DONE mirror), schema v1→v2. PR-2: `snapshot_store` /
 `league_state_dir` / `league_dump_every` forwarded by `EnvServerProcess` on their own gate (manifest-
@@ -1552,3 +1552,51 @@ New `train.py` = `VecMonitor(SubprocVecEnv(start_method=forkserver))` built BEFO
   lean torch-free tier (`test_train_common_args.py`, incl. a closure-capture guard) + gated torch/sb3
   tier (`test_train_args.py` build_model/logging/wrap-order, `test_train_tracer_args.py` re-export
   wiring) green. The torch-gated tests + the live SubprocVecEnv/shodan paths run on shodan.
+
+**PR-5 (DONE locally, branch `ml-bot/task-ce-pr5-resume`) — idempotent checkpoint/resume core.**
+Python-side only (the Node league half shipped in #70). Three deliverables: (1) **HOLE-D** — on resume
+`train.py` calls `learn(total_timesteps=_remaining_timesteps(args.timesteps, num_timesteps),
+reset_num_timesteps=False)` (torch-free helper in `_train_common`); `remaining==0` SKIPS `learn` but
+still re-exports. (2) **resume core** — split into a torch+sb3-FREE `resume_state.py` (RNG sidecar,
+atomic `latest.json` written LAST + dir-fsync, GC keep-N, pointer validation, `save_resume_checkpoint`)
+and an sb3 `resume.py` (`load_resume_checkpoint` via `MaskablePPO.load(env=venv)` = PATH A so
+`num_timesteps` is restored before `SnapshotCallback._on_training_start` reads it — HOLE-C; +
+`ResumeCheckpointCallback`). The split mirrors `snapshot_manifest`/`snapshot_callback` so the hinge logic
+is **CI-testable without sb3**. Resume **auto-detects** a valid `latest.json` (absent⇒fresh silent,
+corrupt/version/encoding-skew⇒loud warn+fresh); new `--state-dir`/`--checkpoint-every` (default 50k,
+distinct from the Node `--league-state-dir`). (3) **B6 flag forwarding** — `--snapshot-store`/
+`--league-state-dir`/`--league-dump-every` added to the shared torch-free parser + `server_kwargs`
+(`EnvServerProcess` already accepts/emits them since PR-2); Node-mirrored validation. CSV is per-session
+(`progress-<resumed_step>.csv`) via explicit `output_formats` (no more `configure()` truncation);
+`--freeze-trunk`+`--state-dir` rejected eagerly (load can't restore the build-time freeze).
+**Verification:** ruff clean; torch-free tier green locally (`test_resume_state.py` 13 incl. RNG
+`weights_only`/atomicity/GC + `test_train_common_args.py` league-flag/forwarding/`_remaining_timesteps`).
+Reviewed by a 13-agent blueprint workflow + a 4-lens implementation review → **2 blockers found & fixed:**
+(a) the RNG sidecar was mapped to the model device → `torch.set_rng_state` rejects a GPU tensor, crashing
+EVERY `--device cuda` resume (now CPU-pinned in `load_rng_sidecar`; CUDA-gated regression test added);
+(b) two `_make_logger` test sites 3-unpacked its 2-tuple → the sb3 tier was RED (fixed). The sb3 tier
+(`test_resume.py` load round-trip + `_setup_learn` HOLE-D + callback cadence; `test_train_args.py`;
+`test_train_tracer_args.py`) runs on **shodan**. _Shodan checklist before the BEAT run: `MaskablePPO.load`
+needs no `custom_objects`; `--device cuda` RNG restore; `_setup_learn` caps at the absolute `--timesteps`;
+live forkserver two-half resume._
+
+**PR-5 review-hardening (2026-06-28).** A comprehensive 4-lens PR review (#72: code / silent-failure /
+tests / comments) + a 3-lens adversarial re-verify of the fixes refined the resume contract without
+changing its shape. Decisions folded in (each with regression coverage): (a) **nothing downstream of
+`MaskablePPO.load` may abort a resume** — a corrupt/torn RNG sidecar DEGRADES to a fresh stream with a
+loud warn (`restore_rng_sidecar`), since the recoverable state (policy+optimizer+`num_timesteps`) is
+already loaded and RNG continuity is already "bounded-skew, not bit-exact" (Q3); aborting would brick a
+fully-recoverable checkpoint (a PERMANENT crash-loop under the PR-6 auto-restart). (b) A
+present-but-rejected `latest.json` gets a **cause-specific, NON-destructive warning** — the decision is
+lifted into the torch-free, CI-testable `classify_latest_pointer` / `describe_pointer_rejection`
+(behavior-preserving for `read_latest_pointer` via a shared `_parse_latest`), steering the operator AWAY
+from deleting `latest.json` when the on-disk ckpt pairs are still loadable; but **NO blanket auto-fallback**
+to the retained `keep=2` pair (version/encoding-skew ckpts are genuinely incompatible, and a silent
+step-change is worse than a clear manual-recovery message). (c) The GPU-resume CPU-pinning invariant is now
+pinned in **lean CI** (a `map_location` spy), not only by the shodan-only CUDA test; GC enumeration unions
+`.zip`+`.rng.pt` so a half-failed unlink's orphan sidecar is swept. Also fixed prior comment-rot (the
+self-contradictory "load-bearing guard (unlike dump-every)" — Node DOES also check; "LISTENING
+timeout"→"exited before listening"; a line-ref → symbol). Verification: ruff clean; torch-free tier 66
+green; sb3 tier shodan-only. The verify workflow also caught a shodan-only `AttributeError`
+(`train.py` imported only `POINTER_ABSENT`/`POINTER_VALID` but a test referenced `tr.POINTER_CORRUPT_JSON`)
+→ tests now import the reason constants from `resume_state`, not through `tr`.

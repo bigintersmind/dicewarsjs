@@ -36,7 +36,8 @@ import torch
 from .constants import ENCODING_VERSION
 
 # Bump if the on-disk resume layout (latest.json schema / the sidecar set) changes incompatibly, so
-# an old pointer is rejected (→ a loud fresh-start) rather than mis-loaded.
+# an old pointer is rejected (POINTER_VERSION_SKEW → resume_action HALT → a loud exit with
+# EXIT_POINTER_REJECTED, PR-6) rather than mis-loaded.
 RESUME_FORMAT_VERSION = 1
 LATEST_NAME = "latest.json"
 
@@ -57,9 +58,32 @@ POINTER_VERSION_SKEW = "version-skew"
 POINTER_ENCODING_SKEW = "encoding-skew"
 POINTER_DANGLING_REF = "dangling-ref"
 
-# Module-level so the macOS dir-fsync degrade (in _fsync_dir) warns once per process, not once per
-# checkpoint.
+# The three-way resume decision a driver makes from a POINTER_* reason ([D-26]/PR-6). Kept here in
+# the torch-free tier (not inline in the sb3-gated train.py) so the highest-consequence
+# "resume / fresh / halt" policy is unit-testable in lean CI — the same reason
+# classify_latest_pointer itself lives here. The HALT action is the PR-6 change: a present-but-
+# rejected pointer no longer silently restarts from step 0 (unattended, it re-burns the budget).
+RESUME_ACTION_RESUME = "resume"
+RESUME_ACTION_FRESH = "fresh"
+RESUME_ACTION_HALT = "halt"
+
+
+class ResumeCheckpointError(RuntimeError):
+    """Every retained resume checkpoint failed to load — an UNRECOVERABLE resume ([D-26]/PR-6).
+
+    sb3-free (lives here so the torch-only CI tier can name it) but RAISED by ``resume.py`` after
+    its corrupt-``.zip`` fallback exhausts the keep-N retained pairs. ``train.py`` catches it, exits
+    with ``EXIT_POINTER_REJECTED`` so the PR-6 schtasks auto-restart ALERTS an operator instead of
+    crash-looping on bytes that will never heal (the same failure class the rejected-pointer halt
+    guards, just discovered at load time rather than pointer-classification time).
+    """
+
+# Module-level so each _fsync_dir degrade warns once per process, not once per checkpoint. Two
+# SEPARATE flags so the benign/expected fsync-unsupported degrade (macOS, fires on the first
+# checkpoint) can't consume a shared flag and silently suppress the UNEXPECTED open-failure warn (a
+# vanished state dir / EMFILE) — they are different-severity conditions and each warns on its own.
 _DIR_FSYNC_WARNED = False
+_DIR_OPEN_WARNED = False
 
 
 def _fsync_path(path: Path) -> None:
@@ -81,16 +105,25 @@ def _fsync_dir(path: Path) -> None:
     it degrades to a no-op rather than crashing, since this is a hardening, not a correctness
     requirement (Linux / the shodan WSL box get the guarantee). The degrade is logged ONCE (not on
     every checkpoint) so the reduced-durability mode is visible on the box it's running on rather
-    than silent — the whole point of this run is crash-safety.
+    than silent — the whole point of this run is crash-safety. The OPEN failure degrades the same
+    way (warn-once, not a silent return): the state dir was just mkdir'd, so a failure to open it is
+    unexpected (permissions / a vanished dir / EMFILE) and must not silently drop durability.
     """
+    global _DIR_FSYNC_WARNED, _DIR_OPEN_WARNED
     try:
         fd = os.open(path, os.O_RDONLY)
-    except OSError:
+    except OSError as err:
+        if not _DIR_OPEN_WARNED:
+            print(
+                f"WARNING: could not open directory {path} to fsync ({err}); checkpoint durability "
+                "is best-effort (os.replace torn-write atomicity still holds).",
+                file=sys.stderr,
+            )
+            _DIR_OPEN_WARNED = True
         return
     try:
         os.fsync(fd)
     except OSError:
-        global _DIR_FSYNC_WARNED
         if not _DIR_FSYNC_WARNED:
             print(
                 f"WARNING: directory fsync unsupported on this platform ({path}); checkpoint "
@@ -272,6 +305,23 @@ def describe_pointer_rejection(reason: str) -> str:
     }.get(reason, f"latest.json is unusable (reason: {reason}).")
 
 
+def resume_action(reason: str) -> str:
+    """Map a ``POINTER_*`` reason to the resume decision ([D-26]/PR-6) — pure, CI-testable.
+
+    ``POINTER_VALID`` → ``RESUME_ACTION_RESUME``; ``POINTER_ABSENT`` (a brand-new ``--state-dir``,
+    no prior run) → ``RESUME_ACTION_FRESH``; ANY present-but-rejected reason (corrupt JSON, version
+    or encoding skew, dangling ref) → ``RESUME_ACTION_HALT``. The driver turns HALT into a loud exit
+    with ``EXIT_POINTER_REJECTED`` so the unattended schtasks auto-restart ALERTS an operator
+    instead of silently restarting from step 0 and re-training the full ``--timesteps`` budget — and
+    so it does not overwrite the still-recoverable on-disk ``ckpt-*`` pairs the breadcrumb names.
+    """
+    if reason == POINTER_VALID:
+        return RESUME_ACTION_RESUME
+    if reason == POINTER_ABSENT:
+        return RESUME_ACTION_FRESH
+    return RESUME_ACTION_HALT
+
+
 def read_latest_pointer(state_dir: str | Path) -> dict[str, Any] | None:
     """Return the parsed+validated ``latest.json`` dict, or ``None`` if unusable.
 
@@ -296,6 +346,49 @@ def latest_pointer_exists(state_dir: str | Path) -> bool:
 def has_resume_checkpoint(state_dir: str | Path) -> bool:
     """True iff ``state_dir`` holds a valid, loadable resume checkpoint."""
     return read_latest_pointer(state_dir) is not None
+
+
+def resume_candidate_pairs(state_dir: str | Path) -> list[dict[str, Any]]:
+    """Ordered checkpoint pairs ``resume.py`` should TRY to load, newest-usable first ([D-26]/PR-6).
+
+    Torch-free (CI-tested) so the corrupt-``.zip`` FALLBACK ORDER — the highest-consequence "which
+    checkpoint do we resume from?" decision — is unit-testable without ``sb3``/a GPU, exactly like
+    :func:`classify_latest_pointer` is for the resume/fresh decision. ``resume.py`` only adds the
+    thin ``MaskablePPO.load`` try/except loop over this list.
+
+    The list is:
+
+    1. The pair ``latest.json`` validates (its explicit ``ckpt``/``rng`` names) — the newest DURABLE
+       checkpoint, tried first.
+    2. Then the retained OLDER pairs (step STRICTLY LESS THAN the pointer's, whose ``.zip`` is on
+       disk), newest-first — what GC ``keep=N`` left behind, so a bit-rotted newest ``.zip``
+       degrades to the prior good pair instead of crash-looping the unattended schtasks restart.
+
+    Returns ``[]`` when ``latest.json`` is not ``POINTER_VALID`` (the caller treats that as "no
+    resume point"; the resume/fresh/halt split is :func:`classify_latest_pointer`'s job, not this).
+
+    Pairs strictly NEWER than the pointer are deliberately EXCLUDED: a ``.zip`` newer than
+    ``latest.json`` is from a checkpoint whose write died before its ``latest.json`` rename (the
+    pointer is written LAST), so it is presumed torn and must never be preferred over the validated
+    pointer. The ``.rng.pt`` name is carried even if that sidecar is missing/corrupt —
+    ``restore_rng_sidecar`` degrades to a fresh stream, so a candidate is "usable" as long as its
+    ``.zip`` exists.
+    """
+    pointer = read_latest_pointer(state_dir)
+    if pointer is None:
+        return []
+    state_dir = Path(state_dir)
+    p_step = int(pointer["step"])
+    pairs: list[dict[str, Any]] = [
+        {"step": p_step, "ckpt": pointer["ckpt"], "rng": pointer["rng"]}
+    ]
+    for step in reversed(_checkpoint_steps(state_dir)):  # newest-first
+        if step >= p_step:
+            continue  # the pointer pair (==) is already first; newer (>) is a presumed-torn orphan
+        zip_name = f"ckpt-{step:09d}.zip"
+        if (state_dir / zip_name).is_file():  # a .zip-less orphan .rng.pt is not loadable
+            pairs.append({"step": step, "ckpt": zip_name, "rng": f"ckpt-{step:09d}.rng.pt"})
+    return pairs
 
 
 # --- save / GC ---------------------------------------------------------------------------------
@@ -327,7 +420,13 @@ def _safe_unlink(path: Path) -> None:
     try:
         path.unlink(missing_ok=True)
     except OSError as err:
-        print(f"[resume] GC: could not unlink {path.name} ({err}); leaving on disk")
+        # stderr + WARNING prefix to match every other degradation in this module (so log scrapers
+        # see GC hiccups uniformly); the file is left on disk and a later GC pass re-sweeps it.
+        print(
+            f"WARNING: [resume] GC could not unlink {path.name} ({err}); leaving on disk "
+            "(a later GC pass re-sweeps it).",
+            file=sys.stderr,
+        )
 
 
 def _gc_old_checkpoints(state_dir: Path, *, keep: int, keep_step: int) -> None:

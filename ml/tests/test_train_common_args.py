@@ -11,6 +11,7 @@ drivers that consume this module lives in ``test_train_tracer_args.py`` (the tra
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -407,3 +408,16 @@ def test_remaining_timesteps_caps_absolute_budget():
     assert tc._remaining_timesteps(1000, 400) == 600  # mid-run resume
     assert tc._remaining_timesteps(1000, 1000) == 0  # budget exactly met ⇒ no-op
     assert tc._remaining_timesteps(1000, 1500) == 0  # overshoot clamps to 0, never negative
+
+
+def test_exit_pointer_rejected_matches_launcher():
+    """EXIT_POINTER_REJECTED is a cross-language HALT contract ([D-26]/PR-6): train.py raises it and
+    the shodan launcher (scripts/shodan/ppo-train.sh) hard-codes the SAME value as its do-not-retry
+    signal. Pin the Python value AND assert the bash copy agrees, so a change to one side forces
+    updating the other — a silent drift would make the launcher mis-handle (retry) an unrecoverable
+    HALT."""
+    assert tc.EXIT_POINTER_REJECTED == 3  # the canonical value
+    launcher = ML_DIR.parent / "scripts" / "shodan" / "ppo-train.sh"
+    m = re.search(r"^EXIT_POINTER_REJECTED=(\d+)", launcher.read_text(), re.MULTILINE)
+    assert m is not None, "ppo-train.sh must define EXIT_POINTER_REJECTED=<n>"
+    assert int(m.group(1)) == tc.EXIT_POINTER_REJECTED

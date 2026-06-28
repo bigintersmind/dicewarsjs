@@ -39,6 +39,16 @@ if TYPE_CHECKING:  # annotation-only; never imported at runtime (keeps this modu
 # (player_count - 1) opponent seats.
 DEFAULT_OPPONENTS = "ai_lookahead,ai_strategist,ai_expectimax,ai_bc,ai_defensive"
 
+# Distinct process exit code for an UNRECOVERABLE resume state ([D-26]/PR-6): a present-but-rejected
+# latest.json (corrupt-json / version|encoding skew / dangling-ref) or a corrupt .zip whose retained
+# fallbacks are also unreadable. `train.py` raises `SystemExit(EXIT_POINTER_REJECTED)` on this; the
+# shodan launcher (scripts/shodan/ppo-train.sh) treats it as HALT+alert (never retry — the bytes
+# will not heal), distinct from any OTHER non-zero exit (a transient crash it bounds-retries). Lives
+# here in the torch-free core so a lean-CI canary pins the value AND the launcher's hard-coded copy
+# has a single source of truth to track. Chosen distinct from 0 (ok) / 1 (generic raise or
+# SystemExit-string) / 2 (argparse misuse). If you change it, update ppo-train.sh's copy too.
+EXIT_POINTER_REJECTED = 3
+
 
 def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
     """A zero-arg env factory for ``DummyVecEnv``/``SubprocVecEnv`` — each launches an env-server.

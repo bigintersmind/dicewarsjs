@@ -149,6 +149,46 @@ def test_load_resume_survives_corrupt_rng_sidecar(tmp_path, capsys):
     assert "FRESH RNG stream" in capsys.readouterr().err
 
 
+def test_load_resume_falls_back_to_prior_pair_on_corrupt_zip(tmp_path, capsys):
+    # PR-6 corrupt-.zip fallback: a bit-rotted NEWEST .zip at a VALID pointer must not crash-loop
+    # the auto-restart — load_resume_checkpoint rolls back to the retained keep=2 prior pair (one
+    # cadence of progress lost) and loudly says so.
+    cfg = _v2_config()
+    model = _build_model(cfg)
+    model.num_timesteps = 1000
+    rz.save_resume_checkpoint(model, tmp_path, 1000, keep=2)
+    model.num_timesteps = 2000
+    rz.save_resume_checkpoint(model, tmp_path, 2000, keep=2)  # latest.json → 2000
+    ptr = rz.read_latest_pointer(tmp_path)
+    assert ptr["step"] == 2000
+    (tmp_path / ptr["ckpt"]).write_bytes(b"not a real zip")  # corrupt ONLY the newest .zip
+
+    loaded = rz.load_resume_checkpoint(tmp_path, _build_venv(cfg), "cpu")  # must NOT raise
+
+    assert loaded.num_timesteps == 1000  # rolled back to the retained prior pair
+    # latest.json is the crash hinge — NOT rewritten on fallback (the next checkpoint moves it
+    # forward; a repeat crash before then just re-runs this cheap fallback).
+    assert rz.read_latest_pointer(tmp_path)["step"] == 2000
+    err = capsys.readouterr().err
+    assert "failed to load" in err  # the newest pair's failure was surfaced
+    assert "RETAINED prior checkpoint" in err  # the rollback was surfaced
+
+
+def test_load_resume_raises_when_all_retained_pairs_corrupt(tmp_path):
+    # When EVERY retained .zip is unreadable, fallback is exhausted ⇒ ResumeCheckpointError, which
+    # train.py turns into EXIT_POINTER_REJECTED (halt-and-alert) rather than letting the launcher
+    # bounds-retry bytes that will never heal.
+    cfg = _v2_config()
+    model = _build_model(cfg)
+    for step in (1000, 2000):
+        model.num_timesteps = step
+        rz.save_resume_checkpoint(model, tmp_path, step, keep=2)
+    for zip_path in tmp_path.glob("ckpt-*.zip"):
+        zip_path.write_bytes(b"torn")  # corrupt BOTH retained pairs
+    with pytest.raises(rz.ResumeCheckpointError, match="failed to load"):
+        rz.load_resume_checkpoint(tmp_path, _build_venv(cfg), "cpu")
+
+
 def test_callback_rejects_nonpositive_cadence(tmp_path):
     with pytest.raises(ValueError, match="checkpoint_every"):
         rz.ResumeCheckpointCallback(tmp_path, checkpoint_every=0)

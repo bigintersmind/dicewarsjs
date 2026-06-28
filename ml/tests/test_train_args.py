@@ -21,7 +21,10 @@ pytest.importorskip("sb3_contrib")
 import dicewars_ppo.train as tr  # noqa: E402
 from dicewars_ppo.resume_state import (  # noqa: E402
     POINTER_CORRUPT_JSON,
+    POINTER_DANGLING_REF,
+    POINTER_ENCODING_SKEW,
     POINTER_VALID,
+    POINTER_VERSION_SKEW,
 )
 
 
@@ -477,33 +480,67 @@ def test_validate_rejects_nonpositive_checkpoint_every(tmp_path, bad):
         tr._validate(a)
 
 
-def test_corrupt_latest_warns_and_runs_fresh(tmp_path, monkeypatch, capsys):
-    """A PRESENT-but-invalid latest.json warns loudly and starts fresh — never a silent restart."""
+@pytest.mark.parametrize(
+    "reason",
+    [POINTER_CORRUPT_JSON, POINTER_VERSION_SKEW, POINTER_ENCODING_SKEW, POINTER_DANGLING_REF],
+)
+def test_rejected_pointer_halts_with_exit_pointer_rejected(tmp_path, monkeypatch, capsys, reason):
+    """A PRESENT-but-rejected latest.json HALTS with EXIT_POINTER_REJECTED (PR-6) — NOT the pre-PR-6
+    silent restart from step 0 that would re-burn the whole --timesteps budget under the unattended
+    schtasks loop. The HALT fires BEFORE SubprocVecEnv is built, so no env workers are started."""
     calls = []
     _stub_train_io(monkeypatch, calls)
 
-    class FakeModel:
-        def __init__(self):
-            self.policy = object()
-            self.num_timesteps = 0
+    def _no_build(*a, **k):
+        raise AssertionError("build_model must not run on a rejected pointer (train HALTs first)")
 
-        def learn(self, **kwargs):
-            calls.append(("learn",))
-
-    monkeypatch.setattr(tr, "build_model", lambda cfg, ckpt, args, venv=None: (FakeModel(), venv))
-    # A present-but-rejected pointer (here: corrupt JSON) ⇒ classify returns a non-ABSENT reason.
-    monkeypatch.setattr(tr, "classify_latest_pointer", lambda d: POINTER_CORRUPT_JSON)
+    monkeypatch.setattr(tr, "build_model", _no_build)
+    monkeypatch.setattr(tr, "classify_latest_pointer", lambda d: reason)
 
     a = _args(
         tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--out", str(tmp_path / "o.pt")]
     )
     tr._validate(a)
-    tr.train(a)
+    with pytest.raises(SystemExit) as ei:
+        tr.train(a)
 
+    assert ei.value.code == tr.EXIT_POINTER_REJECTED  # exit 3 — the launcher's do-not-retry signal
     err = capsys.readouterr().err
-    assert "FRESH run" in err  # warned + ran fresh, never a silent restart
-    assert "BEFORE deleting latest.json" in err  # non-destructive: recoverable ckpts, don't delete
-    assert ("learn",) in calls  # ran fresh (did not abort)
+    assert "FATAL" in err
+    assert "Refusing to silently restart" in err  # never a silent restart-from-0
+    assert ("learn",) not in calls  # halted before any learn()
+    assert ("close",) not in calls  # HALT precedes SubprocVecEnv ⇒ no workers to reap
+
+
+def test_unrecoverable_resume_load_halts_and_reaps_workers(tmp_path, monkeypatch, capsys):
+    """When load_resume_checkpoint exhausts every retained pair (ResumeCheckpointError), train()
+    HALTS with EXIT_POINTER_REJECTED — but here the env workers were ALREADY started, so the single
+    teardown finally must reap them (venv.close) before the SystemExit propagates (no Node leak)."""
+    calls = []
+    _stub_train_io(monkeypatch, calls)
+
+    def _no_build(*a, **k):
+        raise AssertionError("build_model must not run on the resuming path")
+
+    monkeypatch.setattr(tr, "build_model", _no_build)
+    monkeypatch.setattr(tr, "classify_latest_pointer", lambda d: POINTER_VALID)  # ⇒ resuming=True
+
+    def _boom(state_dir, venv, device):
+        raise tr.ResumeCheckpointError("all retained pairs unreadable")
+
+    monkeypatch.setattr(tr, "load_resume_checkpoint", _boom)
+
+    a = _args(
+        tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--out", str(tmp_path / "o.pt")]
+    )
+    tr._validate(a)
+    with pytest.raises(SystemExit) as ei:
+        tr.train(a)
+
+    assert ei.value.code == tr.EXIT_POINTER_REJECTED
+    assert "FATAL" in capsys.readouterr().err
+    assert ("close",) in calls  # workers reaped despite the HALT (the widened teardown guard)
+    assert ("learn",) not in calls
 
 
 def test_both_callbacks_wrapped_in_callbacklist(tmp_path, monkeypatch):

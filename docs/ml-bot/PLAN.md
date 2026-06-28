@@ -543,19 +543,20 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
   GC, consumer `unlinkSync` removed (PR-3). **PR-4 MERGED (PR #71, `f1224ee`):**
   new torch-free `_train_common.py` (shared env-thunk/parser/validation + `resolve_from_scratch`) reused
   by a byte-identical `train_tracer.py`; new `train.py` = `VecMonitor(SubprocVecEnv(forkserver))` +
-  TensorBoard/CSV logging + `--from-scratch`; `tensorboard` added to `[rl]`. **PR-5 landed locally**
-  (branch `ml-bot/task-ce-pr5-resume`) — idempotent checkpoint/resume core: HOLE-D budget cap
+  TensorBoard/CSV logging + `--from-scratch`; `tensorboard` added to `[rl]`. **PR-5 MERGED (PR #72,
+  `b554cd7`)** — idempotent checkpoint/resume core: HOLE-D budget cap
   (`_remaining_timesteps` + `reset_num_timesteps=False`); NEW torch+sb3-FREE `resume_state.py` (RNG
   sidecar, atomic `latest.json`-written-last + dir-fsync, GC keep-N, pointer validation) + sb3
   `resume.py` (`load_resume_checkpoint` = `MaskablePPO.load` PATH A so num_timesteps restores before
-  `SnapshotCallback` reads it = HOLE-C; `ResumeCheckpointCallback`); auto-detect resume (corrupt
-  `latest.json`⇒loud warn+fresh); per-session CSV; B6 flags (`--snapshot-store`/`--league-state-dir`/
+  `SnapshotCallback` reads it = HOLE-C; `ResumeCheckpointCallback`); auto-detect resume (a rejected
+  `latest.json` ⇒ **HALT+alert** as of PR-6 — was loud-warn+fresh); per-session CSV; B6 flags
+  (`--snapshot-store`/`--league-state-dir`/
   `--league-dump-every`) forwarded from the shared parser into `server_kwargs`; `--state-dir`/
   `--checkpoint-every`. 4-lens impl review → **2 blockers found & fixed** (GPU-resume RNG `set_rng_state`
   crash → CPU-pinned; sb3-tier RED from a 2-tuple 3-unpack). ruff clean; torch-free tier green locally;
   the sb3 tier runs on shodan. See [D-26].
 - [~] **(C)** Scale envs across cores; add the short **from-scratch control** run ([D-19] decision 1).
-  **PR-4 landed locally** (branch `ml-bot/task-ce-pr4-train`): `train.py` swaps `DummyVecEnv` →
+  **PR-4 MERGED (PR #71, `f1224ee`)**: `train.py` swaps `DummyVecEnv` →
   `VecMonitor(SubprocVecEnv(start_method=forkserver))` (env fork before `MaskablePPO`/CUDA init)
   and adds the `--from-scratch` flag (mutex with `--freeze-trunk`, relaxed LR/ent-coef, provenance
   stamped). _Still open: the actual cross-core scaling validation + the short from-scratch control
@@ -567,9 +568,10 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       RNG + step + league pool/book (**NOT VecNormalize** — dropped per [D-26]); TensorBoard + a flat
       CSV that survives sessions; swap `DummyVecEnv` → `SubprocVecEnv` for real cross-core parallelism.
       _Slices: **PR-4 MERGED** (PR #71 `f1224ee` — `train.py` + TB/CSV + SubprocVecEnv +
-      `--from-scratch`); **PR-5 landed locally** (branch `ml-bot/task-ce-pr5-resume` — checkpoint/resume
-      core + per-session CSV + B6 flag forwarding, 2 review blockers fixed); PR-6 (committed shodan
-      launcher + schtasks runbook), PR-7 (deferred test-hardening). See [D-26]._
+      `--from-scratch`); **PR-5 MERGED** (PR #72 `b554cd7` — checkpoint/resume core + per-session CSV + B6 flag forwarding, 2 review blockers fixed); **PR-6 (this PR)** = committed shodan launcher
+      (`scripts/shodan/ppo-train.sh`) + schtasks wrapper/runbook + auto-restart safety guard
+      (rejected-pointer HALT via `EXIT_POINTER_REJECTED`, corrupt-`.zip` fallback to the retained
+      pair); PR-7 (deferred test-hardening). See [D-26]._
 
 **Acceptance criteria.**
 

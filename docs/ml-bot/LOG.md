@@ -21,6 +21,64 @@ Entry template:
 
 ---
 
+## 2026-06-28 — Task C/E PR-6 review + hardening pass (PR #73)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Multi-agent review of PR #73** — 6 specialist reviewers (code/silent-failure/tests/comments/types) + a 4-slice adversarial-verification workflow (bash launcher / Windows `.cmd`+XML / Python error-handling / test+docs). No critical/important defects in the core logic; the verifiers re-derived it correct (empirical `bash -n` on bash 3.2 **and** 5, hand-traced the restart loop, `py_compile`, full `FileNotFoundError`-path analysis). Findings were a high-value silent-failure + a set of accuracy/observability minors.
+- **Fixes applied (all landed):**
+  - **Preflight now asserts `torch.cuda.is_available()` when `DEVICE=cuda`** — SB3's `get_device('cuda')` SILENTLY falls back to CPU when CUDA isn't visible, so a `cuda` run could burn the whole budget on CPU while logging `device=cuda`. The RUNBOOK/XML already PROMISED this halt; now it's real. (The single true silent budget-burner the review found.)
+  - **`log()` got `|| true`** so a `tee` failure (broken pipe on a disconnected job / full disk) can't pre-empt the deliberate exit codes under `set -e`/`pipefail`.
+  - **New `EXIT_CRASH_LOOP=4`** (distinct from `EXIT_POINTER_REJECTED=3`); `ppo-train.cmd` maps BOTH 3 and 4 → `exit /b 0` so Task Scheduler `<RestartOnFailure>` never re-amplifies a deliberate halt (a no-progress crash-loop was otherwise ~Count×MAX attempts). `.cmd` also gates `exec` on `cd … || exit 1`.
+  - **`train.py` resume now HALTs on `FileNotFoundError` too** (a VALID-then-vanished `latest.json` TOCTOU) — it used to escape as a generic exit → launcher retry → next classify reads ABSENT → silent restart-from-0.
+  - **`resume_state.py`:** separate warn-once flags for the dir-fsync-unsupported vs open-failure degrades (so the benign macOS one can't mask the serious one); `_safe_unlink` → stderr + `WARNING:` prefix.
+  - **Comment-rot fixes:** `train.py`/`resume_state.py` lines still describing PR-5's "warn + fresh"/"loud fresh-start" on a rejected pointer → corrected to the PR-6 HALT.
+  - **New `ml/tests/test_ppo_train_launcher.py`** (6 lean-tier tests): source the launcher and drive `main()`'s restart-loop dispatch with stubs (halt-on-3, exit-on-0, bound-on-N-no-progress, **progress-resets-the-fail-counter**, transient-retry-then-success) + a `.cmd`↔`.sh` exit-code canary pinning the `=="3"`/`=="4"` branches.
+
+**Learned / decided:**
+
+- **The launcher's exit-code DISPATCH (not just the constant) needed a CI pin.** The PR-5 canary only matched the `EXIT_POINTER_REJECTED` _value_; nothing tested that the launcher _acts_ on it, nor that `ppo-train.cmd`'s hard-coded `=="4"` tracked `EXIT_CRASH_LOOP`. The new bash-sourcing test + the `.cmd` canary close both, and run torch-free in the lean tier.
+- **Doc promises must be code-enforced.** "preflight HALTs if the GPU isn't visible" was aspirational until this pass — exactly the silent-CPU-burn this campaign guards against.
+- Verification: `ruff check .` clean; full ml suite **204 passed / 5 skipped** (the 5 sb3-gated suites; the 6 `test_export_onnx.py` failures are still this box's Python 3.9.6 `zip(strict=True)`, untouched); `bash -n` clean.
+
+**Next:**
+
+- Unchanged from the PR-6 entry below: on shodan, the BLOCKING PR-5 validation checklist + from-scratch control run → long BEAT run gated vs `ai_lookahead@596f781`. PR-7 = deferred test-hardening (incl. now: lazy-import sb3 in `train.py` so the fake-driven HALT/reap tests run in lean CI; the optional WSL exit-code-propagation sentinel).
+
+---
+
+## 2026-06-28 — Task C/E PR-6 (committed shodan launcher + schtasks runbook + auto-restart safety guard)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Pre-flight readiness pass first** (per Ivan): repo green on `master` — `npm test` 1158/1158, lint/build exit 0, ml torch-free pytest 185 passed (the 6 `test_export_onnx.py` failures are this Mac's Python 3.9.6 hitting `zip(strict=True)`, a 3.10+ feature — not a regression, not in the PR-6 path). A 5-reader + synthesis workflow over PLAN/LOG/DECISIONS/code/tests pinned PR-6 = the committed shodan launcher + schtasks runbook, with PR-4 (#71) + PR-5 (#72) confirmed MERGED on `master`.
+- **Launcher `scripts/shodan/ppo-train.sh`**: owns the task-A BEAT production HPs (`--lr 2.5e-4 --ent-coef 0.01`), sizes `--n-envs` to cores under `SubprocVecEnv(forkserver)`, wires BOTH resume halves with matching dirs (`--state-dir`/`--checkpoint-every` + `--league-state-dir`/`--snapshot-store=disk`/`--league-dump-every`, `R=3`), pins `ENCODING_VERSION=2` + the commit for the whole campaign (HALTs on drift), TB + per-session CSV. Bounded auto-restart loop: relaunch the SAME command (HOLE-D caps the absolute budget) on a transient crash; HALT+alert on `EXIT_POINTER_REJECTED` or N consecutive **no-progress** failures (a checkpoint-step advance resets the counter).
+- **Windows→WSL bridge** `ppo-train.cmd` + importable Task Scheduler `ppo-train-task.xml` (LogonTrigger + BootTrigger, InteractiveToken for WSL GPU) — the only disconnect+reboot-surviving pattern. Operator `RUNBOOK.md` covers the BLOCKING PR-5 shodan validation checklist, the from-scratch control run (sequenced first), launch/monitor/recovery, and the [D-24] kill gate (`ppo:gate` win% Δ vs `ai_lookahead@596f781`, 95% CI lower bound > 0; turtle floor ≥ 60% decisiveRate).
+- **Auto-restart safety guard (code half, folded into PR-6).** `train.py` now HALTs with `EXIT_POINTER_REJECTED=3` on a present-but-rejected `latest.json` (was PR-5's loud-warn+fresh) — the three-way resume/fresh/HALT policy is a pure torch-free `resume_action(reason)` in `resume_state.py` (CI-tested). `load_resume_checkpoint` falls back across the retained `keep=N` SAME-build older pairs on a corrupt newest `.zip` (torch-free `resume_candidate_pairs` orders them), raising `ResumeCheckpointError` → the same HALT only when ALL retained pairs are unreadable.
+- **Verification:** ruff clean on all touched files; `test_resume_state.py` 37 green locally (6 new `resume_candidate_pairs`/`resume_action` tests); `bash -n` clean. sb3 corrupt-`.zip` fallback + all-corrupt tests added to `test_resume.py` (shodan-only). Docs updated (PLAN/DECISIONS PR-4/PR-5 "DONE locally" → MERGED #71/#72).
+
+**Learned / decided:**
+
+- **The PR-5 "loud warn + fresh" on a rejected pointer is right for an attended run but wrong unattended.** Under the schtasks auto-restart it silently re-burns the full `--timesteps` budget from step 0 — so PR-6 evolves it to **HALT + alert** (a distinct exit code the launcher treats as do-not-retry). This is a deliberate supersede of PR-5 review-decision (b), not a contradiction.
+- **The corrupt-`.zip` fallback is distinct from the keep=2 fallback PR-5 (b) refused.** PR-5 (b) refused to silently skip to keep=2 for _version/encoding-skew_ (genuinely incompatible) ckpts — PR-6 still HALTs on those. PR-6 only rolls back across SAME-build older pairs when the newest `.zip` BYTES are torn (a case (b) flagged "revisit if it bites"). Both meet at the same HALT for the incompatible case.
+- **Keep the highest-consequence decision in the torch-free tier.** `resume_action` + `resume_candidate_pairs` are pure and CI-tested, mirroring `classify_latest_pointer` — the sb3 `resume.py`/`train.py` halves stay thin (and shodan-only).
+
+**Dead ends / surprises:**
+
+- The readiness workflow's code-reader agent hit the structured-output retry cap; the synthesis agent + I read `train.py`/`resume.py` directly to fill the gap (and to verify the two unguarded failure modes that motivated folding the safety guard into PR-6).
+- This Mac has no Python ≥3.10 and no `sb3_contrib`, so the sb3-coupled resume tier (including the new corrupt-`.zip` tests) runs only on shodan; locally only the torch-free tier validates.
+
+**Next:**
+
+- On shodan: install/activate `[rl]`, run the PR-5 validation checklist + the new sb3 resume tests, then the from-scratch control run, then launch the long BEAT run at `R=3` and gate per [D-24].
+- PR-7 (deferred): env-server `main()` persistence integration test; live cross-worker `SharedDiskStore`; live forkserver two-half resume smoke.
+
+---
+
 ## 2026-06-28 — Task C/E PR-5 review-hardening (corrupt-sidecar degrade, CI-testable resume decision, GC orphan-sweep)
 
 **Phase:** 3 · **Who:** Ivan + Claude

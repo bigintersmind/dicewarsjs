@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Task Scheduler template for the disconnect-surviving PPO launcher (ml-bot Phase-3 PR-6, [D-26]).
+
+  Import on shodan (PowerShell/cmd, as the run user):
+      schtasks /create /tn "dicewars-ppo-train" /xml scripts\shodan\ppo-train-task.xml
+  Start / stop / inspect:
+      schtasks /run    /tn "dicewars-ppo-train"
+      schtasks /end    /tn "dicewars-ppo-train"
+      schtasks /query  /tn "dicewars-ppo-train" /v /fo LIST
+
+  EDIT BEFORE IMPORT (placeholders):
+    * <UserId>SHODAN\you</UserId>          -> your account (`whoami`); appears TWICE (trigger + principal)
+    * <Command> / <WorkingDirectory>       -> the Windows path to scripts\shodan on this box
+
+  GPU CAVEAT (read RUNBOOK.md "Scheduling"): WSL2 CUDA generally needs the user's session. This
+  template uses an InteractiveToken principal + a LogonTrigger, so it runs when the user is logged on
+  (pair with auto-login to survive reboot). If you instead need "run whether logged on or not", switch
+  LogonType to Password and confirm `torch.cuda.is_available()` is True under that context FIRST — the
+  launcher's preflight will HALT loudly if the GPU/venv is not visible. The internal bash loop already
+  auto-restarts on transient crashes, and ppo-train.cmd maps the two CODED halts
+  (EXIT_POINTER_REJECTED=3, EXIT_CRASH_LOOP=4) to 0 so <RestartOnFailure> below never re-amplifies
+  those. Other non-zero exits still hit the backstop and are retried up to Count times: a genuine
+  .cmd/wsl death, AND the launcher's preflight `exit 1` halts (encoding/commit/checkpoint) — the
+  latter is intended, since some preflight failures (CUDA/drive not ready) are transient at boot.
+
+  If `schtasks` rejects this file, re-save it as UTF-16 LE (the format Task Scheduler exports natively).
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>DiceWarsJS ml-bot PPO long BEAT run — disconnect-surviving launcher (PR-6).</Description>
+    <URI>\dicewars-ppo-train</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>SHODAN\you</UserId>
+    </LogonTrigger>
+    <BootTrigger>
+      <Enabled>true</Enabled>
+      <Delay>PT1M</Delay>
+    </BootTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>SHODAN\you</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT5M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:\Users\you\dicewarsjs\scripts\shodan\ppo-train.cmd</Command>
+      <WorkingDirectory>C:\Users\you\dicewarsjs\scripts\shodan</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

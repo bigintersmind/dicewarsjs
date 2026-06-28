@@ -14,6 +14,20 @@ export const load_ai_adaptive = async () => (await import('./ai_adaptive.js')).a
 export const load_ai_strategist = async () => (await import('./ai_strategist.js')).ai_strategist;
 export const load_ai_lookahead = async () => (await import('./ai_lookahead.js')).ai_lookahead;
 export const load_ai_expectimax = async () => (await import('./ai_expectimax.js')).ai_expectimax;
+/*
+ * PPO is a modern `(BotState) => move` neural bot, not a legacy mutable-game-view
+ * AI, so its loader returns it pre-wrapped by `adaptModernBot` — the same reverse
+ * adapter community bots use. That tags it `__modernBot` so the in-game `runAI`
+ * loop drives it with a sanitized BotState instead of a legacy game view (which it
+ * cannot read — an unwrapped modern bot would throw every turn). The arena and
+ * tournament screens use the RAW bot from `builtInBots.js`, whose consumers already
+ * call `fn(botState)` directly, so no wrapper is needed there.
+ */
+export const load_ai_ppo = async () => {
+  const { ai_ppo } = await import('./ai_ppo.js');
+  const { adaptModernBot } = await import('../arena/modernBotAdapter.js');
+  return adaptModernBot(ai_ppo, 'ai_ppo');
+};
 
 /**
  * AI Strategy Registry
@@ -94,6 +108,17 @@ export const AI_STRATEGIES = {
     description: 'Chance-node expectimax over win/loss outcomes weighted by exact dice odds',
     difficulty: 5,
     loader: load_ai_expectimax,
+    implementation: null,
+  },
+
+  // PPO self-play RL net (Phase 3). No search: a single reactive forward pass, so
+  // it plays on learned instinct, not lookahead.
+  ai_ppo: {
+    id: 'ai_ppo',
+    name: 'PPO AI',
+    description: 'Neural net trained by PPO self-play against a league of bots',
+    difficulty: 5,
+    loader: load_ai_ppo,
     implementation: null,
   },
 };

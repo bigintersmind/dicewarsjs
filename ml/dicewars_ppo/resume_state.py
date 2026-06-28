@@ -36,7 +36,8 @@ import torch
 from .constants import ENCODING_VERSION
 
 # Bump if the on-disk resume layout (latest.json schema / the sidecar set) changes incompatibly, so
-# an old pointer is rejected (→ a loud fresh-start) rather than mis-loaded.
+# an old pointer is rejected (POINTER_VERSION_SKEW → resume_action HALT → a loud exit with
+# EXIT_POINTER_REJECTED, PR-6) rather than mis-loaded.
 RESUME_FORMAT_VERSION = 1
 LATEST_NAME = "latest.json"
 
@@ -77,9 +78,12 @@ class ResumeCheckpointError(RuntimeError):
     guards, just discovered at load time rather than pointer-classification time).
     """
 
-# Module-level so the macOS dir-fsync degrade (in _fsync_dir) warns once per process, not once per
-# checkpoint.
+# Module-level so each _fsync_dir degrade warns once per process, not once per checkpoint. Two
+# SEPARATE flags so the benign/expected fsync-unsupported degrade (macOS, fires on the first
+# checkpoint) can't consume a shared flag and silently suppress the UNEXPECTED open-failure warn (a
+# vanished state dir / EMFILE) — they are different-severity conditions and each warns on its own.
 _DIR_FSYNC_WARNED = False
+_DIR_OPEN_WARNED = False
 
 
 def _fsync_path(path: Path) -> None:
@@ -101,16 +105,25 @@ def _fsync_dir(path: Path) -> None:
     it degrades to a no-op rather than crashing, since this is a hardening, not a correctness
     requirement (Linux / the shodan WSL box get the guarantee). The degrade is logged ONCE (not on
     every checkpoint) so the reduced-durability mode is visible on the box it's running on rather
-    than silent — the whole point of this run is crash-safety.
+    than silent — the whole point of this run is crash-safety. The OPEN failure degrades the same
+    way (warn-once, not a silent return): the state dir was just mkdir'd, so a failure to open it is
+    unexpected (permissions / a vanished dir / EMFILE) and must not silently drop durability.
     """
+    global _DIR_FSYNC_WARNED, _DIR_OPEN_WARNED
     try:
         fd = os.open(path, os.O_RDONLY)
-    except OSError:
+    except OSError as err:
+        if not _DIR_OPEN_WARNED:
+            print(
+                f"WARNING: could not open directory {path} to fsync ({err}); checkpoint durability "
+                "is best-effort (os.replace torn-write atomicity still holds).",
+                file=sys.stderr,
+            )
+            _DIR_OPEN_WARNED = True
         return
     try:
         os.fsync(fd)
     except OSError:
-        global _DIR_FSYNC_WARNED
         if not _DIR_FSYNC_WARNED:
             print(
                 f"WARNING: directory fsync unsupported on this platform ({path}); checkpoint "
@@ -407,7 +420,13 @@ def _safe_unlink(path: Path) -> None:
     try:
         path.unlink(missing_ok=True)
     except OSError as err:
-        print(f"[resume] GC: could not unlink {path.name} ({err}); leaving on disk")
+        # stderr + WARNING prefix to match every other degradation in this module (so log scrapers
+        # see GC hiccups uniformly); the file is left on disk and a later GC pass re-sweeps it.
+        print(
+            f"WARNING: [resume] GC could not unlink {path.name} ({err}); leaving on disk "
+            "(a later GC pass re-sweeps it).",
+            file=sys.stderr,
+        )
 
 
 def _gc_old_checkpoints(state_dir: Path, *, keep: int, keep_step: int) -> None:

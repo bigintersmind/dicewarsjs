@@ -209,11 +209,14 @@ To **deliberately** restart a campaign, point `--state-dir`/`RUN_NAME` at a **fr
 than leaving a rejected pointer in place — the launcher's halt is exactly there to stop a silent
 restart-from-0 from re-burning days of GPU.
 
-**When the launcher HALTS on a crash-loop** (`N` consecutive failures with no checkpoint progress):
-the run is dying before it can checkpoint. Read the last attempt's traceback (launcher.log / stdout) —
-common causes: a wedged Node env-server (`ppo-env-server.mjs`), an OOM, or a GPU/driver fault. Fix the
-cause, then re-run; a failure _after_ the step advances resets the counter, so this only trips on a
-genuine no-progress loop.
+**When the launcher HALTS on a crash-loop** (`N` consecutive failures with no checkpoint progress,
+launcher exit `EXIT_CRASH_LOOP` / `4`): the run is dying before it can checkpoint. Read the last
+attempt's traceback (launcher.log / stdout) — common causes: a wedged Node env-server
+(`ppo-env-server.mjs`), an OOM, or a GPU/driver fault. Fix the cause, then re-run; a failure _after_
+the step advances resets the counter, so this only trips on a genuine no-progress loop. Under Task
+Scheduler this is **not** auto-relaunched: `ppo-train.cmd` maps both intentional halt codes (`3` and
+`4`) to `0`, so `<RestartOnFailure>` does not re-amplify the crash-loop — the task stops and waits for
+you (re-run it with `schtasks /run` after fixing the cause).
 
 **Stop the unattended run:** `schtasks /end /tn "dicewars-ppo-train"` (and disable the task if you do
 not want it to relaunch at next logon/boot).

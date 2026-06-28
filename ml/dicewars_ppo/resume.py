@@ -135,8 +135,11 @@ def load_resume_checkpoint(state_dir: str | Path, venv: Any, device: str) -> Mas
         return model
     raise ResumeCheckpointError(
         f"all {len(candidates)} retained resume checkpoint(s) in {state_dir} failed to load; last "
-        f"error: {last_err!r}. Inspect the ckpt-*.zip pairs before deleting latest.json (it is the "
-        "breadcrumb to them)."
+        f"error: {last_err!r}. This is usually corrupt bytes, but the SAME error across EVERY "
+        "retained pair more often means an ENVIRONMENT mismatch (a torch/sb3 version change since "
+        "the checkpoints were written, or a bad --device) than per-file corruption — verify those "
+        "FIRST. Inspect the ckpt-*.zip pairs before deleting latest.json (it is the breadcrumb to "
+        "them)."
     )
 
 

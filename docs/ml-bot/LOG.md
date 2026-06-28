@@ -21,6 +21,34 @@ Entry template:
 
 ---
 
+## 2026-06-28 — Task C/E PR-6 review + hardening pass (PR #73)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Multi-agent review of PR #73** — 6 specialist reviewers (code/silent-failure/tests/comments/types) + a 4-slice adversarial-verification workflow (bash launcher / Windows `.cmd`+XML / Python error-handling / test+docs). No critical/important defects in the core logic; the verifiers re-derived it correct (empirical `bash -n` on bash 3.2 **and** 5, hand-traced the restart loop, `py_compile`, full `FileNotFoundError`-path analysis). Findings were a high-value silent-failure + a set of accuracy/observability minors.
+- **Fixes applied (all landed):**
+  - **Preflight now asserts `torch.cuda.is_available()` when `DEVICE=cuda`** — SB3's `get_device('cuda')` SILENTLY falls back to CPU when CUDA isn't visible, so a `cuda` run could burn the whole budget on CPU while logging `device=cuda`. The RUNBOOK/XML already PROMISED this halt; now it's real. (The single true silent budget-burner the review found.)
+  - **`log()` got `|| true`** so a `tee` failure (broken pipe on a disconnected job / full disk) can't pre-empt the deliberate exit codes under `set -e`/`pipefail`.
+  - **New `EXIT_CRASH_LOOP=4`** (distinct from `EXIT_POINTER_REJECTED=3`); `ppo-train.cmd` maps BOTH 3 and 4 → `exit /b 0` so Task Scheduler `<RestartOnFailure>` never re-amplifies a deliberate halt (a no-progress crash-loop was otherwise ~Count×MAX attempts). `.cmd` also gates `exec` on `cd … || exit 1`.
+  - **`train.py` resume now HALTs on `FileNotFoundError` too** (a VALID-then-vanished `latest.json` TOCTOU) — it used to escape as a generic exit → launcher retry → next classify reads ABSENT → silent restart-from-0.
+  - **`resume_state.py`:** separate warn-once flags for the dir-fsync-unsupported vs open-failure degrades (so the benign macOS one can't mask the serious one); `_safe_unlink` → stderr + `WARNING:` prefix.
+  - **Comment-rot fixes:** `train.py`/`resume_state.py` lines still describing PR-5's "warn + fresh"/"loud fresh-start" on a rejected pointer → corrected to the PR-6 HALT.
+  - **New `ml/tests/test_ppo_train_launcher.py`** (6 lean-tier tests): source the launcher and drive `main()`'s restart-loop dispatch with stubs (halt-on-3, exit-on-0, bound-on-N-no-progress, **progress-resets-the-fail-counter**, transient-retry-then-success) + a `.cmd`↔`.sh` exit-code canary pinning the `=="3"`/`=="4"` branches.
+
+**Learned / decided:**
+
+- **The launcher's exit-code DISPATCH (not just the constant) needed a CI pin.** The PR-5 canary only matched the `EXIT_POINTER_REJECTED` _value_; nothing tested that the launcher _acts_ on it, nor that `ppo-train.cmd`'s hard-coded `=="4"` tracked `EXIT_CRASH_LOOP`. The new bash-sourcing test + the `.cmd` canary close both, and run torch-free in the lean tier.
+- **Doc promises must be code-enforced.** "preflight HALTs if the GPU isn't visible" was aspirational until this pass — exactly the silent-CPU-burn this campaign guards against.
+- Verification: `ruff check .` clean; full ml suite **204 passed / 5 skipped** (the 5 sb3-gated suites; the 6 `test_export_onnx.py` failures are still this box's Python 3.9.6 `zip(strict=True)`, untouched); `bash -n` clean.
+
+**Next:**
+
+- Unchanged from the PR-6 entry below: on shodan, the BLOCKING PR-5 validation checklist + from-scratch control run → long BEAT run gated vs `ai_lookahead@596f781`. PR-7 = deferred test-hardening (incl. now: lazy-import sb3 in `train.py` so the fake-driven HALT/reap tests run in lean CI; the optional WSL exit-code-propagation sentinel).
+
+---
+
 ## 2026-06-28 — Task C/E PR-6 (committed shodan launcher + schtasks runbook + auto-restart safety guard)
 
 **Phase:** 3 · **Who:** Ivan + Claude

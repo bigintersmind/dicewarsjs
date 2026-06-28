@@ -24,5 +24,31 @@ if "%VENV_ACTIVATE%"=="" set "VENV_ACTIVATE=ml/.venv/bin/activate"
 
 REM -l = login shell so a conda/venv init in the user's profile is honored; then activate the [rl]
 REM venv explicitly (the launcher's preflight HALTS loudly if torch/sb3 are still missing).
-wsl.exe -d %WSL_DISTRO% -- bash -lc "cd '%REPO_WSL_PATH%' && source '%VENV_ACTIVATE%' 2>/dev/null; exec bash scripts/shodan/ppo-train.sh"
-exit /b %ERRORLEVEL%
+REM `cd ... || exit 1` so a misconfigured REPO_WSL_PATH fails with a clear error instead of running
+REM ppo-train.sh from $HOME and dying with an opaque "No such file or directory"; `source` stays
+REM non-fatal (2>/dev/null) because the launcher preflight re-checks the venv.
+wsl.exe -d %WSL_DISTRO% -- bash -lc "cd '%REPO_WSL_PATH%' || exit 1; source '%VENV_ACTIVATE%' 2>/dev/null; exec bash scripts/shodan/ppo-train.sh"
+REM Capture wsl's exit code immediately (no intervening command clobbers ERRORLEVEL). The 3/4
+REM do-not-retry mapping below relies on wsl.exe propagating the launcher's exit code to ERRORLEVEL;
+REM modern WSL2 (shodan) does. On an ancient WSL that didn't, a coded halt would just be retried by
+REM the backstop (harmless: exit 3 re-halts within seconds; exit 4 re-amplifies, bounded by Count).
+set "RC=%ERRORLEVEL%"
+
+REM The two CODED halts (3, 4) must not be re-amplified by the task's <RestartOnFailure> backstop (it
+REM fires on ANY non-zero exit and can't tell a deliberate halt from a dead .cmd): a relaunch only
+REM re-halts+re-alerts (3) or re-runs a no-progress crash-loop (4) for ~Count x MAX_CONSECUTIVE_FAILS
+REM attempts. So map 3 and 4 to 0. Everything else propagates to the backstop and IS retried up to
+REM <RestartOnFailure Count> times -- intended for transient boot-time failures (CUDA/drive not ready
+REM yet), but note this INCLUDES the launcher's own preflight `exit 1` halts (encoding/commit/
+REM checkpoint), which therefore re-alert at most Count times rather than once.
+REM   3 = EXIT_POINTER_REJECTED  (unrecoverable resume state -- bytes won't heal)
+REM   4 = EXIT_CRASH_LOOP        (bounded no-progress crash-loop -- needs an operator, not a relaunch)
+if "%RC%"=="3" (
+  echo ppo-train.cmd: launcher halted EXIT_POINTER_REJECTED ^(3^) -- intentional, not retrying. See RUNBOOK "Recovery".
+  exit /b 0
+)
+if "%RC%"=="4" (
+  echo ppo-train.cmd: launcher halted on a crash-loop ^(4^) -- intentional, not retrying. See RUNBOOK "crash-loop".
+  exit /b 0
+)
+exit /b %RC%

@@ -72,6 +72,10 @@ LEAGUE_DUMP_EVERY="${LEAGUE_DUMP_EVERY:-50}"        # Node league dump cadence i
 # --- auto-restart policy --------------------------------------------------------------------------
 EXIT_POINTER_REJECTED=3                              # MUST match dicewars_ppo._train_common.EXIT_POINTER_REJECTED
                                                      # (a CI canary in test_train_common_args.py pins the pair)
+EXIT_CRASH_LOOP=4                                    # this launcher's OWN intentional-halt code for a
+                                                     # bounded no-progress crash-loop (distinct from a
+                                                     # transient exit so ppo-train.cmd can map it to 0 and
+                                                     # stop schtasks <RestartOnFailure> from re-amplifying it)
 MAX_CONSECUTIVE_FAILS="${MAX_CONSECUTIVE_FAILS:-5}"  # bound a no-progress crash-loop
 BACKOFF_BASE_S="${BACKOFF_BASE_S:-15}"               # backoff = min(BACKOFF_BASE_S * fails, BACKOFF_MAX_S)
 BACKOFF_MAX_S="${BACKOFF_MAX_S:-120}"
@@ -79,7 +83,10 @@ EXPECTED_ENCODING_VERSION="${EXPECTED_ENCODING_VERSION:-2}"
 
 mkdir -p "$RUN_ROOT"
 
-log() { printf '%s [ppo-train] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" | tee -a "$LAUNCH_LOG"; }
+# `|| true`: the deliberate exit codes (EXIT_POINTER_REJECTED / EXIT_CRASH_LOOP) drive the do-not-
+# retry contract and must NEVER be pre-empted by a tee failure (a broken stdout pipe on a job whose
+# terminal went away, or a full disk) aborting the script early under `set -e` + `pipefail`.
+log() { printf '%s [ppo-train] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" | tee -a "$LAUNCH_LOG" || true; }
 alert() { log "ALERT: $*"; }  # a hook point: redirect/extend to email/push if desired (RUNBOOK.md)
 
 # Read the integer "step" out of latest.json without a jq dependency (WSL Ubuntu may not ship it).
@@ -101,8 +108,26 @@ preflight() {
     exit 1
   fi
   [ -f "$ML_DIR/$CHECKPOINT" ] || { alert "BC checkpoint not found: $ML_DIR/$CHECKPOINT"; exit 1; }
-  python -c "import torch, sb3_contrib, gymnasium" 2>/dev/null \
-    || { alert "the [rl] venv is not active (need torch + sb3_contrib + gymnasium)"; exit 1; }
+  local import_err
+  if ! import_err="$(python -c "import torch, sb3_contrib, gymnasium" 2>&1)"; then
+    # Surface the actual ImportError, not a generic "venv not active" — a partially-broken install
+    # (e.g. torch built against the wrong CUDA libs) needs the real message to diagnose, not a
+    # reinstall of a venv that is already present.
+    alert "the [rl] venv is not usable (need torch + sb3_contrib + gymnasium): $import_err"
+    exit 1
+  fi
+  # DEVICE defaults to cuda, and SB3's get_device('cuda') SILENTLY falls back to CPU when CUDA is not
+  # visible (no exception) — so a cuda run could burn the WHOLE --timesteps budget on CPU (days), the
+  # exact waste this launcher exists to prevent, while train.py still logs the REQUESTED device=cuda.
+  # Assert availability here and HALT — the docs (RUNBOOK §1/§4b, ppo-train-task.xml) promise this guard.
+  if [ "${DEVICE%%:*}" = "cuda" ]; then
+    if ! python -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+      alert "DEVICE=cuda but torch.cuda.is_available() is False — refusing to launch: it would train"
+      alert "on CPU for days (the budget burn this run guards). Fix CUDA/the [rl] venv (RUNBOOK §1),"
+      alert "or set DEVICE=cpu deliberately for a smoke."
+      exit 1
+    fi
+  fi
 }
 
 # Pin the commit for the WHOLE run: a `git pull` mid-campaign could change the encoding/env under a
@@ -178,8 +203,9 @@ ent_coef=$ENT_COEF R=$RESERVE_BASELINES from_scratch=${FROM_SCRATCH:-0}"
     fails=$((fails + 1))
     if [ "$fails" -ge "$MAX_CONSECUTIVE_FAILS" ]; then
       alert "$fails consecutive failures with no checkpoint progress (last exit $rc) — this is a"
-      alert "crash-loop, not a transient death. Halting so an operator can investigate (RUNBOOK.md)."
-      exit 1
+      alert "crash-loop, not a transient death. Halting (exit $EXIT_CRASH_LOOP) so an operator can"
+      alert "investigate (RUNBOOK.md '§6 crash-loop')."
+      exit "$EXIT_CRASH_LOOP"
     fi
 
     local backoff=$((BACKOFF_BASE_S * fails))
@@ -189,4 +215,11 @@ ent_coef=$ENT_COEF R=$RESERVE_BASELINES from_scratch=${FROM_SCRATCH:-0}"
   done
 }
 
-main "$@"
+# Run main() only when this file is EXECUTED, not when it is SOURCED. The real entrypoints
+# (direct `bash scripts/shodan/ppo-train.sh`, and ppo-train.cmd's `exec bash … ppo-train.sh`) are
+# executed, so the guard is true and main runs exactly as before. The launcher tests
+# (ml/tests/test_ppo_train_launcher.py) SOURCE this file to stub preflight/run_once/latest_step/sleep
+# and drive main()'s restart loop deterministically — without the guard, sourcing would auto-run it.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  main "$@"
+fi

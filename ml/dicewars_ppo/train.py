@@ -126,8 +126,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     # Idempotent resume (PR-5, [D-26] Q3). --state-dir holds the SB3 zip + RNG sidecar + latest.json
     # (the crash hinge). Set it to make the run resumable: a relaunch of the SAME command resumes
-    # from a valid latest.json (a corrupt/stale one warns and starts fresh). This is the PYTHON
-    # resume half; it is INDEPENDENT of the Node league's --league-state-dir (the other half).
+    # from a valid latest.json (a present-but-rejected one HALTs with EXIT_POINTER_REJECTED per the
+    # PR-6 safety guard; an ABSENT pointer starts fresh). This is the PYTHON resume half; it is
+    # INDEPENDENT of the Node league's --league-state-dir (the other half).
     p.add_argument(
         "--state-dir",
         default=None,
@@ -309,7 +310,13 @@ def train(args: argparse.Namespace) -> Path:
             # SystemExit propagates through the finally below, which reaps the workers first.
             try:
                 model = load_resume_checkpoint(args.state_dir, venv, args.device)
-            except ResumeCheckpointError as err:
+            except (ResumeCheckpointError, FileNotFoundError) as err:
+                # ResumeCheckpointError: every retained pair was unreadable. FileNotFoundError:
+                # classify_latest_pointer said VALID but latest.json (or a referenced file) vanished
+                # before load re-read it (a single-writer TOCTOU). Either way HALT: letting a bare
+                # FileNotFoundError escape as a generic exit would have the launcher RETRY, and the
+                # next invocation's classify would then read ABSENT → RESUME_ACTION_FRESH → a silent
+                # restart from step 0 — the exact failure this guard exists to prevent.
                 print(f"FATAL: {err}", file=sys.stderr)
                 raise SystemExit(EXIT_POINTER_REJECTED) from err
             print(f"resumed from {args.state_dir} at num_timesteps={model.num_timesteps}")

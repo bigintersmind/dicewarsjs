@@ -18,7 +18,11 @@
   (pair with auto-login to survive reboot). If you instead need "run whether logged on or not", switch
   LogonType to Password and confirm `torch.cuda.is_available()` is True under that context FIRST — the
   launcher's preflight will HALT loudly if the GPU/venv is not visible. The internal bash loop already
-  auto-restarts on transient crashes; <RestartOnFailure> here is only a backstop if the .cmd dies.
+  auto-restarts on transient crashes, and ppo-train.cmd maps the two CODED halts
+  (EXIT_POINTER_REJECTED=3, EXIT_CRASH_LOOP=4) to 0 so <RestartOnFailure> below never re-amplifies
+  those. Other non-zero exits still hit the backstop and are retried up to Count times: a genuine
+  .cmd/wsl death, AND the launcher's preflight `exit 1` halts (encoding/commit/checkpoint) — the
+  latter is intended, since some preflight failures (CUDA/drive not ready) are transient at boot.
 
   If `schtasks` rejects this file, re-save it as UTF-16 LE (the format Task Scheduler exports natively).
 -->

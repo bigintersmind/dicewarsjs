@@ -29,6 +29,11 @@ rl = [
   "stable-baselines3>=2.3",
   "sb3-contrib>=2.3",
   "pettingzoo>=1.24",
+  # train.py's TensorBoard sink. SB3's TensorBoardOutputFormat HARD-imports this (it RAISES, not
+  # no-ops, when the TB sink is enabled and tensorboard is absent), so it lives in [rl] (the GPU
+  # box). train.py also degrades to CSV-only + a warning if it's missing (--no-tensorboard opts
+  # out entirely). The lean ml-test CI never installs [rl] / calls _make_logger, so no CI change.
+  "tensorboard>=2.12",
 ]
 dev = [
   "pytest>=7.4",

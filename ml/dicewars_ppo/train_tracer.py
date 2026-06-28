@@ -30,7 +30,6 @@ byte-identical to the warm-start, a useful sanity floor.
 from __future__ import annotations
 
 import argparse
-import math
 import sys
 from pathlib import Path
 
@@ -40,7 +39,8 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 
 from dicewars_bc.model import EdgePolicyNet, ModelConfig
 
-from .env import DiceWarsEnv
+from . import _train_common
+from ._train_common import _make_env_thunk, _validate_args
 from .policy import (
     MaskableEdgePolicy,
     load_bc_checkpoint,
@@ -49,53 +49,30 @@ from .policy import (
 )
 from .snapshot_callback import SnapshotCallback
 
-# Fixed, seed-pure, heterogeneous baseline field ([D-15]: strong bots in every game
-# keep it decisive; no Math.random bots so episodes stay reproducible). resolveOpponents
-# cycles this list to fill the (player_count - 1) opponent seats.
-DEFAULT_OPPONENTS = "ai_lookahead,ai_strategist,ai_expectimax,ai_bc,ai_defensive"
-
-
-def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
-    """A zero-arg env factory for ``DummyVecEnv`` — each launches its own env-server.
-
-    The env's ``player_count`` MUST equal the BC config's (the players-tensor height the
-    obs frame carries; ``_check_dims`` rejects a mismatch), so it's taken from ``cfg``,
-    not a free flag. Each env gets a disjoint ``seed_base`` block so parallel envs don't
-    replay identical episodes.
-    """
-
-    # All vec-env servers poll the SAME producer manifest, so they share one snapshot pool ([D-22]).
-    # `snapshot_dir` is resolved absolute in _validate_args so producer (this process) and consumers
-    # (the Node servers, cwd=repo-root) agree on the path regardless of cwd.
-    snapshot_manifest = (
-        str(Path(args.snapshot_dir) / "manifest.json") if args.snapshot_dir else None
-    )
-
-    def _thunk() -> DiceWarsEnv:
-        return DiceWarsEnv(
-            max_areas=cfg.max_areas,
-            player_count=cfg.player_count,
-            server_kwargs={
-                "opponents": args.opponents,
-                "max_turns": args.max_turns,
-                "learner_seat": args.learner_seat,
-                "seed_base": args.seed_base + env_index * 1_000_000,
-                "snapshot_manifest": snapshot_manifest,
-                "snapshot_pool_cap": args.snapshot_pool_cap,
-                "reserve_baselines": args.reserve_baselines,
-                "pfsp_epsilon": args.pfsp_epsilon,
-                "pfsp_k": args.pfsp_k,
-            },
-        )
-
-    return _thunk
+# The fixed baseline field, the env factory, the argparse surface, and the arg validation now
+# live in the torch-free `_train_common` so `train.py` can share them (a SubprocVecEnv worker
+# imports the env-thunk's module and must not drag torch/sb3 in — see _train_common's docstring).
+# They are re-imported above so the tracer's body (and its tests, which call `tt._make_env_thunk` /
+# `tt._validate_args` / `tt.build_parser`) keeps the exact same names and behavior as before.
 
 
 def build_model(
-    cfg: ModelConfig, ckpt: dict, args: argparse.Namespace
+    cfg: ModelConfig,
+    ckpt: dict,
+    args: argparse.Namespace,
+    venv: DummyVecEnv | None = None,
 ) -> tuple[MaskablePPO, DummyVecEnv]:
-    """Construct the vec-env + warm-started ``MaskablePPO``. Returns ``(model, venv)``."""
-    venv = DummyVecEnv([_make_env_thunk(cfg, args, i) for i in range(args.n_envs)])
+    """Construct the vec-env + ``MaskablePPO`` (warm-started unless ``--from-scratch``).
+
+    ``venv`` lets ``train.py`` inject its ``VecMonitor(SubprocVecEnv(...))`` stack; when it is
+    ``None`` (the tracer's only path) a sequential ``DummyVecEnv`` is built here exactly as
+    before — byte-identical. ``--from-scratch`` (set only by ``train.py``; the tracer's args
+    never carry it, so ``getattr`` is ``False`` and the warm-start branch always runs) skips the
+    BC warm-start so the actor trains from a fresh init — the [D-19] control that proves a gate
+    win is real learning rather than warm-start exploitation. Returns ``(model, venv)``.
+    """
+    if venv is None:
+        venv = DummyVecEnv([_make_env_thunk(cfg, args, i) for i in range(args.n_envs)])
 
     model = MaskablePPO(
         MaskableEdgePolicy,
@@ -115,11 +92,15 @@ def build_model(
         verbose=1,
     )
 
-    # Load the BC trunk + edge_head into the actor (the fresh scalar critic stays at init).
-    warm_start_from_bc(model.policy, ckpt)
     n_total = sum(p.numel() for p in model.policy.parameters())
     n_actor = sum(p.numel() for p in model.policy.bc_net.parameters())
-    print(f"warm-started actor from BC checkpoint: {n_actor:,} actor params, {n_total:,} total")
+    if getattr(args, "from_scratch", False):
+        # No BC prior loaded — the actor keeps MaskableEdgePolicy._build's fresh init.
+        print(f"from-scratch: skipped BC warm-start — {n_actor:,} actor params, {n_total:,} total")
+    else:
+        # Load the BC trunk + edge_head into the actor (the fresh scalar critic stays at init).
+        warm_start_from_bc(model.policy, ckpt)
+        print(f"warm-started actor from BC checkpoint: {n_actor:,} actor params, {n_total:,} total")
 
     if args.freeze_trunk:
         for p in model.policy.bc_net.parameters():
@@ -197,131 +178,13 @@ def train(args: argparse.Namespace) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    p.add_argument(
-        "--checkpoint",
-        default="checkpoints/v2-base/bc_model.pt",
-        help="v2-BC checkpoint to warm-start from (the deployed ai_bc).",
-    )
-    p.add_argument(
-        "--out", default="checkpoints/ppo-tracer.pt", help="Repacked BC-format output .pt"
-    )
-    p.add_argument("--opponents", default=DEFAULT_OPPONENTS, help="CSV of fixed baseline bot ids")
-    p.add_argument("--learner-seat", type=int, default=0, help="Seat the learner occupies")
-    p.add_argument(
-        "--n-envs", type=int, default=1, help="Parallel DummyVecEnv envs (1-2 for a tracer)"
-    )
-    # Budget — kept tiny: total_timesteps / (n_steps * n_envs) = number of PPO updates.
-    p.add_argument(
-        "--timesteps", type=int, default=2048, help="Total env steps (a handful of updates)"
-    )
-    p.add_argument(
-        "--n-steps", type=int, default=512, help="Rollout length per env before each update"
-    )
-    p.add_argument(
-        "--batch-size", type=int, default=128, help="Minibatch (must divide n_steps*n_envs)"
-    )
-    p.add_argument("--n-epochs", type=int, default=4, help="PPO epochs per rollout")
-    # Low LR by default so a short run can't wreck the warm-started actor ([D-19] decision 1).
-    p.add_argument(
-        "--lr", type=float, default=1e-4, help="Learning rate (low; protects the warm start)"
-    )
-    p.add_argument(
-        "--gamma", type=float, default=0.999, help="Discount (high: sparse terminal-win signal)"
-    )
-    p.add_argument("--gae-lambda", type=float, default=0.95)
-    p.add_argument(
-        "--ent-coef", type=float, default=0.0, help="Entropy bonus (0 keeps the warm start stable)"
-    )
-    p.add_argument("--vf-coef", type=float, default=0.5)
-    p.add_argument(
-        "--freeze-trunk",
-        action="store_true",
-        help="Freeze the BC trunk+edge_head (train the fresh critic only; actor unchanged).",
-    )
-    p.add_argument("--max-turns", type=int, default=500, help="Stalemate cap (→ Gym truncation)")
-    p.add_argument("--seed", type=int, default=0, help="PPO/torch seed")
-    p.add_argument("--seed-base", type=int, default=1, help="Env-server episode seed base")
-    p.add_argument("--device", default="cpu", help="torch device (cpu is fine — the net is tiny)")
-    # PFSP snapshots (B3 / [D-22]). --snapshot-dir off ⇒ fixed-field (task A) empty-pool mode.
-    p.add_argument(
-        "--snapshot-dir",
-        default=None,
-        help="Publish snapshots (weights + manifest.json) here for the league to hot-load; "
-        "unset ⇒ fixed-field (no PFSP).",
-    )
-    p.add_argument(
-        "--snapshot-every",
-        type=int,
-        default=50_000,
-        help="Snapshot cadence in total env steps (only used with --snapshot-dir).",
-    )
-    p.add_argument(
-        "--snapshot-pool-cap",
-        type=int,
-        default=40,
-        help="Max snapshots the env-server league holds live (FIFO-by-step; forwarded).",
-    )
-    # PFSP sampler knobs (B4 / [D-23]). Only bite with --snapshot-dir (a non-empty pool); forwarded
-    # to the env-server league's draw(). w(S) = max(eps, 1 - learnerWinRate(S)) ** k.
-    p.add_argument(
-        "--reserve-baselines",
-        type=int,
-        default=3,
-        help="R baselines reserved per drawn field (turtle-equilibrium defense; distinct non-ai_bc "
-        "ids, no-replacement). Only used with --snapshot-dir.",
-    )
-    p.add_argument(
-        "--pfsp-epsilon",
-        type=float,
-        default=0.05,
-        help="PFSP weight floor eps in (0, 1] for w(S)=max(eps,1-winRate)**k. Only used with "
-        "--snapshot-dir.",
-    )
-    p.add_argument(
-        "--pfsp-k",
-        type=float,
-        default=2.0,
-        help="PFSP weight exponent k (>= 0) for w(S)=max(eps,1-winRate)**k. Only used with "
-        "--snapshot-dir.",
-    )
-    return p
+    """The tracer CLI — the shared ``_train_common`` surface stamped with this module's docstring.
 
-
-def _validate_args(args: argparse.Namespace) -> None:
-    rollout = args.n_steps * args.n_envs
-    if rollout % args.batch_size != 0:
-        raise SystemExit(
-            f"--batch-size {args.batch_size} must divide n_steps*n_envs = {rollout} "
-            f"(n_steps={args.n_steps}, n_envs={args.n_envs})."
-        )
-    if args.n_envs < 1:
-        raise SystemExit("--n-envs must be >= 1.")
-    if not Path(args.checkpoint).is_file():
-        raise SystemExit(f"--checkpoint not found: {args.checkpoint}")
-    # PFSP knobs (B4): validate UNCONDITIONALLY. In fixed-field mode (no --snapshot-dir) these
-    # knobs are NOT forwarded to the env-server — env_server.py only appends them on the snapshot
-    # branch — so Node never sees or validates the Python-supplied value. That makes THIS check the
-    # sole guard there; without it a bad value would be silently dropped (Node falls back to its own
-    # defaults). The bounds mirror the Node makeLeague guards so the two layers stay consistent when
-    # the knobs ARE forwarded; math.isfinite mirrors Number.isFinite so inf/nan fail here.
-    if args.reserve_baselines < 0:
-        raise SystemExit("--reserve-baselines must be >= 0.")
-    if not 0.0 < args.pfsp_epsilon <= 1.0:
-        raise SystemExit("--pfsp-epsilon must be in (0, 1].")
-    if not math.isfinite(args.pfsp_k) or args.pfsp_k < 0:
-        raise SystemExit("--pfsp-k must be a finite number >= 0.")
-    if args.snapshot_dir is not None:
-        if args.snapshot_every <= 0:
-            raise SystemExit("--snapshot-every must be > 0 when --snapshot-dir is set.")
-        if args.snapshot_pool_cap <= 0:
-            raise SystemExit("--snapshot-pool-cap must be > 0.")
-        # Absolutize so the producer (this process) and the Node consumers (cwd=repo-root)
-        # resolve the same manifest path; create it now so env-servers can stat() it from ep 0.
-        args.snapshot_dir = str(Path(args.snapshot_dir).resolve())
-        Path(args.snapshot_dir).mkdir(parents=True, exist_ok=True)
+    The parser body lives in ``_train_common.build_parser`` (so ``train.py`` shares it verbatim);
+    passing ``__doc__`` keeps the tracer's ``--help`` text exactly as before the extraction.
+    ``_validate_args`` is re-imported from ``_train_common`` (used in ``main``).
+    """
+    return _train_common.build_parser(__doc__)
 
 
 def main() -> None:

@@ -249,6 +249,24 @@ describe('toJSON / restore — fail-loud gates', () => {
     expect(b.stats().poolSize).toBe(0); // atomic — nothing applied
   });
 
+  it('rethrows a PRESENT-but-broken pooled module on resume instead of dropping it as "weights gone"', async () => {
+    // restore()'s `!existsSync` guard mirrors refresh() (task E / S-1): a pooled snapshot file that
+    // EXISTS but whose own `import` target is missing throws ERR_MODULE_NOT_FOUND — a real bug in a
+    // published artifact, NOT a GC-evicted file — so it must fail loud, not be silently dropped from
+    // the live pool (the asymmetry that existed before the two import paths were harmonized).
+    const manifest = writeManifest([snap(100)]);
+    const a = league(manifest);
+    await a.refresh();
+    const state = a.toJSON();
+    const file = 'snap-777.weights.js';
+    writeFileSync(join(dir, file), "import './does-not-exist.js';\nexport const BC_POLICY = {};\n");
+    state.pool.push({ id: 'snap-broken', step: 777, weightsPath: resolve(dir, file) });
+    state.loadedIds.push('snap-broken');
+    const b = league(manifest);
+    await expect(b.restore(state)).rejects.toThrow(); // present file → guard falls through to rethrow
+    expect(b.stats().poolSize).toBe(0); // atomic — NOT a silent droppedPool skip
+  });
+
   it('rejects a store-backend switch on resume (would silently zero the book)', async () => {
     // A memory-store checkpoint carries the full book; restoring it into a disk-store league (whose book
     // lives in shards) — or the reverse — would wipe the win-rate book. The storeKind gate forbids it.

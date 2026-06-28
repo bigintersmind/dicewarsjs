@@ -784,9 +784,17 @@ export function makeLeague({
         try {
           mod = await import(pathToFileURL(snap.weightsPath).href);
         } catch (err) {
-          if (err.code === 'ENOENT' || err.code === 'ERR_MODULE_NOT_FOUND') {
+          if (
+            (err.code === 'ENOENT' || err.code === 'ERR_MODULE_NOT_FOUND') &&
+            !existsSync(snap.weightsPath)
+          ) {
             // FIFO-evicted/unlinked since the checkpoint — keep the id in loadedIds (below) so a later
-            // refresh() never re-imports the deleted file; the book record stays credited.
+            // refresh() never re-imports the deleted file; the book record stays credited. The
+            // `!existsSync` guard mirrors refresh(): only a file that is GENUINELY GONE is dropped. A
+            // PRESENT-but-broken module (a missing transitive import / a corrupt artifact raising
+            // ERR_MODULE_NOT_FOUND) falls through to the rethrow below — a real bug must not be masked
+            // as a benign "weights gone" drop, and the two import paths must not diverge if the
+            // snapshot artifact format ever gains an import.
             droppedPool++;
             process.stderr.write(
               `[ppo-league] restore: snapshot ${snap.id} weights gone (${snap.weightsPath}); ` +
@@ -794,7 +802,7 @@ export function makeLeague({
             );
             continue;
           }
-          throw err; // any non-missing-file import error — fail loud
+          throw err; // present-but-broken artifact, or any non-missing-file import error — fail loud
         }
         if (!mod.BC_POLICY) {
           // A parseable module with no BC_POLICY export would fall through to makeBC's default param and

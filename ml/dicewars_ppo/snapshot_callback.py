@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,13 +56,11 @@ from dicewars_bc.export_weights import export
 from dicewars_bc.manifest import EXPECTED_ENCODING_VERSION
 
 from .policy import repack_to_bc_checkpoint
-from .snapshot_manifest import gc_partition, plan_resume
+from .snapshot_manifest import gc_partition, plan_resume, snapshot_entry_from_filename
 
-# A published weights file: ``snap-<zero-padded-step>.weights.js`` (see ``_publish``). The capture
-# group recovers the producer step so a resume can rebuild its tracked set from a directory scan
-# (the manifest lists only the newest ``pool_cap`` — globbing disk is what makes the grace zone and
-# any stale files GC-eligible again). Anchored so a stray/temp file can never pose as a snapshot.
-_SNAPSHOT_FILE_RE = re.compile(r"snap-(\d+)\.weights\.js\Z")
+# The ``snap-<step>.weights.js`` filename parsing + stray/.tmp exclusion lives in
+# ``snapshot_manifest.snapshot_entry_from_filename`` (torch-free, CI-tested); the disk I/O (glob,
+# stat) stays here in the callback.
 
 
 class SnapshotCallback(BaseCallback):
@@ -155,25 +152,34 @@ class SnapshotCallback(BaseCallback):
         """Scan ``snapshot_dir`` for published weights files → manifest entries, ascending by step.
 
         The producer's tracked set is rebuilt from disk on resume (see ``_on_training_start``).
-        ``createdAt`` is recovered from each file's mtime (the original is only informational, not
-        persisted anywhere torch-free); a filename that does not match ``snap-<step>.weights.js`` is
-        skipped (a stray temp file or unrelated artifact must never enter the GC set).
+        Filename parsing + the stray/.tmp exclusion is ``snapshot_entry_from_filename`` (torch-free,
+        CI-tested); ``createdAt`` is recovered from each file's mtime (informational only — GC keys
+        on the step in the filename, not this stamp).
         """
         entries: list[dict] = []
         for path in self.snapshot_dir.glob("snap-*.weights.js"):
-            m = _SNAPSHOT_FILE_RE.match(path.name)
-            if m is None:
+            entry = snapshot_entry_from_filename(path.name)
+            if entry is None:
+                continue  # a .tmp torn-export sidecar or stray file — never adopt into the GC set
+            try:
+                created = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+            except FileNotFoundError:
+                # Vanished between glob and stat (a peer rm / concurrent GC) — genuinely gone, so
+                # nothing to track, list, or delete. Skip it; adopting a non-existent file would put
+                # a dangling reference into the rewritten manifest.
                 continue
-            step = int(m.group(1))
-            created = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
-            entries.append(
-                {
-                    "id": f"snap-{step:09d}",
-                    "step": step,
-                    "weights": path.name,
-                    "createdAt": created,
-                }
-            )
+            except OSError as err:
+                # PRESENT but unstat-able (transient EIO/EBUSY on a flaky share). The file is
+                # real, so it MUST stay in the producer's view: its step (from the filename, not
+                # the stat) classifies it into future/deletable/retained. Dropping it would orphan
+                # a future/aged file from GC and — if every file blips at once — make this return
+                # [], so _on_training_start short-circuits "as fresh", skips the resume
+                # reconciliation, and leaves a stale manifest still listing future snapshots
+                # (reopening HOLE-C). createdAt is informational, so synthesize one and adopt it.
+                print(f"[snapshot] resume scan: stat {path.name} failed ({err}); adopting")
+                created = datetime.now(timezone.utc).isoformat()
+            entry["createdAt"] = created
+            entries.append(entry)
         entries.sort(key=lambda s: s["step"])
         return entries
 
@@ -183,7 +189,10 @@ class SnapshotCallback(BaseCallback):
         Deleting a file the manifest no longer references is pure disk hygiene — training is
         unaffected — so a transient FS error (``EIO`` on a flaky disk, a read-only-remounted
         share, ``EBUSY``) must NOT crash a multi-day run. ``FileNotFoundError`` is idempotent for
-        the single writer; any other ``OSError`` is logged and the file left for the next GC pass.
+        the single writer; any other ``OSError`` is logged and the file left on disk. Note the
+        tracked set is bounded to ``retained`` after each publish, so a failed unlink is NOT retried
+        by a later steady-state publish — it is reclaimed by a future restart's disk rescan
+        (``_discover_on_disk_snapshots`` re-adopts it and it ages back into ``deletable``).
         """
         try:
             (self.snapshot_dir / weights_name).unlink(missing_ok=True)

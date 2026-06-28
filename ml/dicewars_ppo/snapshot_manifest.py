@@ -11,7 +11,32 @@ A "snapshot entry" is the dict the producer appends to its manifest:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
+
+# A published weights file is ``snap-<zero-padded-step>.weights.js`` (see ``SnapshotCallback``).
+# ANCHORED (``\Z``) so a torn export's ``.weights.js.tmp`` sidecar — or any stray/unrelated file —
+# can never pose as a published snapshot and be adopted into the producer's GC/rehydration set. The
+# capture group recovers the producer step: the manifest lists only the newest ``pool_cap``, so
+# globbing disk by this pattern is what re-tracks the grace zone (and aged-out files) on resume.
+_SNAPSHOT_FILE_RE = re.compile(r"snap-(\d+)\.weights\.js\Z")
+
+
+def snapshot_entry_from_filename(name: str) -> dict | None:
+    """Parse a published weights filename into a manifest entry, or ``None`` if it isn't one.
+
+    Returns ``{"id", "step", "weights"}`` (the caller adds the informational ``createdAt`` from the
+    file's mtime — kept out of here so this helper stays pure and torch-free). ``None`` for anything
+    not matching the anchored ``snap-<step>.weights.js`` pattern: a ``.weights.js.tmp`` torn-export
+    sidecar, or a stray/unrelated file. This exclusion is the producer-side half of the atomic-
+    export safety net — a ``kill -9`` mid-export leaves a ``.tmp``, never a ``snap-*.weights.js``
+    the resume disk-scan would re-adopt. ``id`` is the step zero-padded to 9 digits.
+    """
+    m = _SNAPSHOT_FILE_RE.match(name)
+    if m is None:
+        return None
+    step = int(m.group(1))
+    return {"id": f"snap-{step:09d}", "step": step, "weights": name}
 
 
 def rehydrate_snapshots(snapshots: Iterable[dict], num_timesteps: int) -> list[dict]:
@@ -81,6 +106,10 @@ def plan_resume(
 
     Pure: the callback does the I/O (glob, ``unlink``, manifest write); the partitioning lives here.
     """
+    # Materialize: we iterate ``on_disk`` twice (rehydrate + the future split). A generator would be
+    # exhausted by ``rehydrate_snapshots`` and silently make ``future`` empty — reopening the HOLE-C
+    # republish-divergence window with no test failure. Listing it first keeps any iterable safe.
+    on_disk = list(on_disk)
     kept = rehydrate_snapshots(on_disk, resumed_step)
     cutoff = int(resumed_step)
     future = [s for s in on_disk if int(s["step"]) > cutoff]

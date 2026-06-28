@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import pytest
 
-from dicewars_ppo.snapshot_manifest import gc_partition, plan_resume, rehydrate_snapshots
+from dicewars_ppo.snapshot_manifest import (
+    gc_partition,
+    plan_resume,
+    rehydrate_snapshots,
+    snapshot_entry_from_filename,
+)
 
 
 def _snap(step):
@@ -19,6 +24,46 @@ def _snap(step):
 
 def _snaps(*steps):
     return [_snap(s) for s in steps]
+
+
+# --- snapshot_entry_from_filename -------------------------------------------------------------
+
+
+def test_entry_from_filename_parses_and_keeps_padded_id():
+    assert snapshot_entry_from_filename("snap-000000256.weights.js") == {
+        "id": "snap-000000256",
+        "step": 256,
+        "weights": "snap-000000256.weights.js",
+    }
+
+
+def test_entry_from_filename_zero_pads_a_short_step():
+    # The producer always zero-pads the id to 9 digits; a shorter on-disk step still yields the
+    # padded id (so a resume rescan keys on the same id the original publish used).
+    assert snapshot_entry_from_filename("snap-5.weights.js") == {
+        "id": "snap-000000005",
+        "step": 5,
+        "weights": "snap-5.weights.js",
+    }
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "snap-000000256.weights.js.tmp",  # torn-export sidecar — THE atomic-export safety net
+        "snap-.weights.js",  # no step digits
+        "snap-abc.weights.js",  # non-numeric step
+        "manifest.json",  # the manifest itself
+        "snap-100.weights.js.bak",  # trailing junk (anchored \Z rejects it)
+        "prefix-snap-100.weights.js",  # not anchored at the start (match() anchors start)
+        "snap-100.weights.mjs",  # wrong extension
+        "snap-100.js",  # missing the .weights segment
+    ],
+)
+def test_entry_from_filename_rejects_non_snapshots(name):
+    # A non-conforming filename must never be adopted into the producer's GC/rehydration set —
+    # this is what stops a torn .tmp export from being re-globbed as a real snapshot on resume.
+    assert snapshot_entry_from_filename(name) is None
 
 
 # --- rehydrate_snapshots ----------------------------------------------------------------------
@@ -139,6 +184,17 @@ def test_plan_resume_partitions_grace_and_future_together():
     assert [s["step"] for s in manifest] == [200, 300]  # kept = [100,200,300]; newest pool_cap
     assert [s["step"] for s in retained] == [100, 200, 300]  # newest pool_cap + gc_grace
     assert [s["step"] for s in deletable] == []  # only 3 kept, exactly the disk budget
+
+
+def test_plan_resume_materializes_a_generator_input():
+    # plan_resume iterates on_disk TWICE (rehydrate, then the future split). Without the
+    # internal `list(on_disk)`, a generator would be exhausted after the first pass and `future`
+    # would silently come back empty — reopening the HOLE-C republish window with no other signal.
+    # Passing an iterator locks the materialization in.
+    _manifest, _retained, _deletable, future = plan_resume(
+        iter(_snaps(100, 200, 300, 400, 500, 600)), resumed_step=350, pool_cap=2, gc_grace=1
+    )
+    assert [s["step"] for s in future] == [400, 500, 600]
 
 
 def test_plan_resume_unordered_input_and_empty():

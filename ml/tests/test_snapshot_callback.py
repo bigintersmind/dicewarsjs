@@ -42,6 +42,15 @@ def _patch_export(monkeypatch):
     monkeypatch.setattr(snapshot_callback, "export", fake_export)
 
 
+def _fake_model(num_timesteps=0):
+    """Minimal stand-in for the SB3 model. ``_on_training_start`` reads ``num_timesteps`` (the
+    resume cursor — 0 for a fresh run, the resumed env-step count otherwise); ``policy`` is what
+    ``repack_to_bc_checkpoint`` consumes (faked in these tests). Both must be present, or
+    ``_on_training_start``'s unconditional ``int(self.model.num_timesteps)`` raises
+    ``AttributeError`` before the empty-dir short-circuit."""
+    return SimpleNamespace(policy=SimpleNamespace(), num_timesteps=num_timesteps)
+
+
 def test_snapshot_every_must_be_positive():
     with pytest.raises(ValueError, match="snapshot_every must be a positive int"):
         SnapshotCallback("/tmp/snaps", 0)
@@ -50,6 +59,7 @@ def test_snapshot_every_must_be_positive():
 def test_write_manifest_atomic_schema(tmp_path):
     """The manifest matches the Node consumer's schema exactly; no torn temp file is left behind."""
     cb = SnapshotCallback(tmp_path, snapshot_every=10)
+    cb.model = _fake_model()
     cb._on_training_start()
     cb._snapshots = [
         {
@@ -78,7 +88,7 @@ def test_write_manifest_atomic_schema(tmp_path):
 def test_publish_exports_weights_and_lists_them(tmp_path, monkeypatch):
     _patch_export(monkeypatch)
     cb = SnapshotCallback(tmp_path, snapshot_every=256, teacher="ppo-snapshot")
-    cb.model = SimpleNamespace(policy=SimpleNamespace())  # repack is faked → policy unused
+    cb.model = _fake_model()  # repack is faked → policy unused
     cb._on_training_start()
 
     cb._publish(256)
@@ -114,7 +124,7 @@ def test_on_step_publishes_on_cadence_only(tmp_path, monkeypatch):
 def test_publish_appends_in_step_order(tmp_path, monkeypatch):
     _patch_export(monkeypatch)
     cb = SnapshotCallback(tmp_path, snapshot_every=100)
-    cb.model = SimpleNamespace(policy=SimpleNamespace())
+    cb.model = _fake_model()
     cb._on_training_start()
 
     cb._publish(100)
@@ -128,7 +138,7 @@ def test_publish_truncates_manifest_and_gcs_old_files(tmp_path, monkeypatch):
     """Single-writer GC (task E / PR-3): manifest = newest pool_cap; disk = pool_cap + gc_grace."""
     _patch_export(monkeypatch)
     cb = SnapshotCallback(tmp_path, snapshot_every=100, pool_cap=2, gc_grace=1)
-    cb.model = SimpleNamespace(policy=SimpleNamespace())
+    cb.model = _fake_model()
     cb._on_training_start()
     for step in (100, 200, 300, 400, 500):
         cb._publish(step)
@@ -158,7 +168,7 @@ def test_on_training_start_rehydrates_and_deletes_future_files(tmp_path, monkeyp
     _patch_export(monkeypatch)
     # A prior run published snapshots at 100, 200, 300.
     cb0 = SnapshotCallback(tmp_path, snapshot_every=100)
-    cb0.model = SimpleNamespace(policy=SimpleNamespace())
+    cb0.model = _fake_model()
     cb0._on_training_start()
     for step in (100, 200, 300):
         cb0._publish(step)
@@ -166,7 +176,7 @@ def test_on_training_start_rehydrates_and_deletes_future_files(tmp_path, monkeyp
     # A new run resumes at step 250: snap-300 is AHEAD of the resume point and must be dropped AND
     # its stale file deleted (a consumer must not import pre-crash weights for a soon-changed id).
     cb = SnapshotCallback(tmp_path, snapshot_every=100)
-    cb.model = SimpleNamespace(policy=SimpleNamespace(), num_timesteps=250)
+    cb.model = _fake_model(250)
     cb._on_training_start()
     assert [s["step"] for s in cb._snapshots] == [100, 200]  # future snap-300 dropped from tracking
     assert not (
@@ -189,7 +199,7 @@ def test_resume_readopts_grace_zone_so_it_is_gc_eligible(tmp_path, monkeypatch):
     _patch_export(monkeypatch)
     # Prior run, pool_cap=2 gc_grace=1: after 100..500, disk = [300,400,500], manifest = [400,500].
     cb0 = SnapshotCallback(tmp_path, snapshot_every=100, pool_cap=2, gc_grace=1)
-    cb0.model = SimpleNamespace(policy=SimpleNamespace())
+    cb0.model = _fake_model()
     cb0._on_training_start()
     for step in (100, 200, 300, 400, 500):
         cb0._publish(step)
@@ -202,7 +212,7 @@ def test_resume_readopts_grace_zone_so_it_is_gc_eligible(tmp_path, monkeypatch):
     # Resume past all of them, then publish two more. If snap-300 (the grace-zone file) were not
     # re-tracked on resume, it could never enter `deletable` and would leak forever.
     cb = SnapshotCallback(tmp_path, snapshot_every=100, pool_cap=2, gc_grace=1)
-    cb.model = SimpleNamespace(policy=SimpleNamespace(), num_timesteps=500)
+    cb.model = _fake_model(500)
     cb._on_training_start()
     assert [s["step"] for s in cb._snapshots] == [300, 400, 500]  # grace zone re-adopted, tracked
     cb._publish(600)  # disk budget now exceeded → snap-300 must be GC'd, not leaked
@@ -221,7 +231,7 @@ def test_publish_does_not_crash_when_gc_unlink_fails(tmp_path, monkeypatch):
     pure disk hygiene and must NOT crash a multi-day run (manifest + weights already durable)."""
     _patch_export(monkeypatch)
     cb = SnapshotCallback(tmp_path, snapshot_every=100, pool_cap=1, gc_grace=0)
-    cb.model = SimpleNamespace(policy=SimpleNamespace())
+    cb.model = _fake_model()
     cb._on_training_start()
     cb._publish(100)
 

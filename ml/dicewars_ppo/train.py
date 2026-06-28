@@ -18,11 +18,18 @@ CLI surface + env factory + validation are SHARED via ``_train_common`` — one 
 truth, so the green CI tracer stays byte-identical ([D-26] Q1).
 
 Process model ([D-26] Q4). ``SubprocVecEnv`` forks the env workers, then
-``MaskablePPO`` is constructed (which inits CUDA) — in that order. ``forkserver`` is the
-default start method because CUDA inits AFTER the fork, so a plain ``fork`` could inherit
-a half-initialized context; ``spawn`` is the portable fallback. Each worker imports only
-the torch-free ``dicewars_ppo.env`` (via the pickled thunk in ``_train_common``), never
-the learner stack. ``VecMonitor`` wraps in the PARENT so episode stats still surface.
+``MaskablePPO`` is constructed (which inits CUDA) — in that order, so CUDA is never live
+at fork time and no worker can inherit a half-initialized CUDA context. ``forkserver`` is
+the default (``spawn`` the portable fallback) because the training parent is multithreaded
+once ``torch`` is imported, and forking *that* process (plain ``fork``) is the classic
+fork-after-threads hazard — forkserver/spawn instead start each worker from a separate,
+quiescent process. What the extraction actually guarantees is narrower but load-bearing:
+the env-thunk lives in the torch-free ``_train_common`` and captures only primitives, so a
+worker UNPICKLES it without importing ``torch`` — the [D-26] Q4 invariant the tests pin.
+(The worker *process* is not torch-free regardless of start method: ``torch`` rides in via
+the re-imported/preloaded ``__main__`` = this module; the workers just never touch it —
+each only drives a Node env-server over a socket.) ``VecMonitor`` wraps in the PARENT so
+episode stats still surface.
 
 ``--from-scratch`` ([D-26] Q6, [D-19] control). Skip the BC warm-start and train the
 actor from a fresh init — a short control run that proves a gate win is real PPO learning,
@@ -102,19 +109,21 @@ def _tensorboard_available() -> bool:
 
 
 def _make_logger(args: argparse.Namespace):
-    """Configure the SB3 logger sinks for ``--log-dir`` (or ``None`` to keep SB3's stdout default).
+    """Configure the SB3 logger sinks for ``--log-dir``; returns ``(logger, sinks)``.
 
-    Returns a configured ``Logger`` (caller passes it to ``model.set_logger`` BEFORE ``learn``) or
-    ``None`` when ``--log-dir`` is unset. ``VecMonitor`` (not this logger) is what populates the
+    Returns ``(configured Logger, [sink names])`` — the caller passes the logger to
+    ``model.set_logger`` BEFORE ``learn`` and reports the ACTUAL ``sinks`` (so the status line
+    can't claim a sink the degradation path dropped) — or ``(None, [])`` when ``--log-dir`` is
+    unset (SB3 keeps its stdout default). ``VecMonitor`` (not this logger) is what populates the
     ``rollout/ep_rew_mean`` / ``ep_len_mean`` keys these sinks then record.
 
     SB3's ``TensorBoardOutputFormat`` HARD-imports the ``tensorboard`` package and RAISES if it
     is absent (it does NOT silently no-op). ``tensorboard`` is in the ``[rl]`` extra, so the normal
     path has it; but rather than crash a long run on a partial env, degrade to CSV-only with a loud
-    warning when it is missing (``--no-tensorboard`` opts out of the TB sink entirely).
+    warning (on stderr) when it is missing (``--no-tensorboard`` opts out of the TB sink entirely).
     """
     if args.log_dir is None:
-        return None
+        return None, []
     sinks = ["stdout", "csv"]
     if not args.no_tensorboard:
         if _tensorboard_available():
@@ -122,12 +131,14 @@ def _make_logger(args: argparse.Namespace):
         else:
             print(
                 "WARNING: --log-dir set but the `tensorboard` package is not installed; writing "
-                "CSV only. Install the [rl] extra for TensorBoard, or pass --no-tensorboard."
+                "CSV only. Install the [rl] extra for TensorBoard, or pass --no-tensorboard.",
+                file=sys.stderr,
             )
-    # NOTE: SB3's CSVOutputFormat opens <log_dir>/progress.csv for writing and TRUNCATES it on each
-    # run, and configure() resets the TB event stream. PR-4 is fresh-run only; cross-session
-    # continuation (re-set_logger after a resume load) is PR-5's resume work, not this seam.
-    return configure(str(Path(args.log_dir)), sinks)
+    # NOTE: SB3's CSVOutputFormat opens <log_dir>/progress.csv with mode "w+t", TRUNCATING it on
+    # each run, and configure() starts a FRESH TB event file (old events.out.tfevents.* are left in
+    # place, so re-running the same --log-dir accumulates overlapping curves). PR-4 is fresh-run
+    # only; cross-session continuation (re-set_logger after a resume load) is PR-5's resume work.
+    return configure(str(Path(args.log_dir)), sinks), sinks
 
 
 def train(args: argparse.Namespace) -> Path:
@@ -173,11 +184,12 @@ def train(args: argparse.Namespace) -> Path:
     # warm-starts or, with --from-scratch, leaves the fresh init.
     model, venv = build_model(cfg, ckpt, args, venv=venv)
 
-    logger = _make_logger(args)
+    logger, sinks = _make_logger(args)
     if logger is not None:
         model.set_logger(logger)  # must precede learn()
-        sinks = "csv" if args.no_tensorboard else "csv+tensorboard"
-        print(f"logging: stdout + {sinks} → {args.log_dir}")
+        # Report the ACTUAL sinks (the TB-missing degradation path drops "tensorboard"), so this
+        # line can never disagree with the warning _make_logger may have just printed.
+        print(f"logging: {' + '.join(sinks)} → {args.log_dir}")
 
     try:
         # PR-4 trains FRESH runs only: reset_num_timesteps defaults True ⇒ num_timesteps starts at 0
@@ -186,8 +198,15 @@ def train(args: argparse.Namespace) -> Path:
         # crash-loop makes --timesteps additive and trains unbounded.
         model.learn(total_timesteps=args.timesteps, progress_bar=False, callback=callback)
     finally:
-        # Always reap the env workers (each owns a Node child) even on error.
-        venv.close()
+        # Always reap the env workers (each owns a Node child) even on error. Guard the close: when
+        # learn() raised because a SubprocVecEnv worker already died (the common failure here), the
+        # close()'s worker-pipe ops raise EOFError/BrokenPipeError — and a raise in `finally` would
+        # REPLACE the in-flight exception as the primary traceback, burying the real cause. Demote
+        # any teardown error to a stderr warning so learn()'s exception stays the headline.
+        try:
+            venv.close()
+        except Exception as close_exc:
+            print(f"WARNING: venv.close() failed during teardown: {close_exc!r}", file=sys.stderr)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

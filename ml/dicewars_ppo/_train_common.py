@@ -10,9 +10,11 @@ byte-identical to before the extraction ([D-26] Q1).
 **Why torch-free is load-bearing.** ``train.py`` runs envs under
 ``SubprocVecEnv(start_method="forkserver")``: each worker process imports the module
 that owns the pickled env-thunk (this one). If anything here pulled in ``torch`` /
-``sb3_contrib`` at import time, every env worker would drag the whole learner stack
-into its address space — defeating the forkserver/CUDA-after-fork safety ([D-26] Q4)
-and bloating each worker. So this module imports ONLY argparse / math / pathlib /
+``sb3_contrib`` at import time, unpickling the env-thunk in a worker would import the
+learner stack right there — the [D-26] Q4 invariant the tests pin. (The worker process is
+not otherwise torch-free: ``torch`` already rides in via the re-imported/preloaded
+``__main__``; the point is that the thunk itself adds nothing and the env path stays clean.)
+So this module imports ONLY argparse / math / pathlib /
 ``.env`` (which is itself torch-free), and the ``cfg: ModelConfig`` annotation is kept
 lazy via ``from __future__ import annotations`` + a ``TYPE_CHECKING`` import — the
 string annotation is never evaluated at runtime, so ``dicewars_bc.model`` (torch-ful)
@@ -32,8 +34,9 @@ if TYPE_CHECKING:  # annotation-only; never imported at runtime (keeps this modu
     from dicewars_bc.model import ModelConfig
 
 # Fixed, seed-pure, heterogeneous baseline field ([D-15]: strong bots in every game
-# keep it decisive; no Math.random bots so episodes stay reproducible). resolveOpponents
-# cycles this list to fill the (player_count - 1) opponent seats.
+# keep it decisive; no Math.random bots so episodes stay reproducible). The Node league's
+# resolveBaselineField (scripts/lib/ppo-league.mjs) cycles this list to fill the
+# (player_count - 1) opponent seats.
 DEFAULT_OPPONENTS = "ai_lookahead,ai_strategist,ai_expectimax,ai_bc,ai_defensive"
 
 
@@ -188,6 +191,11 @@ def build_parser(description: str | None = None) -> argparse.ArgumentParser:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
+    if args.batch_size <= 0:
+        # Guard BEFORE the modulo below: batch_size==0 would raise a raw ZeroDivisionError, and
+        # batch_size<0 would slip past the divisibility check (Python's modulo follows the divisor
+        # sign, e.g. 512 % -4 == 0) — so bound it here as a clean SystemExit.
+        raise SystemExit(f"--batch-size must be > 0 (got {args.batch_size}).")
     rollout = args.n_steps * args.n_envs
     if rollout % args.batch_size != 0:
         raise SystemExit(
@@ -196,6 +204,15 @@ def _validate_args(args: argparse.Namespace) -> None:
         )
     if args.n_envs < 1:
         raise SystemExit("--n-envs must be >= 1.")
+    # An EXPLICIT bad learning rate / entropy coef is the costliest misconfig (lr==0 ⇒ a no-op run;
+    # lr<0 ⇒ gradient ASCENT; ent<0 ⇒ malformed objective) yet the only one otherwise unguarded — so
+    # bound it here with the rest. `is not None` keeps this order-independent w.r.t. train.py's None
+    # sentinel: an omitted lr/ent is filled to a valid constant by resolve_from_scratch AFTER this
+    # runs, while the tracer's numeric defaults pass through untouched.
+    if args.lr is not None and args.lr <= 0:
+        raise SystemExit(f"--lr must be > 0 (got {args.lr}).")
+    if args.ent_coef is not None and args.ent_coef < 0:
+        raise SystemExit(f"--ent-coef must be >= 0 (got {args.ent_coef}).")
     if not Path(args.checkpoint).is_file():
         raise SystemExit(f"--checkpoint not found: {args.checkpoint}")
     # PFSP knobs (B4): validate UNCONDITIONALLY. In fixed-field mode (no --snapshot-dir) these

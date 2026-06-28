@@ -52,6 +52,25 @@ def test_parser_pfsp_defaults_match_makeleague(tmp_path):
     assert a.pfsp_k == 2.0
 
 
+def test_tracer_parser_golden_defaults():
+    # The shared _train_common.build_parser body now governs BOTH drivers, so pin the tracer's FULL
+    # default surface: an edit made for train.py's benefit inside the shared parser can't silently
+    # drift the tracer ([D-26] Q1 byte-identical). --out is the load-bearing one — the tracer keeps
+    # ppo-tracer.pt vs train.py's overridden ppo.pt, so a bare run can't clobber the other's
+    # checkpoint. (Parse [] directly: parse-time defaults only, no validation, so no real file.)
+    a = tt.build_parser().parse_args([])
+    assert (a.checkpoint, a.out) == ("checkpoints/v2-base/bc_model.pt", "checkpoints/ppo-tracer.pt")
+    assert (a.learner_seat, a.n_envs, a.timesteps, a.n_steps) == (0, 1, 2048, 512)
+    assert (a.batch_size, a.n_epochs, a.lr, a.gamma) == (128, 4, 1e-4, 0.999)
+    assert (a.gae_lambda, a.ent_coef, a.vf_coef) == (0.95, 0.0, 0.5)
+    assert (a.max_turns, a.seed, a.seed_base, a.device) == (500, 0, 1, "cpu")
+    assert a.freeze_trunk is False
+    assert (a.snapshot_dir, a.snapshot_every, a.snapshot_pool_cap) == (None, 50_000, 40)
+    assert a.opponents == tc.DEFAULT_OPPONENTS
+    # the tracer threads its OWN __doc__ as the --help description (help-text wiring is preserved)
+    assert tt.build_parser().description == tt.__doc__
+
+
 @pytest.mark.parametrize(
     "overrides,needle",
     [

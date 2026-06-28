@@ -115,7 +115,9 @@ def test_train_wraps_subproc_then_vecmonitor(tmp_path, monkeypatch, from_scratch
     monkeypatch.setattr(tr.torch, "save", lambda obj, path: calls.append(("save",)))
     monkeypatch.setattr(tr, "_verify_repack_exportable", lambda out, cfg: calls.append(("verify",)))
 
-    extra = ["--start-method", "spawn"] + (["--from-scratch"] if from_scratch else [])
+    extra = ["--start-method", "spawn", "--out", str(tmp_path / "out.pt")] + (
+        ["--from-scratch"] if from_scratch else []
+    )
     a = _args(tmp_path, extra=extra)
     tr._validate(a)
     tr.train(a)
@@ -182,28 +184,100 @@ def test_make_logger_sink_selection(tmp_path, monkeypatch):
     monkeypatch.setattr(tr, "configure", fake_configure)
     monkeypatch.setattr(tr, "_tensorboard_available", lambda: True)
 
-    # no --log-dir → SB3 keeps its stdout default (no configured logger)
+    # no --log-dir → SB3 keeps its stdout default (no configured logger, empty sink list)
     a = _args(tmp_path)
     tr._validate(a)
-    assert tr._make_logger(a) is None
+    assert tr._make_logger(a) == (None, [])
 
-    # --log-dir → stdout + csv + tensorboard
+    # --log-dir → stdout + csv + tensorboard; the RETURNED sinks mirror what configure() got, so
+    # train()'s status line is built from reality rather than from the --no-tensorboard flag.
     b = _args(tmp_path, extra=["--log-dir", str(tmp_path / "runs")])
     tr._validate(b)
-    assert tr._make_logger(b) == "LOGGER"
+    logger, sinks = tr._make_logger(b)
+    assert logger == "LOGGER"
+    assert sinks == ["stdout", "csv", "tensorboard"]
     assert captured["sinks"] == ["stdout", "csv", "tensorboard"]
 
     # --log-dir + --no-tensorboard → stdout + csv only
     captured.clear()
     c = _args(tmp_path, extra=["--log-dir", str(tmp_path / "runs"), "--no-tensorboard"])
     tr._validate(c)
-    tr._make_logger(c)
+    _, sinks = tr._make_logger(c)
+    assert sinks == ["stdout", "csv"]
     assert captured["sinks"] == ["stdout", "csv"]
 
-    # --log-dir but tensorboard missing → degrade to csv only (no raise)
+    # --log-dir but tensorboard missing → degrade to csv only (no raise); the returned sinks reflect
+    # the drop, so train() reports "csv" not "csv+tensorboard" (the contradiction this guards).
     captured.clear()
     monkeypatch.setattr(tr, "_tensorboard_available", lambda: False)
     d = _args(tmp_path, extra=["--log-dir", str(tmp_path / "runs")])
     tr._validate(d)
-    tr._make_logger(d)
+    _, sinks = tr._make_logger(d)
+    assert sinks == ["stdout", "csv"]
     assert captured["sinks"] == ["stdout", "csv"]
+
+
+def test_train_wires_snapshot_callback_and_logger(tmp_path, monkeypatch):
+    """With --snapshot-dir + --log-dir, train() must construct SnapshotCallback (forwarding the
+    keyword-only pool_cap, whose name-drift would fail only on a live shodan run), hand it to
+    learn(callback=...), and call set_logger BEFORE learn — all the train()-level wiring the
+    isolated _make_logger / wrap-order tests don't exercise. Fakes only, so no Node child spawns."""
+    calls = []
+    fake_cfg = SimpleNamespace(max_areas=32, player_count=7, context_hidden=64)
+    monkeypatch.setattr(tr, "load_bc_checkpoint", lambda ckpt: (fake_cfg, {"k": "v"}))
+    monkeypatch.setattr(tr, "SubprocVecEnv", lambda thunks, start_method=None: SimpleNamespace())
+    monkeypatch.setattr(
+        tr, "VecMonitor", lambda venv: SimpleNamespace(close=lambda: calls.append(("close",)))
+    )
+
+    class FakeSnapshotCallback:
+        def __init__(self, snapshot_dir, snapshot_every, *, pool_cap, teacher):
+            calls.append(("SnapshotCallback", pool_cap, teacher))
+
+    monkeypatch.setattr(tr, "SnapshotCallback", FakeSnapshotCallback)
+
+    class FakeModel:
+        def __init__(self):
+            self.policy = object()
+
+        def set_logger(self, logger):
+            calls.append(("set_logger", logger))
+
+        def learn(self, **kwargs):
+            # record the callback's TYPE so we prove the SnapshotCallback instance reached learn()
+            calls.append(("learn", type(kwargs.get("callback")).__name__))
+
+    monkeypatch.setattr(tr, "build_model", lambda cfg, ckpt, args, venv=None: (FakeModel(), venv))
+    monkeypatch.setattr(tr, "configure", lambda folder, sinks: "LOGGER")
+    monkeypatch.setattr(tr, "_tensorboard_available", lambda: True)
+    monkeypatch.setattr(
+        tr,
+        "repack_to_bc_checkpoint",
+        lambda policy, *, extra=None: {"state_dict": {}, "config": {}, "encoding_version": 2},
+    )
+    monkeypatch.setattr(tr.torch, "save", lambda obj, path: None)
+    monkeypatch.setattr(tr, "_verify_repack_exportable", lambda out, cfg: None)
+
+    a = _args(
+        tmp_path,
+        extra=[
+            "--out",  # keep the repack write inside tmp_path (no stray checkpoints/ in cwd)
+            str(tmp_path / "out.pt"),
+            "--log-dir",
+            str(tmp_path / "runs"),
+            "--snapshot-dir",
+            str(tmp_path / "league"),
+            "--snapshot-pool-cap",
+            "17",
+        ],
+    )
+    tr._validate(a)
+    tr.train(a)
+
+    # pool_cap forwarded to the producer callback (the tracer omits it; train.py must not)
+    assert ("SnapshotCallback", 17, "ppo-snapshot") in calls
+    # the SnapshotCallback instance reached learn(callback=...)
+    assert ("learn", "FakeSnapshotCallback") in calls
+    # set_logger fired, and BEFORE learn() (the "must precede learn()" invariant)
+    assert ("set_logger", "LOGGER") in calls
+    assert calls.index(("set_logger", "LOGGER")) < calls.index(("learn", "FakeSnapshotCallback"))

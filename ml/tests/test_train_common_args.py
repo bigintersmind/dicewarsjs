@@ -143,6 +143,30 @@ def test_validate_args_rejects_zero_envs(tmp_path):
         tc._validate_args(a)
 
 
+@pytest.mark.parametrize(
+    "overrides,needle",
+    [
+        ({"batch_size": 0}, "batch-size"),  # guarded BEFORE the modulo (no raw ZeroDivisionError)
+        ({"batch_size": -4}, "batch-size"),
+        ({"lr": 0}, "--lr"),  # lr<=0 ⇒ a no-op training run
+        ({"lr": -0.001}, "--lr"),  # lr<0 ⇒ gradient ASCENT
+        ({"ent_coef": -0.1}, "--ent-coef"),  # ent<0 ⇒ malformed objective
+    ],
+)
+def test_validate_args_rejects_bad_hp_bounds(tmp_path, overrides, needle):
+    # The costliest explicit misconfigs (silently wasted GPU runs) — each must fail loud, not slip
+    # through. ent_coef==0 stays VALID (the warm-start default), so only ent<0 is rejected.
+    a = _args(tmp_path, **overrides)
+    with pytest.raises(SystemExit, match=needle):
+        tc._validate_args(a)
+
+
+def test_validate_args_accepts_zero_ent_coef(tmp_path):
+    # ent_coef==0.0 is the protective warm-start default; the ent>=0 guard must NOT reject it.
+    a = _args(tmp_path, ent_coef=0)
+    tc._validate_args(a)  # no raise
+
+
 def test_validate_args_rejects_missing_checkpoint():
     a = tc.build_parser().parse_args(["--checkpoint", "/no/such/file.pt"])
     with pytest.raises(SystemExit, match="not found"):

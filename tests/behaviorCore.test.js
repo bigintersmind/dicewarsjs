@@ -1,0 +1,330 @@
+/**
+ * Behavioral-eval harness — Phase 1 core tests.
+ *
+ * Covers the pure metric extraction / aggregation / control-comparison logic of
+ * `scripts/lib/behavior-core.mjs`, plus a real-engine smoke that pins the §6 engine
+ * signal (`onTurn(turnNumber, state, actingPlayerId)`) the harness depends on. See
+ * docs/ml-bot/EVAL_HARNESS.md.
+ *
+ * Node env is fine (no DOM). Run scoped: `npx vitest run tests/behaviorCore.test.js`.
+ */
+import {
+  makeCapture,
+  profileGameFromCapture,
+  reduceRun,
+  summarizeAxis,
+  alignDropNull,
+  compareAxis,
+  signaturePass,
+} from '../scripts/lib/behavior-core.mjs';
+import { runMatch } from '../src/arena/matchRunner.js';
+import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
+
+const STOP = { type: 'END_TURN' };
+const attack = (from = 1, to = 2) => ({ from, to });
+const player = (
+  id,
+  over = { territoryCount: 4, diceCount: 8, largestGroup: 3, eliminated: false }
+) => ({
+  id,
+  ...over,
+});
+
+/** A synthetic post-turn state: 3 players with given (territory/dice/largest/eliminated). */
+const stateOf = specs => ({ players: specs.map((s, i) => player(i, s)) });
+
+describe('makeCapture — onTurn/onStep accumulation', () => {
+  it('counts the victory turn as an active turn (the aggression-bias fix)', () => {
+    const { capture, onTurn, onStep } = makeCapture(0);
+
+    // Turn 1: bot 0 attacks twice then STOPs (a normal, non-winning turn).
+    onStep({ playerId: 0, chosenMove: attack() });
+    onStep({ playerId: 0, chosenMove: attack() });
+    onStep({ playerId: 0, chosenMove: STOP });
+    onTurn(
+      1,
+      stateOf([{ territoryCount: 5, diceCount: 10, largestGroup: 4, eliminated: false }, {}, {}]),
+      0
+    );
+
+    // Turn 2: opponent 1 eliminates opponent 2 — NOT the profiled bot's kill.
+    onTurn(
+      2,
+      stateOf([{}, {}, { territoryCount: 0, diceCount: 0, largestGroup: 0, eliminated: true }]),
+      1
+    );
+
+    // Turn 3: bot 0 makes the winning capture (eliminates 1). A victory turn emits NO STOP step.
+    onStep({ playerId: 0, chosenMove: attack() });
+    onTurn(
+      3,
+      stateOf([
+        { territoryCount: 9, diceCount: 15, largestGroup: 7, eliminated: false },
+        { territoryCount: 0, diceCount: 0, largestGroup: 0, eliminated: true },
+        {},
+      ]),
+      0
+    );
+
+    expect(capture.activeTurns).toBe(2); // turns 1 and 3 — the win is counted (no STOP undercount)
+    expect(capture.kills).toBe(1); // only player 1 (player 2 was opponent-1's kill)
+    expect(capture.zeroAttackTurns).toBe(0);
+    expect(capture.eliminatedAtTurn).toBeNull(); // the bot itself was never eliminated
+    expect(capture.territory).toEqual([5, 9]);
+    expect(capture.dice).toEqual([10, 15]);
+    expect(capture.largestGroup).toEqual([4, 7]);
+  });
+
+  it('records the bot being eliminated and a zero-attack (pass) turn', () => {
+    const { capture, onTurn, onStep } = makeCapture(0);
+
+    // Bot 0 passes its turn (STOP with no attacks).
+    onStep({ playerId: 0, chosenMove: STOP });
+    onTurn(
+      1,
+      stateOf([{ territoryCount: 2, diceCount: 3, largestGroup: 1, eliminated: false }, {}, {}]),
+      0
+    );
+
+    // Opponent 1's turn eliminates bot 0.
+    onTurn(
+      2,
+      stateOf([{ territoryCount: 0, diceCount: 0, largestGroup: 0, eliminated: true }, {}, {}]),
+      1
+    );
+
+    expect(capture.activeTurns).toBe(1);
+    expect(capture.zeroAttackTurns).toBe(1);
+    expect(capture.eliminatedAtTurn).toBe(2);
+    expect(capture.kills).toBe(0);
+  });
+
+  it('ignores steps and turns for other seats', () => {
+    const { capture, onTurn, onStep } = makeCapture(0);
+    onStep({ playerId: 1, chosenMove: attack() });
+    onTurn(1, stateOf([{}, {}, {}]), 1);
+    expect(capture.activeTurns).toBe(0);
+    expect(capture.territory).toEqual([]);
+  });
+});
+
+describe('profileGameFromCapture', () => {
+  const baseResult = (overrides = {}) => ({
+    winner: 0,
+    turnCount: 3,
+    botStats: [
+      {
+        playerIndex: 0,
+        placement: 1,
+        attacksMade: 3,
+        attacksWon: 3,
+        errors: 0,
+        invalidMoves: 0,
+        maxMovesHit: 0,
+      },
+      {
+        playerIndex: 1,
+        placement: 2,
+        attacksMade: 1,
+        attacksWon: 0,
+        errors: 0,
+        invalidMoves: 0,
+        maxMovesHit: 0,
+      },
+    ],
+    ...overrides,
+  });
+
+  it('derives per-game scalars; aggression uses the actor-counted active turns', () => {
+    const capture = {
+      playerIndex: 0,
+      activeTurns: 2,
+      territory: [5, 9],
+      dice: [10, 16],
+      largestGroup: [4, 7],
+      kills: 1,
+      eliminatedAtTurn: null,
+      zeroAttackTurns: 0,
+    };
+    const p = profileGameFromCapture(baseResult(), 0, capture);
+    expect(p.won).toBe(true);
+    expect(p.turnsToWin).toBe(3);
+    expect(p.aggression).toBeCloseTo(3 / 2); // 1.5, NOT 3 (which a STOP-count denominator would give)
+    expect(p.captureEfficiency).toBe(1);
+    expect(p.avgDiceReserve).toBe(13);
+    expect(p.avgTerritory).toBe(7);
+    expect(p.dicePerTerritory).toBeCloseTo((10 / 5 + 16 / 9) / 2);
+    expect(p.largestGroup).toBe(5.5);
+    expect(p.kills).toBe(1);
+    expect(p.survivalTurn).toBe(3); // survived ⇒ full game length
+  });
+
+  it('turnsToWin is null when the bot did not win; survivalTurn is the death turn', () => {
+    const capture = {
+      playerIndex: 0,
+      activeTurns: 1,
+      territory: [2],
+      dice: [3],
+      largestGroup: [1],
+      kills: 0,
+      eliminatedAtTurn: 2,
+      zeroAttackTurns: 1,
+    };
+    const result = baseResult({
+      winner: 1,
+      turnCount: 5,
+      botStats: [
+        {
+          playerIndex: 0,
+          placement: 3,
+          attacksMade: 0,
+          attacksWon: 0,
+          errors: 0,
+          invalidMoves: 0,
+          maxMovesHit: 0,
+        },
+      ],
+    });
+    const p = profileGameFromCapture(result, 0, capture);
+    expect(p.won).toBe(false);
+    expect(p.turnsToWin).toBeNull();
+    expect(p.captureEfficiency).toBeNull(); // 0 attacks ⇒ undefined, not 0/0
+    expect(p.aggression).toBe(0); // 0 attacks over 1 active turn
+    expect(p.zeroAttackTurnFrac).toBe(1);
+    expect(p.survivalTurn).toBe(2);
+  });
+});
+
+describe('reduceRun', () => {
+  const won = {
+    won: true,
+    placement: 1,
+    turnsToWin: 20,
+    aggression: 4,
+    captureEfficiency: 0.7,
+    avgDiceReserve: 9,
+    avgTerritory: 8,
+    dicePerTerritory: 1.2,
+    largestGroup: 6,
+    kills: 2,
+    survivalTurn: 20,
+    zeroAttackTurnFrac: 0.1,
+  };
+  const lost = {
+    won: false,
+    placement: 3,
+    turnsToWin: null,
+    aggression: 2,
+    captureEfficiency: 0.5,
+    avgDiceReserve: 5,
+    avgTerritory: 4,
+    dicePerTerritory: 1.0,
+    largestGroup: 3,
+    kills: 0,
+    survivalTurn: 12,
+    zeroAttackTurnFrac: 0.3,
+  };
+
+  it('reduces to per-run scalars; winners-only axis ignores losses', () => {
+    const r = reduceRun([won, lost, lost, won]);
+    expect(r.winPct).toBe(50);
+    expect(r.aggression).toBe(3); // mean(4,2,2,4)
+    expect(r.turnsToWin).toBe(20); // only the two wins (both 20)
+    expect(r.avgPlacement).toBe(2); // mean(1,3,3,1)
+  });
+
+  it('turnsToWin is null for a run with no wins (the null-run case)', () => {
+    expect(reduceRun([lost, lost]).turnsToWin).toBeNull();
+  });
+});
+
+describe('alignDropNull + compareAxis (paired control comparison)', () => {
+  it('drops run indices where either side is null, preserving alignment', () => {
+    const { a, b, n } = alignDropNull([1, null, 3, 4], [10, 20, null, 40]);
+    expect(a).toEqual([1, 4]);
+    expect(b).toEqual([10, 40]);
+    expect(n).toBe(2);
+  });
+
+  it('classifies a real positive paired delta as HIGHER', () => {
+    const cmp = compareAxis([5, 6, 7, 5, 6], [2, 3, 2, 3, 2]);
+    expect(cmp.verdict).toBe('HIGHER');
+    expect(cmp.lo).toBeGreaterThan(0);
+    expect(cmp.n).toBe(5);
+  });
+
+  it('classifies a negative paired delta as LOWER and an overlapping one as SAME', () => {
+    expect(compareAxis([1, 2, 1, 2, 1], [5, 6, 5, 6, 5]).verdict).toBe('LOWER');
+    expect(compareAxis([5, 1, 6, 2, 5], [4, 2, 5, 3, 4]).verdict).toBe('SAME');
+  });
+
+  it('returns null when fewer than 2 paired runs survive null-alignment', () => {
+    expect(compareAxis([1, null, null], [null, 2, null])).toBeNull();
+  });
+});
+
+describe('signaturePass — MDE gate prevents trivial-but-significant passes', () => {
+  const vsControl = { aggression: compareAxis([5, 6, 7, 5, 6], [2, 3, 2, 3, 2]) }; // Δ ≈ +3.4, CI > 0
+  const sig = { axes: [{ axis: 'aggression', direction: 'HIGHER' }], rule: 'single' };
+
+  it('passes when |Δ| >= MDE AND the CI excludes 0 in the expected direction', () => {
+    expect(signaturePass(sig, vsControl, { aggression: 1.0 })).toBe(true);
+  });
+
+  it('fails a statistically-significant but behaviorally-trivial (sub-MDE) difference', () => {
+    expect(signaturePass(sig, vsControl, { aggression: 10.0 })).toBe(false);
+  });
+
+  it('fails when the significant difference is in the wrong direction', () => {
+    const wrongDir = { axes: [{ axis: 'aggression', direction: 'LOWER' }], rule: 'single' };
+    expect(signaturePass(wrongDir, vsControl, { aggression: 1.0 })).toBe(false);
+  });
+
+  it('AND rule requires every listed axis', () => {
+    const both = {
+      aggression: compareAxis([5, 6, 7, 5, 6], [2, 3, 2, 3, 2]), // HIGHER, big
+      turnsToWin: compareAxis([20, 21, 20, 21, 20], [19, 20, 19, 20, 19]), // HIGHER, tiny — fails LOWER
+    };
+    const blitz = {
+      axes: [
+        { axis: 'aggression', direction: 'HIGHER' },
+        { axis: 'turnsToWin', direction: 'LOWER' },
+      ],
+      rule: 'AND',
+    };
+    expect(signaturePass(blitz, both, { aggression: 1, turnsToWin: 1 })).toBe(false);
+  });
+});
+
+describe('§6 engine signal — runMatch passes actingPlayerId to onTurn', () => {
+  const field = BUILT_IN_BOTS.slice(0, 3).map(b => ({ name: b.name, fn: b.fn }));
+
+  it('every onTurn firing carries the acting player (in seat range)', () => {
+    const actors = [];
+    runMatch({
+      bots: field,
+      seed: 42,
+      onTurn: (_t, _s, actingPlayerId) => actors.push(actingPlayerId),
+    });
+    expect(actors.length).toBeGreaterThan(0);
+    for (const a of actors) {
+      expect(Number.isInteger(a)).toBe(true);
+      expect(a).toBeGreaterThanOrEqual(0);
+      expect(a).toBeLessThan(field.length);
+    }
+  });
+
+  it('drives a real game through makeCapture/profileGameFromCapture without throwing', () => {
+    const { capture, onTurn, onStep } = makeCapture(0);
+    const result = runMatch({ bots: field, seed: 7, onTurn, onStep });
+    const p = profileGameFromCapture(result, 0, capture);
+    expect(p.placement).toBeGreaterThanOrEqual(1);
+    expect(p.placement).toBeLessThanOrEqual(field.length);
+    expect(typeof p.kills).toBe('number');
+    expect(p.survivalTurn).toBeGreaterThan(0);
+    // summarizeAxis tolerates a single run (ci null, n 1).
+    const s = summarizeAxis([reduceRun([p]).avgPlacement]);
+    expect(s.n).toBe(1);
+    expect(s.ci).toBeNull();
+  });
+});

@@ -210,7 +210,12 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
  * @param {MatchBotConfig[]} config.bots - Bot configurations (length = player count)
  * @param {number}  [config.seed]        - RNG seed (random if omitted)
  * @param {number}  [config.maxTurns=500] - Max turns before stalemate
- * @param {Function} [config.onTurn]     - Callback after each turn: (turnNumber, state)
+ * @param {(turnNumber:number, state:import('../engine/types.js').GameState, actingPlayerId:number)=>void} [config.onTurn] -
+ *   Callback after each player-turn: the turn count, the post-turn state, and the player
+ *   whose turn just completed (the acting player). The third arg lets a consumer attribute
+ *   the turn — e.g. count a bot's own active turns, or credit an elimination during that turn
+ *   to the attacker — without re-deriving the actor. It fires for the victory turn too (after
+ *   the move loop returns a GAME_OVER state). Backward-compatible: older 2-arg callers ignore it.
  * @param {(step: import('./trajectoryExport.js').TrajectoryStep) => void} [config.onStep] -
  *   Per-decision callback (see runBotTurn). For custom streaming sinks.
  * @param {boolean} [config.recordTrajectory] - When true, capture a self-play trajectory and
@@ -322,7 +327,7 @@ export function runMatch(config) {
     }
 
     turnCount++;
-    if (onTurn) onTurn(turnCount, state);
+    if (onTurn) onTurn(turnCount, state, currentPlayerId);
   }
 
   // Calculate placements

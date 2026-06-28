@@ -1,7 +1,13 @@
 /**
  * Tests for the configuration module (map-size presets).
  */
-import { MAP_SIZE_PRESETS, DEFAULT_MAP_SIZE, resolveMapSize } from '../../src/utils/config.js';
+import {
+  MAP_SIZE_PRESETS,
+  DEFAULT_MAP_SIZE,
+  resolveMapSize,
+  DEFAULT_MAP_TYPE,
+  resolveMapType,
+} from '../../src/utils/config.js';
 
 describe('config — map size presets', () => {
   test('exposes small, medium, and large presets with engine dimensions', () => {
@@ -61,6 +67,28 @@ describe('config — map size presets', () => {
         expect(resolveMapSize(bad)).toEqual(MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE]);
       }
       // import.meta.env.DEV is true under vitest, so the dev warning fires.
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+  });
+
+  describe('resolveMapType', () => {
+    test('DEFAULT_MAP_TYPE is the classic random map', () => {
+      expect(DEFAULT_MAP_TYPE).toBe('random');
+    });
+
+    test('passes through every known map type', () => {
+      for (const type of ['random', 'snowflake', 'ring', 'cross']) {
+        expect(resolveMapType(type)).toBe(type);
+      }
+    });
+
+    test('falls back to random for unknown or invalid keys', () => {
+      // Non-throwing dev-loud fallback, mirroring resolveMapSize.
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      for (const bad of ['blob', '', undefined, null, 0, 'SNOWFLAKE']) {
+        expect(resolveMapType(bad)).toBe(DEFAULT_MAP_TYPE);
+      }
       expect(warn).toHaveBeenCalled();
       warn.mockRestore();
     });

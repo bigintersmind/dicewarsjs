@@ -9,6 +9,7 @@
 
 import { createRng } from './rng.js';
 import { generateMap } from './MapGenerator.js';
+import { isMaskedMapType } from './mapPersonalities.js';
 import { createTurnOrder } from './TurnManager.js';
 import { createInitialState, applyAction } from './StateManager.js';
 import { runFullAITurn } from './AIAdapter.js';
@@ -51,20 +52,56 @@ export function createGame(config = {}) {
     );
   }
 
+  const mapType = config.mapType ?? 'random';
+  const masked = isMaskedMapType(mapType);
+
   const fullConfig = {
     mapWidth: config.mapWidth ?? DEFAULT_XMAX,
     mapHeight: config.mapHeight ?? DEFAULT_YMAX,
-    maxAreas: config.maxAreas ?? DEFAULT_AREA_MAX,
+    /*
+     * Shaped (masked) maps cap the territory ceiling at DEFAULT_AREA_MAX so the
+     * recorded config matches the board actually built: the generator applies the
+     * same cap (exported ML policies bake maxAreas=32 and throw at inference on
+     * any area id >= 32). The classic path keeps the requested ceiling.
+     */
+    maxAreas: masked
+      ? Math.min(config.maxAreas ?? DEFAULT_AREA_MAX, DEFAULT_AREA_MAX)
+      : (config.maxAreas ?? DEFAULT_AREA_MAX),
     playerCount: config.playerCount ?? DEFAULT_PLAYER_COUNT,
     dicePerArea: config.dicePerArea ?? DEFAULT_DICE_PER_AREA,
+    mapType,
     recordHistory,
     seed: config.seed ?? Math.floor(Math.random() * 0xffffffff),
   };
 
-  const rng = createRng(fullConfig.seed);
-  const mapData = generateMap(fullConfig, rng);
-  const turnOrder = createTurnOrder(fullConfig.playerCount, rng);
-  return createInitialState(fullConfig, mapData, turnOrder, rng.state());
+  /*
+   * Bounded generation retry for shaped maps. A mask removes board area, so for
+   * the tightest combo (smallest preset, most players, thinnest shape) a rare
+   * seed yields fewer than `playerCount` territories after pruning and generateMap
+   * throws RangeError. Rather than inflate the shapes into blobs, advance the seed
+   * a few times — the result stays deterministic for a given requested seed (so
+   * replays reproduce exactly) and the user effectively never sees a failure. The
+   * classic path runs exactly once (maxAttempts 1), preserving existing behaviour
+   * byte-for-byte.
+   */
+  const maxAttempts = masked ? 8 : 1;
+  let lastError;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const attemptSeed = (fullConfig.seed + attempt) >>> 0;
+    const rng = createRng(attemptSeed);
+    try {
+      const mapData = generateMap(fullConfig, rng);
+      const turnOrder = createTurnOrder(fullConfig.playerCount, rng);
+      return createInitialState(fullConfig, mapData, turnOrder, rng.state());
+    } catch (err) {
+      // Only a too-few-territories RangeError is worth retrying; a genuinely
+      // invalid config (bad dimensions/player count) fails identically every
+      // attempt, so rethrow it immediately rather than spinning.
+      if (!masked || !(err instanceof RangeError)) throw err;
+      lastError = err;
+    }
+  }
+  throw lastError;
 }
 
 /**

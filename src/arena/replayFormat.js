@@ -69,6 +69,7 @@ export function createReplay(matchResult, botNames) {
       mapHeight: matchResult.finalState.config.mapHeight,
       maxAreas: matchResult.finalState.config.maxAreas,
       dicePerArea: matchResult.finalState.config.dicePerArea,
+      mapType: matchResult.finalState.config.mapType,
     },
     {
       bots: botNames,
@@ -125,6 +126,15 @@ export function createReplayFromActions(actions, config, metadata = {}) {
       mapHeight: config.mapHeight,
       maxAreas: config.maxAreas,
       dicePerArea: config.dicePerArea,
+      /*
+       * Map personality is board-determining (it carves the land mask), so a
+       * replay must carry it or the board reconstructs as a different (Classic)
+       * map and the recorded actions desync. Older replays predate map types and
+       * have no mapType — createGame defaults it to 'random', which is exactly
+       * what those classic games were, so omission stays backward-compatible
+       * (no REPLAY_VERSION bump needed).
+       */
+      mapType: config.mapType,
     },
     actions,
     metadata: {

@@ -154,6 +154,59 @@ describe('replayToState', () => {
   });
 });
 
+describe('shaped (personality) map replays', () => {
+  // mapType is board-determining, so a replay must carry it or the board
+  // reconstructs as a different (Classic) map and the recorded actions desync.
+  function playShapedGame(mapType, seed = 7) {
+    let state = createGame({ seed, playerCount: 4, mapType });
+    for (let turn = 0; turn < 12; turn++) {
+      const moves = getValidMoves(state);
+      if (moves.length > 0) {
+        state = applyAction(state, {
+          type: ACTION_TYPES.ATTACK,
+          from: moves[0].from,
+          to: moves[0].to,
+        });
+      }
+      if (state.phase === 'gameOver') break;
+      state = applyAction(state, { type: ACTION_TYPES.END_TURN });
+      if (state.phase === 'gameOver') break;
+    }
+    return state;
+  }
+
+  it('persists mapType through serialize/deserialize', () => {
+    const replay = createReplayFromState(playShapedGame('snowflake'), { bots: [] });
+    expect(replay.config.mapType).toBe('snowflake');
+    expect(deserializeReplay(serializeReplay(replay)).config.mapType).toBe('snowflake');
+  });
+
+  it('reconstructs the SAME shaped board, not a Classic random one', () => {
+    const seed = 7;
+    const replay = deserializeReplay(
+      serializeReplay(createReplayFromState(playShapedGame('snowflake', seed), { bots: [] }))
+    );
+    const recon = replayToState(replay, 0);
+    const expected = createGame({ seed, playerCount: 4, mapType: 'snowflake' });
+    const classic = createGame({ seed, playerCount: 4 });
+    // Per-area sizes match the shaped board exactly...
+    expect(recon.areas.map(a => a.size)).toEqual(expected.areas.map(a => a.size));
+    // ...and are NOT the Classic full-rectangle board (the pre-fix behavior).
+    expect(recon.areas.map(a => a.size)).not.toEqual(classic.areas.map(a => a.size));
+  });
+
+  it('replays recorded shaped-board actions without desync', () => {
+    for (const mapType of ['snowflake', 'ring', 'cross']) {
+      const replay = deserializeReplay(
+        serializeReplay(createReplayFromState(playShapedGame(mapType, 3), { bots: [] }))
+      );
+      const len = getReplayLength(replay);
+      // A wrong (Classic) board would make recorded from/to ids invalid and throw.
+      expect(() => replayToState(replay, len)).not.toThrow();
+    }
+  });
+});
+
 describe('createReplay (from MatchResult)', () => {
   const exampleBot = adaptLegacyBot(ai_example);
 

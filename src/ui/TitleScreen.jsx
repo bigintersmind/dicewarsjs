@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'preact/hooks';
-import { DEFAULT_MAP_SIZE } from '../utils/config.js';
+import { DEFAULT_MAP_SIZE, DEFAULT_MAP_TYPE } from '../utils/config.js';
 import { getAllAIStrategies } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
@@ -28,6 +28,20 @@ const MAP_SIZE_OPTIONS = [
   { value: 'small', label: 'Small' },
   { value: 'medium', label: 'Medium' },
   { value: 'large', label: 'Large' },
+];
+
+/*
+ * Map-type (personality) options. `value` keys must match the engine's
+ * personality registry (src/engine/mapPersonalities.js); the controller routes
+ * them through resolveMapType at game-creation time. 'random' is the classic
+ * full-board map and stays the default so the out-of-box experience is
+ * unchanged.
+ */
+const MAP_TYPE_OPTIONS = [
+  { value: 'random', label: 'Classic' },
+  { value: 'snowflake', label: 'Snowflake' },
+  { value: 'ring', label: 'Ring' },
+  { value: 'cross', label: 'Cross' },
 ];
 
 /** Built-in AI strategies offered in the per-slot bot picker. */
@@ -210,7 +224,7 @@ const STYLE = {
  * @param {Object} props
  * @param {Object} props.store - GameStore, used to seed the default bot lineup
  * @param {string | null} [props.error] - Error message to display
- * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, aiAssignments: (string | null)[] }) => void} props.onStart
+ * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, mapType: string, aiAssignments: (string | null)[] }) => void} props.onStart
  * @param {() => void} [props.onArena] - Navigate to arena screen
  * @param {() => void} [props.onTournament] - Navigate to tournament screen
  * @param {() => void} [props.onLeaderboard] - Navigate to online leaderboard screen
@@ -222,6 +236,7 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
 
   const [playerCount, setPlayerCount] = useState(7);
   const [mapSize, setMapSize] = useState(DEFAULT_MAP_SIZE);
+  const [mapType, setMapType] = useState(DEFAULT_MAP_TYPE);
   const [showCustomize, setShowCustomize] = useState(false);
   /*
    * Per-slot AI strategy IDs (index = player slot). Seeded from store defaults.
@@ -251,11 +266,11 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
     );
 
   const handleStart = () => {
-    onStart({ playerCount, spectator: false, mapSize, aiAssignments: buildAssignments() });
+    onStart({ playerCount, spectator: false, mapSize, mapType, aiAssignments: buildAssignments() });
   };
 
   const handleAIvsAI = () => {
-    onStart({ playerCount, spectator: true, mapSize, aiAssignments: buildAssignments() });
+    onStart({ playerCount, spectator: true, mapSize, mapType, aiAssignments: buildAssignments() });
   };
 
   return (
@@ -296,6 +311,25 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
               ...(opt.value === mapSize ? STYLE.playerBtnActive : {}),
             }}
             onClick={() => setMapSize(opt.value)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <span style={STYLE.sectionLabel}>Map type</span>
+      <div style={STYLE.sizeRow}>
+        {MAP_TYPE_OPTIONS.map(opt => (
+          <button
+            key={opt.value}
+            type="button"
+            aria-label={`${opt.label} map shape`}
+            aria-pressed={opt.value === mapType}
+            style={{
+              ...STYLE.playerBtn,
+              ...(opt.value === mapType ? STYLE.playerBtnActive : {}),
+            }}
+            onClick={() => setMapType(opt.value)}
           >
             {opt.label}
           </button>

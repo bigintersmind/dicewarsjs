@@ -59,6 +59,7 @@ const DEFAULT_STATE = {
   config: {
     playerCount: 7,
     mapSize: 'medium',
+    mapType: 'random',
     aiAssignments: [
       null,
       'ai_defensive',

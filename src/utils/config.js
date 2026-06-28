@@ -9,6 +9,8 @@
  * remaining consumers.
  */
 
+import { isKnownMapType } from '../engine/mapPersonalities.js';
+
 /**
  * Map-size presets surfaced in the title-screen UI.
  *
@@ -17,7 +19,10 @@
  * createGame/generateMap). Sizes are chosen so that cells-per-territory stays
  * comfortably above the engine's MIN_TERRITORY_SIZE (6) and `maxAreas` always
  * exceeds the 8-player maximum, so every preset is guaranteed to generate a
- * playable map for any supported player count (no RangeError from pruning).
+ * playable classic (full-rectangle) map for any supported player count (no
+ * RangeError from pruning). Shaped map types (snowflake/ring/cross) remove board
+ * area, so the tightest combos can occasionally fall short on a given seed;
+ * createGame's bounded retry absorbs that, keeping shaped maps playable too.
  *
  * `medium` reproduces the historical default (28×32, 32 territories) so the
  * default selection preserves the original behaviour.
@@ -53,4 +58,24 @@ export function resolveMapSize(size) {
     console.warn(`resolveMapSize: unknown map size "${size}" — falling back to "${DEFAULT_MAP_SIZE}".`);
   }
   return preset ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
+}
+
+/** Default map-type (personality) key — the classic full-rectangle map. */
+export const DEFAULT_MAP_TYPE = 'random';
+
+/**
+ * Normalize a map-type (personality) key for the engine. Unknown keys fall back
+ * to the classic random map — never throws, so a stale/bad token can't crash
+ * game creation. The set of valid keys is owned by the engine's personality
+ * registry (src/engine/mapPersonalities.js), so the two can't drift.
+ *
+ * @param {string} mapType - e.g. 'random' | 'snowflake' | 'ring' | 'cross'
+ * @returns {string} a valid map-type key
+ */
+export function resolveMapType(mapType) {
+  if (isKnownMapType(mapType)) return mapType;
+  if (import.meta.env?.DEV) {
+    console.warn(`resolveMapType: unknown map type "${mapType}" — falling back to "${DEFAULT_MAP_TYPE}".`);
+  }
+  return DEFAULT_MAP_TYPE;
 }

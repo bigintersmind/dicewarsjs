@@ -109,6 +109,10 @@ vi.mock('../../src/utils/config.js', () => ({
     };
     return presets[size] ?? presets.medium;
   }),
+  // Mirror the real resolver: pass known shapes through, fall back to 'random'.
+  resolveMapType: vi.fn(type => type ?? 'random'),
+  DEFAULT_MAP_SIZE: 'medium',
+  DEFAULT_MAP_TYPE: 'random',
 }));
 
 /*
@@ -402,6 +406,50 @@ describe('GameController', () => {
       expect(createGame).toHaveBeenCalledWith(
         expect.objectContaining({ mapWidth: 36, mapHeight: 40, maxAreas: 48 })
       );
+    });
+  });
+
+  describe('map type selection', () => {
+    it('threads the chosen map type into createGame', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false, mapType: 'snowflake' });
+
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ mapType: 'snowflake' }));
+    });
+
+    it('persists the chosen map type into store config', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false, mapType: 'ring' });
+
+      expect(store.getState().config.mapType).toBe('ring');
+    });
+
+    it('rejectMap regenerates with the map type the player chose', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false, mapType: 'cross' });
+      createGame.mockClear();
+
+      await controller.rejectMap();
+
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ mapType: 'cross' }));
+    });
+
+    it('falls back to the store map type when the caller omits it', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+      store.setState({ config: { ...store.getState().config, mapType: 'ring' } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ mapType: 'ring' }));
+    });
+
+    it('threads map type in spectator (AI vs AI) mode', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: true, mapType: 'snowflake' });
+
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ mapType: 'snowflake' }));
     });
   });
 

@@ -23,6 +23,52 @@ describe('createGame', () => {
       expect(a.areas[i].dice).toBe(b.areas[i].dice);
     }
   });
+
+  describe('personality (shaped) maps', () => {
+    const LARGE = { mapWidth: 36, mapHeight: 40, maxAreas: 48 };
+
+    it('does NOT cap the classic large preset (keeps its 48 ceiling)', () => {
+      const state = createGame({ ...LARGE, mapType: 'random', seed: 1 });
+      expect(state.config.maxAreas).toBe(48);
+      expect(state.areas.length).toBe(48);
+    });
+
+    it('caps shaped maps at 32 and records the honest ceiling in config', () => {
+      for (const mapType of ['snowflake', 'ring', 'cross']) {
+        const state = createGame({ ...LARGE, mapType, playerCount: 6, seed: 2 });
+        expect(state.config.maxAreas).toBe(32); // honest: matches the board built
+        expect(state.areas.length).toBe(32);
+        for (const a of state.areas) {
+          if (a.size > 0) expect(a.id).toBeLessThan(32);
+        }
+      }
+    });
+
+    it('never fails generation for the tightest combo (small + 8 players)', () => {
+      // createGame's bounded retry absorbs the rare infeasible seed.
+      const SMALL = { mapWidth: 20, mapHeight: 24, maxAreas: 20 };
+      for (let seed = 1; seed <= 50; seed++) {
+        expect(() =>
+          createGame({ ...SMALL, mapType: 'snowflake', playerCount: 8, seed })
+        ).not.toThrow();
+      }
+    });
+
+    it('is deterministic for a given requested seed (including the retry path)', () => {
+      const cfg = {
+        mapWidth: 20,
+        mapHeight: 24,
+        maxAreas: 20,
+        mapType: 'snowflake',
+        playerCount: 8,
+        seed: 135,
+      };
+      const a = createGame(cfg);
+      const b = createGame(cfg);
+      expect(a.rngState).toBe(b.rngState);
+      expect(a.areas.map(x => x.size)).toEqual(b.areas.map(x => x.size));
+    });
+  });
 });
 
 describe('simulateGame', () => {

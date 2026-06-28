@@ -56,3 +56,33 @@ def gc_partition(
     retained = ordered[-keep_disk:]
     deletable = ordered[:-keep_disk] if keep_disk < len(ordered) else []
     return manifest_entries, retained, deletable
+
+
+def plan_resume(
+    on_disk: Iterable[dict], resumed_step: int, pool_cap: int, gc_grace: int
+) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """Plan the producer's disk + manifest state on resume from what is ACTUALLY on disk.
+
+    Task E / PR-3 hardening: the producer rehydrates from a directory scan of ``snap-*.weights.js``
+    (passed in as ``on_disk``), NOT from the truncated manifest. The manifest only lists the newest
+    ``pool_cap``, so trusting it would leave the ``gc_grace`` files that live on disk *beyond* the
+    manifest untracked — and therefore never GC-eligible — leaking ``gc_grace`` files per resume.
+
+    Returns ``(manifest_entries, retained, deletable, future)``:
+
+    - ``future`` — entries with ``step > resumed_step``. The resumed run will republish these ids at
+      the same step, so their stale files must be DELETED (a consumer importing the pre-crash
+      weights for an id about to change is the republish-divergence window; the file would also be
+      orphaned from this producer's GC). ``future`` is ``on_disk`` minus ``rehydrate_snapshots``.
+    - ``manifest_entries`` / ``retained`` / ``deletable`` — ``gc_partition`` of the ``kept`` set
+      (``step <= resumed_step``), so the producer re-adopts the grace zone into ``retained`` (keeps
+      it GC-eligible), lists the newest ``pool_cap`` in a rewritten manifest, and may delete files
+      already aged out beyond ``pool_cap + gc_grace``.
+
+    Pure: the callback does the I/O (glob, ``unlink``, manifest write); the partitioning lives here.
+    """
+    kept = rehydrate_snapshots(on_disk, resumed_step)
+    cutoff = int(resumed_step)
+    future = [s for s in on_disk if int(s["step"]) > cutoff]
+    manifest_entries, retained, deletable = gc_partition(kept, pool_cap, gc_grace)
+    return manifest_entries, retained, deletable, future

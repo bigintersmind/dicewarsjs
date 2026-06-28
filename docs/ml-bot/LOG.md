@@ -21,6 +21,57 @@ Entry template:
 
 ---
 
+## 2026-06-27 — Task C/E foundation — PR #70 review-hardening (4-agent review)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Ran a 4-agent review of PR #70** (code-review, silent-failure-hunter, pr-test-analyzer,
+  comment-analyzer). The core logic (resume cursor, HOLE-B dump order, `gc_partition` math, rehydrate
+  `<=` cutoff) was independently traced correct by 3 agents — **no blocking bugs**. The review found two
+  real disk-related issues on the Python producer plus comment rot from the consumer→producer GC pivot.
+- **Fixed two functional issues (both surface only on the long shodan run):**
+  - **Grace-zone disk leak on resume + republish window:** `_on_training_start` rehydrated from the
+    _truncated manifest_ (`pool_cap` entries), so the `gc_grace` files on disk beyond it were never
+    re-tracked → leaked `gc_grace` files per resume. Rewrote it to **scan disk** (`_discover_on_disk_
+snapshots` + new torch-free `plan_resume`): re-adopt the whole retention set, drop+**delete** any
+    file ahead of the resumed step (closes the HOLE-C republish-divergence window at the producer), and
+    rewrite the manifest. Reading the manifest is dropped entirely, so a corrupt/torn manifest can no
+    longer mislead the producer (dissolves the prior start-fresh/encodingVersion/KeyError concerns).
+  - **Fatal GC unlink:** the `unlink(missing_ok=True)` GC loop only swallowed `FileNotFoundError`; any
+    other `OSError` (EIO / read-only remount / EBUSY) crashed `model.learn()` over pure disk hygiene.
+    New `_safe_unlink` logs and continues — a robustness regression vs the old best-effort eviction.
+- **Comment sweep (consumer no longer GCs):** corrected ~6 stale `ppo-league.mjs` comments that still
+  said the consumer "FIFO-evicts + `unlinkSync`s" / a "peer worker" deletes — re-attributed the GC race
+  to the single Python producer; fixed the `refresh()` JSDoc, the fingerprint/`restore` gate notes, and
+  the dead-code back-fill comment. Pointed the env-server stdout-drain comments at `env_server.py`.
+- **Test-seam extraction (the PR's guarantees were untested where they execute):** `main()` isn't
+  exported, so the HOLE-B write order and the resume-loop bounds had no coverage. Extracted + exported
+  `makeCheckpointDumper` (pins state-then-flush order + the consecutive-failure abort),
+  `formatDoneLine`, and `resumeStartEpisode`/`shouldRunEpisode` (pins `--episodes=N` as a run-total).
+  Also emit the health line with a `WARN` prefix and on the **abnormal-exit** path (S-3/S-4), and added
+  the `!existsSync` guard so a _present_ module's `ERR_MODULE_NOT_FOUND` (missing transitive import) is
+  rethrown, not masked as a benign GC-race skip (S-1).
+- **New tests:** torch-free `plan_resume` (4) + `makeCheckpointDumper`/`formatDoneLine`/loop-bounds (9) +
+  the ERR_MODULE_NOT_FOUND-while-present guard (1); torch-gated callback tests for disk-scan resume,
+  grace-zone re-adoption (the leak), and unlink resilience (run on shodan).
+
+**Learned / decided:**
+
+- **Disk-scan beats manifest-read for producer resume.** Rebuilding the tracked set from the directory
+  (not the truncated manifest) is what keeps the grace zone GC-eligible AND removes the manifest as a
+  trust dependency — one change closes the leak, the republish window, and the corrupt-manifest class.
+- **Extract the seam to test the guarantee.** The dump-order and run-total semantics were correct but a
+  silent revert would have passed CI; the fix was a small export, not a new integration harness.
+
+**Verification GREEN:** ruff + ruff-format clean; torch-free Python (`test_snapshot_manifest.py` 16,
+`test_env_server_argv.py` 6) pass; full ml JS suite **206** (+9 checkpoint/loop tests, +1 guard test);
+eslint + prettier clean. Torch-gated `test_snapshot_callback.py` (disk-scan resume / leak / unlink
+resilience) runs on shodan. Full repo suite + build run by the main agent.
+
+---
+
 ## 2026-06-27 — Task C/E design (D-26) + foundation PR-1→PR-3 landed locally
 
 **Phase:** 3 · **Who:** Ivan + Claude

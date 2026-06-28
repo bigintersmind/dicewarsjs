@@ -94,9 +94,10 @@ def test_publish_exports_weights_and_lists_them(tmp_path, monkeypatch):
         "createdAt": snaps[0]["createdAt"],  # timestamp present (exact value not pinned)
     }
     assert snaps[0]["createdAt"]  # non-empty ISO stamp
-    # No leftover temp checkpoint (.pt) or torn manifest temp.
+    # No leftover temp checkpoint (.pt), torn manifest temp, or torn weights temp (atomic export).
     assert not list(tmp_path.glob("*.pt"))
     assert not list(tmp_path.glob("manifest.json.tmp"))
+    assert not list(tmp_path.glob("*.weights.js.tmp"))
 
 
 def test_on_step_publishes_on_cadence_only(tmp_path, monkeypatch):
@@ -150,9 +151,10 @@ def test_publish_truncates_manifest_and_gcs_old_files(tmp_path, monkeypatch):
     assert not list(tmp_path.glob("manifest.json.tmp"))
 
 
-def test_on_training_start_rehydrates_and_drops_future_entries(tmp_path, monkeypatch):
-    """Resume rehydration (task E / PR-3): adopt the prior manifest minus entries ahead of the
-    resumed step, so re-reaching a step republishes its id exactly once (no duplicate)."""
+def test_on_training_start_rehydrates_and_deletes_future_files(tmp_path, monkeypatch):
+    """Resume rehydration (task E / PR-3, disk-scan): rebuild the tracked set from the snapshot dir
+    minus entries ahead of the resumed step, DELETE those future files (they get republished), so
+    re-reaching a step republishes its id exactly once (no duplicate, no stale weights)."""
     _patch_export(monkeypatch)
     # A prior run published snapshots at 100, 200, 300.
     cb0 = SnapshotCallback(tmp_path, snapshot_every=100)
@@ -161,13 +163,81 @@ def test_on_training_start_rehydrates_and_drops_future_entries(tmp_path, monkeyp
     for step in (100, 200, 300):
         cb0._publish(step)
 
-    # A new run resumes at step 250: snap-300 is AHEAD of the resume point and must be dropped.
+    # A new run resumes at step 250: snap-300 is AHEAD of the resume point and must be dropped AND
+    # its stale file deleted (a consumer must not import pre-crash weights for a soon-changed id).
     cb = SnapshotCallback(tmp_path, snapshot_every=100)
     cb.model = SimpleNamespace(policy=SimpleNamespace(), num_timesteps=250)
     cb._on_training_start()
-    assert [s["step"] for s in cb._snapshots] == [100, 200]  # future snap-300 dropped
+    assert [s["step"] for s in cb._snapshots] == [100, 200]  # future snap-300 dropped from tracking
+    assert not (
+        tmp_path / "snap-000000300.weights.js"
+    ).exists()  # ...and its file deleted on resume
+    # The rewritten manifest no longer lists the future entry (closes the republish window).
+    resumed_manifest = json.loads((tmp_path / "manifest.json").read_text())
+    assert [s["step"] for s in resumed_manifest["snapshots"]] == [100, 200]
 
     cb._publish(300)  # re-reached → republished exactly once, no duplicate id
     steps = [s["step"] for s in json.loads((tmp_path / "manifest.json").read_text())["snapshots"]]
     assert steps == [100, 200, 300]
     assert steps.count(300) == 1
+
+
+def test_resume_readopts_grace_zone_so_it_is_gc_eligible(tmp_path, monkeypatch):
+    """Disk leak fix (task E / PR-3): the manifest lists only pool_cap, but disk holds pool_cap +
+    gc_grace. A resume must re-track the grace-zone files (by scanning disk, not reading the
+    truncated manifest) so a later publish can still GC them — else they leak per resume."""
+    _patch_export(monkeypatch)
+    # Prior run, pool_cap=2 gc_grace=1: after 100..500, disk = [300,400,500], manifest = [400,500].
+    cb0 = SnapshotCallback(tmp_path, snapshot_every=100, pool_cap=2, gc_grace=1)
+    cb0.model = SimpleNamespace(policy=SimpleNamespace())
+    cb0._on_training_start()
+    for step in (100, 200, 300, 400, 500):
+        cb0._publish(step)
+    assert sorted(p.name for p in tmp_path.glob("snap-*.weights.js")) == [
+        "snap-000000300.weights.js",  # grace-zone file (NOT in the manifest)
+        "snap-000000400.weights.js",
+        "snap-000000500.weights.js",
+    ]
+
+    # Resume past all of them, then publish two more. If snap-300 (the grace-zone file) were not
+    # re-tracked on resume, it could never enter `deletable` and would leak forever.
+    cb = SnapshotCallback(tmp_path, snapshot_every=100, pool_cap=2, gc_grace=1)
+    cb.model = SimpleNamespace(policy=SimpleNamespace(), num_timesteps=500)
+    cb._on_training_start()
+    assert [s["step"] for s in cb._snapshots] == [300, 400, 500]  # grace zone re-adopted, tracked
+    cb._publish(600)  # disk budget now exceeded → snap-300 must be GC'd, not leaked
+    cb._publish(700)
+    on_disk = sorted(p.name for p in tmp_path.glob("snap-*.weights.js"))
+    assert "snap-000000300.weights.js" not in on_disk  # the formerly-leaked grace file is now GC'd
+    assert on_disk == [
+        "snap-000000500.weights.js",  # pool_cap + gc_grace = 3 newest survive
+        "snap-000000600.weights.js",
+        "snap-000000700.weights.js",
+    ]
+
+
+def test_publish_does_not_crash_when_gc_unlink_fails(tmp_path, monkeypatch):
+    """Robustness (task E / PR-3): a non-FileNotFound FS error while deleting an AGED-OUT file is
+    pure disk hygiene and must NOT crash a multi-day run (manifest + weights already durable)."""
+    _patch_export(monkeypatch)
+    cb = SnapshotCallback(tmp_path, snapshot_every=100, pool_cap=1, gc_grace=0)
+    cb.model = SimpleNamespace(policy=SimpleNamespace())
+    cb._on_training_start()
+    cb._publish(100)
+
+    # Make the next GC unlink raise a non-FileNotFound OSError (e.g. EIO / read-only remount).
+    real_unlink = snapshot_callback.Path.unlink
+
+    def flaky_unlink(self, *args, **kwargs):
+        if self.name == "snap-000000100.weights.js":
+            raise OSError("simulated EIO on aged-out file")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(snapshot_callback.Path, "unlink", flaky_unlink)
+    cb._publish(200)  # snap-100 ages out; its unlink raises — must be swallowed, not propagated
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    assert [s["step"] for s in manifest["snapshots"]] == [
+        200
+    ]  # publish completed despite the error
+    assert (tmp_path / "snap-000000100.weights.js").exists()  # left on disk for the next GC pass

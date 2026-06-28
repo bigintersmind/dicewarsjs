@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from dicewars_ppo.snapshot_manifest import gc_partition, rehydrate_snapshots
+from dicewars_ppo.snapshot_manifest import gc_partition, plan_resume, rehydrate_snapshots
 
 
 def _snap(step):
@@ -96,3 +96,57 @@ def test_gc_partition_rejects_nonpositive_pool_cap(pool_cap):
 def test_gc_partition_rejects_negative_grace():
     with pytest.raises(ValueError, match="gc_grace"):
         gc_partition(_snaps(1), pool_cap=1, gc_grace=-1)
+
+
+# --- plan_resume ------------------------------------------------------------------------------
+
+
+def test_plan_resume_readopts_grace_zone_so_it_stays_gc_eligible():
+    # The leak fix: disk holds pool_cap + gc_grace, the manifest lists only pool_cap. Resuming from
+    # the FULL on-disk set (not the truncated manifest) must re-track the grace zone in `retained`,
+    # else those files are never GC-eligible again. Here pool_cap=2, gc_grace=1, resume past all.
+    manifest, retained, deletable, future = plan_resume(
+        _snaps(300, 400, 500), resumed_step=999, pool_cap=2, gc_grace=1
+    )
+    assert [s["step"] for s in manifest] == [400, 500]  # manifest = newest pool_cap
+    assert [s["step"] for s in retained] == [
+        300,
+        400,
+        500,
+    ]  # grace-zone 300 re-adopted, GC-eligible
+    assert deletable == []
+    assert future == []
+
+
+def test_plan_resume_marks_future_entries_for_deletion():
+    # A pre-crash snapshot AHEAD of the resumed step is republished by the resumed run → its stale
+    # file must be deleted (the republish-divergence window). It is NOT in the manifest/retained.
+    manifest, retained, deletable, future = plan_resume(
+        _snaps(100, 200, 300), resumed_step=250, pool_cap=40, gc_grace=10
+    )
+    assert [s["step"] for s in future] == [300]
+    assert [s["step"] for s in manifest] == [100, 200]
+    assert [s["step"] for s in retained] == [100, 200]
+    assert deletable == []  # below the disk budget, nothing aged out
+
+
+def test_plan_resume_partitions_grace_and_future_together():
+    # Both zones at once: resume at 350 over disk 100..600 with pool_cap=2, gc_grace=1.
+    manifest, retained, deletable, future = plan_resume(
+        _snaps(100, 200, 300, 400, 500, 600), resumed_step=350, pool_cap=2, gc_grace=1
+    )
+    assert [s["step"] for s in future] == [400, 500, 600]  # ahead of 350 → delete + republish
+    assert [s["step"] for s in manifest] == [200, 300]  # kept = [100,200,300]; newest pool_cap
+    assert [s["step"] for s in retained] == [100, 200, 300]  # newest pool_cap + gc_grace
+    assert [s["step"] for s in deletable] == []  # only 3 kept, exactly the disk budget
+
+
+def test_plan_resume_unordered_input_and_empty():
+    manifest, retained, deletable, future = plan_resume(
+        _snaps(300, 100, 200), resumed_step=999, pool_cap=1, gc_grace=0
+    )
+    assert [s["step"] for s in manifest] == [300]  # newest by step regardless of input order
+    assert {s["step"] for s in deletable} == {100, 200}
+    assert future == []
+    # Empty disk (fresh run) → all-empty plan, no error.
+    assert plan_resume([], resumed_step=0, pool_cap=40, gc_grace=10) == ([], [], [], [])

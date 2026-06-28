@@ -193,6 +193,20 @@ describe('ppo-league snapshots — multi-worker GC race (task E / PR-1 floor)', 
     expect(lg.stats().refreshSkips).toBe(0); // a parse error is not a skip
   });
 
+  it('rethrows ERR_MODULE_NOT_FOUND when the file is PRESENT but a transitive import is missing', async () => {
+    // The `!existsSync` guard (task E / S-1): a present module whose own `import` target is missing
+    // throws ERR_MODULE_NOT_FOUND too — but it is a real bug in a published artifact, NOT a GC race,
+    // so it must rethrow (not get masked as a benign skip just because the error code matches).
+    const manifest = writeManifest([snap(100)]);
+    writeFileSync(
+      join(dir, 'snap-000100.weights.js'),
+      "import './does-not-exist.js';\nexport const BC_POLICY = {};\n"
+    );
+    const lg = league(manifest);
+    await expect(lg.refresh()).rejects.toThrow(); // present file → guard falls through to rethrow
+    expect(lg.stats().refreshSkips).toBe(0); // a missing transitive import is not a GC-race skip
+  });
+
   it('de-dups the manifest by id so a republished id never doubles in the pool', async () => {
     // A producer-resume republish (PR-3 truncates this at the source) could list one id twice with
     // different steps; refresh() must seat it once, not twice (a double weight + double eviction).

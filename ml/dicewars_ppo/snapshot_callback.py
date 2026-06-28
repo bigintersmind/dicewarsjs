@@ -18,9 +18,12 @@ forced by the bare-i32 learner-env wire). The producer keeps the newest ``pool_c
 manifest and ``pool_cap + gc_grace`` on disk (a grace buffer for a consumer mid-import during
 a manifest truncation), unlinking older files after the truncated manifest is durable.
 
-Resume (task E / PR-3): ``_on_training_start`` rehydrates the manifest from a prior run (minus
-entries published AHEAD of the resumed step), so a relaunched run does not republish ids the
-league already pooled nor restart numbering from zero.
+Resume (task E / PR-3): ``_on_training_start`` rebuilds the tracked set by SCANNING the snapshot
+dir (not by reading the truncated manifest — that would leave the ``gc_grace`` files beyond it
+untracked and so leak them every resume). It drops + deletes any file published AHEAD of the
+resumed step (the resumed run republishes those ids; a stale file is the republish-divergence
+window) and rewrites the manifest, so a relaunch neither double-publishes a pooled id nor orphans
+disk from the single-writer GC.
 
 Reuse, not reinvention: ``repack_to_bc_checkpoint`` + ``export`` are the exact step-7 gate
 path (PR #61), already proven to produce a module ``makeBC`` accepts — so a snapshot needs
@@ -42,6 +45,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,7 +57,13 @@ from dicewars_bc.export_weights import export
 from dicewars_bc.manifest import EXPECTED_ENCODING_VERSION
 
 from .policy import repack_to_bc_checkpoint
-from .snapshot_manifest import gc_partition, rehydrate_snapshots
+from .snapshot_manifest import gc_partition, plan_resume
+
+# A published weights file: ``snap-<zero-padded-step>.weights.js`` (see ``_publish``). The capture
+# group recovers the producer step so a resume can rebuild its tracked set from a directory scan
+# (the manifest lists only the newest ``pool_cap`` — globbing disk is what makes the grace zone and
+# any stale files GC-eligible again). Anchored so a stray/temp file can never pose as a snapshot.
+_SNAPSHOT_FILE_RE = re.compile(r"snap-(\d+)\.weights\.js\Z")
 
 
 class SnapshotCallback(BaseCallback):
@@ -105,29 +115,81 @@ class SnapshotCallback(BaseCallback):
 
     def _on_training_start(self) -> None:
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
-        # Resume rehydration (task E / PR-3): adopt a prior run's manifest (minus entries AHEAD of
-        # the resumed step) so we neither republish ids the league already pooled nor restart id
-        # numbering from zero. Without it, a resumed run re-writes `snap-<step>` ids it already
-        # published — duplicate manifest entries + a double-seated pool. `self.model.num_timesteps`
-        # is the resumed env-step count (SB3 restores it under `learn(reset_num_timesteps=False)`);
-        # the callback's own `self.num_timesteps` is not synced at training-start, so read model's.
-        manifest_path = self.snapshot_dir / "manifest.json"
-        if not manifest_path.is_file():
-            return
-        try:
-            prior = json.loads(manifest_path.read_text())
-        except (OSError, ValueError) as err:
-            # A corrupt/half-written manifest must not crash training start — log and start fresh
-            # (the league re-polls and rebuilds its pool from the persisted snapshots regardless).
-            print(f"[snapshot] ignoring unreadable manifest.json on resume ({err}); starting fresh")
-            return
-        resumed_step = self.model.num_timesteps
-        self._snapshots = rehydrate_snapshots(prior.get("snapshots", []), resumed_step)
+        # Resume rehydration (task E / PR-3, hardened): rebuild the tracked set from what is on
+        # disk (a scan of `snap-*.weights.js`), NOT from `manifest.json`. The manifest lists only
+        # the newest `pool_cap`, so adopting it would leave the `gc_grace` files on disk beyond the
+        # manifest untracked and therefore never GC-eligible — a `gc_grace`-file leak per resume.
+        # Scanning disk re-adopts the whole retention set, drops+deletes any file AHEAD of the
+        # resumed step (the resumed run republishes those ids — a stale file is the republish-
+        # divergence window and would orphan from this producer's GC), and rewrites the manifest to
+        # match. The manifest is never read, so a corrupt/torn manifest cannot mislead the producer.
+        #
+        # `self.model.num_timesteps` is the resumed env-step count (SB3 restores it under
+        # `learn(reset_num_timesteps=False)`); the callback's own `self.num_timesteps` is not synced
+        # at training-start, so read the model's. Set `_last_snapshot_step` to it so the first
+        # `_on_step` does not immediately re-publish steps 0..resumed.
+        resumed_step = int(self.model.num_timesteps)
         self._last_snapshot_step = resumed_step
-        if self._snapshots:
+        on_disk = self._discover_on_disk_snapshots()
+        if not on_disk:
+            return  # fresh run (or no snapshots published yet) — nothing to rehydrate or GC
+        manifest_entries, retained, deletable, future = plan_resume(
+            on_disk, resumed_step, self._pool_cap, self._gc_grace
+        )
+        # Delete future (republished) files first, then aged-out files, then rewrite the manifest so
+        # it never lists a file we removed. (Unlike a steady-state publish, here the manifest is
+        # rewritten AFTER deletion: every deleted entry is excluded from `manifest_entries` by
+        # construction, so no crash window references a missing file.)
+        for s in future:
+            self._safe_unlink(s["weights"])
+        for s in deletable:
+            self._safe_unlink(s["weights"])
+        self._snapshots = retained
+        self._write_manifest_atomic(manifest_entries)
+        print(
+            f"[snapshot] resumed: {len(retained)} on disk, {len(manifest_entries)} in manifest "
+            f"(step <= {resumed_step}); dropped {len(future)} future, GC'd {len(deletable)} aged"
+        )
+
+    def _discover_on_disk_snapshots(self) -> list[dict]:
+        """Scan ``snapshot_dir`` for published weights files → manifest entries, ascending by step.
+
+        The producer's tracked set is rebuilt from disk on resume (see ``_on_training_start``).
+        ``createdAt`` is recovered from each file's mtime (the original is only informational, not
+        persisted anywhere torch-free); a filename that does not match ``snap-<step>.weights.js`` is
+        skipped (a stray temp file or unrelated artifact must never enter the GC set).
+        """
+        entries: list[dict] = []
+        for path in self.snapshot_dir.glob("snap-*.weights.js"):
+            m = _SNAPSHOT_FILE_RE.match(path.name)
+            if m is None:
+                continue
+            step = int(m.group(1))
+            created = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+            entries.append(
+                {
+                    "id": f"snap-{step:09d}",
+                    "step": step,
+                    "weights": path.name,
+                    "createdAt": created,
+                }
+            )
+        entries.sort(key=lambda s: s["step"])
+        return entries
+
+    def _safe_unlink(self, weights_name: str) -> None:
+        """Best-effort unlink of an aged-out/superseded weights file (single-writer GC, task E).
+
+        Deleting a file the manifest no longer references is pure disk hygiene — training is
+        unaffected — so a transient FS error (``EIO`` on a flaky disk, a read-only-remounted
+        share, ``EBUSY``) must NOT crash a multi-day run. ``FileNotFoundError`` is idempotent for
+        the single writer; any other ``OSError`` is logged and the file left for the next GC pass.
+        """
+        try:
+            (self.snapshot_dir / weights_name).unlink(missing_ok=True)
+        except OSError as err:
             print(
-                f"[snapshot] resumed manifest: kept {len(self._snapshots)} entries "
-                f"(step <= {resumed_step})"
+                f"[snapshot] GC: could not unlink aged-out {weights_name} ({err}); leaving on disk"
             )
 
     def _on_step(self) -> bool:
@@ -153,15 +215,23 @@ class SnapshotCallback(BaseCallback):
         tmp_fd, tmp_name = tempfile.mkstemp(suffix=".pt", dir=str(self.snapshot_dir))
         os.close(tmp_fd)
         tmp_pt = Path(tmp_name)
+        # 2) export the JS module to a temp path, fsync, then `os.replace` into final position — the
+        # same temp+atomic-rename discipline the manifest uses (`_write_manifest_atomic`). Writing
+        # the final `snap-*.weights.js` directly would leave a TORN file at that name on a crash
+        # (kill -9 / OOM / power loss) lands mid-write — and the resume disk-scan globs every
+        # `snap-*.weights.js`, so it would re-adopt the truncated module and a consumer would import
+        # a broken file. The `.tmp` suffix is outside the `snap-*.weights.js` glob (and the anchored
+        # discovery regex), so a leftover temp is never mistaken for a published snapshot.
+        tmp_js = weights_path.with_name(weights_path.name + ".tmp")
         try:
             torch.save(repacked, tmp_pt)
-            # 2) export the JS weights module — no parity fixture (makeBC needs weights only).
-            export(tmp_pt, weights_path, fixture_path=None)
+            export(tmp_pt, tmp_js, fixture_path=None)
+            _fsync_path(tmp_js)
+            os.replace(tmp_js, weights_path)  # atomic on POSIX; the final name is never torn
         finally:
             tmp_pt.unlink(missing_ok=True)
-
-        # Make the weights durable BEFORE the manifest references it (atomic-publish ordering).
-        _fsync_path(weights_path)
+            # No-op after a successful replace (tmp_js was renamed away); cleans a failed export.
+            tmp_js.unlink(missing_ok=True)
 
         # 3) append, then single-writer GC (task E / PR-3): the manifest lists the newest pool_cap;
         # disk keeps the newest pool_cap + gc_grace; older files are deleted. ORDER MATTERS: write
@@ -181,7 +251,7 @@ class SnapshotCallback(BaseCallback):
         )
         self._write_manifest_atomic(manifest_entries)
         for s in deletable:
-            (self.snapshot_dir / s["weights"]).unlink(missing_ok=True)
+            self._safe_unlink(s["weights"])
         # Bound the tracked history to what is still on disk so the next gc_partition is over the
         # live set (it would otherwise grow unbounded across a multi-day run).
         self._snapshots = retained

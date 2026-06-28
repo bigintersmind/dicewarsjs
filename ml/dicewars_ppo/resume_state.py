@@ -26,6 +26,7 @@ import json
 import os
 import random
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +40,26 @@ from .constants import ENCODING_VERSION
 RESUME_FORMAT_VERSION = 1
 LATEST_NAME = "latest.json"
 
-# Width-agnostic (``\d+``) on purpose: the filename uses ``:09d`` (a MINIMUM width), so at >= 1e9
+# Width-agnostic (``\d+``) on purpose: the filenames use ``:09d`` (a MINIMUM width), so at >= 1e9
 # env steps the step is 10 digits. A fixed ``\d{9}`` would stop matching there and the GC would
-# silently leak those files (resume still works — latest.json carries the name, not this regex).
+# silently leak those files (resume still works — latest.json carries the name, not these regexes).
 _CKPT_RE = re.compile(r"^ckpt-(\d+)\.zip$")
+_RNG_RE = re.compile(r"^ckpt-(\d+)\.rng\.pt$")
+
+# Why ``classify_latest_pointer`` rejected (or accepted) ``latest.json`` — a torch-free, sb3-free
+# decision the resume caller branches on, so the highest-consequence "do we restart from 0?" logic
+# is unit-testable in lean CI (not only behind the sb3-gated ``train.py`` tier). The reasons split
+# by the operator's recovery action (see :func:`describe_pointer_rejection`).
+POINTER_VALID = "valid"
+POINTER_ABSENT = "absent"
+POINTER_CORRUPT_JSON = "corrupt-json"
+POINTER_VERSION_SKEW = "version-skew"
+POINTER_ENCODING_SKEW = "encoding-skew"
+POINTER_DANGLING_REF = "dangling-ref"
+
+# Module-level so the macOS dir-fsync degrade (in _fsync_dir) warns once per process, not once per
+# checkpoint.
+_DIR_FSYNC_WARNED = False
 
 
 def _fsync_path(path: Path) -> None:
@@ -62,7 +79,9 @@ def _fsync_dir(path: Path) -> None:
     pair already reached disk, leaving ``latest.json`` dangling — and the checkpoint pair is the
     ONLY copy of model state. Some platforms (notably macOS) don't support fsync on a directory fd;
     it degrades to a no-op rather than crashing, since this is a hardening, not a correctness
-    requirement (Linux / the shodan WSL box get the guarantee).
+    requirement (Linux / the shodan WSL box get the guarantee). The degrade is logged ONCE (not on
+    every checkpoint) so the reduced-durability mode is visible on the box it's running on rather
+    than silent — the whole point of this run is crash-safety.
     """
     try:
         fd = os.open(path, os.O_RDONLY)
@@ -71,7 +90,14 @@ def _fsync_dir(path: Path) -> None:
     try:
         os.fsync(fd)
     except OSError:
-        pass  # directory fsync unsupported here (e.g. macOS) — degrade, don't crash the run
+        global _DIR_FSYNC_WARNED
+        if not _DIR_FSYNC_WARNED:
+            print(
+                f"WARNING: directory fsync unsupported on this platform ({path}); checkpoint "
+                "durability is best-effort (os.replace torn-write atomicity still holds).",
+                file=sys.stderr,
+            )
+            _DIR_FSYNC_WARNED = True
     finally:
         os.close(fd)
 
@@ -128,6 +154,33 @@ def load_rng_sidecar(rng_path: str | Path) -> dict[str, Any]:
     return state
 
 
+def restore_rng_sidecar(rng_path: str | Path) -> bool:
+    """Restore the RNG sidecar, degrading to a FRESH RNG stream (loud warn) if it is unreadable.
+
+    Returns ``True`` if the saved stream was restored, ``False`` if it was unreadable and we
+    fell back to the live RNG. **This must never abort a resume.** By the time it runs,
+    ``MaskablePPO.load`` has ALREADY restored the policy + optimizer + ``num_timesteps`` — the
+    expensive, recoverable state. A torn / bit-rotted sidecar (``torch.load`` with
+    ``weights_only=False`` can raise ``UnpicklingError`` / ``EOFError`` / ``BadZipFile`` /
+    ``RuntimeError`` …) contributes ONLY statistical continuity of the random stream, which the
+    resume contract already declares "bounded-skew, not bit-exact" ([D-26] Q3). So losing it is
+    exactly the degradation the design permits — raising here would brick a fully-recoverable
+    checkpoint, and under the PR-6 schtasks auto-restart that becomes a PERMANENT crash-loop (every
+    relaunch reads the same bad byte and dies). Hence: warn loudly, continue with a fresh stream.
+    """
+    try:
+        load_rng_sidecar(rng_path)
+        return True
+    except Exception as err:  # noqa: BLE001 — corrupt sidecar can raise many torch/pickle types
+        print(
+            f"WARNING: RNG sidecar {Path(rng_path).name} is unreadable ({err!r}); resuming with a "
+            "FRESH RNG stream. The model, optimizer, and num_timesteps were restored — only "
+            "random-stream continuity is lost (statistically consistent, bounded-skew per [D-26]).",
+            file=sys.stderr,
+        )
+        return False
+
+
 # --- atomic latest.json pointer ----------------------------------------------------------------
 
 
@@ -150,38 +203,85 @@ def _write_latest_atomic(state_dir: Path, step: int, ckpt_name: str, rng_name: s
     _fsync_dir(state_dir)
 
 
-def read_latest_pointer(state_dir: str | Path) -> dict[str, Any] | None:
-    """Return the parsed+validated ``latest.json`` dict, or ``None`` if unusable.
+def _parse_latest(state_dir: str | Path) -> tuple[str, dict[str, Any] | None]:
+    """Parse + validate ``latest.json`` ONCE; return ``(reason, data-or-None)``.
 
-    ``None`` means "no usable resume point": the file is absent, torn (bad JSON), version- or
-    encoding-skewed, or references a missing ckpt/rng file. The caller distinguishes ABSENT (a legit
-    fresh run) from PRESENT-but-rejected (corrupt — warn loudly, do NOT silently restart from 0) via
-    :func:`latest_pointer_exists`.
+    The single source of truth for both :func:`classify_latest_pointer` (reason only) and
+    :func:`read_latest_pointer` (data only), so the two can never drift. ``data`` is non-``None``
+    only when ``reason == POINTER_VALID``.
     """
     state_dir = Path(state_dir)
     latest = state_dir / LATEST_NAME
     try:
         raw = latest.read_text()
     except (FileNotFoundError, NotADirectoryError):
-        return None
+        return POINTER_ABSENT, None
     try:
         data = json.loads(raw)
     except ValueError:
-        return None
+        return POINTER_CORRUPT_JSON, None
     if not isinstance(data, dict):
-        return None
+        return POINTER_CORRUPT_JSON, None
     if data.get("version") != RESUME_FORMAT_VERSION:
-        return None
+        return POINTER_VERSION_SKEW, None
     # Match the snapshot manifest's encoding gate: a resume must not load a checkpoint from a
     # different observation encoding (it would silently mismatch the live obs).
     if data.get("encodingVersion") != ENCODING_VERSION:
-        return None
+        return POINTER_ENCODING_SKEW, None
     ckpt, rng = data.get("ckpt"), data.get("rng")
     if not ckpt or not (state_dir / ckpt).is_file():
-        return None
+        return POINTER_DANGLING_REF, None
     if not rng or not (state_dir / rng).is_file():
-        return None
-    return data
+        return POINTER_DANGLING_REF, None
+    return POINTER_VALID, data
+
+
+def classify_latest_pointer(state_dir: str | Path) -> str:
+    """Why ``latest.json`` is (un)usable — one of the ``POINTER_*`` reasons (torch-free, CI-tested).
+
+    Lets the resume caller branch the three-way decision (resume / loud-fresh / silent-fresh) AND
+    tailor the operator warning to the cause, without an sb3 import — so the highest-consequence
+    "should we restart from 0?" logic is unit-testable in lean CI.
+    """
+    return _parse_latest(state_dir)[0]
+
+
+def describe_pointer_rejection(reason: str) -> str:
+    """Operator-facing explanation for a rejected pointer (caller prefixes ``WARNING: <dir>:``).
+
+    A pure ``reason → message`` map (no I/O), so the resume warning is unit-testable in lean CI. It
+    splits by the right recovery action: VERSION / ENCODING skew mean the on-disk ckpt pairs are
+    THEMSELVES from an incompatible build (a fresh start is correct, and deleting them is fine),
+    whereas CORRUPT_JSON / DANGLING_REF mean only the POINTER broke while the ``ckpt-*.zip`` pairs
+    are likely still loadable — so it steers AWAY from deleting them. (The prior wording only told
+    the operator to move ``latest.json`` aside, framing recovery around the pointer rather than the
+    still-loadable ckpt pairs.)
+    """
+    recoverable = (
+        "the ckpt-*.zip/.rng.pt pairs on disk are likely still loadable — inspect them BEFORE "
+        "deleting latest.json (it is the breadcrumb to them)"
+    )
+    incompatible = "the on-disk checkpoints are from an incompatible build and cannot be resumed"
+    return {
+        POINTER_CORRUPT_JSON: f"latest.json is corrupt (unreadable JSON); {recoverable}.",
+        POINTER_DANGLING_REF: f"latest.json points at a missing checkpoint file; {recoverable}.",
+        POINTER_VERSION_SKEW: f"latest.json is from an incompatible resume-format version; "
+        f"{incompatible}.",
+        POINTER_ENCODING_SKEW: f"latest.json is from a different observation encoding; "
+        f"{incompatible}.",
+    }.get(reason, f"latest.json is unusable (reason: {reason}).")
+
+
+def read_latest_pointer(state_dir: str | Path) -> dict[str, Any] | None:
+    """Return the parsed+validated ``latest.json`` dict, or ``None`` if unusable.
+
+    ``None`` means "no usable resume point": the file is absent, torn (bad JSON), version- or
+    encoding-skewed, or references a missing ckpt/rng file. Use :func:`classify_latest_pointer` (or
+    :func:`latest_pointer_exists`) to distinguish ABSENT (a fresh run) from PRESENT-but-rejected
+    (corrupt — warn loudly, do NOT silently restart from 0).
+    """
+    reason, data = _parse_latest(state_dir)
+    return data if reason == POINTER_VALID else None
 
 
 def latest_pointer_exists(state_dir: str | Path) -> bool:
@@ -202,12 +302,19 @@ def has_resume_checkpoint(state_dir: str | Path) -> bool:
 
 
 def _checkpoint_steps(state_dir: Path) -> list[int]:
-    """Steps of the ``ckpt-*.zip`` files on disk (ascending), parsed from the filenames."""
-    steps = []
-    for p in state_dir.glob("ckpt-*.zip"):
-        m = _CKPT_RE.match(p.name)
+    """Steps with a checkpoint file on disk (ascending), unioned over BOTH the ``.zip`` and the
+    ``.rng.pt`` names.
+
+    Unioning both halves means an ORPHANED ``.rng.pt`` — e.g. a prior GC whose ``.zip`` unlink
+    succeeded but whose paired ``.rng.pt`` unlink hit a transient ``OSError`` (see
+    :func:`_safe_unlink`) — is still enumerated and swept by a later GC pass, so no half-pair leaks
+    past one cadence. (A ``.zip``-only orphan self-heals the same way.)
+    """
+    steps: set[int] = set()
+    for p in state_dir.glob("ckpt-*"):
+        m = _CKPT_RE.match(p.name) or _RNG_RE.match(p.name)
         if m:
-            steps.append(int(m.group(1)))
+            steps.add(int(m.group(1)))
     return sorted(steps)
 
 
@@ -229,7 +336,10 @@ def _gc_old_checkpoints(state_dir: Path, *, keep: int, keep_step: int) -> None:
     Called only AFTER ``latest.json`` is durable, so the referenced (newest) pair is always within
     ``keep`` (``keep >= 1``); ``keep_step`` is also force-retained as a belt-and-suspenders guard so
     the GC can never remove the pair ``latest.json`` currently names (the HOLE-B ordering hazard).
-    Removes the ``.zip`` and ``.rng.pt`` together so a half-pair is never left behind.
+    Unlinks the ``.zip`` and ``.rng.pt`` of each aged-out step together; if a transient
+    :func:`_safe_unlink` failure leaves one half behind, ``_checkpoint_steps`` (which unions both
+    suffixes) re-enumerates that step on the next pass and sweeps the orphan — no half-pair survives
+    past one GC cycle.
     """
     steps = _checkpoint_steps(state_dir)
     survivors = set(steps[-keep:]) | {int(keep_step)}

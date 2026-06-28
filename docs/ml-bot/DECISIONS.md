@@ -1579,3 +1579,24 @@ EVERY `--device cuda` resume (now CPU-pinned in `load_rng_sidecar`; CUDA-gated r
 `test_train_tracer_args.py`) runs on **shodan**. _Shodan checklist before the BEAT run: `MaskablePPO.load`
 needs no `custom_objects`; `--device cuda` RNG restore; `_setup_learn` caps at the absolute `--timesteps`;
 live forkserver two-half resume._
+
+**PR-5 review-hardening (2026-06-28).** A comprehensive 4-lens PR review (#72: code / silent-failure /
+tests / comments) + a 3-lens adversarial re-verify of the fixes refined the resume contract without
+changing its shape. Decisions folded in (each with regression coverage): (a) **nothing downstream of
+`MaskablePPO.load` may abort a resume** — a corrupt/torn RNG sidecar DEGRADES to a fresh stream with a
+loud warn (`restore_rng_sidecar`), since the recoverable state (policy+optimizer+`num_timesteps`) is
+already loaded and RNG continuity is already "bounded-skew, not bit-exact" (Q3); aborting would brick a
+fully-recoverable checkpoint (a PERMANENT crash-loop under the PR-6 auto-restart). (b) A
+present-but-rejected `latest.json` gets a **cause-specific, NON-destructive warning** — the decision is
+lifted into the torch-free, CI-testable `classify_latest_pointer` / `describe_pointer_rejection`
+(behavior-preserving for `read_latest_pointer` via a shared `_parse_latest`), steering the operator AWAY
+from deleting `latest.json` when the on-disk ckpt pairs are still loadable; but **NO blanket auto-fallback**
+to the retained `keep=2` pair (version/encoding-skew ckpts are genuinely incompatible, and a silent
+step-change is worse than a clear manual-recovery message). (c) The GPU-resume CPU-pinning invariant is now
+pinned in **lean CI** (a `map_location` spy), not only by the shodan-only CUDA test; GC enumeration unions
+`.zip`+`.rng.pt` so a half-failed unlink's orphan sidecar is swept. Also fixed prior comment-rot (the
+self-contradictory "load-bearing guard (unlike dump-every)" — Node DOES also check; "LISTENING
+timeout"→"exited before listening"; a line-ref → symbol). Verification: ruff clean; torch-free tier 66
+green; sb3 tier shodan-only. The verify workflow also caught a shodan-only `AttributeError`
+(`train.py` imported only `POINTER_ABSENT`/`POINTER_VALID` but a test referenced `tr.POINTER_CORRUPT_JSON`)
+→ tests now import the reason constants from `resume_state`, not through `tr`.

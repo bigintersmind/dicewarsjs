@@ -19,6 +19,10 @@ pytest.importorskip("torch")
 pytest.importorskip("sb3_contrib")
 
 import dicewars_ppo.train as tr  # noqa: E402
+from dicewars_ppo.resume_state import (  # noqa: E402
+    POINTER_CORRUPT_JSON,
+    POINTER_VALID,
+)
 
 
 def _args(tmp_path, extra=None):
@@ -360,7 +364,7 @@ def test_resume_passes_remaining_and_skips_build_model(tmp_path, monkeypatch):
                 ("learn", kwargs.get("total_timesteps"), kwargs.get("reset_num_timesteps"))
             )
 
-    monkeypatch.setattr(tr, "has_resume_checkpoint", lambda d: True)
+    monkeypatch.setattr(tr, "classify_latest_pointer", lambda d: POINTER_VALID)
     monkeypatch.setattr(tr, "load_resume_checkpoint", lambda d, venv, device: FakeModel())
 
     def _no_build(*a, **k):
@@ -398,7 +402,7 @@ def test_resume_zero_remaining_skips_learn_but_exports(tmp_path, monkeypatch):
         def learn(self, **kwargs):
             calls.append(("learn",))
 
-    monkeypatch.setattr(tr, "has_resume_checkpoint", lambda d: True)
+    monkeypatch.setattr(tr, "classify_latest_pointer", lambda d: POINTER_VALID)
     monkeypatch.setattr(tr, "load_resume_checkpoint", lambda d, venv, device: FakeModel())
     monkeypatch.setattr(
         tr, "build_model", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no build"))
@@ -449,7 +453,7 @@ def test_fresh_run_when_state_dir_empty(tmp_path, monkeypatch):
             "--out", str(tmp_path / "o.pt"),
         ],
     )
-    tr._validate(a)  # state_dir is empty (no latest.json) ⇒ has_resume_checkpoint reads False
+    tr._validate(a)  # state_dir is empty (no latest.json) ⇒ classify_latest_pointer reads ABSENT
     tr.train(a)
 
     assert ("learn", 2048, None) in calls  # absolute budget, default reset (fresh)
@@ -461,6 +465,15 @@ def test_freeze_trunk_plus_state_dir_rejected_eagerly(tmp_path):
     wrote would be un-resumable. Fail at launch, before any checkpoint is written."""
     a = _args(tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--freeze-trunk"])
     with pytest.raises(SystemExit, match="freeze-trunk"):
+        tr._validate(a)
+
+
+@pytest.mark.parametrize("bad", ["0", "-1"])
+def test_validate_rejects_nonpositive_checkpoint_every(tmp_path, bad):
+    a = _args(
+        tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--checkpoint-every", bad]
+    )
+    with pytest.raises(SystemExit, match="checkpoint-every"):
         tr._validate(a)
 
 
@@ -478,8 +491,8 @@ def test_corrupt_latest_warns_and_runs_fresh(tmp_path, monkeypatch, capsys):
             calls.append(("learn",))
 
     monkeypatch.setattr(tr, "build_model", lambda cfg, ckpt, args, venv=None: (FakeModel(), venv))
-    monkeypatch.setattr(tr, "has_resume_checkpoint", lambda d: False)  # invalid ⇒ no usable point
-    monkeypatch.setattr(tr, "latest_pointer_exists", lambda d: True)  # but a file IS present
+    # A present-but-rejected pointer (here: corrupt JSON) ⇒ classify returns a non-ABSENT reason.
+    monkeypatch.setattr(tr, "classify_latest_pointer", lambda d: POINTER_CORRUPT_JSON)
 
     a = _args(
         tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--out", str(tmp_path / "o.pt")]
@@ -487,7 +500,9 @@ def test_corrupt_latest_warns_and_runs_fresh(tmp_path, monkeypatch, capsys):
     tr._validate(a)
     tr.train(a)
 
-    assert "FRESH run" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "FRESH run" in err  # warned + ran fresh, never a silent restart
+    assert "BEFORE deleting latest.json" in err  # non-destructive: recoverable ckpts, don't delete
     assert ("learn",) in calls  # ran fresh (did not abort)
 
 

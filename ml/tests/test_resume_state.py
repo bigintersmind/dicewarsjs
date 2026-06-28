@@ -58,6 +58,48 @@ def test_load_rng_sidecar_uses_weights_only_false(tmp_path):
     assert torch.equal(torch.rand(3), before)
 
 
+def test_load_rng_sidecar_always_maps_to_cpu(tmp_path, monkeypatch):
+    # GPU-resume blocker regression, CPU-observable: the sidecar must load to CPU regardless of the
+    # model's device. RNG generator states are CPU ByteTensors and torch.(cuda.)set_rng_state reject
+    # a GPU-mapped tensor — forwarding the model's --device cuda into map_location crashed EVERY GPU
+    # resume. The CUDA smoke test in test_resume.py never runs in CI / on the Mac; this pins the
+    # exact invariant (load goes to CPU) without a GPU, so a map_location=device regression fails
+    # HERE instead of only on a live shodan BEAT run.
+    torch.save(rs._capture_rng(), tmp_path / "x.rng.pt")
+    seen = {}
+    real_load = rs.torch.load
+
+    def spy(path, *a, **k):
+        # map_location is torch.load's 2nd positional; capture either form so the assertion is
+        # form-agnostic (kwarg today, but a positional refactor must still be pinned to CPU).
+        seen["map_location"] = k.get("map_location", a[0] if a else None)
+        return real_load(path, *a, **k)
+
+    monkeypatch.setattr(rs.torch, "load", spy)
+    rs.load_rng_sidecar(tmp_path / "x.rng.pt")
+    assert seen["map_location"] == "cpu"  # never a CUDA device
+
+
+def test_restore_rng_sidecar_restores_good_stream(tmp_path):
+    torch.manual_seed(11)
+    rng_path = tmp_path / "g.rng.pt"
+    torch.save(rs._capture_rng(), rng_path)
+    before = torch.rand(3)
+    torch.rand(40)
+    assert rs.restore_rng_sidecar(rng_path) is True  # restored
+    assert torch.equal(torch.rand(3), before)
+
+
+def test_restore_rng_sidecar_degrades_on_corrupt(tmp_path, capsys):
+    # A torn/bit-rotted sidecar must NOT abort: restore_rng_sidecar returns False + warns, so a
+    # resume whose model/optimizer/num_timesteps are already loaded continues with a fresh stream
+    # rather than crash-looping under the PR-6 auto-restart.
+    bad = tmp_path / "bad.rng.pt"
+    bad.write_bytes(b"not a torch checkpoint")
+    assert rs.restore_rng_sidecar(bad) is False  # degraded, did not raise
+    assert "FRESH RNG stream" in capsys.readouterr().err
+
+
 # --- save + atomic latest.json -----------------------------------------------------------------
 
 
@@ -147,6 +189,59 @@ def test_has_resume_checkpoint(tmp_path):
     assert rs.has_resume_checkpoint(tmp_path) is True
 
 
+def test_read_latest_pointer_none_on_non_dict_json(tmp_path):
+    # Valid JSON that isn't an object (e.g. a list) is still unusable — the isinstance(dict) gate.
+    (tmp_path / rs.LATEST_NAME).write_text("[1, 2, 3]")
+    assert rs.read_latest_pointer(tmp_path) is None
+    assert rs.classify_latest_pointer(tmp_path) == rs.POINTER_CORRUPT_JSON
+
+
+# --- classify_latest_pointer (the CI-testable resume decision) ---------------------------------
+
+
+def test_classify_absent_and_valid(tmp_path):
+    assert rs.classify_latest_pointer(tmp_path) == rs.POINTER_ABSENT
+    rs.save_resume_checkpoint(FakeModel(), tmp_path, 10)
+    assert rs.classify_latest_pointer(tmp_path) == rs.POINTER_VALID
+
+
+def test_classify_corrupt_json(tmp_path):
+    (tmp_path / rs.LATEST_NAME).write_text("{ not valid json")
+    assert rs.classify_latest_pointer(tmp_path) == rs.POINTER_CORRUPT_JSON
+
+
+def test_classify_version_skew(tmp_path):
+    rs.save_resume_checkpoint(FakeModel(), tmp_path, 10)
+    p = tmp_path / rs.LATEST_NAME
+    data = json.loads(p.read_text())
+    data["version"] = rs.RESUME_FORMAT_VERSION + 1
+    p.write_text(json.dumps(data))
+    assert rs.classify_latest_pointer(tmp_path) == rs.POINTER_VERSION_SKEW
+
+
+def test_classify_encoding_skew(tmp_path):
+    rs.save_resume_checkpoint(FakeModel(), tmp_path, 10)
+    p = tmp_path / rs.LATEST_NAME
+    data = json.loads(p.read_text())
+    data["encodingVersion"] = 999
+    p.write_text(json.dumps(data))
+    assert rs.classify_latest_pointer(tmp_path) == rs.POINTER_ENCODING_SKEW
+
+
+def test_classify_dangling_ref(tmp_path):
+    rs.save_resume_checkpoint(FakeModel(), tmp_path, 10)
+    (tmp_path / "ckpt-000000010.zip").unlink()
+    assert rs.classify_latest_pointer(tmp_path) == rs.POINTER_DANGLING_REF
+
+
+def test_describe_pointer_rejection_splits_by_recovery_action():
+    # Pointer-only breakage ⇒ steer AWAY from deleting; build skew ⇒ incompatible.
+    for recoverable in (rs.POINTER_CORRUPT_JSON, rs.POINTER_DANGLING_REF):
+        assert "BEFORE deleting latest.json" in rs.describe_pointer_rejection(recoverable)
+    for incompatible in (rs.POINTER_VERSION_SKEW, rs.POINTER_ENCODING_SKEW):
+        assert "incompatible build" in rs.describe_pointer_rejection(incompatible)
+
+
 # --- GC ----------------------------------------------------------------------------------------
 
 
@@ -171,3 +266,27 @@ def test_gc_never_removes_referenced_even_at_keep_one(tmp_path):
     assert _steps_on_disk(tmp_path) == [200]
     assert rs.has_resume_checkpoint(tmp_path)
     assert rs.read_latest_pointer(tmp_path)["step"] == 200
+
+
+def test_gc_sweeps_orphaned_rng_without_zip(tmp_path):
+    # Simulate a prior half-failed GC (a transient _safe_unlink error left a lone .rng.pt at an old
+    # step). Because _checkpoint_steps unions .zip AND .rng.pt names, the next GC re-enumerates that
+    # step and sweeps the orphan — no half-pair leaks past one cadence.
+    m = FakeModel()
+    rs.save_resume_checkpoint(m, tmp_path, 100, keep=2)
+    rs.save_resume_checkpoint(m, tmp_path, 200, keep=2)
+    (tmp_path / "ckpt-000000050.rng.pt").write_bytes(b"orphan")  # a .zip-less sidecar from step 50
+    rs.save_resume_checkpoint(m, tmp_path, 300, keep=2)  # survivors = newest 2 ⇒ {200, 300}
+    assert not (tmp_path / "ckpt-000000050.rng.pt").exists()  # orphan swept
+    assert _steps_on_disk(tmp_path) == [200, 300]
+
+
+def test_gc_handles_10_digit_steps_above_1e9(tmp_path):
+    # The :09d filename is a MINIMUM width, so >= 1e9 steps are 10 digits. _CKPT_RE/_RNG_RE use \d+
+    # (not \d{9}); a fixed width would silently leak these pairs over a multi-day BEAT run.
+    m = FakeModel()
+    rs.save_resume_checkpoint(m, tmp_path, 1_500_000_000, keep=1)
+    rs.save_resume_checkpoint(m, tmp_path, 1_600_000_000, keep=1)
+    assert _steps_on_disk(tmp_path) == [1_600_000_000]  # old 10-digit pair GC'd
+    assert rs.read_latest_pointer(tmp_path)["step"] == 1_600_000_000
+    assert not (tmp_path / "ckpt-1500000000.rng.pt").exists()  # both halves of the old pair gone

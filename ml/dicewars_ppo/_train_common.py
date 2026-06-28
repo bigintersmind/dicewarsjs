@@ -196,8 +196,9 @@ def build_parser(description: str | None = None) -> argparse.ArgumentParser:
     )
     # League persistence (B6 / task E, [D-26]). The Node env-server's resume half: each worker
     # checkpoints its PFSP pool + win-rate book. All default None so an unset value yields argv
-    # byte-identical to B5 (EnvServerProcess None-gates each, env_server.py:144-149) — the tracer's
-    # golden surface is unchanged. Forwarded to the env-server via _make_env_thunk's server_kwargs.
+    # byte-identical to B5 (EnvServerProcess.__init__ None-gates each league-persistence flag) — the
+    # tracer's golden surface is unchanged. Forwarded to the env-server via _make_env_thunk's
+    # server_kwargs.
     p.add_argument(
         "--snapshot-store",
         choices=("memory", "disk"),
@@ -271,7 +272,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         Path(args.snapshot_dir).mkdir(parents=True, exist_ok=True)
     # League persistence (B6 / task E, [D-26]). Front-run the Node guards (resolveLeaguePersistence
     # + the dump-every guard, scripts/ppo-env-server.mjs) so a misconfig fails HERE at launch with a
-    # clear message instead of as an opaque env-server LISTENING timeout after the worker spawns.
+    # clear message instead of as an opaque "exited before listening" env-server startup failure
+    # after the worker spawns (Node throws BEFORE it prints PPO_ENV_SERVER LISTENING).
     if args.league_dump_every is not None and args.league_dump_every < 1:
         # Node validates this unconditionally (Number.isInteger || <1 throws); we just fail faster.
         raise SystemExit(
@@ -279,8 +281,9 @@ def _validate_args(args: argparse.Namespace) -> None:
         )
     if args.snapshot_store == "disk" and not (args.league_state_dir or args.snapshot_dir):
         # Node derives the disk dir from --league-state-dir, else the snapshot manifest's dir; with
-        # neither it throws at spawn (resolveLeaguePersistence), seen only as a startup timeout.
-        # This is the load-bearing guard (unlike dump-every, which Node also checks).
+        # neither, resolveLeaguePersistence throws at spawn (before LISTENING, so it surfaces as an
+        # "exited before listening" startup failure). Like the dump-every guard above, Node ALSO
+        # enforces this — we front-run both only to fail at launch with a clearer message.
         raise SystemExit(
             "--snapshot-store=disk needs a shared directory: pass --league-state-dir=<dir> "
             "or --snapshot-dir=<dir>."

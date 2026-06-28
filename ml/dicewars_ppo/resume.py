@@ -10,7 +10,8 @@ env-thunk's module — so the [D-26] Q4 torch-free invariant for ``_train_common
 
 This is the **Python half** of the two-half resume ([D-26] Q3): it owns the policy + optimizer +
 ``num_timesteps`` + process RNG. The other half is the Node league's per-worker
-``league-state-<seedBase>.json`` (see ``scripts/lib/ppo-league-store.mjs``); the two resume
+``league-state-<seedBase>.json`` (whose filename is built in ``scripts/ppo-env-server.mjs``'s
+``resolveLeaguePersistence``; serialized via ``scripts/lib/ppo-league-store.mjs``); the two resume
 INDEPENDENTLY (no two-phase commit), so resume is "statistically consistent, bounded-skew," NOT
 bit-exact.
 """
@@ -25,11 +26,19 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 from .resume_state import (
     LATEST_NAME,
+    POINTER_ABSENT,
+    POINTER_CORRUPT_JSON,
+    POINTER_DANGLING_REF,
+    POINTER_ENCODING_SKEW,
+    POINTER_VALID,
+    POINTER_VERSION_SKEW,
     RESUME_FORMAT_VERSION,
+    classify_latest_pointer,
+    describe_pointer_rejection,
     has_resume_checkpoint,
     latest_pointer_exists,
-    load_rng_sidecar,
     read_latest_pointer,
+    restore_rng_sidecar,
     save_resume_checkpoint,
 )
 
@@ -37,12 +46,21 @@ from .resume_state import (
 # even though the implementation lives in the sb3-free sibling.
 __all__ = [
     "LATEST_NAME",
+    "POINTER_ABSENT",
+    "POINTER_CORRUPT_JSON",
+    "POINTER_DANGLING_REF",
+    "POINTER_ENCODING_SKEW",
+    "POINTER_VALID",
+    "POINTER_VERSION_SKEW",
     "RESUME_FORMAT_VERSION",
     "ResumeCheckpointCallback",
+    "classify_latest_pointer",
+    "describe_pointer_rejection",
     "has_resume_checkpoint",
     "latest_pointer_exists",
     "load_resume_checkpoint",
     "read_latest_pointer",
+    "restore_rng_sidecar",
     "save_resume_checkpoint",
 ]
 
@@ -55,7 +73,8 @@ def load_resume_checkpoint(state_dir: str | Path, venv: Any, device: str) -> Mas
     snapshot producer rehydrates against the RESUMED step, not 0 — HOLE-C). Building a fresh model +
     ``set_parameters`` instead would leave ``num_timesteps`` at 0 and the snapshot producer would
     classify the entire on-disk pool as "future" and delete it — so the resume MUST go through
-    ``load``. Then the RNG sidecar is restored.
+    ``load``. Then the RNG sidecar is restored — but a corrupt sidecar DEGRADES to a fresh stream
+    (``restore_rng_sidecar``) rather than aborting: the recoverable state is already loaded.
     """
     pointer = read_latest_pointer(state_dir)
     if pointer is None:
@@ -65,8 +84,10 @@ def load_resume_checkpoint(state_dir: str | Path, venv: Any, device: str) -> Mas
     rng_path = state_dir / pointer["rng"]
     model = MaskablePPO.load(zip_path, env=venv, device=device)
     # The MODEL load honors `device`, but the RNG sidecar must NOT — RNG states are CPU ByteTensors
-    # and set_rng_state rejects a GPU-mapped tensor (would crash every --device cuda resume).
-    load_rng_sidecar(rng_path)
+    # and set_rng_state rejects a GPU-mapped tensor (would crash every --device cuda resume). And a
+    # torn/bit-rotted sidecar degrades to a fresh RNG stream (loud warn), not bricking the resume
+    # whose model/optimizer/num_timesteps are already restored above.
+    restore_rng_sidecar(rng_path)
     return model
 
 

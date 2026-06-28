@@ -132,6 +132,30 @@ def test_load_resume_restores_num_timesteps_and_policy(tmp_path):
     assert all(torch.equal(src[k], dst[k]) for k in src)
 
 
+def test_load_resume_survives_corrupt_rng_sidecar(tmp_path, capsys):
+    # A torn/bit-rotted RNG sidecar must NOT brick a resume: MaskablePPO.load has already restored
+    # policy + optimizer + num_timesteps, so load_resume_checkpoint degrades to a fresh RNG stream
+    # (loud warn) rather than raising (which would crash-loop under the PR-6 auto-restart).
+    cfg = _v2_config()
+    model = _build_model(cfg)
+    model.num_timesteps = 999
+    rz.save_resume_checkpoint(model, tmp_path, model.num_timesteps)
+    ptr = rz.read_latest_pointer(tmp_path)
+    (tmp_path / ptr["rng"]).write_bytes(b"not a torch checkpoint")  # corrupt ONLY the sidecar
+
+    loaded = rz.load_resume_checkpoint(tmp_path, _build_venv(cfg), "cpu")  # must NOT raise
+
+    assert loaded.num_timesteps == 999  # model/optimizer/step still restored
+    assert "FRESH RNG stream" in capsys.readouterr().err
+
+
+def test_callback_rejects_nonpositive_cadence(tmp_path):
+    with pytest.raises(ValueError, match="checkpoint_every"):
+        rz.ResumeCheckpointCallback(tmp_path, checkpoint_every=0)
+    with pytest.raises(ValueError, match="checkpoint_every"):
+        rz.ResumeCheckpointCallback(tmp_path, checkpoint_every=-1)
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU RNG path needs CUDA (shodan)")
 def test_load_resume_on_cuda_restores_rng_without_crash(tmp_path):
     # Regression for the GPU-resume blocker: even when the MODEL is on cuda, the RNG sidecar must be

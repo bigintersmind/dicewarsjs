@@ -21,6 +21,35 @@ Entry template:
 
 ---
 
+## 2026-06-28 — Task C/E PR-5 review-hardening (corrupt-sidecar degrade, CI-testable resume decision, GC orphan-sweep)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Ran the comprehensive PR review (`/review-pr`) on the committed PR-5 diff (#72) — 4 parallel lenses (code / silent-failure / tests / comments). Implemented the actionable findings on the same branch (`ml-bot/task-ce-pr5-resume`), then adversarially re-verified the fixes with a 3-lens workflow over my own diff.
+- **Corrupt RNG sidecar now DEGRADES, not aborts** (`restore_rng_sidecar`): `MaskablePPO.load` has already restored policy+optimizer+`num_timesteps` before the sidecar is read, so a torn/bit-rotted sidecar warns + continues with a FRESH RNG stream instead of bricking a fully-recoverable resume (which under the PR-6 auto-restart would be a PERMANENT crash-loop). CI + shodan regression tests.
+- **GPU-resume blocker now locked in LEAN CI**: the CPU-pinning invariant is CPU-observable, so a `map_location` spy (`test_load_rng_sidecar_always_maps_to_cpu`) pins it without a GPU — the prior CUDA-gated test never ran in CI / on the Mac / on any CPU box.
+- **Resume decision lifted into torch-free, CI-testable logic**: `_parse_latest` → `classify_latest_pointer` + `describe_pointer_rejection` (behavior-preserving for `read_latest_pointer`). The present-but-rejected warning is now CAUSE-SPECIFIC and NON-DESTRUCTIVE — it steers AWAY from deleting `latest.json` when the on-disk ckpt pairs are still recoverable (the old "move it aside" wording pointed at the breadcrumb). 7 new CI tests.
+- **GC orphan-sweep**: `_checkpoint_steps` now unions `.zip`+`.rng.pt`, so a half-failed unlink's orphan sidecar is swept on the next pass; `_fsync_dir` macOS degrade now logs once. Tests incl. the ≥1e9 (10-digit) GC case.
+- **Comment fixes folded** (from the review's comment lens): the self-contradictory "load-bearing guard (unlike dump-every)" (Node DOES also check the disk-dir case); "LISTENING timeout"→"exited before listening"; `env_server.py:144-149` line-ref → symbol; `--checkpoint-every` help ("not dynamically coupled to `--snapshot-every`"); resume-provenance note.
+
+**Learned / decided:**
+
+- **The model zip is the expensive recoverable asset; nothing downstream of `MaskablePPO.load` may abort a resume.** A corrupt sidecar / a single-byte-corrupt pointer must degrade or warn-and-recover — never silently restart-from-0 or crash a multi-day checkpoint.
+- **No blanket auto-fallback to the retained `keep=2` checkpoint.** Version/encoding-skew on-disk ckpts are genuinely incompatible (fresh is correct), and a silent step-change is worse than a clear manual-recovery message — so the response is a cause-specific warning, not magic recovery. (Revisit only for the corrupt-pointer/dangling-ref cases if it ever bites.)
+
+**Dead ends / surprises:**
+
+- **The verification workflow caught a shodan-only bug I introduced**: `train.py` imported only `POINTER_ABSENT`/`POINTER_VALID`, but a shodan test referenced `tr.POINTER_CORRUPT_JSON` → `AttributeError` only on the box that runs it. Fixed by having the tests import the reason constants from their canonical module (`resume_state`) instead of reaching through `tr`, so they no longer depend on train.py's import list.
+- **Self-inflicted git hiccup, fully reversed**: a bare `git stash pop` during verification grabbed a pre-existing `lint-staged automatic backup` stash and left conflict markers across 9 unrelated files. Backed up the 7 changed files, restored the 9 paths to HEAD, md5-verified the work byte-identical. Lesson: never `git stash pop` with no arg when an unrelated stash may sit on top.
+
+**Next:**
+
+- The PR-5 shodan checklist still applies (the sb3 tier can't run locally): `MaskablePPO.load` needs no `custom_objects`; `--device cuda` RNG restore; `_setup_learn` caps at the absolute `--timesteps` (HOLE-D); the new corrupt-sidecar/CUDA regressions. Then **PR-6** = committed shodan launcher + schtasks runbook → the long BEAT run.
+
+---
+
 ## 2026-06-27 — Task C/E PR-5 — idempotent checkpoint/resume core (+ B6 flag forwarding, per-session CSV)
 
 **Phase:** 3 · **Who:** Ivan + Claude

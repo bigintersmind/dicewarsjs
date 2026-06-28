@@ -70,9 +70,11 @@ from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 from . import _train_common
 from .policy import load_bc_checkpoint, repack_to_bc_checkpoint
 from .resume import (
+    POINTER_ABSENT,
+    POINTER_VALID,
     ResumeCheckpointCallback,
-    has_resume_checkpoint,
-    latest_pointer_exists,
+    classify_latest_pointer,
+    describe_pointer_rejection,
     load_resume_checkpoint,
 )
 from .snapshot_callback import SnapshotCallback
@@ -128,7 +130,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=50_000,
         help="Resume-checkpoint cadence in total env steps (only with --state-dir). Defaults to "
-        "match --snapshot-every.",
+        "50000 (the same default as --snapshot-every, but NOT dynamically coupled to it — set this "
+        "explicitly if you change --snapshot-every and want checkpoints to follow).",
     )
     return p
 
@@ -168,10 +171,11 @@ def _make_logger(args: argparse.Namespace, resumed_step: int = 0):
     ``VecMonitor`` (not this logger) is what populates the ``rollout/ep_rew_mean`` / ``ep_len_mean``
     keys these sinks then record.
 
-    Cross-session continuation (PR-5, [D-26]). SB3's ``CSVOutputFormat`` opens ``progress.csv`` with
-    mode ``"w+t"`` (TRUNCATING it), so a resume into the same ``--log-dir`` would erase the prior
-    session's rows. So we build the output formats EXPLICITLY (instead of ``configure()``) and point
-    the CSV at a per-session ``progress-<resumed_step>.csv`` — so a session that REACHED A LATER
+    Cross-session continuation (PR-5, [D-26]). SB3's ``CSVOutputFormat`` opens its target file with
+    mode ``"w+t"`` (TRUNCATING it) — under ``configure()`` it is ``progress.csv``, so a resume
+    into the same ``--log-dir`` would erase the prior session's rows. So we build the output formats
+    EXPLICITLY (instead of ``configure()``) and point the CSV at a per-session
+    ``progress-<resumed_step>.csv`` — so a session that REACHED A LATER
     CHECKPOINT (and thus resumes at a higher step) never truncates an earlier one (concatenate
     offline). The one residual collision is a crash-loop *within* a single ``--checkpoint-every``
     window: it resumes from the SAME step and re-truncates that step's CSV — bounded, observability-
@@ -211,18 +215,21 @@ def train(args: argparse.Namespace) -> Path:
         f"max_areas={cfg.max_areas} player_count={cfg.player_count} "
         f"context_hidden={cfg.context_hidden}"
     )
-    # Resume detection ([D-26] Q3, auto-detect). A VALID latest.json in --state-dir continues the
-    # run; an ABSENT one is a fresh run; a PRESENT-but-corrupt / version- or encoding-skewed one
-    # warns LOUDLY and falls back to fresh — never a silent restart-from-0 that would discard days
-    # of progress (and would make the absolute --timesteps budget train from scratch again).
+    # Resume detection ([D-26] Q3, auto-detect). classify_latest_pointer (torch-free, CI-tested)
+    # says WHY the pointer is (un)usable: VALID ⇒ continue the run; ABSENT ⇒ a fresh run; any other
+    # reason ⇒ warn LOUDLY with a CAUSE-SPECIFIC message and fall back to fresh — never a silent
+    # restart-from-0 that would discard days of progress (and re-trains the absolute --timesteps
+    # budget from scratch). describe_pointer_rejection steers AWAY from deleting latest.json when
+    # on-disk ckpt pairs are still recoverable (corrupt-pointer / dangling-ref).
     resuming = False
     if args.state_dir:
-        if has_resume_checkpoint(args.state_dir):
+        reason = classify_latest_pointer(args.state_dir)
+        if reason == POINTER_VALID:
             resuming = True
-        elif latest_pointer_exists(args.state_dir):
+        elif reason != POINTER_ABSENT:
             print(
-                f"WARNING: {args.state_dir}/latest.json is unreadable or version/encoding-"
-                "mismatched — starting a FRESH run (NO resume). Move it aside to silence this.",
+                f"WARNING: {args.state_dir}: {describe_pointer_rejection(reason)} "
+                "Starting a FRESH run (NO resume).",
                 file=sys.stderr,
             )
     if resuming and args.freeze_trunk:
@@ -338,6 +345,11 @@ def train(args: argparse.Namespace) -> Path:
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Provenance from `args` (the relaunch flags). On a RESUME these reflect this invocation, not
+    # necessarily the original training run — MaskablePPO.load restores the model's own optimizer/HP
+    # state, so a changed --lr/--gamma/--ent-coef on the relaunch is ignored but still
+    # stamped here. Metadata-only (no training impact); kept simple to avoid lr-schedule-callable
+    # extraction MaskablePPO would otherwise require.
     repacked = repack_to_bc_checkpoint(
         model.policy,
         extra={

@@ -40,8 +40,10 @@ not fixed-field BC exploitation. It still loads ``--checkpoint`` for the archite
 Idempotent checkpoint/resume (PR-5, [D-26] Q3). Pass ``--state-dir`` to make a run resumable:
 ``ResumeCheckpointCallback`` checkpoints policy + optimizer + ``num_timesteps`` + process RNG every
 ``--checkpoint-every`` steps (atomic ``latest.json`` written LAST, the crash hinge — see
-``resume.py``). A relaunch of the SAME command auto-resumes from a valid ``latest.json`` (a
-corrupt/version-skewed one warns and starts fresh), going through ``MaskablePPO.load`` and
+``resume.py``). A relaunch of the SAME command auto-resumes from a valid ``latest.json``; a
+present-but-REJECTED pointer (corrupt/version/encoding skew) HALTS with ``EXIT_POINTER_REJECTED``
+(PR-6) so the auto-restart launcher alerts instead of silently restarting from step 0, and a corrupt
+newest ``.zip`` falls back to the retained prior pair. Resume goes through ``MaskablePPO.load`` and
 ``learn(reset_num_timesteps=False, total_timesteps=_remaining_timesteps(...))`` so the absolute
 ``--timesteps`` budget is honored across crashes (HOLE-D), not made additive. The Node league's own
 resume half (``--league-state-dir`` etc.) is independent ([D-26] Q3) and forwarded via
@@ -70,15 +72,22 @@ from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 from . import _train_common
 from .policy import load_bc_checkpoint, repack_to_bc_checkpoint
 from .resume import (
-    POINTER_ABSENT,
-    POINTER_VALID,
+    RESUME_ACTION_HALT,
+    RESUME_ACTION_RESUME,
     ResumeCheckpointCallback,
+    ResumeCheckpointError,
     classify_latest_pointer,
     describe_pointer_rejection,
     load_resume_checkpoint,
+    resume_action,
 )
 from .snapshot_callback import SnapshotCallback
 from .train_tracer import _verify_repack_exportable, build_model
+
+# Re-export the UNRECOVERABLE-resume exit code so `tr.EXIT_POINTER_REJECTED` resolves; the single
+# source of truth (and the lean-CI canary that pins its value for the launcher) lives in the
+# torch-free _train_common.
+EXIT_POINTER_REJECTED = _train_common.EXIT_POINTER_REJECTED
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -217,21 +226,31 @@ def train(args: argparse.Namespace) -> Path:
     )
     # Resume detection ([D-26] Q3, auto-detect). classify_latest_pointer (torch-free, CI-tested)
     # says WHY the pointer is (un)usable: VALID ⇒ continue the run; ABSENT ⇒ a fresh run; any other
-    # reason ⇒ warn LOUDLY with a CAUSE-SPECIFIC message and fall back to fresh — never a silent
-    # restart-from-0 that would discard days of progress (and re-trains the absolute --timesteps
-    # budget from scratch). describe_pointer_rejection steers AWAY from deleting latest.json when
-    # on-disk ckpt pairs are still recoverable (corrupt-pointer / dangling-ref).
+    # reason ⇒ a present-but-REJECTED pointer.
+    #
+    # PR-6 safety guard. A rejected-but-present pointer used to warn and start fresh — but under the
+    # unattended schtasks auto-restart that "fresh" run silently re-trains the WHOLE --timesteps
+    # budget from step 0 (days of GPU), and worse, may overwrite the still-recoverable on-disk ckpt
+    # pairs the breadcrumb points at. So we now HALT with a cause-specific, non-destructive recovery
+    # message and EXIT_POINTER_REJECTED, which the launcher treats as alert-and-stop (NOT retry).
+    # ABSENT stays a clean fresh run (a brand-new --state-dir has no pointer); to deliberately
+    # restart a campaign, point --state-dir at a fresh/empty dir rather than leave a rejected one.
     resuming = False
     if args.state_dir:
         reason = classify_latest_pointer(args.state_dir)
-        if reason == POINTER_VALID:
+        action = resume_action(reason)
+        if action == RESUME_ACTION_RESUME:
             resuming = True
-        elif reason != POINTER_ABSENT:
+        elif action == RESUME_ACTION_HALT:
             print(
-                f"WARNING: {args.state_dir}: {describe_pointer_rejection(reason)} "
-                "Starting a FRESH run (NO resume).",
+                f"FATAL: {args.state_dir}: {describe_pointer_rejection(reason)} "
+                "Refusing to silently restart from step 0 (it would re-burn the full --timesteps "
+                "budget under auto-restart). Resolve the pointer per the message above, or point "
+                "--state-dir at a fresh directory to start over.",
                 file=sys.stderr,
             )
+            raise SystemExit(EXIT_POINTER_REJECTED)
+        # else RESUME_ACTION_FRESH: ABSENT pointer ⇒ a clean fresh run (resuming stays False)
     if resuming and args.freeze_trunk:
         # MaskablePPO.load restores weights+optimizer but NOT the build-time requires_grad freeze
         # (it lives in build_model, which resume SKIPS), so a resumed --freeze-trunk run would
@@ -274,40 +293,52 @@ def train(args: argparse.Namespace) -> Path:
     )
     venv = VecMonitor(venv)
 
-    if resuming:
-        # PATH A ([D-26] HOLE-C/D): MaskablePPO.load restores policy + optimizer + num_timesteps in
-        # one call (BEFORE learn, so SnapshotCallback rehydrates against the resumed step, not 0) +
-        # the RNG sidecar. SKIP build_model entirely — load brings back the trained weights, so
-        # a warm-start would clobber them.
-        model = load_resume_checkpoint(args.state_dir, venv, args.device)
-        print(f"resumed from {args.state_dir} at num_timesteps={model.num_timesteps}")
-    else:
-        # build_model constructs MaskablePPO on this venv (CUDA inits here, after the fork) and
-        # either warm-starts or, with --from-scratch, leaves the fresh init.
-        model, venv = build_model(cfg, ckpt, args, venv=venv)
-
-    # Assemble the callbacks: the PFSP snapshot publisher (if any) + the resume checkpointer (if
-    # --state-dir). CallbackList only when both fire; a single callback / None otherwise.
-    callbacks = []
-    if callback is not None:
-        callbacks.append(callback)
-    if args.state_dir:
-        callbacks.append(ResumeCheckpointCallback(args.state_dir, args.checkpoint_every))
-        print(f"resume checkpointer: every {args.checkpoint_every} steps → {args.state_dir}")
-    learn_callback = (
-        CallbackList(callbacks) if len(callbacks) > 1 else (callbacks[0] if callbacks else None)
-    )
-
-    # Per-session CSV keyed on the resumed step (0 for a fresh run) so a resume never truncates a
-    # prior session's progress.csv ([D-26]); TensorBoard stays one continuous run.
-    logger, sinks = _make_logger(args, resumed_step=int(model.num_timesteps))
-    if logger is not None:
-        model.set_logger(logger)  # must precede learn()
-        # Report the ACTUAL sinks (the TB-missing degradation path drops "tensorboard"), so this
-        # line can never disagree with the warning _make_logger may have just printed.
-        print(f"logging: {' + '.join(sinks)} → {args.log_dir}")
-
+    # SINGLE teardown guard from here on: once the SubprocVecEnv workers (each owning a Node
+    # env-server child) start, EVERY exit path must reap them — a resume-load failure, a build_model
+    # error, the rejected-pointer HALT, or a learn() crash — else the Node children leak. (PR-6
+    # widened this from learn()-only: a load/build raise after the workers started used to leak.)
     try:
+        if resuming:
+            # PATH A ([D-26] HOLE-C/D): MaskablePPO.load restores policy + optimizer + num_timesteps
+            # in one call (BEFORE learn, so SnapshotCallback rehydrates against the resumed step,
+            # not 0) + the RNG sidecar. SKIP build_model entirely — load brings back the trained
+            # weights, so a warm-start would clobber them. load_resume_checkpoint falls back across
+            # the retained keep=N pairs on a corrupt .zip; only when ALL are unreadable does it
+            # raise ResumeCheckpointError — an unrecoverable resume, so HALT-and-alert
+            # (EXIT_POINTER_REJECTED) rather than let the launcher retry bytes that won't heal. The
+            # SystemExit propagates through the finally below, which reaps the workers first.
+            try:
+                model = load_resume_checkpoint(args.state_dir, venv, args.device)
+            except ResumeCheckpointError as err:
+                print(f"FATAL: {err}", file=sys.stderr)
+                raise SystemExit(EXIT_POINTER_REJECTED) from err
+            print(f"resumed from {args.state_dir} at num_timesteps={model.num_timesteps}")
+        else:
+            # build_model constructs MaskablePPO on this venv (CUDA inits here, after the fork) and
+            # either warm-starts or, with --from-scratch, leaves the fresh init.
+            model, venv = build_model(cfg, ckpt, args, venv=venv)
+
+        # Assemble the callbacks: the PFSP snapshot publisher (if any) + the resume checkpointer (if
+        # --state-dir). CallbackList only when both fire; a single callback / None otherwise.
+        callbacks = []
+        if callback is not None:
+            callbacks.append(callback)
+        if args.state_dir:
+            callbacks.append(ResumeCheckpointCallback(args.state_dir, args.checkpoint_every))
+            print(f"resume checkpointer: every {args.checkpoint_every} steps → {args.state_dir}")
+        learn_callback = (
+            CallbackList(callbacks) if len(callbacks) > 1 else (callbacks[0] if callbacks else None)
+        )
+
+        # Per-session CSV keyed on the resumed step (0 for a fresh run) so a resume never truncates
+        # a prior session's progress.csv ([D-26]); TensorBoard stays one continuous run.
+        logger, sinks = _make_logger(args, resumed_step=int(model.num_timesteps))
+        if logger is not None:
+            model.set_logger(logger)  # must precede learn()
+            # Report the ACTUAL sinks (the TB-missing degradation path drops "tensorboard"), so this
+            # line can never disagree with the warning _make_logger may have just printed.
+            print(f"logging: {' + '.join(sinks)} → {args.log_dir}")
+
         if resuming:
             # [D-26] HOLE-D: cap the run at the ABSOLUTE --timesteps. Under reset_num_timesteps=
             # False SB3 adds num_timesteps back internally, so passing `remaining` makes it stop at
@@ -333,11 +364,11 @@ def train(args: argparse.Namespace) -> Path:
                 total_timesteps=args.timesteps, progress_bar=False, callback=learn_callback
             )
     finally:
-        # Always reap the env workers (each owns a Node child) even on error. Guard the close: when
-        # learn() raised because a SubprocVecEnv worker already died (the common failure here), the
-        # close()'s worker-pipe ops raise EOFError/BrokenPipeError — and a raise in `finally` would
-        # REPLACE the in-flight exception as the primary traceback, burying the real cause. Demote
-        # any teardown error to a stderr warning so learn()'s exception stays the headline.
+        # Always reap the env workers (each owns a Node child) even on error/HALT. Guard the close:
+        # when learn() raised because a SubprocVecEnv worker already died (the common failure here),
+        # the close()'s worker-pipe ops raise EOFError/BrokenPipeError — and a raise in `finally`
+        # would REPLACE the in-flight exception as the primary traceback, burying the real cause.
+        # Demote any teardown error to a stderr warning so the original exception stays headline.
         try:
             venv.close()
         except Exception as close_exc:

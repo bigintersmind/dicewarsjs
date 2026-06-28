@@ -1518,11 +1518,11 @@ PR-2 `EnvServerProcess` B6-flag forwarding (DONE, #70) · PR-3 SnapshotCallback 
 producer GC, consumer `unlinkSync` removed (DONE, #70) · PR-4 `_train_common.py` + `train.py`
 (SubprocVecEnv + VecMonitor
 
-- TB/CSV + `--from-scratch`) (DONE locally) · PR-5 idempotent checkpoint/resume core · PR-6 committed
-  shodan launcher + schtasks runbook · PR-7 deferred test-hardening (env-server `main()` persistence
-  integration test; live cross-worker `SharedDiskStore`).
+- TB/CSV + `--from-scratch`) (MERGED #71) · PR-5 idempotent checkpoint/resume core (MERGED #72) · PR-6
+  committed shodan launcher + schtasks runbook + auto-restart safety guard · PR-7 deferred test-hardening
+  (env-server `main()` persistence integration test; live cross-worker `SharedDiskStore`).
 
-**Status: IN PROGRESS — foundation PR-1→PR-3 MERGED (#70); PR-4 MERGED (#71, `f1224ee`); PR-5 DONE locally (branch `ml-bot/task-ce-pr5-resume`). Next: PR-6 shodan launcher + runbook.** PR-1:
+**Status: IN PROGRESS — foundation PR-1→PR-3 MERGED (#70); PR-4 MERGED (#71, `f1224ee`); PR-5 MERGED (#72, `b554cd7`); PR-6 (this PR) = committed shodan launcher + schtasks runbook + auto-restart safety guard.** PR-1:
 `episodeCount` resume-cursor, `dumpLeagueState` state-then-flush order, `refresh()` ENOENT-tolerance +
 id-dedup + `refreshSkips` health counter (stderr DONE mirror), schema v1→v2. PR-2: `snapshot_store` /
 `league_state_dir` / `league_dump_every` forwarded by `EnvServerProcess` on their own gate (manifest-
@@ -1533,7 +1533,7 @@ independent), byte-identical when unset. PR-3: NEW torch-free `snapshot_manifest
   (`test_snapshot_manifest.py` 12, `test_env_server_argv.py` 6), eslint + ruff clean. **Foundation
   PR-1→PR-3 MERGED as PR #70 (`97de4e4`).**
 
-**PR-4 (DONE locally, branch `ml-bot/task-ce-pr4-train`).** New torch-free `_train_common.py` holds the
+**PR-4 (MERGED, PR #71 `f1224ee`).** New torch-free `_train_common.py` holds the
 shared env-thunk (`_make_env_thunk`), CLI surface (`build_parser(description)`), validation
 (`_validate_args`), and `resolve_from_scratch` (the `--from-scratch`↔`--freeze-trunk` mutex + per-mode
 LR/ent-coef relaxation via a `None` sentinel); `train_tracer.py` re-imports them and is byte-identical
@@ -1553,7 +1553,7 @@ New `train.py` = `VecMonitor(SubprocVecEnv(start_method=forkserver))` built BEFO
   tier (`test_train_args.py` build_model/logging/wrap-order, `test_train_tracer_args.py` re-export
   wiring) green. The torch-gated tests + the live SubprocVecEnv/shodan paths run on shodan.
 
-**PR-5 (DONE locally, branch `ml-bot/task-ce-pr5-resume`) — idempotent checkpoint/resume core.**
+**PR-5 (MERGED, PR #72 `b554cd7`) — idempotent checkpoint/resume core.**
 Python-side only (the Node league half shipped in #70). Three deliverables: (1) **HOLE-D** — on resume
 `train.py` calls `learn(total_timesteps=_remaining_timesteps(args.timesteps, num_timesteps),
 reset_num_timesteps=False)` (torch-free helper in `_train_common`); `remaining==0` SKIPS `learn` but
@@ -1600,3 +1600,45 @@ timeout"→"exited before listening"; a line-ref → symbol). Verification: ruff
 green; sb3 tier shodan-only. The verify workflow also caught a shodan-only `AttributeError`
 (`train.py` imported only `POINTER_ABSENT`/`POINTER_VALID` but a test referenced `tr.POINTER_CORRUPT_JSON`)
 → tests now import the reason constants from `resume_state`, not through `tr`.
+
+**PR-6 (this PR) — committed shodan launcher + schtasks runbook + auto-restart safety guard.** The last
+task C/E ops slice before the long BEAT run. Three parts:
+
+1. **Launcher** `scripts/shodan/ppo-train.sh` (+ the Windows→WSL bridge `ppo-train.cmd` and an
+   importable Task Scheduler `ppo-train-task.xml`, + operator `RUNBOOK.md`). It owns the **production
+   HPs** (the task-A BEAT `--lr 2.5e-4 --ent-coef 0.01`, deliberately not a `train.py` default), sizes
+   `--n-envs` to cores under `SubprocVecEnv(forkserver)`, wires **both** resume halves with matching
+   dirs (`--state-dir`/`--checkpoint-every` + `--league-state-dir`/`--snapshot-store=disk`/
+   `--league-dump-every`, `R=3` locked), pins `ENCODING_VERSION=2` + the commit for the whole campaign
+   (halts on drift of either), and runs a **bounded auto-restart loop**: relaunch the SAME command
+   (same `--timesteps`, so HOLE-D caps the absolute budget) on a transient crash, but HALT+alert on
+   `EXIT_POINTER_REJECTED` or on N consecutive **no-progress** failures (a checkpoint-step advance
+   resets the counter, so a long-progressing run that dies once is not killed by a stale count).
+   **Launch model resolved:** schtasks-wrapped WSL (D-26/task-E), NOT the bare ssh-driven loop D-24
+   decision 1 mentioned — only the scheduled `wsl.exe` path survives an SSH teardown AND a box reboot.
+
+2. **Auto-restart safety guard** (the code half — folds into PR-6 because PR-6 is what makes the
+   restart _unattended_). `train.py` now **HALTs** with a distinct exit code `EXIT_POINTER_REJECTED=3`
+   on a present-but-rejected `latest.json`, instead of PR-5's loud-warn+**fresh** restart. This is a
+   deliberate evolution of PR-5 review-decision (b): warn+fresh is fine when an operator watches, but
+   under the schtasks loop a fresh start silently re-trains the WHOLE `--timesteps` budget from step 0
+   (days of GPU) and could overwrite the still-recoverable on-disk pairs — so the unattended path must
+   stop and alert. The three-way **resume / fresh / HALT** policy is a pure, torch-free
+   `resume_action(reason)` in `resume_state.py` (CI-tested via `test_resume_state.py`), keeping the
+   highest-consequence decision out of the sb3-gated tier — mirroring `classify_latest_pointer`.
+
+3. **Corrupt-`.zip` fallback** — distinct from, and consistent with, PR-5 (b)'s "no blanket
+   auto-fallback to keep=2". `classify_latest_pointer` validates the pointer JSON + that the referenced
+   files EXIST but not that the `.zip` BYTES are intact; a bit-rotted/half-flushed newest `.zip` at a
+   VALID pointer would crash `MaskablePPO.load` → a PERMANENT crash-loop. So `load_resume_checkpoint`
+   now tries the pointer pair, then the retained `keep=N` **same-build OLDER** pairs (newest-first, via
+   the torch-free, CI-tested `resume_candidate_pairs`), rolling back at most one cadence; only when ALL
+   retained pairs fail does it raise `ResumeCheckpointError` → the same HALT. The key distinction from
+   (b): we fall back across SAME-build older steps when the bytes are torn, but still **HALT** (never
+   skip) on version/encoding-skew — those ckpts are genuinely incompatible, exactly the case (b)
+   refused to silently paper over. `latest.json` is NOT rewritten on fallback (it is the crash hinge;
+   the next checkpoint moves the pointer forward). **Verification:** ruff clean; torch-free tier green
+   locally (new `resume_candidate_pairs` ordering/newer-orphan/zipless-orphan + `resume_action`
+   resume/fresh/halt tests in `test_resume_state.py`); the sb3 corrupt-`.zip` fallback +
+   all-corrupt→`ResumeCheckpointError` tests in `test_resume.py` run on **shodan**. The PR-5 shodan
+   validation checklist is the BLOCKING gate before the long run actually launches (see `RUNBOOK.md`).

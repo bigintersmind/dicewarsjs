@@ -290,3 +290,92 @@ def test_gc_handles_10_digit_steps_above_1e9(tmp_path):
     assert _steps_on_disk(tmp_path) == [1_600_000_000]  # old 10-digit pair GC'd
     assert rs.read_latest_pointer(tmp_path)["step"] == 1_600_000_000
     assert not (tmp_path / "ckpt-1500000000.rng.pt").exists()  # both halves of the old pair gone
+
+
+# --- resume_candidate_pairs (PR-6 corrupt-.zip fallback ORDER) ---------------------------------
+# The torch-free half of the corrupt-.zip fallback: resume.py only adds the thin MaskablePPO.load
+# try/except loop over this list, so the "which checkpoint do we resume from?" decision is pinned
+# here in CI rather than only on a live shodan BEAT run.
+
+
+def test_candidate_pairs_empty_when_no_pointer(tmp_path):
+    assert rs.resume_candidate_pairs(tmp_path) == []  # absent latest.json ⇒ no resume point
+
+
+def test_candidate_pairs_empty_when_pointer_rejected(tmp_path):
+    # A present-but-rejected pointer is NOT a resume candidate source — the resume/halt split is
+    # classify_latest_pointer's job; this enumerator just returns [] (train.py halts first).
+    rs.save_resume_checkpoint(FakeModel(), tmp_path, 100, keep=2)
+    (tmp_path / rs.LATEST_NAME).write_text("{ not json")  # corrupt the pointer
+    assert rs.classify_latest_pointer(tmp_path) == rs.POINTER_CORRUPT_JSON
+    assert rs.resume_candidate_pairs(tmp_path) == []
+
+
+def test_candidate_pairs_pointer_first_then_older_newest_first(tmp_path):
+    m = FakeModel()
+    for step in (1000, 2000, 3000):  # keep=2 ⇒ on-disk steps end as {2000, 3000}
+        rs.save_resume_checkpoint(m, tmp_path, step, keep=2)
+    cands = rs.resume_candidate_pairs(tmp_path)
+    assert [c["step"] for c in cands] == [3000, 2000]  # pointer (newest durable) first, then older
+    # the first entry is exactly what latest.json names (explicit ckpt/rng), not a derived guess
+    ptr = rs.read_latest_pointer(tmp_path)
+    assert cands[0] == {"step": 3000, "ckpt": ptr["ckpt"], "rng": ptr["rng"]}
+    assert cands[1] == {"step": 2000, "ckpt": "ckpt-000002000.zip", "rng": "ckpt-000002000.rng.pt"}
+
+
+def test_candidate_pairs_single_when_keep_one(tmp_path):
+    m = FakeModel()
+    rs.save_resume_checkpoint(m, tmp_path, 1000, keep=1)
+    rs.save_resume_checkpoint(m, tmp_path, 2000, keep=1)  # GC leaves only the newest
+    assert [c["step"] for c in rs.resume_candidate_pairs(tmp_path)] == [2000]
+
+
+def test_candidate_pairs_excludes_newer_orphan(tmp_path):
+    # A .zip NEWER than latest.json is from a save that died before its latest.json rename (the
+    # pointer is written LAST), so it is presumed torn and must NEVER be preferred over the pointer.
+    m = FakeModel()
+    rs.save_resume_checkpoint(m, tmp_path, 1000, keep=2)
+    (tmp_path / "ckpt-000009999.zip").write_bytes(b"torn")  # newer orphan, latest.json NOT updated
+    (tmp_path / "ckpt-000009999.rng.pt").write_bytes(b"torn")
+    assert rs.read_latest_pointer(tmp_path)["step"] == 1000  # pointer still names the durable pair
+    assert [c["step"] for c in rs.resume_candidate_pairs(tmp_path)] == [1000]  # orphan excluded
+
+
+def test_candidate_pairs_skips_zipless_older_orphan(tmp_path):
+    # An older step with only a .rng.pt (its .zip GC'd or never written) is not loadable ⇒ skipped,
+    # so resume.py never tries to MaskablePPO.load a sidecar path.
+    m = FakeModel()
+    rs.save_resume_checkpoint(m, tmp_path, 2000, keep=2)
+    rs.save_resume_checkpoint(m, tmp_path, 3000, keep=2)
+    (tmp_path / "ckpt-000002000.zip").unlink()  # leave the lone older .rng.pt behind
+    # zipless 2000 orphan skipped (no loadable .zip)
+    assert [c["step"] for c in rs.resume_candidate_pairs(tmp_path)] == [3000]
+
+
+# --- resume_action (PR-6 resume / fresh / HALT policy) -----------------------------------------
+# The highest-consequence decision (does a corrupt pointer halt or silently restart from 0?) pinned
+# in CI, not only on a live shodan run. The PR-6 change: every present-but-rejected reason HALTs.
+
+
+def test_resume_action_valid_resumes():
+    assert rs.resume_action(rs.POINTER_VALID) == rs.RESUME_ACTION_RESUME
+
+
+def test_resume_action_absent_is_fresh():
+    # ABSENT is the ONLY reason that starts fresh — a brand-new --state-dir with no prior run.
+    assert rs.resume_action(rs.POINTER_ABSENT) == rs.RESUME_ACTION_FRESH
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        rs.POINTER_CORRUPT_JSON,
+        rs.POINTER_VERSION_SKEW,
+        rs.POINTER_ENCODING_SKEW,
+        rs.POINTER_DANGLING_REF,
+    ],
+)
+def test_resume_action_present_but_rejected_halts(reason):
+    # The safety guard: a present-but-rejected pointer HALTs (driver → EXIT_POINTER_REJECTED)
+    # instead of the pre-PR-6 silent restart-from-0 that re-burned the full --timesteps budget.
+    assert rs.resume_action(reason) == rs.RESUME_ACTION_HALT

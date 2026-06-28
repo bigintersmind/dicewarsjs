@@ -21,6 +21,36 @@ Entry template:
 
 ---
 
+## 2026-06-28 — Task C/E PR-6 (committed shodan launcher + schtasks runbook + auto-restart safety guard)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Pre-flight readiness pass first** (per Ivan): repo green on `master` — `npm test` 1158/1158, lint/build exit 0, ml torch-free pytest 185 passed (the 6 `test_export_onnx.py` failures are this Mac's Python 3.9.6 hitting `zip(strict=True)`, a 3.10+ feature — not a regression, not in the PR-6 path). A 5-reader + synthesis workflow over PLAN/LOG/DECISIONS/code/tests pinned PR-6 = the committed shodan launcher + schtasks runbook, with PR-4 (#71) + PR-5 (#72) confirmed MERGED on `master`.
+- **Launcher `scripts/shodan/ppo-train.sh`**: owns the task-A BEAT production HPs (`--lr 2.5e-4 --ent-coef 0.01`), sizes `--n-envs` to cores under `SubprocVecEnv(forkserver)`, wires BOTH resume halves with matching dirs (`--state-dir`/`--checkpoint-every` + `--league-state-dir`/`--snapshot-store=disk`/`--league-dump-every`, `R=3`), pins `ENCODING_VERSION=2` + the commit for the whole campaign (HALTs on drift), TB + per-session CSV. Bounded auto-restart loop: relaunch the SAME command (HOLE-D caps the absolute budget) on a transient crash; HALT+alert on `EXIT_POINTER_REJECTED` or N consecutive **no-progress** failures (a checkpoint-step advance resets the counter).
+- **Windows→WSL bridge** `ppo-train.cmd` + importable Task Scheduler `ppo-train-task.xml` (LogonTrigger + BootTrigger, InteractiveToken for WSL GPU) — the only disconnect+reboot-surviving pattern. Operator `RUNBOOK.md` covers the BLOCKING PR-5 shodan validation checklist, the from-scratch control run (sequenced first), launch/monitor/recovery, and the [D-24] kill gate (`ppo:gate` win% Δ vs `ai_lookahead@596f781`, 95% CI lower bound > 0; turtle floor ≥ 60% decisiveRate).
+- **Auto-restart safety guard (code half, folded into PR-6).** `train.py` now HALTs with `EXIT_POINTER_REJECTED=3` on a present-but-rejected `latest.json` (was PR-5's loud-warn+fresh) — the three-way resume/fresh/HALT policy is a pure torch-free `resume_action(reason)` in `resume_state.py` (CI-tested). `load_resume_checkpoint` falls back across the retained `keep=N` SAME-build older pairs on a corrupt newest `.zip` (torch-free `resume_candidate_pairs` orders them), raising `ResumeCheckpointError` → the same HALT only when ALL retained pairs are unreadable.
+- **Verification:** ruff clean on all touched files; `test_resume_state.py` 37 green locally (6 new `resume_candidate_pairs`/`resume_action` tests); `bash -n` clean. sb3 corrupt-`.zip` fallback + all-corrupt tests added to `test_resume.py` (shodan-only). Docs updated (PLAN/DECISIONS PR-4/PR-5 "DONE locally" → MERGED #71/#72).
+
+**Learned / decided:**
+
+- **The PR-5 "loud warn + fresh" on a rejected pointer is right for an attended run but wrong unattended.** Under the schtasks auto-restart it silently re-burns the full `--timesteps` budget from step 0 — so PR-6 evolves it to **HALT + alert** (a distinct exit code the launcher treats as do-not-retry). This is a deliberate supersede of PR-5 review-decision (b), not a contradiction.
+- **The corrupt-`.zip` fallback is distinct from the keep=2 fallback PR-5 (b) refused.** PR-5 (b) refused to silently skip to keep=2 for _version/encoding-skew_ (genuinely incompatible) ckpts — PR-6 still HALTs on those. PR-6 only rolls back across SAME-build older pairs when the newest `.zip` BYTES are torn (a case (b) flagged "revisit if it bites"). Both meet at the same HALT for the incompatible case.
+- **Keep the highest-consequence decision in the torch-free tier.** `resume_action` + `resume_candidate_pairs` are pure and CI-tested, mirroring `classify_latest_pointer` — the sb3 `resume.py`/`train.py` halves stay thin (and shodan-only).
+
+**Dead ends / surprises:**
+
+- The readiness workflow's code-reader agent hit the structured-output retry cap; the synthesis agent + I read `train.py`/`resume.py` directly to fill the gap (and to verify the two unguarded failure modes that motivated folding the safety guard into PR-6).
+- This Mac has no Python ≥3.10 and no `sb3_contrib`, so the sb3-coupled resume tier (including the new corrupt-`.zip` tests) runs only on shodan; locally only the torch-free tier validates.
+
+**Next:**
+
+- On shodan: install/activate `[rl]`, run the PR-5 validation checklist + the new sb3 resume tests, then the from-scratch control run, then launch the long BEAT run at `R=3` and gate per [D-24].
+- PR-7 (deferred): env-server `main()` persistence integration test; live cross-worker `SharedDiskStore`; live forkserver two-half resume smoke.
+
+---
+
 ## 2026-06-28 — Task C/E PR-5 review-hardening (corrupt-sidecar degrade, CI-testable resume decision, GC orphan-sweep)
 
 **Phase:** 3 · **Who:** Ivan + Claude

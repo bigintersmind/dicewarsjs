@@ -18,6 +18,7 @@ bit-exact.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -32,13 +33,19 @@ from .resume_state import (
     POINTER_ENCODING_SKEW,
     POINTER_VALID,
     POINTER_VERSION_SKEW,
+    RESUME_ACTION_FRESH,
+    RESUME_ACTION_HALT,
+    RESUME_ACTION_RESUME,
     RESUME_FORMAT_VERSION,
+    ResumeCheckpointError,
     classify_latest_pointer,
     describe_pointer_rejection,
     has_resume_checkpoint,
     latest_pointer_exists,
     read_latest_pointer,
     restore_rng_sidecar,
+    resume_action,
+    resume_candidate_pairs,
     save_resume_checkpoint,
 )
 
@@ -52,8 +59,12 @@ __all__ = [
     "POINTER_ENCODING_SKEW",
     "POINTER_VALID",
     "POINTER_VERSION_SKEW",
+    "RESUME_ACTION_FRESH",
+    "RESUME_ACTION_HALT",
+    "RESUME_ACTION_RESUME",
     "RESUME_FORMAT_VERSION",
     "ResumeCheckpointCallback",
+    "ResumeCheckpointError",
     "classify_latest_pointer",
     "describe_pointer_rejection",
     "has_resume_checkpoint",
@@ -61,12 +72,14 @@ __all__ = [
     "load_resume_checkpoint",
     "read_latest_pointer",
     "restore_rng_sidecar",
+    "resume_action",
+    "resume_candidate_pairs",
     "save_resume_checkpoint",
 ]
 
 
 def load_resume_checkpoint(state_dir: str | Path, venv: Any, device: str) -> MaskablePPO:
-    """Load the learner from the latest valid checkpoint (PATH A — restores num_timesteps, [D-26]).
+    """Load the learner from the newest LOADABLE checkpoint (PATH A — restores num_timesteps).
 
     Uses ``MaskablePPO.load(env=venv)`` so policy + optimizer + ``num_timesteps`` are restored in
     ONE call BEFORE ``learn`` and BEFORE ``SnapshotCallback._on_training_start`` reads it (so the
@@ -75,20 +88,56 @@ def load_resume_checkpoint(state_dir: str | Path, venv: Any, device: str) -> Mas
     classify the entire on-disk pool as "future" and delete it — so the resume MUST go through
     ``load``. Then the RNG sidecar is restored — but a corrupt sidecar DEGRADES to a fresh stream
     (``restore_rng_sidecar``) rather than aborting: the recoverable state is already loaded.
+
+    **Corrupt-``.zip`` fallback (PR-6).** ``classify_latest_pointer`` validates the pointer JSON and
+    that the referenced files EXIST, but not that the ``.zip`` bytes are intact — a bit-rotted or
+    half-flushed newest ``.zip`` at a VALID pointer makes ``MaskablePPO.load`` raise, which under
+    the unattended schtasks auto-restart would be a PERMANENT crash-loop (every relaunch reads the
+    same bad bytes and dies). So we try the pointer's pair first, then fall back to the retained
+    ``keep=N`` OLDER pairs (newest-first, from :func:`resume_candidate_pairs`), rolling back one
+    checkpoint cadence at most. Only when EVERY retained pair fails do we raise
+    :class:`ResumeCheckpointError` — ``train.py`` turns that into the halt-and-alert exit code,
+    rather than retrying bytes that will not heal. We deliberately do NOT rewrite ``latest.json`` on
+    fallback: it is the crash hinge and the next checkpoint moves the pointer forward anyway; a
+    repeat crash before then simply re-runs this cheap fallback.
     """
-    pointer = read_latest_pointer(state_dir)
-    if pointer is None:
-        raise FileNotFoundError(f"no valid resume checkpoint in {state_dir}")
     state_dir = Path(state_dir)
-    zip_path = state_dir / pointer["ckpt"]
-    rng_path = state_dir / pointer["rng"]
-    model = MaskablePPO.load(zip_path, env=venv, device=device)
-    # The MODEL load honors `device`, but the RNG sidecar must NOT — RNG states are CPU ByteTensors
-    # and set_rng_state rejects a GPU-mapped tensor (would crash every --device cuda resume). And a
-    # torn/bit-rotted sidecar degrades to a fresh RNG stream (loud warn), not bricking the resume
-    # whose model/optimizer/num_timesteps are already restored above.
-    restore_rng_sidecar(rng_path)
-    return model
+    candidates = resume_candidate_pairs(state_dir)
+    if not candidates:
+        raise FileNotFoundError(f"no valid resume checkpoint in {state_dir}")
+    last_err: Exception | None = None
+    for i, cand in enumerate(candidates):
+        zip_path = state_dir / cand["ckpt"]
+        try:
+            model = MaskablePPO.load(zip_path, env=venv, device=device)
+        except Exception as err:  # noqa: BLE001 — a torn .zip raises BadZipFile/EOFError/RuntimeError
+            last_err = err
+            more = "trying the retained prior pair" if i + 1 < len(candidates) else "no older pair"
+            print(
+                f"WARNING: resume checkpoint {cand['ckpt']} failed to load ({err!r}); {more}.",
+                file=sys.stderr,
+            )
+            continue
+        if i > 0:
+            # Fell back past the newest pair: surface the rollback loudly — up to one
+            # --checkpoint-every window of progress (and num_timesteps) is replayed.
+            print(
+                f"WARNING: resumed from RETAINED prior checkpoint {cand['ckpt']} "
+                f"(step={cand['step']}) after {i} newer pair(s) failed to load — rolled back up to "
+                "one checkpoint cadence.",
+                file=sys.stderr,
+            )
+        # The MODEL load honors `device`, but the RNG sidecar must NOT — RNG states are CPU
+        # ByteTensors and set_rng_state rejects a GPU-mapped tensor (would crash every --device
+        # cuda resume). A torn/bit-rotted sidecar degrades to a fresh RNG stream (loud warn), not
+        # bricking the resume whose model/optimizer/num_timesteps are already restored above.
+        restore_rng_sidecar(state_dir / cand["rng"])
+        return model
+    raise ResumeCheckpointError(
+        f"all {len(candidates)} retained resume checkpoint(s) in {state_dir} failed to load; last "
+        f"error: {last_err!r}. Inspect the ckpt-*.zip pairs before deleting latest.json (it is the "
+        "breadcrumb to them)."
+    )
 
 
 class ResumeCheckpointCallback(BaseCallback):

@@ -1,6 +1,11 @@
-import { generateMap } from '../../src/engine/MapGenerator.js';
+import {
+  generateMap,
+  MapInfeasibleError,
+  assertSingleConnectedLandmass,
+} from '../../src/engine/MapGenerator.js';
 import { createRng } from '../../src/engine/rng.js';
-import { MAX_DICE } from '../../src/engine/constants.js';
+import { buildMapMask } from '../../src/engine/mapPersonalities.js';
+import { MAX_DICE, DEFAULT_AREA_MAX } from '../../src/engine/constants.js';
 
 const DEFAULT_CONFIG = {
   mapWidth: 28,
@@ -9,6 +14,30 @@ const DEFAULT_CONFIG = {
   playerCount: 7,
   dicePerArea: 3,
 };
+
+/** Count connected components of valid areas, walking neighborAreaIds. */
+function countAreaComponents(areas) {
+  const valid = areas.filter(a => a.size > 0).map(a => a.id);
+  if (valid.length === 0) return 0;
+  const seen = new Set();
+  let components = 0;
+  for (const start of valid) {
+    if (seen.has(start)) continue;
+    components++;
+    const stack = [start];
+    seen.add(start);
+    while (stack.length) {
+      const a = stack.pop();
+      for (const n of areas[a].neighborAreaIds) {
+        if (areas[n] && areas[n].size > 0 && !seen.has(n)) {
+          seen.add(n);
+          stack.push(n);
+        }
+      }
+    }
+  }
+  return components;
+}
 
 describe('generateMap', () => {
   describe('determinism', () => {
@@ -185,6 +214,181 @@ describe('generateMap', () => {
       const validCount = areas.filter(a => a.size > 0).length;
       expect(validCount).toBeGreaterThanOrEqual(3);
     });
+  });
+});
+
+describe('generateMap personality maps', () => {
+  const SHAPES = ['snowflake', 'ring', 'cross'];
+  const SIZES = {
+    small: { mapWidth: 20, mapHeight: 24, maxAreas: 20 },
+    medium: { mapWidth: 28, mapHeight: 32, maxAreas: 32 },
+    large: { mapWidth: 36, mapHeight: 40, maxAreas: 48 },
+  };
+
+  it("'random' (or omitted) mapType is byte-identical to the classic generator", () => {
+    // The shaped path must not perturb the default map: same seed, same cells.
+    const classic = generateMap(DEFAULT_CONFIG, createRng(7));
+    const explicit = generateMap({ ...DEFAULT_CONFIG, mapType: 'random' }, createRng(7));
+    expect(explicit.cells).toEqual(classic.cells);
+    for (let i = 1; i < classic.areas.length; i++) {
+      expect(explicit.areas[i].owner).toBe(classic.areas[i].owner);
+      expect(explicit.areas[i].dice).toBe(classic.areas[i].dice);
+      expect(explicit.areas[i].size).toBe(classic.areas[i].size);
+    }
+  });
+
+  it('an unknown mapType falls back to the classic full-board map', () => {
+    const classic = generateMap(DEFAULT_CONFIG, createRng(3));
+    const bogus = generateMap(
+      { ...DEFAULT_CONFIG, mapType: 'definitely-not-a-shape' },
+      createRng(3)
+    );
+    expect(bogus.cells).toEqual(classic.cells);
+  });
+
+  for (const shape of SHAPES) {
+    describe(`${shape}`, () => {
+      const config = { ...DEFAULT_CONFIG, mapType: shape };
+
+      it('is deterministic for a given seed', () => {
+        const a = generateMap(config, createRng(42));
+        const b = generateMap(config, createRng(42));
+        expect(a.cells).toEqual(b.cells);
+      });
+
+      it('carves sea: only masked land cells are ever assigned', () => {
+        const { cells, grid } = generateMap(config, createRng(11));
+        const mask = buildMapMask(shape, {
+          width: grid.width,
+          height: grid.height,
+          playerCount: config.playerCount,
+        });
+        let land = 0;
+        for (let i = 0; i < cells.length; i++) {
+          if (cells[i] !== 0) {
+            expect(mask[i]).toBe(1); // never leak onto sea cells
+            land++;
+          }
+        }
+        // The shape must actually remove board area (it is not a full rectangle).
+        expect(land).toBeLessThan(grid.cellCount);
+      });
+
+      it('forms a single connected landmass across sizes, player counts, and seeds', () => {
+        // generateMap now throws MapInfeasibleError on a disconnected board, but
+        // assert connectivity explicitly too: this is the regression net over the
+        // pressure cases (small board + many players prunes the most territories).
+        for (const dims of Object.values(SIZES)) {
+          for (const playerCount of [2, 5, 8]) {
+            for (let seed = 1; seed <= 25; seed++) {
+              const { areas } = generateMap(
+                { ...dims, dicePerArea: 3, playerCount, mapType: shape },
+                createRng(seed)
+              );
+              expect(countAreaComponents(areas)).toBe(1);
+            }
+          }
+        }
+      });
+
+      it('keeps all valid areas >= 6 cells with symmetric, self-free adjacency', () => {
+        const { areas } = generateMap(config, createRng(5));
+        for (let i = 1; i < areas.length; i++) {
+          if (areas[i].size === 0) continue;
+          expect(areas[i].size).toBeGreaterThanOrEqual(6);
+          expect(areas[i].neighborAreaIds).not.toContain(i);
+          for (const adjId of areas[i].neighborAreaIds) {
+            expect(areas[adjId].neighborAreaIds).toContain(i);
+          }
+        }
+      });
+
+      it('places valid dice (1..MAX_DICE) on every territory of the shaped board', () => {
+        const { areas } = generateMap(config, createRng(8));
+        for (let i = 1; i < areas.length; i++) {
+          if (areas[i].size === 0) continue;
+          expect(areas[i].dice).toBeGreaterThanOrEqual(1);
+          expect(areas[i].dice).toBeLessThanOrEqual(MAX_DICE);
+        }
+      });
+
+      it('seats every player across all player counts and sizes', () => {
+        for (const dims of Object.values(SIZES)) {
+          for (let playerCount = 2; playerCount <= 8; playerCount++) {
+            const { areas } = generateMap(
+              { ...dims, dicePerArea: 3, playerCount, mapType: shape },
+              createRng(playerCount * 13 + 1)
+            );
+            const valid = areas.filter(a => a.size > 0);
+            expect(valid.length).toBeGreaterThanOrEqual(playerCount);
+            const owners = new Set(valid.map(a => a.owner));
+            for (let p = 0; p < playerCount; p++) {
+              expect(owners.has(p)).toBe(true);
+            }
+          }
+        }
+      });
+
+      it('caps area ids below DEFAULT_AREA_MAX even on the large preset', () => {
+        // ai_bc/ai_ppo bake maxAreas=32 and throw at inference on any id >= 32.
+        const { areas } = generateMap(
+          { ...SIZES.large, dicePerArea: 3, playerCount: 8, mapType: shape },
+          createRng(99)
+        );
+        expect(areas.length).toBeLessThanOrEqual(DEFAULT_AREA_MAX);
+        for (const a of areas) {
+          if (a.size > 0) expect(a.id).toBeLessThan(DEFAULT_AREA_MAX);
+        }
+      });
+    });
+  }
+});
+
+describe('assertSingleConnectedLandmass (connectivity guard)', () => {
+  /*
+   * Real masks essentially never produce a disconnected board (43k+ generations,
+   * 0 splits), so the guard is a regression net for future geometry tweaks. Drive
+   * it directly with synthetic territory graphs to prove the flood-fill itself
+   * detects a split — index 0 is the unused area sentinel.
+   */
+  function makeAreas(adjacency) {
+    const ids = Object.keys(adjacency).map(Number);
+    const maxId = Math.max(0, ...ids);
+    const areas = [];
+    for (let i = 0; i <= maxId; i++) {
+      areas[i] = { id: i, size: 0, neighborAreaIds: [] };
+    }
+    for (const id of ids) {
+      areas[id].size = 1;
+      areas[id].neighborAreaIds = adjacency[id];
+    }
+    return areas;
+  }
+
+  it('passes a single connected component (chain)', () => {
+    const areas = makeAreas({ 1: [2], 2: [1, 3], 3: [2, 4], 4: [3] });
+    expect(() => assertSingleConnectedLandmass(areas, 'cross')).not.toThrow();
+  });
+
+  it('passes a connected loop (ring topology)', () => {
+    const areas = makeAreas({ 1: [2, 4], 2: [1, 3], 3: [2, 4], 4: [3, 1] });
+    expect(() => assertSingleConnectedLandmass(areas, 'ring')).not.toThrow();
+  });
+
+  it('throws MapInfeasibleError on two disjoint components', () => {
+    const areas = makeAreas({ 1: [2], 2: [1], 3: [4], 4: [3] });
+    expect(() => assertSingleConnectedLandmass(areas, 'ring')).toThrow(MapInfeasibleError);
+    expect(() => assertSingleConnectedLandmass(areas, 'ring')).toThrow(/disconnected/);
+  });
+
+  it('throws when a single territory is isolated from the rest', () => {
+    const areas = makeAreas({ 1: [2], 2: [1], 3: [] });
+    expect(() => assertSingleConnectedLandmass(areas, 'snowflake')).toThrow(MapInfeasibleError);
+  });
+
+  it('treats 0 or 1 valid territories as trivially connected (no throw)', () => {
+    expect(() => assertSingleConnectedLandmass(makeAreas({}), 'ring')).not.toThrow();
+    expect(() => assertSingleConnectedLandmass(makeAreas({ 1: [] }), 'ring')).not.toThrow();
   });
 });
 

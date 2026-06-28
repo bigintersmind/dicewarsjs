@@ -20,7 +20,7 @@ import { getAIImplementation } from '../ai/aiConfig.js';
 import { createReplayFromState } from '../arena/replayFormat.js';
 import { loadCommunityBot } from '../arena/communityBots.js';
 import { adaptModernBot } from '../arena/modernBotAdapter.js';
-import { resolveMapSize } from '../utils/config.js';
+import { resolveMapSize, resolveMapType } from '../utils/config.js';
 
 /** Prefix marking a per-slot assignment id as a curated community bot. */
 const COMMUNITY_PREFIX = 'community:';
@@ -153,6 +153,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * @param {number} config.playerCount
    * @param {boolean} config.spectator
    * @param {string} [config.mapSize]
+   * @param {string} [config.mapType] - Map personality/shape id (e.g. 'random',
+   *   'snowflake', 'ring', 'cross'). Falls back to the store's current value.
    * @param {(string | null)[]} [config.aiAssignments] - Per-slot AI strategy IDs
    *   (index = player slot, null = human). Falls back to the store's current
    *   assignments when omitted.
@@ -181,6 +183,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
      */
     const mapSize = config.mapSize ?? store.getState().config.mapSize;
     /*
+     * Map personality (shape) is a per-game choice from the title screen, same
+     * pattern as mapSize. Fall back to the store's current value if omitted.
+     */
+    const mapType = config.mapType ?? store.getState().config.mapType;
+    /*
      * Per-slot bot lineup chosen on the title screen. Fall back to the store's
      * current assignments when the caller omits it. loadAIFunctions reads this
      * from the store below, so it must be written before that call.
@@ -188,11 +195,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const aiAssignments = config.aiAssignments ?? store.getState().config.aiAssignments;
 
     /*
-     * Update store config. Persist mapSize so a later rejectMap() regenerates
-     * at the same size the player chose.
+     * Update store config. Persist mapSize and mapType so a later rejectMap()
+     * regenerates the same size and shape the player chose.
      */
     store.setState({
-      config: { ...store.getState().config, playerCount, mapSize, aiAssignments },
+      config: { ...store.getState().config, playerCount, mapSize, mapType, aiAssignments },
       humanPlayerIndex: spectator ? null : 0,
     });
 
@@ -204,6 +211,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       // Create game via engine
       const gameState = createGame({
         playerCount,
+        mapType: resolveMapType(mapType),
         ...resolveMapSize(mapSize),
       });
 
@@ -246,11 +254,13 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const storeState = store.getState();
     const playerCount = storeState.config.playerCount;
     const mapSize = storeState.config.mapSize;
+    const mapType = storeState.config.mapType;
 
     let gameState;
     try {
       gameState = createGame({
         playerCount,
+        mapType: resolveMapType(mapType),
         ...resolveMapSize(mapSize),
       });
     } catch (err) {

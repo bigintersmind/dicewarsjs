@@ -8,7 +8,8 @@
  */
 
 import { createRng } from './rng.js';
-import { generateMap } from './MapGenerator.js';
+import { generateMap, MapInfeasibleError } from './MapGenerator.js';
+import { isMaskedMapType } from './mapPersonalities.js';
 import { createTurnOrder } from './TurnManager.js';
 import { createInitialState, applyAction } from './StateManager.js';
 import { runFullAITurn } from './AIAdapter.js';
@@ -51,20 +52,71 @@ export function createGame(config = {}) {
     );
   }
 
+  const mapType = config.mapType ?? 'random';
+  const masked = isMaskedMapType(mapType);
+
   const fullConfig = {
     mapWidth: config.mapWidth ?? DEFAULT_XMAX,
     mapHeight: config.mapHeight ?? DEFAULT_YMAX,
-    maxAreas: config.maxAreas ?? DEFAULT_AREA_MAX,
+    /*
+     * Shaped (masked) maps cap the territory ceiling at DEFAULT_AREA_MAX so the
+     * recorded config matches the board actually built: the generator applies the
+     * same cap (exported ML policies bake maxAreas=32 and throw at inference on
+     * any area id >= 32). The classic path keeps the requested ceiling.
+     */
+    maxAreas: masked
+      ? Math.min(config.maxAreas ?? DEFAULT_AREA_MAX, DEFAULT_AREA_MAX)
+      : (config.maxAreas ?? DEFAULT_AREA_MAX),
     playerCount: config.playerCount ?? DEFAULT_PLAYER_COUNT,
     dicePerArea: config.dicePerArea ?? DEFAULT_DICE_PER_AREA,
+    mapType,
     recordHistory,
     seed: config.seed ?? Math.floor(Math.random() * 0xffffffff),
   };
 
-  const rng = createRng(fullConfig.seed);
-  const mapData = generateMap(fullConfig, rng);
-  const turnOrder = createTurnOrder(fullConfig.playerCount, rng);
-  return createInitialState(fullConfig, mapData, turnOrder, rng.state());
+  /*
+   * Bounded generation retry for shaped maps. A mask removes board area, so for
+   * the tightest combo (smallest preset, most players, thinnest shape) a rare
+   * seed yields a board that's infeasible *for that seed* — too few territories
+   * after pruning, or a landmass split in two by pruning. Rather than inflate the
+   * shapes into blobs, advance the seed a few times: the result stays
+   * deterministic for a given requested seed (so replays reproduce exactly) and
+   * the user effectively never sees a failure. The classic path runs exactly once
+   * (maxAttempts 1), preserving existing behaviour byte-for-byte.
+   */
+  const maxAttempts = masked ? 8 : 1;
+  let lastError;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const attemptSeed = (fullConfig.seed + attempt) >>> 0;
+    const rng = createRng(attemptSeed);
+    try {
+      const mapData = generateMap(fullConfig, rng);
+      const turnOrder = createTurnOrder(fullConfig.playerCount, rng);
+      return createInitialState(fullConfig, mapData, turnOrder, rng.state());
+    } catch (err) {
+      /*
+       * Retry only a seed-dependent infeasibility (MapInfeasibleError: too few
+       * territories / disconnected landmass), and only for shaped maps. A
+       * genuinely invalid config — bad dimensions/playerCount/maxAreas, or a mask
+       * that carves no land — throws a plain RangeError that fails identically on
+       * every seed, so rethrow it immediately rather than spinning all attempts.
+       */
+      if (!masked || !(err instanceof MapInfeasibleError)) throw err;
+      lastError = err;
+    }
+  }
+  /*
+   * All attempts exhausted. lastError is always the MapInfeasibleError from the
+   * final attempt here (the loop only falls through after the catch sets it), but
+   * the ?? keeps this from ever degrading into a silent `throw undefined` should
+   * the loop bounds or the retry guard change later.
+   */
+  throw (
+    lastError ??
+    new Error(
+      `createGame: map generation failed for mapType "${mapType}" after ${maxAttempts} attempts`
+    )
+  );
 }
 
 /**

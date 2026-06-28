@@ -33,6 +33,7 @@ function renderTitle(props = {}) {
 }
 
 const sizeBtn = label => container.querySelector(`button[aria-label="${label} map"]`);
+const typeBtn = label => container.querySelector(`button[aria-label="${label} map shape"]`);
 const playerBtn = n => container.querySelector(`button[aria-label="Play with ${n} players"]`);
 const startBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent === 'START');
@@ -130,6 +131,40 @@ describe('TitleScreen', () => {
     expect(onStart).toHaveBeenCalledWith(
       expect.objectContaining({ playerCount: 7, spectator: true, mapSize: 'large' })
     );
+  });
+
+  it('renders the map-type (personality) options and defaults to Classic', () => {
+    renderTitle();
+    for (const label of ['Classic', 'Snowflake', 'Ring', 'Cross']) {
+      expect(typeBtn(label)).toBeTruthy();
+    }
+    expect(typeBtn('Classic').getAttribute('aria-pressed')).toBe('true');
+    expect(typeBtn('Snowflake').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('passes the chosen map type to onStart via START', () => {
+    const { onStart } = renderTitle();
+    act(() => typeBtn('Snowflake').click());
+    expect(typeBtn('Snowflake').getAttribute('aria-pressed')).toBe('true');
+    act(() => startBtn().click());
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ spectator: false, mapType: 'snowflake' })
+    );
+  });
+
+  it('threads the chosen map type through the AI-vs-AI (spectator) path', () => {
+    const { onStart } = renderTitle();
+    act(() => typeBtn('Ring').click());
+    act(() => aiBtn().click());
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ spectator: true, mapType: 'ring' })
+    );
+  });
+
+  it('defaults onStart mapType to Classic (random) when untouched', () => {
+    const { onStart } = renderTitle();
+    act(() => startBtn().click());
+    expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ mapType: 'random' }));
   });
 
   it('renders an error banner when error prop is set', () => {

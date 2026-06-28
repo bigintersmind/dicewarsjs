@@ -1462,3 +1462,72 @@ Phase-3 work is task C/E (cross-core + training-ops) → the long BEAT run.**
 **Grounding.** Two multi-agent workflows: a 12-agent design (4 code-readers → 3 design takes → synthesize
 → 3 adversarial-verify lenses → finalize) producing the vetted blueprint, and a 5-agent review
 (correctness / silent-failure / tests / grounding → verify-and-synthesize against ground truth).
+
+---
+
+## D-26 — Task C/E design: SubprocVecEnv + shodan training-ops; DROP VecNormalize; idempotent two-half resume · Accepted (2026-06-27) · closes Phase-3 tasks C/E design · follows [D-25](#d-25--b6-league-persistence-tojsonrestore--pluggable-shareddiskstore-as-a-standalone-node-pr--accepted-2026-06-27--closes-d-23-step-b6--feeds-task-e)
+
+**Context.** Tasks B0–B6 (the PFSP league) are feature-complete; the remaining Phase-3 work before the
+long BEAT run is task C (scale envs across cores + a from-scratch control) and task E (shodan
+training-ops: schtasks launch, idempotent checkpoint/resume, TensorBoard+CSV, `DummyVecEnv`→
+`SubprocVecEnv`). A 13-agent design workflow (4 code-readers → 3 design takes → synthesize → 4
+adversarial-verify lenses → finalize) produced a vetted, code-anchored blueprint, then Ivan confirmed
+the two genuine forks.
+
+**Decisions (Q1–Q6).**
+
+- **Q1 — new `ml/dicewars_ppo/train.py` + extract a torch-free `_train_common.py`** (shared env-thunk /
+  arg parser). Do NOT fork the tracer; one shared definition keeps the green CI tracer byte-identical.
+  `_train_common.py` must NOT import torch/sb3 at module top (SubprocVecEnv children import it).
+- **Q2 — DROP VecNormalize entirely** (`norm_obs=False, norm_reward=False`; don't wrap). _This reverses
+  the PLAN's literal "checkpoint/resume of policy + optimizer + VecNormalize + RNG" wording_ — the
+  adversarial verifier (grounded in `env.py:103-113`/`238-261`, `policy.py:108-136`, `model.py:113-161`,
+  `constants.py:30-68`, and the SB3 2.9.0 `VecNormalize` source) showed obs-normalization would
+  **corrupt the encoding contract**: it standardizes the int edge-index keys (`edge_from`/`edge_to`
+  → garbage after `.long()`), hard-`ValueError`s on the `edge_mask` `MultiBinary`, and breaks the
+  `present`-column masked-mean pool the warm-started trunk depends on. Reward-normalization only
+  manufactures a drifting scale on a clean `{0,1}` / `gamma=0.999` terminal return that PPO's own
+  advantage-normalization already handles. So there is **nothing VecNormalize-shaped to checkpoint**;
+  the resume state is policy + optimizer + `num_timesteps` + RNG + league pool/book only.
+- **Q3 — resume is TWO independent idempotent halves, no two-phase commit.** Python owns
+  policy/optimizer/`num_timesteps`/RNG/manifest/callback state; each Node worker owns its
+  `league-state-<seedBase>.json` + `book-shard-<seedBase>.json`. Atomic `latest.json` written LAST is
+  the Python crash-safety hinge. Resume is **"statistically consistent, bounded-skew," not bit-exact**
+  (Node can't replay trajectories; the RNG sidecar de-randomizes only the Python half) — documented, not
+  hidden.
+- **Q4 — `SubprocVecEnv(start_method="forkserver")` + `VecMonitor` in the PARENT.** forkserver because
+  CUDA inits at `MaskablePPO` construction (after the fork) so "venv built before CUDA" is not safe to
+  rely on; VecMonitor in the parent keeps children importing only the torch-free `dicewars_ppo.env` yet
+  still logs `rollout/ep_rew_mean`.
+- **Q5 — consumer ENOENT-tolerance FIRST (the required floor), then producer-single-writer GC.** A
+  lagging worker tolerates a peer-evicted snapshot file; the single Python producer owns disk deletion.
+- **Q6 — `--from-scratch` flag** (mutually exclusive with `--freeze-trunk`): skip warm-start, still load
+  the BC `cfg`, relax LR/ent-coef, stamp provenance. A SHORT control run before the long run proves the
+  gate win is real PPO learning, not fixed-field BC exploitation ([D-19] control).
+
+**Verifier-found resume bugs folded into the build (each with a regression test):** **HOLE-A** the
+env-server replayed seeds from 0 on resume and re-booked them (double-count) → persist an `episodeCount`
+seed-cursor; **HOLE-B** the league dump flushed the disk shard BEFORE the state file (a crash double-counts
+the book) → write state first, flush shard second (turns double-count into bounded loss); **HOLE-C** a
+resumed snapshot producer republished ids ahead of the resumed step → rehydrate the manifest filtered to
+`step <= num_timesteps`; **HOLE-D** `reset_num_timesteps=False` makes a fixed `--timesteps` additive (a
+crash-loop trains unbounded) → `remaining = max(timesteps − num_timesteps, 0)` (task-E).
+
+**Build sequence (PR slices).** PR-1 Node crash-safety + GC-race floor + resume hardening (DONE) · PR-2
+`EnvServerProcess` B6-flag forwarding (DONE) · PR-3 SnapshotCallback rehydration + single-writer producer
+GC, consumer `unlinkSync` removed (DONE) · PR-4 `_train_common.py` + `train.py` (SubprocVecEnv + VecMonitor
+
+- TB/CSV + `--from-scratch`) · PR-5 idempotent checkpoint/resume core · PR-6 committed shodan launcher +
+  schtasks runbook · PR-7 deferred test-hardening (env-server `main()` persistence integration test; live
+  cross-worker `SharedDiskStore`).
+
+**Status: IN PROGRESS — foundation PR-1→PR-3 landed locally (branch `ml-bot/task-ce-foundation`).** PR-1:
+`episodeCount` resume-cursor, `dumpLeagueState` state-then-flush order, `refresh()` ENOENT-tolerance +
+id-dedup + `refreshSkips` health counter (stderr DONE mirror), schema v1→v2. PR-2: `snapshot_store` /
+`league_state_dir` / `league_dump_every` forwarded by `EnvServerProcess` on their own gate (manifest-
+independent), byte-identical when unset. PR-3: NEW torch-free `snapshot_manifest.py` (`rehydrate_snapshots`
+
+- `gc_partition`); `SnapshotCallback` rehydrates on resume + GCs as the single disk writer; the consumer
+  no longer unlinks. Local verification: `tests/ml/` 196 green, the torch-free Python tiers green
+  (`test_snapshot_manifest.py` 12, `test_env_server_argv.py` 6), eslint + ruff clean. The torch-gated
+  callback tests + the live SubprocVecEnv/shodan paths are verified on shodan (PR-4+).

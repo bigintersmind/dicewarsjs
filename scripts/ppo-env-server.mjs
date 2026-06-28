@@ -177,6 +177,108 @@ export function resolveLeaguePersistence(opts, { seedBase, snapshotManifest }) {
   return { store, snapshotStore, leagueStateDir, leagueStatePath };
 }
 
+/**
+ * Build the league-state checkpoint dumper (B6 / task E PR-1). Extracted from `main()` so the
+ * write ORDER and the consecutive-failure abort are unit-testable without spawning the worker/socket
+ * (`main` is not exported).
+ *
+ * Write order (HOLE-B): the state file (`league.toJSON()`, carrying `episodeCount`) is written FIRST,
+ * then the disk store's win-rate shard is flushed. They are separate files for the disk store (the
+ * shard holds the book; `toJSON` emits `book: null`), so a crash can land between them. State-first
+ * leaves `episodeCount` AHEAD of the shard on a crash — resume skips those seeds, so the un-flushed
+ * games are LOST (bounded skew). Shard-first would leave it ahead of the cursor and resume would
+ * replay + re-fold those seeds — a silent DOUBLE-COUNT that biases the PFSP sampler. Lose-a-few beats
+ * count-twice. (In-memory store: the book rides inside `toJSON()`, so the order is moot.)
+ *
+ * Best-effort: a transient failure must not crash a multi-hour run — but a PERSISTENTLY dead path
+ * (full disk / unwritable dir) writes zero checkpoints while still printing a normal DONE line, the
+ * exact silent non-durability this feature prevents. So after `maxConsecutiveFailures` in a row,
+ * `dump()` throws and lets the operator fix the path instead of losing the whole resume window.
+ *
+ * @param {object} cfg
+ * @param {string|null} cfg.leagueStatePath checkpoint path; `null` ⇒ `dump()` is a no-op (persistence off).
+ * @param {object} cfg.league a `makeLeague(...)` instance (read via `toJSON()`).
+ * @param {object} cfg.store the win-rate backend (its `flush()` is the second write).
+ * @param {(path:string, obj:object)=>void} [cfg.writeJson] state writer (injectable for tests).
+ * @param {number} [cfg.maxConsecutiveFailures=10] consecutive failures before `dump()` aborts the run.
+ * @returns {{ dump: () => void, getDumpFailures: () => number }}
+ */
+export function makeCheckpointDumper({
+  leagueStatePath,
+  league,
+  store,
+  writeJson = writeJsonAtomic,
+  maxConsecutiveFailures = 10,
+}) {
+  let dumpFailures = 0; // total failed dumps — surfaced on the DONE line (0 on a healthy run)
+  let consecutiveDumpFailures = 0;
+  const dump = () => {
+    if (!leagueStatePath) return;
+    try {
+      writeJson(leagueStatePath, league.toJSON()); // state FIRST (HOLE-B: cursor may lead the shard)
+      store.flush(); // shard SECOND
+      consecutiveDumpFailures = 0;
+    } catch (err) {
+      dumpFailures++;
+      process.stderr.write(
+        `[ppo-env-server] league-state dump #${dumpFailures} failed: ${err.message}\n`
+      );
+      if (++consecutiveDumpFailures >= maxConsecutiveFailures) {
+        throw new Error(
+          `PPO env-server: ${consecutiveDumpFailures} consecutive league-state dumps failed to ` +
+            `${leagueStatePath} — checkpoint path unwritable; aborting (last: ${err.message}).`
+        );
+      }
+    }
+  };
+  return { dump, getDumpFailures: () => dumpFailures };
+}
+
+/**
+ * The `PPO_ENV_SERVER DONE …` health line (a key=value map the B5 probes parse). Extracted so the
+ * field set is unit-testable and so it can be emitted identically from BOTH the normal exit and the
+ * abnormal-exit path (a thrown refresh / dump-abort / zero-decision storm) without drift.
+ *
+ * @param {number} played wire terminals surfaced this launch.
+ * @param {object} s `league.stats()`.
+ * @param {number} dumpFailures from the checkpoint dumper.
+ */
+export function formatDoneLine(played, s, dumpFailures) {
+  return (
+    `PPO_ENV_SERVER DONE episodes=${played} decisiveGames=${s.decisiveGames} ` +
+    `truncatedGames=${s.truncatedGames} decisiveRate=${s.decisiveRate.toFixed(4)} ` +
+    `poolSize=${s.poolSize} loadedSnapshots=${s.loadedSnapshots} bookSize=${s.bookSize} ` +
+    `episodeCount=${s.episodeCount} refreshSkips=${s.refreshSkips} ` +
+    `noSeatBeatGames=${s.noSeatBeatGames} dumpFailures=${dumpFailures}`
+  );
+}
+
+/**
+ * The `ep` the episode loop starts at (task E / PR-1, HOLE-A): the league's booked-episode count, so a
+ * relaunch CONTINUES the seed sequence (`seed = seedBase + ep`) instead of replaying booked seeds and
+ * re-folding their outcomes into the restored win-rate book — a silent double-count. A fresh run reads
+ * 0. Extracted + exported so the loop-start derivation is unit-testable without spawning the worker.
+ *
+ * @param {object} league a `makeLeague(...)` instance.
+ * @returns {number}
+ */
+export function resumeStartEpisode(league) {
+  return league.stats().episodeCount;
+}
+
+/**
+ * Episode-loop predicate. `episodes === 0` runs until the client disconnects; otherwise `episodes` is
+ * the run TOTAL across restarts (NOT per-launch), so when the resume cursor already meets it the body
+ * never runs (a relaunch of an already-complete budget is a clean no-op, not a fresh N episodes).
+ *
+ * @param {number} ep current episode index (== the seed cursor).
+ * @param {number} episodes the `--episodes` budget (0 = unbounded).
+ * @returns {boolean}
+ */
+export function shouldRunEpisode(ep, episodes) {
+  return episodes === 0 || ep < episodes;
+}
+
 async function main() {
   /*
    * A learner client (or the parent reading our stdout) can vanish mid-run; a broken
@@ -252,40 +354,13 @@ async function main() {
   }
 
   /*
-   * Atomically checkpoint the league (B6). No-op unless persistence is opted in. Flush the store's own
-   * win-rate shard FIRST (the disk store's book lives there; toJSON emits null for it), then write the
-   * counters/pool/loadedIds state. Best-effort: a dump failure must never crash a multi-hour run.
+   * Atomically checkpoint the league (B6) — the HOLE-B state-then-flush ordering and the
+   * consecutive-failure abort live in `makeCheckpointDumper` (extracted so they are unit-testable
+   * without spawning the worker). No-op unless persistence is opted in.
    */
   let bookedSinceDump = 0;
-  let dumpFailures = 0; // total failed dumps — surfaced on the DONE line (should read 0 on a healthy run)
-  let consecutiveDumpFailures = 0;
-  const MAX_CONSECUTIVE_DUMP_FAILURES = 10;
-  const dumpLeagueState = () => {
-    if (!leagueStatePath) return;
-    try {
-      store.flush();
-      writeJsonAtomic(leagueStatePath, league.toJSON());
-      consecutiveDumpFailures = 0;
-    } catch (err) {
-      /*
-       * Best-effort — a transient dump failure must not crash a multi-hour run. But a PERSISTENTLY dead
-       * checkpoint path (full disk, unwritable dir) would otherwise write zero checkpoints for the whole
-       * run while still printing a normal DONE line — exactly the silent non-durability this feature
-       * exists to prevent. Track failures, surface the count on DONE, and fail loud after a sustained run
-       * of them so the operator fixes the path instead of losing the entire resume window.
-       */
-      dumpFailures++;
-      process.stderr.write(
-        `[ppo-env-server] league-state dump #${dumpFailures} failed: ${err.message}\n`
-      );
-      if (++consecutiveDumpFailures >= MAX_CONSECUTIVE_DUMP_FAILURES) {
-        throw new Error(
-          `PPO env-server: ${consecutiveDumpFailures} consecutive league-state dumps failed to ` +
-            `${leagueStatePath} — checkpoint path unwritable; aborting (last: ${err.message}).`
-        );
-      }
-    }
-  };
+  const checkpointer = makeCheckpointDumper({ leagueStatePath, league, store });
+  const dumpLeagueState = checkpointer.dump;
   /*
    * Best-effort flush on a graceful kill (SIGTERM). A signal landing mid-decision can't run until the
    * main thread unparks from Atomics.wait, so the periodic dump below — not this — is the durability
@@ -437,7 +512,20 @@ async function main() {
      * which resolves `connected` with `closed`/exitCode already set so the loop exits immediately).
      */
     await connected;
-    for (let ep = 0; episodes === 0 || ep < episodes; ep++) {
+    /*
+     * Resume seed-cursor (task E / PR-1, HOLE-A): start the loop at the league's booked-episode count
+     * so a relaunched env-server CONTINUES the seed sequence (`seed = seedBase + ep`) instead of
+     * replaying seeds from 0 and re-folding their outcomes into the restored win-rate book — a silent
+     * double-count. A fresh start reads 0 (behavior unchanged). For a fixed `--episodes=N`, N is the
+     * run TOTAL across restarts, not per-launch (mirrors the Python-side `remaining` budget).
+     */
+    const resumeEp = resumeStartEpisode(league);
+    if (resumeEp > 0) {
+      process.stderr.write(
+        `[ppo-env-server] resuming episode loop at ep=${resumeEp} (seed-cursor).\n`
+      );
+    }
+    for (let ep = resumeEp; shouldRunEpisode(ep, episodes); ep++) {
       if (closed || lostError) break;
       /*
        * Poll the snapshot manifest at the episode boundary (B3): hot-load any newly published
@@ -560,19 +648,47 @@ async function main() {
      * decisive episode INCLUDING zero-decision skips — so `episodes < decisiveGames` is the visible
      * signature of a zero-decision episode that was booked but surfaced no frame (the B2 reordering).
      * `noSeatBeatGames` should be 0 — a nonzero value flags a placement-contract break that left the
-     * win-rate book under-credited (PFSP drifting toward uniform). env.py drains and drops this line
-     * (only the anchored LISTENING line is parsed), so appending fields is safe.
+     * win-rate book under-credited (PFSP drifting toward uniform). `env_server.py`'s
+     * `EnvServerProcess._drain_stdout` drops this line (only the anchored LISTENING line is parsed),
+     * so appending fields is safe.
      */
     // Final checkpoint on a clean loop exit (B6) — captures the tail of episodes since the last
     // periodic dump. No-op when not persisting.
     dumpLeagueState();
     const s = league.stats();
-    process.stdout.write(
-      `PPO_ENV_SERVER DONE episodes=${played} decisiveGames=${s.decisiveGames} ` +
-        `truncatedGames=${s.truncatedGames} decisiveRate=${s.decisiveRate.toFixed(4)} ` +
-        `poolSize=${s.poolSize} loadedSnapshots=${s.loadedSnapshots} bookSize=${s.bookSize} ` +
-        `noSeatBeatGames=${s.noSeatBeatGames} dumpFailures=${dumpFailures}\n`
-    );
+    const doneLine = formatDoneLine(played, s, checkpointer.getDumpFailures());
+    process.stdout.write(`${doneLine}\n`);
+    /*
+     * Mirror the health summary to STDERR (task E / PR-1): `env_server.py`'s `_drain_stdout` reader
+     * thread captures only the anchored LISTENING line on stdout and DROPS the rest, so this window is
+     * invisible to the trainer's logs unless it also lands on stderr (which the Python parent inherits,
+     * `stderr=None`). `refreshSkips` (producer GC race), `dumpFailures` (unwritable checkpoint path),
+     * and `noSeatBeatGames` (broken placement contract) should all read 0 on a healthy run — a nonzero
+     * value is often the ONLY signal of a silent fault on a multi-day shodan run, so prefix `WARN` when
+     * any is nonzero to make it greppable. Appending fields to the stdout line stays safe (it is
+     * dropped; the probes parse a key=value map).
+     */
+    const healthWarn =
+      s.refreshSkips > 0 || s.noSeatBeatGames > 0 || checkpointer.getDumpFailures() > 0;
+    process.stderr.write(`[ppo-env-server]${healthWarn ? ' WARN' : ''} ${doneLine}\n`);
+  } catch (err) {
+    /*
+     * Abnormal exit (task E / S-3): a thrown `refresh()` / encoding skew, the dump-abort, or a
+     * zero-decision storm all skip the normal DONE emission above — yet these are exactly the runs
+     * where `refreshSkips`/`noSeatBeatGames`/`dumpFailures` matter most. Surface the health summary on
+     * stderr here (best-effort, marked ABNORMAL EXIT) before the worker is reaped, then rethrow so the
+     * top-level handler still logs the fatal + sets exit 1. A failure reading stats() mid-teardown must
+     * not mask the original error.
+     */
+    try {
+      const s = league.stats();
+      process.stderr.write(
+        `[ppo-env-server] WARN ABNORMAL EXIT ${formatDoneLine(played, s, checkpointer.getDumpFailures())}\n`
+      );
+    } catch {
+      /* stats() unavailable mid-teardown — the rethrown error below is what matters */
+    }
+    throw err;
   } finally {
     /*
      * Always reap the worker — otherwise its still-listening server keeps the process alive (a

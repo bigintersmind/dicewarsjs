@@ -532,13 +532,26 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       when absent). 12-agent design + 5-agent review (SHIP-AFTER-FIXES, no blockers); folded S1–S6. Deferred
       to task E: Python flag forwarding, the multi-worker `refresh()` snapshot-GC race, the `main()`
       persistence integration test, live cross-worker validation.
+- [~] **(C/E) Design fixed in [D-26]** (13-agent workflow: 4 readers → 3 design takes → synthesize → 4
+  adversarial verifiers → finalize). Q1–Q6 resolved: new `train.py` + torch-free `_train_common.py`;
+  **DROP VecNormalize** (it corrupts the Dict-obs encoding contract — see [D-26]; supersedes the
+  VecNormalize wording below); two-half idempotent resume (Python SB3 half + Node league half),
+  bounded-skew not bit-exact; `SubprocVecEnv(forkserver)` + `VecMonitor` in the parent; consumer
+  ENOENT-tolerance then producer-single-writer GC; `--from-scratch` control. **Foundation PR-1→PR-3
+  landed locally** (branch `ml-bot/task-ce-foundation`): Node crash-safety + GC-race floor +
+  `episodeCount` resume-cursor (PR-1); `EnvServerProcess` B6-flag forwarding (PR-2); SnapshotCallback
+  rehydration + single-writer producer GC, consumer `unlinkSync` removed (PR-3). `tests/ml/` 196 +
+  torch-free Python tiers green; eslint + ruff clean.
 - [ ] **(C)** Scale envs across cores; add the short **from-scratch control** run ([D-19] decision 1).
+      _Lands in PR-4/PR-5 (`train.py`: `SubprocVecEnv(forkserver)` + `--from-scratch`); see [D-26]._
 - [ ] **(D)** Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
       `F = γΦ(s′)−Φ(s)`, env-side in JS) only if terminal-only learning is too slow.
 - [ ] **(E) shodan training-ops (prerequisite for the long BEAT run):** schtasks-wrapped WSL launch
       (the only disconnect-surviving pattern); idempotent checkpoint/resume of policy + optimizer +
-      VecNormalize + RNG + step + pool; TensorBoard + a flat CSV that survives sessions; swap
-      `DummyVecEnv` → `SubprocVecEnv` for real cross-core parallelism.
+      RNG + step + league pool/book (**NOT VecNormalize** — dropped per [D-26]); TensorBoard + a flat
+      CSV that survives sessions; swap `DummyVecEnv` → `SubprocVecEnv` for real cross-core parallelism.
+      _Remaining slices: PR-4 (`train.py` + TB/CSV), PR-5 (checkpoint/resume core), PR-6 (committed
+      shodan launcher + schtasks runbook), PR-7 (deferred test-hardening). See [D-26]._
 
 **Acceptance criteria.**
 

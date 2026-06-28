@@ -21,6 +21,116 @@ Entry template:
 
 ---
 
+## 2026-06-27 — Task C/E foundation — PR #70 review-hardening (4-agent review)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Ran a 4-agent review of PR #70** (code-review, silent-failure-hunter, pr-test-analyzer,
+  comment-analyzer). The core logic (resume cursor, HOLE-B dump order, `gc_partition` math, rehydrate
+  `<=` cutoff) was independently traced correct by 3 agents — **no blocking bugs**. The review found two
+  real disk-related issues on the Python producer plus comment rot from the consumer→producer GC pivot.
+- **Fixed two functional issues (both surface only on the long shodan run):**
+  - **Grace-zone disk leak on resume + republish window:** `_on_training_start` rehydrated from the
+    _truncated manifest_ (`pool_cap` entries), so the `gc_grace` files on disk beyond it were never
+    re-tracked → leaked `gc_grace` files per resume. Rewrote it to **scan disk** (`_discover_on_disk_
+snapshots` + new torch-free `plan_resume`): re-adopt the whole retention set, drop+**delete** any
+    file ahead of the resumed step (closes the HOLE-C republish-divergence window at the producer), and
+    rewrite the manifest. Reading the manifest is dropped entirely, so a corrupt/torn manifest can no
+    longer mislead the producer (dissolves the prior start-fresh/encodingVersion/KeyError concerns).
+  - **Fatal GC unlink:** the `unlink(missing_ok=True)` GC loop only swallowed `FileNotFoundError`; any
+    other `OSError` (EIO / read-only remount / EBUSY) crashed `model.learn()` over pure disk hygiene.
+    New `_safe_unlink` logs and continues — a robustness regression vs the old best-effort eviction.
+- **Comment sweep (consumer no longer GCs):** corrected ~6 stale `ppo-league.mjs` comments that still
+  said the consumer "FIFO-evicts + `unlinkSync`s" / a "peer worker" deletes — re-attributed the GC race
+  to the single Python producer; fixed the `refresh()` JSDoc, the fingerprint/`restore` gate notes, and
+  the dead-code back-fill comment. Pointed the env-server stdout-drain comments at `env_server.py`.
+- **Test-seam extraction (the PR's guarantees were untested where they execute):** `main()` isn't
+  exported, so the HOLE-B write order and the resume-loop bounds had no coverage. Extracted + exported
+  `makeCheckpointDumper` (pins state-then-flush order + the consecutive-failure abort),
+  `formatDoneLine`, and `resumeStartEpisode`/`shouldRunEpisode` (pins `--episodes=N` as a run-total).
+  Also emit the health line with a `WARN` prefix and on the **abnormal-exit** path (S-3/S-4), and added
+  the `!existsSync` guard so a _present_ module's `ERR_MODULE_NOT_FOUND` (missing transitive import) is
+  rethrown, not masked as a benign GC-race skip (S-1).
+- **New tests:** torch-free `plan_resume` (4) + `makeCheckpointDumper`/`formatDoneLine`/loop-bounds (9) +
+  the ERR_MODULE_NOT_FOUND-while-present guard (1); torch-gated callback tests for disk-scan resume,
+  grace-zone re-adoption (the leak), and unlink resilience (run on shodan).
+
+**Learned / decided:**
+
+- **Disk-scan beats manifest-read for producer resume.** Rebuilding the tracked set from the directory
+  (not the truncated manifest) is what keeps the grace zone GC-eligible AND removes the manifest as a
+  trust dependency — one change closes the leak, the republish window, and the corrupt-manifest class.
+- **Extract the seam to test the guarantee.** The dump-order and run-total semantics were correct but a
+  silent revert would have passed CI; the fix was a small export, not a new integration harness.
+
+**Verification GREEN:** ruff + ruff-format clean; torch-free Python (`test_snapshot_manifest.py` 16,
+`test_env_server_argv.py` 6) pass; full ml JS suite **206** (+9 checkpoint/loop tests, +1 guard test);
+eslint + prettier clean. Torch-gated `test_snapshot_callback.py` (disk-scan resume / leak / unlink
+resilience) runs on shodan. Full repo suite + build run by the main agent.
+
+---
+
+## 2026-06-27 — Task C/E design (D-26) + foundation PR-1→PR-3 landed locally
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Scoped task C/E (SubprocVecEnv + shodan training-ops) via a 13-agent design workflow** (4 code-readers
+  → 3 design takes [minimal / robustness / ops] → synthesize → 4 adversarial-verify lenses → finalize).
+  Produced a vetted, code-anchored plan of record; recorded as **[D-26]**.
+- **Resolved Q1–Q6** (two genuine forks confirmed with Ivan via AskUserQuestion): new `train.py` +
+  torch-free `_train_common.py`; **DROP VecNormalize** (reverses the PLAN wording); two-half idempotent
+  resume (bounded-skew); `SubprocVecEnv(forkserver)` + `VecMonitor` in the parent; consumer
+  ENOENT-tolerance then producer single-writer GC; `--from-scratch` control.
+- **Implemented + locally tested the foundation PR-1→PR-3** on branch `ml-bot/task-ce-foundation`:
+  - **PR-1 (Node crash-safety):** `episodeCount` resume seed-cursor (persisted/restored/in `stats()`;
+    env-server loop starts at it); `refresh()` GC-race floor (tolerate a peer-evicted file: warn + mark
+    loaded + `refreshSkips++`; dedup `fresh` by id; rethrow non-missing errors); `dumpLeagueState`
+    flipped to state-then-flush (HOLE-B); schema v1→v2; DONE health mirrored to stderr.
+  - **PR-2 (Python forwarding):** `EnvServerProcess` forwards `snapshot_store`/`league_state_dir`/
+    `league_dump_every` to argv on their own (manifest-independent) gate; byte-identical when unset.
+  - **PR-3 (snapshot GC ownership):** removed the consumer `unlinkSync`; NEW torch-free
+    `ml/dicewars_ppo/snapshot_manifest.py` (`rehydrate_snapshots` + `gc_partition`); `SnapshotCallback`
+    rehydrates on resume + GCs aged files after truncating the manifest (`pool_cap`/`gc_grace`).
+- **Verification GREEN:** full JS suite **1147** (+6 new league tests), build + eslint + prettier clean;
+  torch-free Python tiers (`test_snapshot_manifest.py` 12, `test_env_server_argv.py` 6) pass; ruff +
+  py_compile clean. Updated DECISIONS (D-26), PLAN (task C/E), and this LOG.
+
+**Learned / decided:**
+
+- **VecNormalize is a trap here, not a feature.** The verifier (grounded in `env.py`/`policy.py`/
+  `model.py`/`constants.py` + the SB3 2.9.0 source) showed obs-norm corrupts the int edge-index keys,
+  `ValueError`s on the `edge_mask` MultiBinary, and breaks the masked-mean pool; reward-norm is pointless
+  on a `{0,1}`/γ=0.999 return. So there is nothing VecNormalize-shaped to checkpoint — the PLAN wording
+  was wrong; resume state = policy + optimizer + `num_timesteps` + RNG + league pool/book.
+- **The adversarial pass earned its keep:** it found 4 concrete resume bugs (HOLE-A seed-replay double-
+  count, HOLE-B disk-book double-count, HOLE-C future-snapshot republish, HOLE-D additive `--timesteps`)
+  the naive design would have shipped. A→C are fixed in PR-1/PR-3; D lands in PR-5.
+- **PR-1 and PR-3 interact:** PR-3 moves disk deletion to the single producer, so the GC-race tests are
+  written for the final (consumer-never-unlinks) state — they delete the file directly to simulate the
+  producer/peer GC, surviving the PR-1→PR-3 boundary.
+
+**Dead ends / surprises:**
+
+- This Mac has **no torch/sb3** (system py 3.9; the ml venv is shodan-only), so the torch-gated
+  `test_snapshot_callback.py` (updated for the new GC/rehydration + `_write_manifest_atomic(entries)`
+  signature) can't run locally — its logic is mirrored in the torch-free `test_snapshot_manifest.py`,
+  and the wiring is verified on shodan at PR-4+. Extracting the pure helpers into `snapshot_manifest.py`
+  was specifically to keep the GC/rehydration math locally testable.
+
+**Next:**
+
+- **PR-4** `_train_common.py` + `train.py` (SubprocVecEnv(forkserver) + VecMonitor + TB/CSV +
+  `--from-scratch`; add `tensorboard` to `[rl]`) · **PR-5** idempotent checkpoint/resume core (RNG
+  sidecar + atomic `latest.json` last + HOLE-D budget) · **PR-6** committed `scripts/shodan/ppo-train.sh`
+  - schtasks runbook · **PR-7** deferred test-hardening. Then the long BEAT run at R=3.
+- Decide commit/PR mechanics for the foundation branch with Ivan (one PR vs the 3-slice split).
+
+---
+
 ## 2026-06-27 — Task B step B6: league persistence + SharedDiskStore (toJSON/restore; standalone PR #69, squash `d637a06`)
 
 **Phase:** 3 · **Who:** Ivan + Claude

@@ -15,8 +15,9 @@
  *   - **B1** — the empty-pool path (== task A) plus a decisive/truncated telemetry tally.
  *   - **B2** — the per-opponent win-rate book (`recordResult` pairwise crediting + `winRate(id)`).
  *   - **B3** — the snapshot pool + `refresh()`: poll the producer's `manifest.json`, hot-load each
- *     new self-play snapshot via `makeBC` (fresh filename per snapshot → ESM URL cache), FIFO-evict
- *     past `poolCap`, GC the evicted `.js`. B3 only *loads* the pool — `draw()` does not seat it yet.
+ *     new self-play snapshot via `makeBC` (fresh filename per snapshot → ESM URL cache), FIFO-trim the
+ *     in-memory pool past `poolCap` (disk GC is the producer's job — task E / PR-3; a consumer never
+ *     unlinks). B3 only *loads* the pool — `draw()` does not seat it yet.
  *   - **B4** — PFSP weighting **on**: when the pool is non-empty, `draw(seed)` seeds a `mulberry32`
  *     sampler and seats `count − R` snapshots drawn by `w(S) = max(ε, 1 − learnerWinRate(S))^k`
  *     (lower learner win-rate → higher weight) plus `R` reserved baselines (the [D-15]
@@ -27,7 +28,7 @@
  * @module scripts/lib/ppo-league
  */
 
-import { readFileSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -56,8 +57,13 @@ const MAX_NO_SEATBEAT_GAMES = 10;
 /**
  * `toJSON()` checkpoint schema version (B6). `restore()` rejects an unknown version rather than
  * silently mis-reading an older/newer layout. Bump only on a breaking shape change to the snapshot.
+ *
+ * v2 (task E / PR-1): added `episodeCount` (the resume seed-cursor — without it a relaunched
+ * env-server replays seeds from 0 and re-books their outcomes, double-counting the win-rate book)
+ * and `refreshSkips` (the multi-worker GC-race health counter). B6 (v1) never ran live, so there
+ * are no v1 checkpoints in the wild — the bump just makes a stale checkpoint fail loud on resume.
  */
-const STATE_SCHEMA_VERSION = 1;
+const STATE_SCHEMA_VERSION = 2;
 
 /**
  * @typedef {object} LeagueStore the pluggable win-rate backend (see ppo-league-store.mjs).
@@ -124,9 +130,11 @@ export function resolveBaselineField(idCsv, count) {
  *   (B3). When set, `refresh()` polls it and hot-loads new self-play snapshots into the pool via
  *   `makeBC`. `null` (the default / no `--snapshot-manifest`) keeps the empty-pool fixed-field mode —
  *   `refresh()` is a no-op, so B3 is fully backward-compatible with task A / B1 / B2.
- * @param {number} [opts.poolCap=40] max snapshots kept live (sampleable) and on disk (B3). FIFO-by-
- *   step eviction keeps the most recent/hardest snapshots ([D-23]) and `unlinkSync`s the evicted
- *   `.js`, so this bounds DISK and the sampleable set. It does NOT bound process memory: Node's ESM
+ * @param {number} [opts.poolCap=40] max snapshots kept live (sampleable) (B3). FIFO-by-step eviction
+ *   keeps the most recent/hardest snapshots ([D-23]) in the in-memory pool. It bounds the SAMPLEABLE
+ *   set only — disk retention is the PRODUCER's job (task E / PR-3): a consumer no longer deletes
+ *   files (that would race N SubprocVecEnv workers); the single producer GCs aged-out `.js` after
+ *   truncating its manifest. It does NOT bound process memory either: Node's ESM
  *   module registry retains every dynamic-`import()`ed snapshot module for the process lifetime (each
  *   fresh filename is a distinct, permanently-cached module), so resident weights grow with the total
  *   number of snapshots ever loaded, not `poolCap`. Modest at realistic cadences (~2 MB each); if a
@@ -253,9 +261,9 @@ export function makeLeague({
   Object.freeze(baselineField);
 
   /*
-   * Persistence fingerprint (B6): every construction arg that steers `draw()`'s output OR FIFO
-   * eviction (which `unlinkSync`s files). `restore()` throws unless the persisted fingerprint matches
-   * this league's, because a resume under drifted CLI args must fail loud, not sample/GC divergently —
+   * Persistence fingerprint (B6): every construction arg that steers `draw()`'s output OR the
+   * FIFO-trimmed sampleable pool size. `restore()` throws unless the persisted fingerprint matches
+   * this league's, because a resume under drifted CLI args must fail loud, not sample divergently —
    * `pfspEpsilon`/`pfspK`/`reserveBaselines`/`poolCap`/baseline identity are as load-bearing as
    * `count`/`learnerSeat`. `baselineIds` is the trimmed ordered id list (the full determinant of both
    * the cycled `baselineField` and the `reserveBaselinePool`), normalized so cosmetic CSV whitespace
@@ -273,6 +281,17 @@ export function makeLeague({
 
   let decisiveGames = 0;
   let truncatedGames = 0;
+  /*
+   * Episodes booked through `recordResult` — the **resume seed-cursor** (task E / PR-1). The
+   * env-server seeds episode `ep` with `seedBase + ep` and books exactly one result per loop
+   * iteration that reached a terminal (disconnect/error break out BEFORE `recordResult`), so this is
+   * the count of seeds already consumed-and-booked. On resume the env-server starts its loop at this
+   * value so it does NOT replay already-played seeds and re-fold their outcomes into the (restored)
+   * win-rate book — the silent double-count this counter exists to prevent. Always equals
+   * `decisiveGames + truncatedGames`; kept as its own field so the cursor stays correct even if a
+   * future change adds a third outcome bucket (the invariant is asserted in the persist suite).
+   */
+  let episodeCount = 0;
   /*
    * Win-rate book (B2): stable opponent id → the LEARNER's pairwise record against it. `wins` is the
    * count of decisive games in which the learner outplaced that opponent; `games` the decisive games
@@ -306,6 +325,17 @@ export function makeLeague({
   const pool = [];
   const loadedIds = new Set();
   let manifestMtimeMs = -1;
+  /*
+   * Snapshots `refresh()` skipped because their `.js` was already gone at import time (task E / PR-1
+   * GC-race floor): under `SubprocVecEnv` N env-servers share one snapshot dir with a single producer
+   * that owns disk GC (task E / PR-3). The producer `unlink`s an aged-out snapshot after truncating
+   * the manifest; a lagging worker reading a still-listing (older) manifest can try to import a file
+   * the producer has since GC'd. The lagging worker tolerates the missing file (warn + skip + mark
+   * loaded) instead of crashing the whole run on a benign race; this counts how often it happened so
+   * the env-server can surface it on the DONE health line. Should stay low; a large value means the
+   * pool cap is too small for the snapshot cadence (the producer GCs faster than a worker can load).
+   */
+  let refreshSkips = 0;
 
   /*
    * Opponent-array index → seat: the learner sits at `learnerSeat`; opponents fill the remaining
@@ -430,6 +460,9 @@ export function makeLeague({
      * yields two independent records for its id (one per seat), which is correct.
      */
     recordResult(drawn, result) {
+      // The resume seed-cursor (task E): one increment per booked episode, BEFORE the truncated/
+      // decisive split, so it counts every seed consumed regardless of outcome bucket.
+      episodeCount++;
       if (result.truncated) {
         truncatedGames++;
         return;
@@ -495,10 +528,12 @@ export function makeLeague({
      * (empty-pool fixed-field mode). Cheap when nothing changed: a single `statSync` mtime check short-
      * circuits before any parse/import. On a rewrite it diffs the manifest by stable id, dynamic-
      * `import()`s each NEW snapshot's `.js` (a fresh filename per snapshot, so the ESM URL cache never
-     * serves a stale module), wraps it with `makeBC({ policy })`, and FIFO-evicts past `poolCap`,
-     * GC-ing the evicted snapshot's `.js` file (the manifest still lists it, but `loadedIds` stops it
-     * being re-imported — restart recovery is a B6 concern). `draw()` does not sample the pool until
-     * B4, so in B3 this only grows `poolSize`; episode outcomes are unchanged.
+     * serves a stale module), wraps it with `makeBC({ policy })`, and FIFO-trims its IN-MEMORY pool
+     * past `poolCap`. It does NOT delete any file — disk GC is the single producer's job (task E /
+     * PR-3); a consumer that unlinked would race its SubprocVecEnv peers. `loadedIds` keeps an evicted
+     * id from being re-imported, and a file the producer has already GC'd is tolerated (the ENOENT
+     * guard below). `draw()` does not sample the pool until B4, so in B3 this only grows `poolSize`;
+     * episode outcomes are unchanged.
      *
      * @returns {Promise<{added:number, poolSize:number}>}
      */
@@ -532,14 +567,54 @@ export function makeLeague({
       }
 
       const dir = dirname(snapshotManifest);
+      /*
+       * New snapshots to load, oldest-first (ascending step → push order == FIFO eviction order).
+       * De-dup by id: the producer manifest is append-only and SHOULD list each id once, but a
+       * producer resume can republish an id (PR-3 truncates that at the source), and two pool entries
+       * for one id would double its PFSP sampling weight and seat it twice in the pool. Belt-and-braces.
+       */
+      const seenFresh = new Set();
       const fresh = (manifest.snapshots ?? [])
-        .filter(s => !loadedIds.has(s.id))
-        .sort((a, b) => a.step - b.step); // ascending step → push order == FIFO eviction order
+        .filter(s => {
+          if (loadedIds.has(s.id) || seenFresh.has(s.id)) return false;
+          seenFresh.add(s.id);
+          return true;
+        })
+        .sort((a, b) => a.step - b.step);
 
       let added = 0;
       for (const snap of fresh) {
         const weightsPath = resolve(dir, snap.weights);
-        const mod = await import(pathToFileURL(weightsPath).href);
+        let mod;
+        try {
+          mod = await import(pathToFileURL(weightsPath).href);
+        } catch (err) {
+          if (
+            (err.code === 'ENOENT' || err.code === 'ERR_MODULE_NOT_FOUND') &&
+            !existsSync(weightsPath)
+          ) {
+            /*
+             * GC-race floor (task E): under SubprocVecEnv, N env-servers share one snapshot dir with a
+             * single producer (the Python `SnapshotCallback`) that owns disk GC — it `unlink`s an
+             * aged-out `.js` after truncating the manifest. A lagging worker can read a still-listing
+             * (older) manifest and try to import a file the producer has since GC'd. The file is gone
+             * for good — the snapshot is already superseded — so warn, mark its id loaded (never retry
+             * the dead path), and skip. A benign GC race must not crash a multi-hour run.
+             *
+             * The `!existsSync` guard makes the swallow mean "the file is genuinely gone": a present
+             * module that throws `ERR_MODULE_NOT_FOUND` for a MISSING TRANSITIVE IMPORT (or any parse/
+             * syntax failure) is a real bug in a published artifact → falls through to the rethrow.
+             */
+            refreshSkips++;
+            loadedIds.add(snap.id);
+            process.stderr.write(
+              `[ppo-league] refresh: snapshot ${snap.id} weights gone before import (${weightsPath}); ` +
+                `skipped (producer GC race). refreshSkips=${refreshSkips}.\n`
+            );
+            continue;
+          }
+          throw err;
+        }
         if (!mod.BC_POLICY) {
           // No BC_POLICY export ⇒ makeBC's default param would silently load the SHIPPED BC as this
           // snapshot (a corrupt/truncated published artifact masquerading as a trained policy). Fail loud.
@@ -555,19 +630,18 @@ export function makeLeague({
       }
 
       /*
-       * FIFO eviction: keep the most recent `poolCap` sampleable and `unlinkSync` the evicted `.js`
-       * (D-23 disk retention — the fresh-filename rule would otherwise grow disk forever). This bounds
-       * DISK and the sampleable set, NOT process memory: the dynamic-`import()`ed module stays in
-       * Node's ESM registry for the process lifetime, so dropping the `fn` here does not free the
-       * ~2 MB weights (see the `poolCap` JSDoc note).
+       * FIFO trim: keep the most recent `poolCap` snapshots sampleable. Disk deletion is the
+       * PRODUCER's job now (task E / PR-3): the single Python process that owns the manifest GCs
+       * aged-out `.js` files AFTER truncating the manifest. If a consumer also unlinked, N
+       * SubprocVecEnv workers would race to delete each other's files and a lagging worker would
+       * import a path a peer just removed — a self-inflicted race the producer-owned-GC model avoids.
+       * Consumers still tolerate a producer-GC'd missing file in the import guard above; this loop
+       * only bounds the in-memory sampleable set. `loadedIds` still prevents re-importing an evicted
+       * id, and the ESM module registry retains the weights for the process lifetime regardless
+       * (see the `poolCap` JSDoc note).
        */
       while (pool.length > poolCap) {
-        const evicted = pool.shift();
-        try {
-          unlinkSync(evicted.weightsPath);
-        } catch {
-          /* already gone / shared / read-only — best-effort GC, never fail a refresh on it */
-        }
+        pool.shift();
       }
 
       manifestMtimeMs = stat.mtimeMs; // commit only after a clean load, so a throw retries next poll
@@ -593,6 +667,11 @@ export function makeLeague({
         truncatedGames,
         decisiveRate: total > 0 ? decisiveGames / total : 0,
         noSeatBeatGames,
+        // episodeCount is the resume seed-cursor (== decisiveGames + truncatedGames); the env-server
+        // reads it after restore() to continue the seed sequence instead of replaying from 0.
+        episodeCount,
+        // refreshSkips: cumulative snapshots skipped on a producer-GC race (should stay near 0).
+        refreshSkips,
       };
     },
 
@@ -614,6 +693,8 @@ export function makeLeague({
         fingerprint,
         decisiveGames,
         truncatedGames,
+        episodeCount, // resume seed-cursor (task E) — see the counter declaration above
+        refreshSkips, // cumulative GC-race skips (carried across restarts for a true run-total)
         noSeatBeatGames,
         warnedNoSeatBeat,
         storeKind: store.kind, // restore() rejects a backend switch — see the store-kind gate there
@@ -632,7 +713,7 @@ export function makeLeague({
      *
      * Gates, in order: (1) known `version`; (2) `encodingVersion === ENCODING_VERSION` — fail loud on
      * skew before importing anything (a mid-run encoding bump makes pooled snapshots unloadable, [D-23]);
-     * (3) `fingerprint` matches this league's config (drifted sampler/eviction args ⇒ divergent draws/GC);
+     * (3) `fingerprint` matches this league's config (drifted sampler/pool-cap args ⇒ divergent draws);
      * (4) `storeKind` matches this league's store — a checkpoint written by a `disk` store carries
      * `book: null` (the book lives in shards), so blindly restoring it into an in-memory store (or vice
      * versa) would silently zero the win-rate book and collapse the PFSP sampler to cold-start.
@@ -703,9 +784,17 @@ export function makeLeague({
         try {
           mod = await import(pathToFileURL(snap.weightsPath).href);
         } catch (err) {
-          if (err.code === 'ENOENT' || err.code === 'ERR_MODULE_NOT_FOUND') {
+          if (
+            (err.code === 'ENOENT' || err.code === 'ERR_MODULE_NOT_FOUND') &&
+            !existsSync(snap.weightsPath)
+          ) {
             // FIFO-evicted/unlinked since the checkpoint — keep the id in loadedIds (below) so a later
-            // refresh() never re-imports the deleted file; the book record stays credited.
+            // refresh() never re-imports the deleted file; the book record stays credited. The
+            // `!existsSync` guard mirrors refresh(): only a file that is GENUINELY GONE is dropped. A
+            // PRESENT-but-broken module (a missing transitive import / a corrupt artifact raising
+            // ERR_MODULE_NOT_FOUND) falls through to the rethrow below — a real bug must not be masked
+            // as a benign "weights gone" drop, and the two import paths must not diverge if the
+            // snapshot artifact format ever gains an import.
             droppedPool++;
             process.stderr.write(
               `[ppo-league] restore: snapshot ${snap.id} weights gone (${snap.weightsPath}); ` +
@@ -713,7 +802,7 @@ export function makeLeague({
             );
             continue;
           }
-          throw err; // any non-missing-file import error — fail loud
+          throw err; // present-but-broken artifact, or any non-missing-file import error — fail loud
         }
         if (!mod.BC_POLICY) {
           // A parseable module with no BC_POLICY export would fall through to makeBC's default param and
@@ -736,6 +825,13 @@ export function makeLeague({
       store.restore(state.book);
       decisiveGames = state.decisiveGames ?? 0;
       truncatedGames = state.truncatedGames ?? 0;
+      // The resume seed-cursor (task E). A v2 payload always carries `episodeCount` (the version gate
+      // above rejects anything else), so the `??` only matters if that gate is ever loosened — it then
+      // falls back to the cursor's own invariant (== decisiveGames + truncatedGames), never a wrong
+      // value, so resume still skips exactly the already-played seeds. Defensive, consistent with the
+      // surrounding `?? 0` reads.
+      episodeCount = state.episodeCount ?? decisiveGames + truncatedGames;
+      refreshSkips = state.refreshSkips ?? 0;
       noSeatBeatGames = state.noSeatBeatGames ?? 0;
       warnedNoSeatBeat = state.warnedNoSeatBeat ?? false;
       manifestMtimeMs = -1; // never trust a persisted mtime — force a fresh manifest re-poll

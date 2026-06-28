@@ -51,3 +51,42 @@ def test_no_league_flags_without_snapshot_manifest():
     assert "--reserve-baselines" not in joined
     assert "--pfsp-epsilon" not in joined
     assert "--pfsp-k" not in joined
+
+
+def test_persistence_flags_forwarded_when_set():
+    # Task E (B6 Python forwarding): the persistence trio rides its own gate, independent of the
+    # snapshot manifest — a fixed-field run with NO manifest still checkpoints/resumes.
+    argv = _argv(
+        snapshot_store="disk",
+        league_state_dir="/run/league-state",
+        league_dump_every=25,
+    )
+    assert "--snapshot-store=disk" in argv
+    assert "--league-state-dir=/run/league-state" in argv
+    assert "--league-dump-every=25" in argv
+    # No snapshot manifest was given, yet persistence flags still appear (manifest-independent).
+    assert "--snapshot-manifest" not in " ".join(argv)
+
+
+def test_persistence_flags_absent_when_unset():
+    # The point of the None defaults: an opt-out run is byte-identical to B5 (Node uses its own
+    # defaults — snapshot-store=memory, league-dump-every=50, persistence off).
+    joined = " ".join(_argv())
+    assert "--snapshot-store" not in joined
+    assert "--league-state-dir" not in joined
+    assert "--league-dump-every" not in joined
+
+
+def test_persistence_flags_coexist_with_pfsp_flags():
+    # A real task-E PFSP launch sets BOTH the snapshot manifest (PFSP pool) AND persistence (disk
+    # store + state dir). Both groups must appear without interfering.
+    argv = _argv(
+        snapshot_manifest="/tmp/snap/manifest.json",
+        snapshot_store="disk",
+        league_state_dir="/tmp/snap",
+        league_dump_every=50,
+    )
+    assert "--snapshot-manifest=/tmp/snap/manifest.json" in argv
+    assert "--snapshot-store=disk" in argv
+    assert "--league-state-dir=/tmp/snap" in argv
+    assert "--league-dump-every=50" in argv

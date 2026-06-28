@@ -119,33 +119,114 @@ describe('ppo-league snapshots — hot-loading into the pool', () => {
   });
 });
 
-describe('ppo-league snapshots — FIFO eviction + disk GC', () => {
-  it('keeps the most-recent poolCap and GCs the evicted snapshot .js (FIFO by step)', async () => {
+describe('ppo-league snapshots — FIFO trim (disk GC is the producer’s job, task E / PR-3)', () => {
+  it('FIFO-trims the live pool to poolCap but does NOT delete files (consumer never unlinks)', async () => {
     const f100 = snap(100);
     const f200 = snap(200);
     const f300 = snap(300);
     const lg = league(writeManifest([f100, f200, f300]), { poolCap: 2 });
-    expect(await lg.refresh()).toEqual({ added: 3, poolSize: 2 }); // loaded 3, evicted oldest
+    expect(await lg.refresh()).toEqual({ added: 3, poolSize: 2 }); // loaded 3, evicted oldest from pool
 
     expect(lg.stats()).toMatchObject({ poolSize: 2, loadedSnapshots: 3 });
-    expect(existsSync(join(dir, f100.weights))).toBe(false); // step 100 evicted → file GC'd
+    // Disk deletion moved to the single producer (PR-3): a consumer must NOT unlink (it would race N
+    // SubprocVecEnv workers), so every file still exists even though snap-100 left the sampleable pool.
+    expect(existsSync(join(dir, f100.weights))).toBe(true);
     expect(existsSync(join(dir, f200.weights))).toBe(true);
     expect(existsSync(join(dir, f300.weights))).toBe(true);
   });
 
-  it('never re-imports an evicted (GC-deleted) snapshot — the loadedIds guard', async () => {
+  it('never re-imports an evicted snapshot, even after the producer GCs its file (loadedIds guard)', async () => {
     const f100 = snap(100);
     const path = writeManifest([f100, snap(200), snap(300)]);
     const lg = league(path, { poolCap: 2 });
-    await lg.refresh();
-    expect(existsSync(join(dir, f100.weights))).toBe(false); // evicted + deleted
+    await lg.refresh(); // snap-100 evicted from the live pool (still tracked in loadedIds)
+    // The single producer GCs the aged-out file (the consumer no longer does); simulate that here.
+    rmSync(join(dir, f100.weights), { force: true });
 
     /*
-     * Force a re-read (bump mtime, same content). snap-100 is in loadedIds → not re-imported from the
-     * now-missing file, so refresh must not throw and must add nothing.
+     * Force a re-read (bump mtime, same content). snap-100 is in loadedIds → the `fresh` filter
+     * excludes it, so it is never re-imported from the now-missing file: refresh must not throw, add
+     * nothing, and NOT count a skip (the import was never attempted).
      */
     utimesSync(path, ++mtimeTick, mtimeTick);
     expect(await lg.refresh()).toEqual({ added: 0, poolSize: 2 });
+    expect(lg.stats().refreshSkips).toBe(0);
+  });
+});
+
+describe('ppo-league snapshots — multi-worker GC race (task E / PR-1 floor)', () => {
+  it('tolerates a snapshot whose file was GCd before import: warn-skip, mark loaded, no throw', async () => {
+    /*
+     * The multi-worker GC race (task E): the single producer (or, transiently, a peer) deletes a
+     * snapshot's `.js` between publishing the manifest entry and a LAGGING worker importing it. The
+     * lagging worker must skip the dead snapshot (refreshSkips++ + mark it loaded) and load the rest —
+     * never crash a multi-hour run on a benign race.
+     */
+    const f100 = snap(100);
+    const manifest = writeManifest([f100, snap(200), snap(300)]);
+    // The producer published the manifest entry, then aged snap-100's file out — gone before we load it.
+    rmSync(join(dir, f100.weights), { force: true });
+
+    const b = league(manifest, { poolCap: 40 }); // a lagging worker that hasn't loaded snap-100 yet
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const res = await b.refresh(); // snap-100's file is gone → skipped, not fatal
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+
+    expect(res).toEqual({ added: 2, poolSize: 2 }); // snap-200 + snap-300 loaded
+    expect(b.stats().refreshSkips).toBe(1);
+    expect(b.stats().loadedSnapshots).toBe(3); // snap-100 marked loaded so it is never retried
+    expect(b.stats().poolSize).toBe(2);
+
+    // A later poll (bumped mtime) never retries the dead snap-100 and adds nothing more.
+    utimesSync(manifest, ++mtimeTick, mtimeTick);
+    expect(await b.refresh()).toEqual({ added: 0, poolSize: 2 });
+    expect(b.stats().refreshSkips).toBe(1); // unchanged — snap-100 is in loadedIds now
+  });
+
+  it('still rethrows a non-missing-file import error (a present but broken module is a real bug)', async () => {
+    const manifest = writeManifest([snap(100)]);
+    // Overwrite the snapshot file with a syntax error — import() throws SyntaxError, not ENOENT.
+    writeFileSync(join(dir, 'snap-000100.weights.js'), 'export const = broken syntax;\n');
+    const lg = league(manifest);
+    await expect(lg.refresh()).rejects.toThrow(); // not swallowed by the GC-race ENOENT branch
+    expect(lg.stats().refreshSkips).toBe(0); // a parse error is not a skip
+  });
+
+  it('rethrows ERR_MODULE_NOT_FOUND when the file is PRESENT but a transitive import is missing', async () => {
+    // The `!existsSync` guard (task E / S-1): a present module whose own `import` target is missing
+    // throws ERR_MODULE_NOT_FOUND too — but it is a real bug in a published artifact, NOT a GC race,
+    // so it must rethrow (not get masked as a benign skip just because the error code matches).
+    const manifest = writeManifest([snap(100)]);
+    writeFileSync(
+      join(dir, 'snap-000100.weights.js'),
+      "import './does-not-exist.js';\nexport const BC_POLICY = {};\n"
+    );
+    const lg = league(manifest);
+    await expect(lg.refresh()).rejects.toThrow(); // present file → guard falls through to rethrow
+    expect(lg.stats().refreshSkips).toBe(0); // a missing transitive import is not a GC-race skip
+  });
+
+  it('de-dups the manifest by id so a republished id never doubles in the pool', async () => {
+    // A producer-resume republish (PR-3 truncates this at the source) could list one id twice with
+    // different steps; refresh() must seat it once, not twice (a double weight + double eviction).
+    const f = writeSnapshot(100);
+    const manifest = join(dir, 'manifest.json');
+    writeFileSync(
+      manifest,
+      JSON.stringify({
+        encodingVersion: 2,
+        snapshots: [
+          { id: 'snap-dup', step: 100, weights: f },
+          { id: 'snap-dup', step: 200, weights: f },
+        ],
+        latestStep: 200,
+      })
+    );
+    utimesSync(manifest, ++mtimeTick, mtimeTick);
+    const lg = league(manifest);
+    expect(await lg.refresh()).toEqual({ added: 1, poolSize: 1 });
+    expect(lg.stats().loadedSnapshots).toBe(1);
   });
 });
 

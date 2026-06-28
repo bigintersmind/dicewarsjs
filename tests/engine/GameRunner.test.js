@@ -1,4 +1,6 @@
 import { createGame, simulateGame, replayGame } from '../../src/engine/GameRunner.js';
+import { generateMap, MapInfeasibleError } from '../../src/engine/MapGenerator.js';
+import { createRng } from '../../src/engine/rng.js';
 import { ai_example } from '../../src/ai/ai_example.js';
 import { ai_default } from '../../src/ai/ai_default.js';
 import { ai_defensive } from '../../src/ai/ai_defensive.js';
@@ -44,8 +46,7 @@ describe('createGame', () => {
       }
     });
 
-    it('never fails generation for the tightest combo (small + 8 players)', () => {
-      // createGame's bounded retry absorbs the rare infeasible seed.
+    it('generates a playable board for small + 8 players across seeds (retry absorbs infeasible seeds)', () => {
       const SMALL = { mapWidth: 20, mapHeight: 24, maxAreas: 20 };
       for (let seed = 1; seed <= 50; seed++) {
         expect(() =>
@@ -54,19 +55,62 @@ describe('createGame', () => {
       }
     });
 
-    it('is deterministic for a given requested seed (including the retry path)', () => {
-      const cfg = {
-        mapWidth: 20,
-        mapHeight: 24,
-        maxAreas: 20,
-        mapType: 'snowflake',
-        playerCount: 8,
-        seed: 135,
-      };
-      const a = createGame(cfg);
-      const b = createGame(cfg);
+    /*
+     * A config whose FIRST attempt is genuinely infeasible, so these tests
+     * actually exercise the retry loop (not just attempt 0). `ring 16x20 / 16
+     * areas / 8 players, seed 1` throws MapInfeasibleError on attempt 0 (too few
+     * territories survive pruning) but createGame rescues it on a later seed.
+     */
+    const RETRY_CFG = {
+      mapWidth: 16,
+      mapHeight: 20,
+      maxAreas: 16,
+      mapType: 'ring',
+      playerCount: 8,
+      seed: 1,
+    };
+
+    it('bounded retry rescues a seed that is infeasible on the first attempt', () => {
+      // Prove the precondition: attempt 0 (the requested seed) really does throw,
+      // so this test can only pass via the retry path — guarding the seed-advance
+      // arithmetic the rescue depends on.
+      expect(() =>
+        generateMap({ ...RETRY_CFG, dicePerArea: 3 }, createRng(RETRY_CFG.seed))
+      ).toThrow(MapInfeasibleError);
+      // createGame absorbs it: no user-facing failure.
+      expect(() => createGame(RETRY_CFG)).not.toThrow();
+    });
+
+    it('is deterministic for a given requested seed, including the retried board', () => {
+      const a = createGame(RETRY_CFG);
+      const b = createGame(RETRY_CFG);
       expect(a.rngState).toBe(b.rngState);
       expect(a.areas.map(x => x.size)).toEqual(b.areas.map(x => x.size));
+      // The rescued board seats all 8 players (the original requested seed could not).
+      expect(new Set(a.areas.filter(x => x.size > 0).map(x => x.owner)).size).toBe(8);
+    });
+
+    it('throws MapInfeasibleError when every retry attempt is exhausted', () => {
+      // A board too small to ever seat 8 players: all 8 attempts fail, so createGame
+      // surfaces the final MapInfeasibleError rather than a silent undefined.
+      expect(() =>
+        createGame({
+          mapWidth: 14,
+          mapHeight: 16,
+          maxAreas: 14,
+          mapType: 'ring',
+          playerCount: 8,
+          seed: 1,
+        })
+      ).toThrow(MapInfeasibleError);
+    });
+
+    it('rethrows a non-retryable config error immediately (does not spin)', () => {
+      // Bad dimensions are a plain RangeError (not MapInfeasibleError) and fail
+      // identically on every seed, so the retry guard must NOT swallow them.
+      expect(() =>
+        createGame({ mapWidth: 0, mapHeight: 0, mapType: 'snowflake', playerCount: 4, seed: 1 })
+      ).toThrow(/grid dimensions must be/);
     });
   });
 });

@@ -9,6 +9,7 @@
 
 import { useState } from 'preact/hooks';
 import { DEFAULT_MAP_SIZE, DEFAULT_MAP_TYPE } from '../utils/config.js';
+import { MAP_TYPE_OPTIONS } from '../engine/mapPersonalities.js';
 import { getAllAIStrategies } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
@@ -31,18 +32,13 @@ const MAP_SIZE_OPTIONS = [
 ];
 
 /*
- * Map-type (personality) options. `value` keys must match the engine's
- * personality registry (src/engine/mapPersonalities.js); the controller routes
- * them through resolveMapType at game-creation time. 'random' is the classic
- * full-board map and stays the default so the out-of-box experience is
- * unchanged.
+ * Map-type (personality) picker options come straight from the engine registry
+ * (src/engine/mapPersonalities.js → MAP_TYPE_OPTIONS), so the UI can never offer
+ * a type the engine doesn't know and a newly-registered shape shows up here
+ * automatically. The controller routes the chosen value through resolveMapType at
+ * game-creation time. 'random' (Classic) is first and stays the default, so the
+ * out-of-box experience is unchanged.
  */
-const MAP_TYPE_OPTIONS = [
-  { value: 'random', label: 'Classic' },
-  { value: 'snowflake', label: 'Snowflake' },
-  { value: 'ring', label: 'Ring' },
-  { value: 'cross', label: 'Cross' },
-];
 
 /** Built-in AI strategies offered in the per-slot bot picker. */
 const AI_OPTIONS = getAllAIStrategies();

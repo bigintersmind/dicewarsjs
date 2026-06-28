@@ -1,4 +1,8 @@
-import { generateMap } from '../../src/engine/MapGenerator.js';
+import {
+  generateMap,
+  MapInfeasibleError,
+  assertSingleConnectedLandmass,
+} from '../../src/engine/MapGenerator.js';
 import { createRng } from '../../src/engine/rng.js';
 import { buildMapMask } from '../../src/engine/mapPersonalities.js';
 import { MAX_DICE, DEFAULT_AREA_MAX } from '../../src/engine/constants.js';
@@ -270,10 +274,20 @@ describe('generateMap personality maps', () => {
         expect(land).toBeLessThan(grid.cellCount);
       });
 
-      it('forms a single connected landmass', () => {
-        for (const seed of [1, 2, 3, 7, 19]) {
-          const { areas } = generateMap(config, createRng(seed));
-          expect(countAreaComponents(areas)).toBe(1);
+      it('forms a single connected landmass across sizes, player counts, and seeds', () => {
+        // generateMap now throws MapInfeasibleError on a disconnected board, but
+        // assert connectivity explicitly too: this is the regression net over the
+        // pressure cases (small board + many players prunes the most territories).
+        for (const dims of Object.values(SIZES)) {
+          for (const playerCount of [2, 5, 8]) {
+            for (let seed = 1; seed <= 25; seed++) {
+              const { areas } = generateMap(
+                { ...dims, dicePerArea: 3, playerCount, mapType: shape },
+                createRng(seed)
+              );
+              expect(countAreaComponents(areas)).toBe(1);
+            }
+          }
         }
       });
 
@@ -328,6 +342,54 @@ describe('generateMap personality maps', () => {
       });
     });
   }
+});
+
+describe('assertSingleConnectedLandmass (connectivity guard)', () => {
+  /*
+   * Real masks essentially never produce a disconnected board (43k+ generations,
+   * 0 splits), so the guard is a regression net for future geometry tweaks. Drive
+   * it directly with synthetic territory graphs to prove the flood-fill itself
+   * detects a split — index 0 is the unused area sentinel.
+   */
+  function makeAreas(adjacency) {
+    const ids = Object.keys(adjacency).map(Number);
+    const maxId = Math.max(0, ...ids);
+    const areas = [];
+    for (let i = 0; i <= maxId; i++) {
+      areas[i] = { id: i, size: 0, neighborAreaIds: [] };
+    }
+    for (const id of ids) {
+      areas[id].size = 1;
+      areas[id].neighborAreaIds = adjacency[id];
+    }
+    return areas;
+  }
+
+  it('passes a single connected component (chain)', () => {
+    const areas = makeAreas({ 1: [2], 2: [1, 3], 3: [2, 4], 4: [3] });
+    expect(() => assertSingleConnectedLandmass(areas, 'cross')).not.toThrow();
+  });
+
+  it('passes a connected loop (ring topology)', () => {
+    const areas = makeAreas({ 1: [2, 4], 2: [1, 3], 3: [2, 4], 4: [3, 1] });
+    expect(() => assertSingleConnectedLandmass(areas, 'ring')).not.toThrow();
+  });
+
+  it('throws MapInfeasibleError on two disjoint components', () => {
+    const areas = makeAreas({ 1: [2], 2: [1], 3: [4], 4: [3] });
+    expect(() => assertSingleConnectedLandmass(areas, 'ring')).toThrow(MapInfeasibleError);
+    expect(() => assertSingleConnectedLandmass(areas, 'ring')).toThrow(/disconnected/);
+  });
+
+  it('throws when a single territory is isolated from the rest', () => {
+    const areas = makeAreas({ 1: [2], 2: [1], 3: [] });
+    expect(() => assertSingleConnectedLandmass(areas, 'snowflake')).toThrow(MapInfeasibleError);
+  });
+
+  it('treats 0 or 1 valid territories as trivially connected (no throw)', () => {
+    expect(() => assertSingleConnectedLandmass(makeAreas({}), 'ring')).not.toThrow();
+    expect(() => assertSingleConnectedLandmass(makeAreas({ 1: [] }), 'ring')).not.toThrow();
+  });
 });
 
 describe('generateMap validation', () => {

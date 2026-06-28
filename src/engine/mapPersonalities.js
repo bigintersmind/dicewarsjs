@@ -92,13 +92,15 @@ function maskFromPredicate(width, height, isLand) {
 }
 
 /**
- * Snowflake: `playerCount` arms radiating from a central hub.
+ * Snowflake: `max(2, playerCount)` arms radiating from a central hub.
  *
  * A cell is land if its distance from centre is within an angle-modulated limit
- * that peaks along each arm axis and collapses to the hub radius between arms.
- * The always-land hub keeps the arms connected and forms the contested centre.
- * Arm count tracks player count (the design intent: N arms for N players), even
- * though ownership is not yet bound to arms.
+ * that peaks along each arm axis and shrinks toward the hub between arms — but
+ * not all the way to the hub: it collapses to the `valley` floor (a thin land
+ * bridge, see below) so the shape stays a single connected landmass. The
+ * always-land hub forms the contested centre. Arm count tracks player count (the
+ * design intent: N arms for N players, floored at 2), even though ownership is
+ * not yet bound to arms.
  */
 function snowflakeMask(width, height, playerCount) {
   const { cx, cy, radius } = boardGeometry(width, height);
@@ -169,14 +171,43 @@ function crossMask(width, height) {
  *
  * @type {Record<string, (width: number, height: number, playerCount: number) => Uint8Array>}
  */
-const MASK_BUILDERS = {
+const MASK_BUILDERS = Object.freeze({
   snowflake: snowflakeMask,
   ring: ringMask,
   cross: crossMask,
-};
+});
 
 /** The full set of valid map-type ids, including the maskless default. */
 export const MAP_TYPES = Object.freeze(['random', ...Object.keys(MASK_BUILDERS)]);
+
+/**
+ * Human-readable label for each map-type id. The classic maskless map is shown as
+ * "Classic"; shapes use their capitalized id. This is the single source of truth
+ * for the title-screen picker labels (see {@link MAP_TYPE_OPTIONS}); any id in
+ * MAP_TYPES without an entry here falls back to the raw id at build time, and a
+ * test asserts full coverage so a newly-registered shape can't ship unlabeled.
+ *
+ * @type {Record<string, string>}
+ */
+export const MAP_TYPE_LABELS = Object.freeze({
+  random: 'Classic',
+  snowflake: 'Snowflake',
+  ring: 'Ring',
+  cross: 'Cross',
+});
+
+/**
+ * Title-screen picker options, DERIVED from the engine registry so the UI can
+ * never offer a map type the engine doesn't know (and a newly-registered shape
+ * appears automatically). Keeping this in the engine — where the registry lives —
+ * is what makes the value list drift-proof; the labels are plain presentation
+ * strings, not engine logic.
+ *
+ * @type {ReadonlyArray<{ value: string, label: string }>}
+ */
+export const MAP_TYPE_OPTIONS = Object.freeze(
+  MAP_TYPES.map(value => Object.freeze({ value, label: MAP_TYPE_LABELS[value] ?? value }))
+);
 
 /**
  * @param {string} mapType

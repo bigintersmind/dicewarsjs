@@ -1,4 +1,10 @@
-import { buildMapMask, isKnownMapType, MAP_TYPES } from '../../src/engine/mapPersonalities.js';
+import {
+  buildMapMask,
+  isKnownMapType,
+  MAP_TYPES,
+  MAP_TYPE_LABELS,
+  MAP_TYPE_OPTIONS,
+} from '../../src/engine/mapPersonalities.js';
 import { createHexGrid } from '../../src/engine/HexGrid.js';
 import { HEX_DIRECTIONS } from '../../src/engine/constants.js';
 
@@ -44,6 +50,29 @@ describe('mapPersonalities', () => {
     it('MAP_TYPES lists random first, then the shapes', () => {
       expect(MAP_TYPES[0]).toBe('random');
       for (const shape of SHAPES) expect(MAP_TYPES).toContain(shape);
+    });
+  });
+
+  describe('MAP_TYPE_OPTIONS / MAP_TYPE_LABELS (drift guard)', () => {
+    it('has a label for every registered map type (no unlabeled shape can ship)', () => {
+      for (const type of MAP_TYPES) {
+        expect(typeof MAP_TYPE_LABELS[type]).toBe('string');
+        expect(MAP_TYPE_LABELS[type].length).toBeGreaterThan(0);
+      }
+    });
+
+    it('derives options 1:1 from the registry, in MAP_TYPES order', () => {
+      // This is the guard that keeps the title-screen picker from drifting from
+      // the engine: the values are exactly MAP_TYPES, so the UI can never offer a
+      // type the engine does not know (nor silently omit a newly-added one).
+      expect(MAP_TYPE_OPTIONS.map(o => o.value)).toEqual([...MAP_TYPES]);
+      for (const opt of MAP_TYPE_OPTIONS) {
+        expect(opt.label).toBe(MAP_TYPE_LABELS[opt.value]);
+      }
+    });
+
+    it('keeps Classic (random) first so it stays the default selection', () => {
+      expect(MAP_TYPE_OPTIONS[0]).toEqual({ value: 'random', label: 'Classic' });
     });
   });
 

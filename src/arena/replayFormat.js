@@ -17,7 +17,7 @@ export const REPLAY_VERSION = 1;
 /**
  * @typedef {Object} Replay
  * @property {number}         version  - Format version (REPLAY_VERSION)
- * @property {Object}         config   - Game config { seed, playerCount, mapWidth, mapHeight, maxAreas, dicePerArea }
+ * @property {Object}         config   - Game config { seed, playerCount, mapWidth, mapHeight, maxAreas, dicePerArea, mapType }
  * @property {CompactAction[]} actions  - Ordered list of game actions
  * @property {ReplayMetadata}  metadata - Summary metadata
  */

@@ -8,7 +8,7 @@
  */
 
 import { createRng } from './rng.js';
-import { generateMap } from './MapGenerator.js';
+import { generateMap, MapInfeasibleError } from './MapGenerator.js';
 import { isMaskedMapType } from './mapPersonalities.js';
 import { createTurnOrder } from './TurnManager.js';
 import { createInitialState, applyAction } from './StateManager.js';
@@ -77,12 +77,12 @@ export function createGame(config = {}) {
   /*
    * Bounded generation retry for shaped maps. A mask removes board area, so for
    * the tightest combo (smallest preset, most players, thinnest shape) a rare
-   * seed yields fewer than `playerCount` territories after pruning and generateMap
-   * throws RangeError. Rather than inflate the shapes into blobs, advance the seed
-   * a few times — the result stays deterministic for a given requested seed (so
-   * replays reproduce exactly) and the user effectively never sees a failure. The
-   * classic path runs exactly once (maxAttempts 1), preserving existing behaviour
-   * byte-for-byte.
+   * seed yields a board that's infeasible *for that seed* — too few territories
+   * after pruning, or a landmass split in two by pruning. Rather than inflate the
+   * shapes into blobs, advance the seed a few times: the result stays
+   * deterministic for a given requested seed (so replays reproduce exactly) and
+   * the user effectively never sees a failure. The classic path runs exactly once
+   * (maxAttempts 1), preserving existing behaviour byte-for-byte.
    */
   const maxAttempts = masked ? 8 : 1;
   let lastError;
@@ -94,14 +94,29 @@ export function createGame(config = {}) {
       const turnOrder = createTurnOrder(fullConfig.playerCount, rng);
       return createInitialState(fullConfig, mapData, turnOrder, rng.state());
     } catch (err) {
-      // Only a too-few-territories RangeError is worth retrying; a genuinely
-      // invalid config (bad dimensions/player count) fails identically every
-      // attempt, so rethrow it immediately rather than spinning.
-      if (!masked || !(err instanceof RangeError)) throw err;
+      /*
+       * Retry only a seed-dependent infeasibility (MapInfeasibleError: too few
+       * territories / disconnected landmass), and only for shaped maps. A
+       * genuinely invalid config — bad dimensions/playerCount/maxAreas, or a mask
+       * that carves no land — throws a plain RangeError that fails identically on
+       * every seed, so rethrow it immediately rather than spinning all attempts.
+       */
+      if (!masked || !(err instanceof MapInfeasibleError)) throw err;
       lastError = err;
     }
   }
-  throw lastError;
+  /*
+   * All attempts exhausted. lastError is always the MapInfeasibleError from the
+   * final attempt here (the loop only falls through after the catch sets it), but
+   * the ?? keeps this from ever degrading into a silent `throw undefined` should
+   * the loop bounds or the retry guard change later.
+   */
+  throw (
+    lastError ??
+    new Error(
+      `createGame: map generation failed for mapType "${mapType}" after ${maxAttempts} attempts`
+    )
+  );
 }
 
 /**

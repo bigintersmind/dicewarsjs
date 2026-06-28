@@ -538,20 +538,31 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
   VecNormalize wording below); two-half idempotent resume (Python SB3 half + Node league half),
   bounded-skew not bit-exact; `SubprocVecEnv(forkserver)` + `VecMonitor` in the parent; consumer
   ENOENT-tolerance then producer-single-writer GC; `--from-scratch` control. **Foundation PR-1→PR-3
-  landed locally** (branch `ml-bot/task-ce-foundation`): Node crash-safety + GC-race floor +
-  `episodeCount` resume-cursor (PR-1); `EnvServerProcess` B6-flag forwarding (PR-2); SnapshotCallback
-  rehydration + single-writer producer GC, consumer `unlinkSync` removed (PR-3). `tests/ml/` 196 +
-  torch-free Python tiers green; eslint + ruff clean.
-- [ ] **(C)** Scale envs across cores; add the short **from-scratch control** run ([D-19] decision 1).
-      _Lands in PR-4/PR-5 (`train.py`: `SubprocVecEnv(forkserver)` + `--from-scratch`); see [D-26]._
+  MERGED (PR #70, `97de4e4`):** Node crash-safety + GC-race floor + `episodeCount` resume-cursor (PR-1);
+  `EnvServerProcess` B6-flag forwarding (PR-2); SnapshotCallback rehydration + single-writer producer
+  GC, consumer `unlinkSync` removed (PR-3). **PR-4 landed locally** (branch `ml-bot/task-ce-pr4-train`):
+  new torch-free `_train_common.py` (shared env-thunk/parser/validation + `resolve_from_scratch`) reused
+  by a byte-identical `train_tracer.py`; new `train.py` = `VecMonitor(SubprocVecEnv(forkserver))` +
+  TensorBoard/CSV logging + `--from-scratch`; `tensorboard` added to `[rl]`. Adversarially reviewed
+  (6-dimension workflow, SHIP-AFTER-FIXES → all 6 minor findings folded, incl. the load-bearing
+  thunk-capture fix that makes the torch-free-worker invariant genuinely true — cloudpickle-proven).
+  ruff clean; lean torch-free tier + gated torch/sb3 tier green.
+- [~] **(C)** Scale envs across cores; add the short **from-scratch control** run ([D-19] decision 1).
+  **PR-4 landed locally** (branch `ml-bot/task-ce-pr4-train`): `train.py` swaps `DummyVecEnv` →
+  `VecMonitor(SubprocVecEnv(start_method=forkserver))` (env fork before `MaskablePPO`/CUDA init)
+  and adds the `--from-scratch` flag (mutex with `--freeze-trunk`, relaxed LR/ent-coef, provenance
+  stamped). _Still open: the actual cross-core scaling validation + the short from-scratch control
+  RUN itself — both need shodan + [rl]; the wiring is in place. See [D-26]._
 - [ ] **(D)** Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
       `F = γΦ(s′)−Φ(s)`, env-side in JS) only if terminal-only learning is too slow.
 - [ ] **(E) shodan training-ops (prerequisite for the long BEAT run):** schtasks-wrapped WSL launch
       (the only disconnect-surviving pattern); idempotent checkpoint/resume of policy + optimizer +
       RNG + step + league pool/book (**NOT VecNormalize** — dropped per [D-26]); TensorBoard + a flat
       CSV that survives sessions; swap `DummyVecEnv` → `SubprocVecEnv` for real cross-core parallelism.
-      _Remaining slices: PR-4 (`train.py` + TB/CSV), PR-5 (checkpoint/resume core), PR-6 (committed
-      shodan launcher + schtasks runbook), PR-7 (deferred test-hardening). See [D-26]._
+      _Slices: **PR-4 `train.py` + TB/CSV + SubprocVecEnv + `--from-scratch` — landed locally** (branch
+      `ml-bot/task-ce-pr4-train`; the cross-session CSV append is explicitly PR-5's resume seam, not
+      PR-4's), PR-5 (checkpoint/resume core), PR-6 (committed shodan launcher + schtasks runbook),
+      PR-7 (deferred test-hardening). See [D-26]._
 
 **Acceptance criteria.**
 

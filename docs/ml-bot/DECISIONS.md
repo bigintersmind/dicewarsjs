@@ -1513,21 +1513,42 @@ resumed snapshot producer republished ids ahead of the resumed step → rehydrat
 `step <= num_timesteps`; **HOLE-D** `reset_num_timesteps=False` makes a fixed `--timesteps` additive (a
 crash-loop trains unbounded) → `remaining = max(timesteps − num_timesteps, 0)` (task-E).
 
-**Build sequence (PR slices).** PR-1 Node crash-safety + GC-race floor + resume hardening (DONE) · PR-2
-`EnvServerProcess` B6-flag forwarding (DONE) · PR-3 SnapshotCallback rehydration + single-writer producer
-GC, consumer `unlinkSync` removed (DONE) · PR-4 `_train_common.py` + `train.py` (SubprocVecEnv + VecMonitor
+**Build sequence (PR slices).** PR-1 Node crash-safety + GC-race floor + resume hardening (DONE, #70) ·
+PR-2 `EnvServerProcess` B6-flag forwarding (DONE, #70) · PR-3 SnapshotCallback rehydration + single-writer
+producer GC, consumer `unlinkSync` removed (DONE, #70) · PR-4 `_train_common.py` + `train.py`
+(SubprocVecEnv + VecMonitor
 
-- TB/CSV + `--from-scratch`) · PR-5 idempotent checkpoint/resume core · PR-6 committed shodan launcher +
-  schtasks runbook · PR-7 deferred test-hardening (env-server `main()` persistence integration test; live
-  cross-worker `SharedDiskStore`).
+- TB/CSV + `--from-scratch`) (DONE locally) · PR-5 idempotent checkpoint/resume core · PR-6 committed
+  shodan launcher + schtasks runbook · PR-7 deferred test-hardening (env-server `main()` persistence
+  integration test; live cross-worker `SharedDiskStore`).
 
-**Status: IN PROGRESS — foundation PR-1→PR-3 landed locally (branch `ml-bot/task-ce-foundation`).** PR-1:
+**Status: IN PROGRESS — foundation PR-1→PR-3 MERGED (#70); PR-4 DONE locally (branch `ml-bot/task-ce-pr4-train`). Next: PR-5 resume core.** PR-1:
 `episodeCount` resume-cursor, `dumpLeagueState` state-then-flush order, `refresh()` ENOENT-tolerance +
 id-dedup + `refreshSkips` health counter (stderr DONE mirror), schema v1→v2. PR-2: `snapshot_store` /
 `league_state_dir` / `league_dump_every` forwarded by `EnvServerProcess` on their own gate (manifest-
 independent), byte-identical when unset. PR-3: NEW torch-free `snapshot_manifest.py` (`rehydrate_snapshots`
 
 - `gc_partition`); `SnapshotCallback` rehydrates on resume + GCs as the single disk writer; the consumer
-  no longer unlinks. Local verification: `tests/ml/` 196 green, the torch-free Python tiers green
-  (`test_snapshot_manifest.py` 12, `test_env_server_argv.py` 6), eslint + ruff clean. The torch-gated
-  callback tests + the live SubprocVecEnv/shodan paths are verified on shodan (PR-4+).
+  no longer unlinks. Verification: `tests/ml/` 196 green, the torch-free Python tiers green
+  (`test_snapshot_manifest.py` 12, `test_env_server_argv.py` 6), eslint + ruff clean. **Foundation
+  PR-1→PR-3 MERGED as PR #70 (`97de4e4`).**
+
+**PR-4 (DONE locally, branch `ml-bot/task-ce-pr4-train`).** New torch-free `_train_common.py` holds the
+shared env-thunk (`_make_env_thunk`), CLI surface (`build_parser(description)`), validation
+(`_validate_args`), and `resolve_from_scratch` (the `--from-scratch`↔`--freeze-trunk` mutex + per-mode
+LR/ent-coef relaxation via a `None` sentinel); `train_tracer.py` re-imports them and is byte-identical
+(`build_model` gained `venv=None` + a from-scratch warm-start gate that is always-off for the tracer).
+New `train.py` = `VecMonitor(SubprocVecEnv(start_method=forkserver))` built BEFORE `MaskablePPO` (Q4) +
+`set_logger(configure(--log-dir, [stdout,csv,tensorboard]))` before `learn` + `--no-tensorboard`
+
+- provenance (`from_scratch`/`warm_started_from`) in the repack. `tensorboard>=2.12` added to `[rl]`;
+  HOLE-D left as an explicit `TODO(PR-5)` (fresh runs only, `reset_num_timesteps=True`); B6 persistence
+  flags + CSV cross-session append + the live forkserver smoke deferred (PR-5/PR-7). Reviewed by a
+  6-dimension adversarial workflow → **SHIP-AFTER-FIXES, 0 blockers**; all 6 minor findings folded —
+  chief among them the env-thunk had captured the torch-ful `ModelConfig` (a forkserver/spawn worker
+  would import torch on unpickle, defeating Q4's whole point), fixed by hoisting `max_areas`/
+  `player_count` to locals so the closure captures only primitives + the stdlib Namespace
+  (cloudpickle-proven: no `dicewars_bc`/`ModelConfig`/`torch` in the serialized env-fn). ruff clean;
+  lean torch-free tier (`test_train_common_args.py`, incl. a closure-capture guard) + gated torch/sb3
+  tier (`test_train_args.py` build_model/logging/wrap-order, `test_train_tracer_args.py` re-export
+  wiring) green. The torch-gated tests + the live SubprocVecEnv/shodan paths run on shodan.

@@ -21,6 +21,70 @@ Entry template:
 
 ---
 
+## 2026-06-27 — Task C/E PR-4 — `train.py` + torch-free `_train_common.py` (SubprocVecEnv + TB/CSV + `--from-scratch`)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Built PR-4** ([D-26] build sequence; branch `ml-bot/task-ce-pr4-train` off master @ PR #70 `97de4e4`).
+  Grounded it with a **6-reader understand+readiness workflow** (synthesis confirmed the PR-1→3
+  foundation is consistent, HOLE-A/B/C implemented + HOLE-D correctly deferred, B6 flags opt-in/
+  byte-identical when unset), then implemented:
+  - NEW torch-free `ml/dicewars_ppo/_train_common.py`: shared `DEFAULT_OPPONENTS`, `_make_env_thunk`,
+    `build_parser(description)`, `_validate_args`, and `resolve_from_scratch` (the `--from-scratch`↔
+    `--freeze-trunk` mutex + per-mode LR/ent-coef relaxation via a `None` sentinel). `ModelConfig` kept
+    `TYPE_CHECKING`-only under `from __future__ import annotations` so the module is torch/sb3-free.
+  - `train_tracer.py` re-imports them and is **byte-identical** (`build_model` gained `venv=None` +
+    a from-scratch warm-start gate that is always-off for the tracer, which has no such flag).
+  - NEW `ml/dicewars_ppo/train.py`: the real driver — `VecMonitor(SubprocVecEnv(start_method=forkserver))`
+    constructed BEFORE `MaskablePPO` ([D-26] Q4: CUDA inits at model construction, after the env fork);
+    `set_logger(configure(--log-dir, [stdout,csv(,tensorboard)]))` before `learn`; `--no-tensorboard`;
+    provenance (`from_scratch`/`warm_started_from`) in the repack; `--start-method` (forkserver/spawn/fork).
+  - `tensorboard>=2.12` → `[rl]` (not `[dev]`; lean CI unaffected). HOLE-D left as an explicit
+    `TODO(PR-5)` (fresh runs only, `reset_num_timesteps=True`).
+- **Adversarially reviewed** with a 6-dimension verify-each-finding workflow → **SHIP-AFTER-FIXES, 0
+  blockers**. Folded all 6 minor findings.
+
+**Learned / decided:**
+
+- **The load-bearing torch-free fix.** The env-thunk closure originally captured `cfg` (the torch-ful
+  `ModelConfig`), so a `SubprocVecEnv(forkserver/spawn)` worker would import torch on cloudpickle-unpickle
+  — silently defeating the whole point of the extraction ([D-26] Q4) even though the module _imported_
+  torch-free. Fix: hoist `max_areas`/`player_count` to locals before the closure so it captures only
+  primitives + the stdlib Namespace. **Cloudpickle-proven** with a real `ModelConfig`: no
+  `dicewars_bc`/`ModelConfig`/`torch` bytes in the serialized env-fn. Added a lean-tier closure-capture
+  guard (`'cfg' not in co_freevars` + a primitive-only allowlist) so this can't regress.
+- **HP defaults for `train.py` (decision, reversible):** warm-start keeps the protective tracer defaults
+  (lr 1e-4 / ent 0.0); `--from-scratch` relaxes to lr 1e-3 / ent 0.01. The task-A BEAT config
+  (`--lr 2.5e-4 --ent-coef 0.01`) is NOT baked as a default — production HPs belong to the PR-6 launcher,
+  not a stale magic number in the driver.
+- **`tensorboard` is a HARD import for SB3's TB sink** (it RAISES, not no-ops, when absent). `train.py`
+  degrades to CSV-only + a loud WARNING if it's missing, so a long run never dies on a partial env.
+
+**Dead ends / surprises:**
+
+- One understand-workflow reader audited the wrong file (the BC `dicewars_bc/train.py`, not the PPO
+  tracer); the synthesis caught and discarded its file-specific claims. The review's own suggested
+  closure-test (`SimpleNamespace` + type-module check) would have **false-passed** — the verifier flagged
+  it, so the committed guard uses a primitive allowlist + a `co_freevars` check instead.
+- Local box is Python 3.9 (project targets 3.10+); validated via two throwaway venvs (lean: gymnasium-only,
+  no torch; gated: system-torch + sb3-contrib 2.7.1). The 6 `export_onnx` failures are a pre-existing 3.9
+  `zip(strict=)` incompat in an untouched file, not PR-4.
+
+**Verification:** ruff clean; 29 lean torch-free tests + 114 gated/ppo tests green; both CLIs compose;
+tracer parser surface confirmed unchanged; cloudpickle torch-free proof.
+
+**Next:**
+
+- PR-5: idempotent checkpoint/resume core (policy + optimizer + `num_timesteps` + RNG + league pool/book;
+  `reset_num_timesteps=False` + `remaining=max(timesteps−num_timesteps,0)` for HOLE-D; CSV cross-session
+  append; wire the B6 `--snapshot-store`/`--league-state-dir`/`--league-dump-every` flags into `train.py`).
+- PR-6: committed shodan launcher + schtasks runbook (owns the production HPs). PR-7: live SubprocVecEnv
+  (forkserver) smoke + env-server `main()` persistence integration test.
+
+---
+
 ## 2026-06-27 — Task C/E foundation — PR #70 review-hardening (4-agent review)
 
 **Phase:** 3 · **Who:** Ivan + Claude

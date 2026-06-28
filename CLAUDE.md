@@ -117,6 +117,8 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
   - ai_adaptive: Adapts strategy based on game conditions
   - ai_strategist: Expected-value strategy using exact dice odds and connectivity economics (strongest in arena benchmarks; authored by Claude Opus 4.8)
   - ai_lookahead: Standalone shallow-expectimax search over win/loss branches with board-value evaluation (authored by GPT-5.5)
+  - ai_expectimax: Chance-node expectimax over the exact battle distribution — the "search-first" ML-bot baseline (docs/ml-bot/), at parity with ai_lookahead
+  - ai_bc: Behavioral-cloning net that imitates ai_lookahead, running in-browser via a pure-JS forward pass (bcForward.js) over exported weights (bcPolicyWeights.js); ml-bot Phase 2
 
 - **Bot Arena** (src/arena/): Headless bot-vs-bot tournament system — ELO ratings (elo.js), match/tournament runners, custom-bot compilation & validation, replay format. Powers `npm run arena`, the in-game Arena screen, and the CLI bot tooling. See docs/BOT_GUIDE.md for authoring a bot (a function: state → { from, to } | null).
 
@@ -133,6 +135,15 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 - **Map Generation** (src/engine/MapGenerator.js): Creates the hexagonal grid and territories.
 
 - **Battle Resolution** (src/engine/BattleResolver.js): Handles attack resolution and dice distribution.
+
+### ML / Self-Play Bot Pipeline (`ml/`, `docs/ml-bot/`)
+
+An active, multi-session effort to produce an ML/self-play bot stronger than `ai_lookahead`. **Read `docs/ml-bot/README.md` first** (then PLAN/DECISIONS/LOG/RESULTS) — that folder is the source of truth for status and decisions, not this file.
+
+- **`ml/`**: in-repo Python/PyTorch trainers — `dicewars_bc` (behavioral cloning, Phase 2) and `dicewars_ppo` (PPO league, Phase 3). Has its own `pyproject.toml`, `requirements.txt`, and `ml/tests/` (pytest). Training runs on the GPU box `shodan`; a CPU box is fine for the dev loop.
+- **Encoding contract** (lives in-repo so JS and trainer stay versioned together): `src/arena/encodeObservation.js` + `ENCODING_VERSION` + the corpus `manifest.json`. The JS encoder and the Python trainer that consumes it **must change in the same commit**.
+- **Exported weights** loaded by in-browser bots: `src/ai/bcPolicyWeights.js` (BC) and `src/ai/ppoPolicyWeights.js` (PPO). Distinct files — don't confuse them.
+- **Pipeline scripts**: `npm run selfplay` (JSONL corpus) → `npm run encode-corpus` (packed tensors) → train in `ml/` → `npm run ppo:export` (ckpt → weights). PPO RL loop driven by `npm run ppo:env-server` (+ `ppo:env-smoke`, `ppo:throughput-probe`, `ppo:league-probe`, `ppo:gate`).
 
 ### Important Design Patterns
 
@@ -180,6 +191,7 @@ The full suite forks many workers; running several copies at once can exhaust RA
 - **Husky pre-commit hook**: Runs `lint-staged` automatically — `eslint --fix` + `prettier --write` on staged `.js`/`.jsx`/`.mjs` files, and `prettier --write` on staged `.json`/`.md`/`.yml`/`.yaml` files. Note it formats Markdown too, but it has occasionally failed to fully normalize a `.md` file (e.g. a multi-line inline-code span), so if CI's `format:check` (`prettier --check .`) flags a doc, run `npx prettier --write <file>` yourself.
 - **Vitest globals**: Tests use `globals: true` in vitest config, so `describe`, `it`, `expect`, `vi`, `beforeEach`, `afterEach` are available without imports. Use `import { vi } from 'vitest'` only if needed for explicit typing.
 - **Test environment is `node` by default**: To keep memory down, the suite runs under the lightweight Node environment, not jsdom. A test that touches `document`, `window`, `localStorage`, canvas, or renders a Preact component must declare `// @vitest-environment jsdom` as the first line of the file, or it will fail with `X is not defined`.
+- **JS↔Python encoding contract**: `src/arena/encodeObservation.js` feeds the `ml/` trainers. Any change to feature columns/order must bump `ENCODING_VERSION` and land alongside the matching trainer change in one commit, or the trained net silently mismatches the live observation.
 
 ## Common Pitfalls to Avoid
 

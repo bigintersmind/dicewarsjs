@@ -127,6 +127,22 @@ export function profileGameFromCapture(result, playerIndex, capture) {
   const { attacksMade, attacksWon } = stat;
   const at = capture.activeTurns;
 
+  // The three board-shape arrays are pushed together once per the bot's own turn, so each must
+  // have exactly `activeTurns` entries. Assert it: a drift would index past the end (e.g.
+  // dice[i] === undefined ⇒ NaN), and NaN slips past every `!= null` guard downstream and reads
+  // as a TIE/SAME verdict rather than erroring. Fail loud here instead, per the file's contract.
+  if (
+    capture.territory.length !== at ||
+    capture.dice.length !== at ||
+    capture.largestGroup.length !== at
+  ) {
+    throw new Error(
+      `profileGameFromCapture: misaligned capture arrays for seat ${playerIndex} ` +
+        `(activeTurns=${at}, territory=${capture.territory.length}, ` +
+        `dice=${capture.dice.length}, largestGroup=${capture.largestGroup.length})`
+    );
+  }
+
   const dicePerTerritory = capture.territory.map((t, i) => (t > 0 ? capture.dice[i] / t : 0));
 
   return {
@@ -274,12 +290,24 @@ export function compareToControl(personaRuns, controlRuns) {
  * @param {Record<string, ReturnType<typeof compareAxis>>} vsControl
  * @param {Record<string, number>} mde - per-axis minimum |Δ| that counts as meaningful
  * @returns {boolean}
+ * @throws if a signature axis has no registered MDE (see below)
  */
 export function signaturePass(signature, vsControl, mde) {
   const checks = signature.axes.map(({ axis, direction }) => {
     const cmp = vsControl[axis];
     if (!cmp) return false;
-    const meetsMde = Math.abs(cmp.delta) >= (mde[axis] ?? 0);
+    // Fail loud on a missing MDE rather than defaulting to 0: an `?? 0` fallback would make
+    // |Δ| ≥ 0 always true, silently collapsing the gate back to a bare significance test — the
+    // exact "trivially-significant pass" this function exists to prevent. A pre-registered
+    // signature axis without a pre-registered MDE is a config error, not a 0-threshold.
+    const axisMde = mde[axis];
+    if (axisMde == null) {
+      throw new Error(
+        `signaturePass: no MDE registered for axis "${axis}" — every pre-registered signature ` +
+          `axis must have an MDE (else the |Δ| ≥ MDE guard is silently disabled).`
+      );
+    }
+    const meetsMde = Math.abs(cmp.delta) >= axisMde;
     const sigInDir = direction === 'HIGHER' ? cmp.lo > 0 : cmp.hi < 0;
     return meetsMde && sigInDir;
   });

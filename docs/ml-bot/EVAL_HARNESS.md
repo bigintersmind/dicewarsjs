@@ -6,9 +6,11 @@
 > _"is it DIFFERENT, and how?"_ by profiling any bot across a seed sweep on a set of behavioral axes
 > and doing a **paired comparison against a control**.
 >
-> **Grounded:** every file:line below was verified by a parallel code-map + two adversarial reviews
-> (feasibility skeptic + completeness critic) this session. Their corrections are folded in — this is
-> the post-review spec, not the first draft.
+> **Grounded:** the file:line citations below were verified against the source by a parallel
+> code-map + two adversarial reviews (feasibility skeptic + completeness critic). Line numbers are a
+> point-in-time anchor and **drift as files change** — the **symbol name** in each citation is the
+> durable reference; if a line looks off, grep the symbol. (The `matchRunner.js` numbers here were
+> re-synced after this PR's own `onTurn` JSDoc expansion shifted them.)
 >
 > **Scope honesty (the load-bearing caveat):** the five persona bots
 > (Conqueror/Blitz/Expansionist/Predator/Survivor) **do not exist in the repo yet** — `BUILT_IN_BOTS`
@@ -17,9 +19,10 @@
 > - **Phase 1 — ✅ BUILT (2026-06-28):** the harness + its tests, validated on _existing built-ins_.
 >   Shipped: the §6 engine signal (`onTurn(…, actingPlayerId)` in `matchRunner.js`),
 >   `scripts/lib/behavior-core.mjs` (pure logic, 17 unit tests), `scripts/behavior-profile.mjs`
->   (`npm run behavior:profile`), `tests/behaviorCore.test.js`. Acceptance check passes: `Strategist` vs
->   `Defensive` separate on aggression (Δ≈0.85, CI excludes 0) at a 3×6 pilot budget. Adversarially
->   reviewed (kill-attribution timing, seat mapping, null-alignment) — clean.
+>   (`npm run behavior:profile`), `tests/behaviorCore.test.js`. Acceptance check (a **manual pilot**,
+>   not an automated assertion — the exact Δ depends on field & budget): `Strategist` vs `Defensive`
+>   separate on aggression / zero-attack-turn fraction with a CI excluding 0 at a small pilot budget.
+>   Adversarially reviewed (kill-attribution timing, seat mapping, null-alignment) — clean.
 > - **Phase 2 (after the personas are trained):** point it at the persona weight files and produce the
 >   signature table. The persona rows in §8 are **aspirational** until those bots exist; the
 >   `PERSONA_SIGNATURES` / `DEFAULT_MDE` stubs in `behavior-core.mjs` already encode the pre-registered
@@ -29,26 +32,27 @@
 
 ## 1. Key finding
 
-**No engine or `matchRunner` changes are required** — but the draft's "no instrumentation required" was
-an overclaim and is corrected here. The harness must wire up two **opt-in, zero-cost-when-omitted**
-callbacks and accumulate the signals itself:
+The harness needs **one small, backward-compatible `matchRunner` signal** — the §6 `onTurn` actor arg,
+**shipped in this PR** — and beyond that only wires up two **opt-in, zero-cost-when-omitted** callbacks
+that it accumulates itself. (The draft's "no instrumentation required" was an overclaim; corrected here.)
 
-- `onTurn(turnNumber, state)` — defined `src/arena/matchRunner.js:213`, fired after every player-turn
-  at `:325`. Source of the territory/dice/board-shape curves.
-- `onStep(step)` — defined `:214`, fired per attack at `:145-159` and at turn-end (STOP) at `:175-190`.
+- `onTurn(turnNumber, state, actingPlayerId)` — defined `src/arena/matchRunner.js:213`, fired after
+  every player-turn at `:330`. Source of the territory/dice/board-shape curves; the third arg
+  (`actingPlayerId`, §6) attributes the turn.
+- `onStep(step)` — defined `:219`, fired per attack at `:145-159` and at turn-end (STOP) at `:175-190`.
   Source of per-turn attack/pass counts.
 
-Both are genuinely free when unset: the per-step hot path only builds steps when a handler exists
-(`stepHandler` is `undefined` unless `recorder || onStep`, `:261-267`; the attack-path `buildStep` is
-gated `if (onStep)` at `:145` and reuses the already-computed observation), and `onTurn` is guarded at
-`:325`. `runArena` does **not** forward `onTurn` (`src/arena/arenaRunner.js:102-109`), so the harness
-drives `runMatch` directly.
+Both callbacks are genuinely free when unset: the per-step hot path only builds steps when a handler
+exists (`stepHandler` is `undefined` unless `recorder || onStep`, `:266-272`; the attack-path
+`buildStep` is gated `if (onStep)` at `:145` and reuses the already-computed observation), and `onTurn`
+is guarded at `:330`. `runArena` does **not** forward `onTurn` (`src/arena/arenaRunner.js:102-109`), so
+the harness drives `runMatch` directly.
 
-**One recommended optional engine change** (§6): extend `onTurn` to
-`onTurn(turnNumber, state, actingPlayerId)`, passing the `currentPlayerId` already computed at
-`matchRunner.js:276`. It is backward-compatible (absent/old callers ignore the extra arg) and resolves
-**three** problems at once — the aggression bias (§2a), kill-attribution without a second replay pass
-(§2c), and clean active-turn counting. Both reviews recommend taking it; this spec adopts it.
+**The §6 engine change (shipped):** `onTurn` now passes `actingPlayerId` — the `currentPlayerId`
+already computed at `matchRunner.js:281`. It is backward-compatible (absent/old 2-arg callers ignore
+the extra arg) and resolves **three** problems at once — the aggression bias (§2a), kill-attribution
+without a second replay pass (§2c), and clean active-turn counting. Both reviews recommended it; it is
+now in the engine (see §6).
 
 ---
 
@@ -64,12 +68,12 @@ _derive-from-replay_ (re-simulate).
 
 | #   | Axis                  | Definition (per game)                                                     | Source            | Key file:line                                                              |
 | --- | --------------------- | ------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------- |
-| a   | **Aggression**        | attacks per _active turn_ = `attacksMade / activeTurns(pi)`               | harness-capture   | `attacksMade` `matchRunner.js:342`; `activeTurns` from `onTurn` actor (§6) |
-| b   | **Territory curve**   | `state.players[pi].territoryCount` sampled each `onTurn`, indexed by turn | harness-capture   | `onTurn` `:325`; `recalcPlayerStats` `StateManager.js:108-116`             |
+| a   | **Aggression**        | attacks per _active turn_ = `attacksMade / activeTurns(pi)`               | harness-capture   | `attacksMade` `matchRunner.js:347`; `activeTurns` from `onTurn` actor (§6) |
+| b   | **Territory curve**   | `state.players[pi].territoryCount` sampled each `onTurn`, indexed by turn | harness-capture   | `onTurn` `:330`; `recalcPlayerStats` `StateManager.js:108-116`             |
 | c   | **Kills / game**      | opponents whose _last_ territory `pi` captured                            | harness-capture\* | elim flip `StateManager.js:122-128`; actor via `onTurn` (§6)               |
-| d   | **Turns-to-win**      | `turnCount` over games `pi` won (unit = **player-turns**, not rounds)     | yes-from-existing | `winner` `:350`, `turnCount` `:352`                                        |
-| e   | **Placement dist.**   | histogram of 1-based `placement`; + `avgPlacement`, `top1/top3`           | yes-from-existing | `placement` `:341`, `calculatePlacements` `:370-390`                       |
-| f   | **Win% vs reference** | FFA win-rate with the reference bot (default `Lookahead`) in the field    | yes-from-existing | `winner` `:350`; CI via `meanCi`; paired via `pairedDelta`                 |
+| d   | **Turns-to-win**      | `turnCount` over games `pi` won (unit = **player-turns**, not rounds)     | yes-from-existing | `winner` `:355`, `turnCount` `:357`                                        |
+| e   | **Placement dist.**   | histogram of 1-based `placement`; + `avgPlacement`, `top1/top3`           | yes-from-existing | `placement` `:346`, `calculatePlacements` `:375-395`                       |
+| f   | **Win% vs reference** | FFA win-rate with the reference bot (default `Lookahead`) in the field    | yes-from-existing | `winner` `:355`; CI via `meanCi`; paired via `pairedDelta`                 |
 
 \* `c` becomes a pure `onTurn` computation with the §6 actor arg; without it, it is _derive-from-replay_
 (a full second simulation per game via `trajectoryFromReplay` `trajectoryExport.js:246`).
@@ -80,13 +84,14 @@ _derive-from-replay_ (re-simulate).
   `phase !== GAME_OVER`; a _winning_ turn returns early at `matchRunner.js:99` and emits **no STOP**.
   So counting active turns as "# STOP steps" undercounts by exactly 1 on every game the bot wins, while
   the winning attacks _are_ counted — inflating aggression **in proportion to win rate**, which differs
-  across personas and would contaminate the comparison. **Fix:** count active turns from `onTurn`
-  firings attributed to `pi` (§6), which include the victory turn; or, if not adopting §6,
-  `activeTurns = stopCount + (result.winner === pi ? 1 : 0)`. Documented in the metric, not silent.
+  across personas and would contaminate the comparison. **Fix (shipped):** count active turns from
+  `onTurn` firings attributed to `pi` (§6 actor arg), which include the victory turn. (The pre-§6
+  alternative, had the engine been left untouched, was `activeTurns = stopCount + (result.winner === pi ? 1 : 0)`
+  — no longer needed.) Documented in the metric, not silent.
 - **(b) k=0 gap.** `onTurn` first fires _after_ turn 1, so there is no initial-board sample. Seed index
   0 from the `createGame` initial state (`GameRunner.js:37-68`) before the loop, or document the curve
   starts at k=1. The JSON example's `t0` is the seeded initial state, not an `onTurn` sample.
-- **(d) unit.** `turnCount` increments once per _player-turn_ (`matchRunner.js:324`), **not** per full
+- **(d) unit.** `turnCount` increments once per _player-turn_ (`matchRunner.js:329`), **not** per full
   round (`state.turnNumber`). A valid, consistent cross-bot axis — but label the unit so "turns" is not
   misread as rounds.
 
@@ -98,9 +103,9 @@ diagnostics:
 
 | #   | Axis                        | Why it discriminates                                                 | Source            | Key file:line                                                   |
 | --- | --------------------------- | -------------------------------------------------------------------- | ----------------- | --------------------------------------------------------------- |
-| g   | **Avg dice reserve**        | the turtle's signature — sits on a big pile                          | harness-capture   | `diceCount` `StateManager.js:112-117`; `finalDice` `:340`       |
+| g   | **Avg dice reserve**        | the turtle's signature — sits on a big pile                          | harness-capture   | `diceCount` `StateManager.js:112-117`; `finalDice` `:345`       |
 | h   | **Dice per territory**      | turtle (dense, high) vs expansionist (thin, low)                     | harness-capture   | same as (g) ÷ (b)                                               |
-| i   | **Capture efficiency**      | `attacksWon/attacksMade` — cautious (high) vs reckless (low)         | yes-from-existing | `attacksWon` `:343`                                             |
+| i   | **Capture efficiency**      | `attacksWon/attacksMade` — cautious (high) vs reckless (low)         | yes-from-existing | `attacksWon` `:348`                                             |
 | j   | **Zero-attack-turn frac.**  | clearest pass-turn / turtle signal                                   | harness-capture   | `onStep` STOP with 0 attacks since last STOP (`:175-190`)       |
 | k   | **Border exposure**         | turtle clusters to shrink frontier vs aggressor                      | harness-capture   | `isBorder` `botState.js:50`, or recompute from `onTurn` state   |
 | l   | **Largest connected group** | "connectivity economics" the Expansionist reward targets             | yes-from-existing | `connectedTerritories` `botState.js:74` / player `largestGroup` |
@@ -114,6 +119,13 @@ territory aspect) `signaturePass` actually computable.
 
 **Dropped as redundant:** `attacksPerGame` as a separate paired axis — it is ≈ aggression × mean active
 turns and adds nothing over the turn-normalized axis. Derive on demand if ever needed.
+
+> **Shipped in Phase 1 (vs this design list):** `behavior-core.mjs`'s `AXES` implements g
+> (`avgDiceReserve`), h (`dicePerTerritory`), i (`captureEfficiency`), j (`zeroAttackTurnFrac`), l
+> (`largestGroup`), m (`survivalTurn`), plus the core a/d/e/f and `avgTerritory` (the scalar reduction
+> of (b) that stands in for the territory AUC (n)). **Not yet implemented:** the full territory _curve_,
+> a separate `territoryAuc`, and **(k) border exposure** — these are Phase-2 / future axes, not part of
+> the shipped profiler.
 
 ---
 
@@ -193,17 +205,21 @@ and assert no internal RNG — enforce in the persona loader, not just the smoke
 Dropping games where the profiled bot hit `maxMovesHit` removes its _most aggressive_ turns (100 attacks
 in one turn) → biases aggression **down**; and an opponent's forced-end distorts the game but isn't
 caught if you only check the profiled seat. **Policy:** quarantine on **any** seat's forced-end counters
-(`errors|invalidMoves|maxMovesHit > 0`, D-14, `matchRunner.js:344-346`), **report the quarantine rate
-per persona**, and emit profiles **both with and without** quarantine so a systematic shift is visible,
-not silent.
+(`errors|invalidMoves|maxMovesHit > 0`, D-14, `matchRunner.js:349-351`), **report the quarantine rate
+per persona** (shipped: `config.quarantine.ratePerBot` + a per-bot terminal warning when a bot's sample
+is reduced or fully gutted). **Phase 2 / TODO:** emit profiles **both with and without** quarantine in
+one run so a systematic shift is visible; today use the `--no-quarantine` flag for the unfiltered pass.
 
 ### 3.8 Training-field match (fixed-field-exploitation guard)
 
 Per the task-A caveat, a persona trained at a given `playerCount`/`maxAreas`/`dicePerArea` can look
 artificially strong or distinct if profiled at a _different_ field size. **Record those three with each
 persona's weights and have the harness ASSERT the profiling field equals the training field — hard error
-on mismatch**, not an open question. (Also fix the draft's 7-vs-8 inconsistency: the example field is 5
-opponents + 1 reference + 1 profiled = 7 seats = `DEFAULT_PLAYER_COUNT`; the "N=8" note was wrong.)
+on mismatch**, not an open question. (Field-size model, as shipped: the **reference is one of the
+`--opponents`**, not a separate seat — `fieldSize = opponents.length + 1` (the +1 is the profiled seat).
+So a 7-seat field = `DEFAULT_PLAYER_COUNT` means **6 opponents (the reference among them) + 1 profiled**.
+The shipped _default_ `--opponents` list has 5 entries → a 6-seat field; pass 6 opponents to profile at
+the full 7.)
 
 ---
 
@@ -219,70 +235,79 @@ Two files, mirroring the `ppo-gate.mjs` (CLI) / `ppo-gate-core.mjs` (pure, unit-
 
 Lives under `scripts/` (offline analysis CLI like `arena-sweep.mjs`), not `src/`.
 
-### Public API (`behavior-core.mjs`)
+### Public API (`behavior-core.mjs`) — as shipped
 
 ```
+// Build the per-game accumulator + the onTurn/onStep handlers to wire into runMatch.
+makeCapture(playerIndex) -> { capture, onTurn, onStep }
+
 // Per-game extraction. `capture` carries the onTurn/onStep-accumulated arrays for THIS game.
-profileGameFromCapture(matchResult, playerIndex, capture) -> GameProfile
-//   GameProfile: { aggression, territoryCurve[], territoryAuc, kills, won, turnsToWin|null,
-//                  placement, avgDiceReserve, dicePerTerritory, captureEfficiency,
-//                  zeroAttackTurnFrac, borderExposure, largestGroup, survivalTurn }
+profileGameFromCapture(result, playerIndex, capture) -> GameProfile   // throws on a misaligned capture
+//   GameProfile: { won, placement, turnsToWin|null, attacksMade, aggression|null,
+//                  captureEfficiency|null, avgDiceReserve|null, avgTerritory|null,
+//                  dicePerTerritory|null, largestGroup|null, kills, survivalTurn,
+//                  zeroAttackTurnFrac|null }   // null = no qualifying turn/attack this game (≠ 0)
 
-aggregateRuns(perRunValues[]) -> { mean, ci }          // thin wrapper over meanCi
-aggregateCurves(perRunCurves[][]) -> { turns[], mean[], ci[] }   // aligned, padded (§2 b)
+reduceRun(profiles[]) -> Record<axis, number|null>      // one scalar per AXES key per run
+summarizeAxis(perRunValues[]) -> { mean, ci, n } | null // mean ± 95% CI; n = RUN count (§3.1)
+alignDropNull(a[], b[]) -> { a[], b[], n }              // drop indices null on either side (§3.4)
+compareAxis(personaRuns[], controlRuns[]) -> { delta, ci, lo, hi, verdict, n } | null  // paired Δ
+compareToControl(personaRuns[], controlRuns[]) -> Record<axis, compareAxis-result | null>
+signaturePass(signature, vsControl, mde) -> boolean     // §3.2 MDE AND CI-excludes-0; THROWS w/o MDE
 
-compareToControl(personaRuns, controlRuns, signature) -> {
-  perAxis: { <axis>: { delta, ci, lo, hi, verdict } },  // verdict = classifyGate (HIGHER/SAME/LOWER)
-  signaturePass: boolean                                // §3.2 MDE AND CI-excludes-0, §3.3 Holm-adjusted
-}
-separationMatrix(allPersonaRuns) -> { /* persona×persona pairedDelta, §3.5 melee mode */ }
-
-PERSONA_SIGNATURES  // persona -> { axis | axes[], direction, rule:'AND'|'single', mde }
+AXES                // the canonical axis-key list (single source of truth)
+PERSONA_SIGNATURES  // persona -> { axes: [{ axis, direction }], rule: 'AND'|'single' }   (Phase-2 stub)
+DEFAULT_MDE         // partial Record<axis, number>; a signature axis MUST have an entry (else throws)
 ```
 
-`profileGameFromCapture` derives (d/e/i) from `matchResult` directly and (a/b/c/g–n) from `capture`. The
-terminal-stat math (`wins`, `avgPlacement`, `attackWinRate`) should be a **shared helper extracted from
-`arenaRunner.js:130-168`**, not re-implemented (the one duplication the review flagged).
+> **Not yet built (Phase 2 / future):** `aggregateCurves` (territory _curve_ alignment/padding),
+> `separationMatrix` (§3.5 persona×persona melee), Holm adjustment across the 5 confirmatory tests, and
+> the `--melee`/`--csv` CLI modes. The shipped `summarizeAxis` is the `aggregateRuns` thin-`meanCi`
+> wrapper the draft named. The terminal-stat math (`avgPlacement`, win%, capture-efficiency) is computed
+> in `behavior-core.mjs` directly; extracting a shared helper from `arenaRunner.js:130-168` remains a
+> **TODO** (the one duplication the review flagged).
 
 ### CLI
 
 ```
 node scripts/behavior-profile.mjs \
   --bots PPO,Blitz,Expansionist,Predator,Survivor \   # profiled seats (Phase 2)
-  --reference Lookahead \                              # win%-vs-ref; present in every field
-  --opponents Default,Defensive,Strategist,Adaptive,Expectimax \  # fixed FFA filler (identical for all)
+  --opponents Default,Defensive,Strategist,Adaptive,Expectimax,Lookahead \  # fixed FFA filler; MUST include the reference
+  --reference Lookahead \                              # win%-vs-ref; one of --opponents (fills a seat in every field)
   --control Conqueror \                               # auto-injected into the profiled set if absent
   --runs 20 --games 150 \                             # CALIBRATE via §3.2 pilot, don't hard-code
-  --melee \                                           # optional §3.5 persona×persona mode
-  --no-quarantine \                                   # emit unfiltered too (§3.7)
+  --no-quarantine \                                   # run a second, unfiltered pass (§3.7)
   --json                                              # JSON->stdout, human table->stderr
+  # --melee (§3.5 persona×persona) is NOT yet implemented — Phase 2.
 ```
+
+Above is a 7-seat field (6 opponents incl. the reference + 1 profiled seat). The reference **must** be
+one of `--opponents` or the CLI exits with an error.
 
 The **control is always profiled** with identical run/game/rotation config (auto-injected if not in
 `--bots`); assert `controlRuns.length === personaRuns.length` before `pairedDelta`.
 
 ### Sweep execution (per profiled bot, fixed field)
 
-1. Field = `rotatedField([...opponents, reference, bot], r)` (`ppo-gate-core.mjs:127-132`); reuse
-   `buildGateField`'s present/collision guardrails (`:103-112`) for the reference-in-field +
-   name-collision checks rather than re-deriving them.
+1. Field = `rotatedField([bot, ...opponents], r)` (`ppo-gate-core.mjs:127-132`) — the profiled bot is
+   field[0] and rotation `r` seats it at `r`; the reference is one of `--opponents`. The CLI's own
+   validation enforces the reference-in-field + name-collision invariants up front (the `buildGateField`
+   guardrails at `:103-112` are the equivalent for `ppo:gate`).
 2. `STRIDE = Math.max(1_000_000, games*1000)` (`arena-sweep.mjs:45`); run `r` uses seeds
    `r*STRIDE+1 … +games`, each replayed through all N seat rotations (the `ppo-gate.mjs` seat-fair
    architecture).
-3. `runMatch({ bots, seed, recordTrajectory:false, onTurn, onStep })` with a fresh per-game `capture`:
+3. `runMatch({ bots, seed, onTurn, onStep })` with a fresh per-game capture from `makeCapture(pi)`:
    ```
-   const cap = { terr: [], dice: [], attacks: 0, stops: 0, zeroTurns: 0, sinceStop: 0, killTurns: [], elimAt: {} };
-   onTurn: (t, s, actor) => {                    // actor via §6
-     cap.terr.push(s.players[pi].territoryCount);
-     cap.dice.push(s.players[pi].diceCount);      // copy scalars NOW — never retain s (it mutates)
-     if (actor === pi) cap.activeTurns = (cap.activeTurns ?? 0) + 1;
-     /* diff eliminated set vs last turn; if actor===pi credit a kill */
-   };
-   onStep: (step) => { if (step.playerId !== pi) return;
-     if (isStopMove(step.chosenMove)) { if (cap.sinceStop === 0) cap.zeroTurns++; cap.sinceStop = 0; }
-     else cap.sinceStop++; };
+   const { capture, onTurn, onStep } = makeCapture(pi);  // see behavior-core.mjs for the real impl
+   // onTurn(t, s, actor): on the profiled bot's own turns push s.players[pi]'s scalars
+   //   (territoryCount/diceCount/largestGroup) and bump activeTurns; diff the eliminated set and, if
+   //   actor === pi, credit a kill. Copy scalars per turn — don't retain `s` across turns (each turn
+   //   is a fresh cloned state, so retaining N of them just pins memory; the engine never mutates a
+   //   prior turn's state in place).
+   // onStep(step): for the profiled seat, count a zero-attack (pass) turn when a STOP arrives with no
+   //   intervening attack.
    ```
-4. `profileGameFromCapture(result, pi, cap)`; quarantine per §3.7.
+4. `profileGameFromCapture(result, pi, capture)`; quarantine per §3.7.
 5. Reduce the block to per-run scalars; push to `perRun[bot][axis]`.
 
 ---
@@ -291,10 +316,10 @@ The **control is always profiled** with identical run/game/rotation config (auto
 
 | Function                                 | File:line                                             | Use                                        |
 | ---------------------------------------- | ----------------------------------------------------- | ------------------------------------------ |
-| `runMatch` + `onTurn`/`onStep`           | `matchRunner.js:224-361` (cb `:213/:214`)             | run each game, stream board + step signals |
-| `botStats`                               | `matchRunner.js:336-347`                              | (a num),(d),(e),(g),(i), quarantine        |
-| `MatchResult` winner/turnCount           | `matchRunner.js:350/:352`                             | (d),(f)                                    |
-| `calculatePlacements`                    | `matchRunner.js:370-390`                              | placement ranks (already applied)          |
+| `runMatch` + `onTurn`/`onStep`           | `matchRunner.js:229-366` (cb `:213/:219`)             | run each game, stream board + step signals |
+| `botStats`                               | `matchRunner.js:341-352`                              | (a num),(d),(e),(g),(i), quarantine        |
+| `MatchResult` winner/turnCount           | `matchRunner.js:355/:357`                             | (d),(f)                                    |
+| `calculatePlacements`                    | `matchRunner.js:375-395`                              | placement ranks (already applied)          |
 | `recalcPlayerStats`                      | `StateManager.js:108-117`                             | territoryCount (b), diceCount (g)          |
 | `applyAction`                            | `StateManager.js:161-173`                             | replay re-sim (kills fallback)             |
 | `trajectoryFromReplay` / `replayToState` | `trajectoryExport.js:246` / `replayFormat.js:198-208` | kill-attribution fallback (no §6)          |
@@ -310,15 +335,16 @@ The **control is always profiled** with identical run/game/rotation config (auto
 
 ---
 
-## 6. The one recommended engine change (backward-compatible)
+## 6. The engine change (backward-compatible) — SHIPPED in this PR
 
-Extend `onTurn`'s firing at `matchRunner.js:325` to pass the acting player:
+`onTurn`'s firing at `matchRunner.js:330` now passes the acting player:
 
 ```
-onTurn?.(turnCount, state, currentPlayerId);   // currentPlayerId already computed at :276
+if (onTurn) onTurn(turnCount, state, currentPlayerId);   // currentPlayerId already computed at :281
 ```
 
-Old/absent callers ignore the third arg; `runArena` passes no `onTurn`, so nothing else changes. This:
+Old/absent 2-arg callers ignore the third arg; `runArena` passes no `onTurn`, and the only other
+`runMatch` `onTurn` consumer (`scripts/lib/ppo-env.mjs`) is 2-arg — so nothing else changes. This:
 
 1. **Fixes the aggression bias (§2a)** — active turns counted from `onTurn` firings where
    `actor === pi`, which include the victory turn.
@@ -327,13 +353,18 @@ Old/absent callers ignore the third arg; `runArena` passes no `onTurn`, so nothi
    runs×games×N×rotations scale.
 3. Makes both O(1) and live.
 
-Both reviews recommend taking it; keep replay-based kills as a cross-check in a test.
+Both reviews recommended it; it is now in the engine. (A replay-based kill cross-check remains a
+worthwhile future test.)
 
 ---
 
 ## 7. Output format
 
-`--json` → stdout (machine), human table → stderr (`_tune.mjs:130-142`). Shape (abbreviated):
+`--json` → stdout (machine), human table → stderr. Shape below is the **full Phase-2 target**
+(abbreviated); the **shipped Phase-1 JSON** carries only the `AXES` metrics + per-axis `vsControl`
+(each `{ delta, ci, lo, hi, verdict, n }`), `config.quarantine.ratePerBot`, and a per-bot `liveRuns`
+count — it does **not** yet emit `territoryCurve`, `territoryAuc`, `borderExposure`, `placementHist`, or
+the `separationMatrix`/`signature` blocks. (`winPctVsRef` ships as the `winPct` axis.)
 
 ```jsonc
 {
@@ -479,8 +510,7 @@ Most review findings are settled above. These are the genuine judgment calls:
 2. **MDE values (§3.2):** the per-axis "behaviorally meaningful" thresholds are a product call, not a
    code one. Placeholders are in §3.2; we calibrate against a pilot once a persona exists — but the
    _direction_ (e.g. "1 extra attack/turn is meaningful, 0.1 isn't") is yours.
-3. **§6 engine one-liner:** adopt it (recommended — fixes the bias + kills in one backward-compatible
-   line), or keep the engine untouched and pay the replay pass + the explicit `+1` aggression
-   correction?
+3. **~~§6 engine one-liner~~ — RESOLVED:** adopted and shipped in this PR (`onTurn` now passes
+   `actingPlayerId`); the bias + kill attribution are handled live, no replay pass needed.
 4. **Budget:** runs vs games split is driven by the pilot's between-run SD (§3.1). No fixed number until
    then — flagging so 20×150 isn't mistaken for a decision.

@@ -62,6 +62,18 @@ if (!Number.isFinite(gamesPerRun) || gamesPerRun < 1) {
   console.error('Invalid --games: need a positive integer.');
   process.exit(1);
 }
+if (botNames.length === 0) {
+  console.error('Invalid --bots: need at least one bot to profile.');
+  process.exit(1);
+}
+// A duplicate opponent would make every game throw "Bot names must be unique" deep in the sweep;
+// catch the typo here with a message that points at the actual cause.
+if (new Set(opponentNames).size !== opponentNames.length) {
+  console.error(
+    `--opponents has duplicate names: [${opponentNames.join(', ')}]. Each seat must be distinct.`
+  );
+  process.exit(1);
+}
 
 // --- Resolve bots from the registry ---
 
@@ -118,16 +130,24 @@ log(`  quarantine forced-end games: ${quarantine ? 'on' : 'off'}\n`);
 // --- Sweep: profile each bot in the one profiled seat of an identical field ---
 
 const NULL_RUN = Object.fromEntries(AXES.map(a => [a, null]));
-let quarantined = 0;
-let played = 0;
 
 // Quarantine policy (§3.7): drop a game if ANY seat shows a forced-end signal.
 const isForcedEnd = s => s.errors > 0 || s.invalidMoves > 0 || s.maxMovesHit > 0;
 
-/** Run the full seed×rotation sweep for one profiled bot; returns reduceRun() per run. */
+// A NULL_RUN has winPct === null (no game contributed); a live run always has a numeric winPct
+// (0 if it never won). So this counts the runs that actually carry behavioral data.
+const liveRunCount = perRun => perRun.filter(r => r.winPct != null).length;
+
+/**
+ * Run the full seed×rotation sweep for one profiled bot. Returns the per-run reduceRun() plus
+ * per-bot played/quarantined tallies so the report can surface how much sample each bot kept
+ * (a fully-quarantined bot must NOT look like a measured "no difference" — see the output below).
+ */
 function sweepBot(bot) {
   const baseField = [bot, ...opponents]; // profiled bot at index 0
   const perRun = [];
+  let played = 0;
+  let quarantined = 0;
   for (let run = 0; run < runCount; run++) {
     const baseSeed = run * STRIDE + 1;
     const profiles = [];
@@ -138,7 +158,17 @@ function sweepBot(bot) {
         const field = rotatedField(baseField, rot);
         const pi = rot;
         const { capture, onTurn, onStep } = makeCapture(pi);
-        const result = runMatch({ bots: field, seed, onTurn, onStep });
+        let result;
+        try {
+          result = runMatch({ bots: field, seed, onTurn, onStep });
+        } catch (err) {
+          // Surface which game blew up rather than dying with a context-free stack far from its
+          // cause (this is inside runCount×games×rotations×bots iterations).
+          throw new Error(
+            `runMatch threw (bot=${bot.name} seed=${seed} rot=${rot}): ${err.message}`,
+            { cause: err }
+          );
+        }
         played += 1;
         if (quarantine && result.botStats.some(isForcedEnd)) {
           quarantined += 1;
@@ -151,15 +181,18 @@ function sweepBot(bot) {
     process.stderr.write(`\r  ${bot.name}: run ${run + 1}/${runCount}`); // in-place progress
   }
   log('');
-  return perRun;
+  return { perRun, played, quarantined };
 }
 
 const start = Date.now();
-const runsByBot = new Map(profiled.map(bot => [bot.name, sweepBot(bot)]));
+const sweepByBot = new Map(profiled.map(bot => [bot.name, sweepBot(bot)]));
+const runsByBot = new Map([...sweepByBot].map(([name, s]) => [name, s.perRun]));
+const totalPlayed = [...sweepByBot.values()].reduce((a, s) => a + s.played, 0);
+const totalQuarantined = [...sweepByBot.values()].reduce((a, s) => a + s.quarantined, 0);
 const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 log(
-  `\nDone in ${elapsed}s — ${played} matches, ${quarantined} quarantined ` +
-    `(${((quarantined / played) * 100).toFixed(2)}%)\n`
+  `\nDone in ${elapsed}s — ${totalPlayed} matches, ${totalQuarantined} quarantined ` +
+    `(${totalPlayed ? ((totalQuarantined / totalPlayed) * 100).toFixed(2) : '0.00'}%)\n`
 );
 
 // --- Aggregate + compare ---
@@ -175,7 +208,14 @@ const report = {
     control: controlName,
     opponents: opponentNames,
     fieldSize,
-    quarantine: { on: quarantine, rate: played ? quarantined / played : 0 },
+    quarantine: {
+      on: quarantine,
+      rate: totalPlayed ? totalQuarantined / totalPlayed : 0,
+      // Per-bot rate (§3.7): a flaky opponent can gut one bot's sample without moving the pool rate.
+      ratePerBot: Object.fromEntries(
+        [...sweepByBot].map(([name, s]) => [name, s.played ? s.quarantined / s.played : 0])
+      ),
+    },
   },
   bots: profiled.map(bot => {
     const perRun = runsByBot.get(bot.name);
@@ -183,7 +223,7 @@ const report = {
       AXES.map(axis => [axis, summarizeAxis(perRun.map(r => r[axis]))])
     );
     const vsControl = bot.name === controlName ? null : compareToControl(perRun, controlRuns);
-    return { name: bot.name, metrics, vsControl };
+    return { name: bot.name, metrics, vsControl, liveRuns: liveRunCount(perRun) };
   }),
 };
 
@@ -191,9 +231,34 @@ const report = {
 
 if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 
+// A bare value (no ±) means only ONE run contributed to that axis (winners-only sparsity); mark it
+// `nN` so it isn't mistaken for a tight CI.
 const fmt = m =>
-  m == null ? '—' : m.ci == null ? m.mean.toFixed(2) : `${m.mean.toFixed(2)}±${m.ci.toFixed(2)}`;
+  m == null
+    ? '—'
+    : m.ci == null
+      ? `${m.mean.toFixed(2)} n${m.n}`
+      : `${m.mean.toFixed(2)}±${m.ci.toFixed(2)}`;
 const headline = ['winPct', 'aggression', 'avgDiceReserve', 'kills', 'turnsToWin', 'avgPlacement'];
+
+// Flag any bot whose sample was reduced by quarantine, so a low-n result isn't read as robust.
+for (const b of report.bots) {
+  const rate = report.config.quarantine.ratePerBot[b.name] ?? 0;
+  if (b.liveRuns === 0) {
+    log(
+      `  WARNING: ${b.name} — all ${runCount} runs fully quarantined ` +
+        `(${(rate * 100).toFixed(1)}% of games); no behavioral data.`
+    );
+  } else if (b.liveRuns < runCount) {
+    log(
+      `  NOTE: ${b.name} — only ${b.liveRuns}/${runCount} runs carry data ` +
+        `(quarantine ${(rate * 100).toFixed(1)}%).`
+    );
+  } else if (rate > 0.1) {
+    log(`  NOTE: ${b.name} — quarantine rate ${(rate * 100).toFixed(1)}% (sample reduced).`);
+  }
+}
+log('');
 
 log(['Bot'.padEnd(14), ...headline.map(h => h.padStart(16))].join(''));
 log('-'.repeat(14 + headline.length * 16));
@@ -203,8 +268,25 @@ for (const b of report.bots) {
 log('');
 for (const b of report.bots) {
   if (!b.vsControl) continue;
-  const moved = AXES.filter(a => b.vsControl[a] && b.vsControl[a].verdict !== 'SAME').map(
-    a => `${a} ${b.vsControl[a].verdict} (Δ${b.vsControl[a].delta.toFixed(2)})`
+  // Distinguish "measured, no difference" from "no data to compare" — both used to print the same
+  // "no axis differs" line, hiding a failed measurement as a real null result.
+  const comparable = AXES.filter(a => b.vsControl[a]);
+  if (comparable.length === 0) {
+    log(
+      `${b.name} vs ${controlName}: NO COMPARABLE DATA (insufficient paired runs after quarantine)`
+    );
+    continue;
+  }
+  const moved = comparable
+    .filter(a => b.vsControl[a].verdict !== 'SAME')
+    .map(a => {
+      const c = b.vsControl[a];
+      const nNote = c.n < runCount ? ` n${c.n}` : ''; // paired n below full run count
+      return `${a} ${c.verdict} (Δ${c.delta.toFixed(2)}${nNote})`;
+    });
+  const minN = Math.min(...comparable.map(a => b.vsControl[a].n));
+  const dataNote = minN < runCount ? ` [min paired n=${minN}/${runCount}]` : '';
+  log(
+    `${b.name} vs ${controlName}: ${moved.length ? moved.join(', ') : 'no axis differs'}${dataNote}`
   );
-  log(`${b.name} vs ${controlName}: ${moved.length ? moved.join(', ') : 'no axis differs'}`);
 }

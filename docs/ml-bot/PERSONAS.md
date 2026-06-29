@@ -168,9 +168,11 @@ There are two ways to say "win fast":
 So Ivan's multiplicative framing is exactly the _safe_ formulation. **Recommended Blitz config:**
 lower `gamma` first (0.99, maybe 0.97); if that isn't punchy enough, add a small **bounded**
 terminal speed-bonus `reward = won × (1 + b·clip(1 − turns/T_ref, 0, 1))` with `b` modest (e.g.
-0.5) so it never dominates the win/loss ordering. **Secondary knob:** `ent_coef` (default 0.01) —
-more entropy = more exploration = less likely to settle into the safe turtle; bump it for Blitz,
-but it's a training-dynamics knob, not a reward, so tune it second.
+0.5) so it never dominates the win/loss ordering. **Secondary knob:** `ent_coef` — the applicable
+default for the **warm-started** personas is **0.0** (`_train_common.py:153`; `0.01` is only the
+_from-scratch_ fallback at `:340`). More entropy = more exploration = less likely to settle into the
+safe turtle; bump it (e.g. toward `0.01`) for Blitz, but it's a training-dynamics knob, not a reward,
+so tune it second.
 
 **The tradeoff to measure, not assume.** The turtle is (as Ivan said) probably win%-optimal. Tempo
 pressure **trades win% for speed/aggression** — a Blitz might win 38% fast vs Conqueror 45% slow.
@@ -219,8 +221,9 @@ artifact that makes the roster credible. **The full grounded spec is now
 zero-attack-turn fraction, border exposure), the statistical rigor (MDE/power so "distinct" can't fire
 on a trivial difference; one pre-registered signature per persona with Holm), and the build plan
 (Phase 1 = harness + tests on existing built-ins; Phase 2 = profile the personas once trained). It
-reuses the existing `meanCi`/`pairedDelta`/`rotatedField` machinery and needs **no engine changes**
-(one optional backward-compatible `onTurn` arg recommended).
+reuses the existing `meanCi`/`pairedDelta`/`rotatedField` machinery and needs only **one small,
+backward-compatible engine signal** — the `onTurn` actor arg — which **shipped with the Phase-1
+harness** (see EVAL_HARNESS §6).
 
 **On "plays better / more fun against humans" — be honest about what's trainable.** Self-play
 optimizes against _bots_; humans blunder differently, and we have **no human game logs at scale**

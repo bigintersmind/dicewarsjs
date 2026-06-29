@@ -15,7 +15,11 @@ import {
   summarizeAxis,
   alignDropNull,
   compareAxis,
+  compareToControl,
   signaturePass,
+  AXES,
+  PERSONA_SIGNATURES,
+  DEFAULT_MDE,
 } from '../scripts/lib/behavior-core.mjs';
 import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
@@ -32,6 +36,9 @@ const player = (
 
 /** A synthetic post-turn state: 3 players with given (territory/dice/largest/eliminated). */
 const stateOf = specs => ({ players: specs.map((s, i) => player(i, s)) });
+
+/** A full per-run reduced record (every AXES key finite); override specific axes per test. */
+const reduceShape = (over = {}) => ({ ...Object.fromEntries(AXES.map(a => [a, 1])), ...over });
 
 describe('makeCapture — onTurn/onStep accumulation', () => {
   it('counts the victory turn as an active turn (the aggression-bias fix)', () => {
@@ -105,6 +112,34 @@ describe('makeCapture — onTurn/onStep accumulation', () => {
     onTurn(1, stateOf([{}, {}, {}]), 1);
     expect(capture.activeTurns).toBe(0);
     expect(capture.territory).toEqual([]);
+  });
+
+  it('credits multiple eliminations in one turn, and never double-counts (the _seenEliminated dedup)', () => {
+    const { capture, onTurn } = makeCapture(0);
+
+    // Bot 0's turn eliminates BOTH opponents 1 and 2 in a single sweep (a late-game finish).
+    onTurn(
+      1,
+      stateOf([
+        { territoryCount: 9, diceCount: 15, largestGroup: 8, eliminated: false },
+        { territoryCount: 0, diceCount: 0, largestGroup: 0, eliminated: true },
+        { territoryCount: 0, diceCount: 0, largestGroup: 0, eliminated: true },
+      ]),
+      0
+    );
+    expect(capture.kills).toBe(2); // both kills credited to the acting bot
+
+    // A later turn that re-presents the same eliminated players must NOT re-credit them.
+    onTurn(
+      2,
+      stateOf([
+        { territoryCount: 9, diceCount: 15, largestGroup: 8, eliminated: false },
+        { territoryCount: 0, diceCount: 0, largestGroup: 0, eliminated: true },
+        { territoryCount: 0, diceCount: 0, largestGroup: 0, eliminated: true },
+      ]),
+      0
+    );
+    expect(capture.kills).toBe(2); // unchanged — dedup holds
   });
 });
 
@@ -192,6 +227,63 @@ describe('profileGameFromCapture', () => {
     expect(p.aggression).toBe(0); // 0 attacks over 1 active turn
     expect(p.zeroAttackTurnFrac).toBe(1);
     expect(p.survivalTurn).toBe(2);
+  });
+
+  it('a bot that never acted (0 active turns) degrades every rate axis to null, not garbage', () => {
+    const capture = {
+      playerIndex: 0,
+      activeTurns: 0,
+      territory: [],
+      dice: [],
+      largestGroup: [],
+      kills: 0,
+      eliminatedAtTurn: 1,
+      zeroAttackTurns: 0,
+    };
+    const result = baseResult({
+      winner: 1,
+      turnCount: 4,
+      botStats: [
+        {
+          playerIndex: 0,
+          placement: 3,
+          attacksMade: 0,
+          attacksWon: 0,
+          errors: 0,
+          invalidMoves: 0,
+          maxMovesHit: 0,
+        },
+      ],
+    });
+    const p = profileGameFromCapture(result, 0, capture);
+    expect(p.aggression).toBeNull();
+    expect(p.zeroAttackTurnFrac).toBeNull();
+    expect(p.avgTerritory).toBeNull();
+    expect(p.avgDiceReserve).toBeNull();
+    expect(p.survivalTurn).toBe(1); // death turn still valid
+    expect(p.placement).toBe(3);
+  });
+
+  it('throws on a missing botStats entry, a seat mismatch, and misaligned capture arrays (fail loud)', () => {
+    const aligned = {
+      playerIndex: 0,
+      activeTurns: 1,
+      territory: [5],
+      dice: [10],
+      largestGroup: [4],
+      kills: 0,
+      eliminatedAtTurn: null,
+      zeroAttackTurns: 0,
+    };
+    // No botStats for seat 5.
+    expect(() => profileGameFromCapture(baseResult(), 5, aligned)).toThrow(
+      /no botStats for seat 5/
+    );
+    // Capture built for a different seat than requested.
+    expect(() => profileGameFromCapture(baseResult(), 1, aligned)).toThrow(/capture seat 0 != 1/);
+    // territory/dice/largestGroup lengths disagree with activeTurns ⇒ would index past end → NaN.
+    const misaligned = { ...aligned, dice: [10, 99] }; // length 2 vs activeTurns 1
+    expect(() => profileGameFromCapture(baseResult(), 0, misaligned)).toThrow(/misaligned capture/);
   });
 });
 
@@ -294,6 +386,27 @@ describe('signaturePass — MDE gate prevents trivial-but-significant passes', (
     };
     expect(signaturePass(blitz, both, { aggression: 1, turnsToWin: 1 })).toBe(false);
   });
+
+  it('throws when a signature axis has no registered MDE (never silently disables the guard)', () => {
+    // An empty MDE map would have let `?? 0` make |Δ| ≥ 0 always true — the bug this guards.
+    expect(() => signaturePass(sig, vsControl, {})).toThrow(
+      /no MDE registered for axis "aggression"/
+    );
+  });
+
+  it('fails closed when a required axis has no comparison (compareAxis returned null)', () => {
+    // e.g. a rarely-winning persona yields mostly-null turnsToWin runs → compareAxis null.
+    const blitz = {
+      axes: [
+        { axis: 'aggression', direction: 'HIGHER' },
+        { axis: 'turnsToWin', direction: 'LOWER' },
+      ],
+      rule: 'AND',
+    };
+    const partial = { aggression: vsControl.aggression, turnsToWin: null };
+    expect(() => signaturePass(blitz, partial, { aggression: 1, turnsToWin: 5 })).not.toThrow();
+    expect(signaturePass(blitz, partial, { aggression: 1, turnsToWin: 5 })).toBe(false);
+  });
 });
 
 describe('§6 engine signal — runMatch passes actingPlayerId to onTurn', () => {
@@ -314,7 +427,25 @@ describe('§6 engine signal — runMatch passes actingPlayerId to onTurn', () =>
     }
   });
 
-  it('drives a real game through makeCapture/profileGameFromCapture without throwing', () => {
+  it('actor firings round-robin across seats and match each seat-0 active turn', () => {
+    // Cross-check the §6 actor against the engine: capture.activeTurns for seat 0 must equal the
+    // number of onTurn firings where actor === 0. A wrong-actor regression (e.g. passing
+    // currentPlayerIndex instead of currentPlayerId, or any off-by-one) breaks this — a bare
+    // in-range check would not. Also assert every seat acts at least once (round-robin sanity).
+    const { capture, onTurn, onStep } = makeCapture(0);
+    const seenActors = new Set();
+    let seat0Firings = 0;
+    const wrapped = (t, s, actor) => {
+      seenActors.add(actor);
+      if (actor === 0) seat0Firings += 1;
+      onTurn(t, s, actor);
+    };
+    runMatch({ bots: field, seed: 11, onTurn: wrapped, onStep });
+    expect(seat0Firings).toBe(capture.activeTurns);
+    for (let seat = 0; seat < field.length; seat++) expect(seenActors.has(seat)).toBe(true);
+  });
+
+  it('drives a real game and produces populated, finite capture metrics (not a no-op)', () => {
     const { capture, onTurn, onStep } = makeCapture(0);
     const result = runMatch({ bots: field, seed: 7, onTurn, onStep });
     const p = profileGameFromCapture(result, 0, capture);
@@ -322,9 +453,84 @@ describe('§6 engine signal — runMatch passes actingPlayerId to onTurn', () =>
     expect(p.placement).toBeLessThanOrEqual(field.length);
     expect(typeof p.kills).toBe('number');
     expect(p.survivalTurn).toBeGreaterThan(0);
+    // The capture must actually populate from the real engine — guards against a wrong-actor
+    // regression that would leave activeTurns at 0 and every board axis null while still "passing".
+    expect(capture.activeTurns).toBeGreaterThan(0);
+    expect(Number.isFinite(p.aggression)).toBe(true);
+    expect(Number.isFinite(p.avgTerritory)).toBe(true);
+    expect(Number.isFinite(p.avgDiceReserve)).toBe(true);
     // summarizeAxis tolerates a single run (ci null, n 1).
     const s = summarizeAxis([reduceRun([p]).avgPlacement]);
     expect(s.n).toBe(1);
     expect(s.ci).toBeNull();
+  });
+});
+
+describe('summarizeAxis', () => {
+  it('summarizes ≥2 finite runs to mean ± CI with the run count', () => {
+    const s = summarizeAxis([4, 6, 5]);
+    expect(s.mean).toBe(5);
+    expect(s.n).toBe(3);
+    expect(s.ci).toBeGreaterThan(0);
+  });
+
+  it('ignores null runs in the count, and returns null when nothing is finite', () => {
+    expect(summarizeAxis([3, null, 5]).n).toBe(2);
+    expect(summarizeAxis([null, null])).toBeNull();
+    expect(summarizeAxis([])).toBeNull();
+  });
+});
+
+describe('compareToControl', () => {
+  // Three runs each; persona is clearly higher on aggression, identical-ish elsewhere, and has a
+  // winners-only axis (turnsToWin) that is all-null for the persona → that axis must compare null.
+  const personaRuns = [
+    { ...reduceShape(), aggression: 5, turnsToWin: null },
+    { ...reduceShape(), aggression: 6, turnsToWin: null },
+    { ...reduceShape(), aggression: 7, turnsToWin: null },
+  ];
+  const controlRuns = [
+    { ...reduceShape(), aggression: 2, turnsToWin: 30 },
+    { ...reduceShape(), aggression: 3, turnsToWin: 31 },
+    { ...reduceShape(), aggression: 2, turnsToWin: 30 },
+  ];
+
+  it('keys every output by AXES, reports HIGHER on the moved axis, and null on an all-null axis', () => {
+    const out = compareToControl(personaRuns, controlRuns);
+    expect(Object.keys(out).sort()).toEqual([...AXES].sort());
+    expect(out.aggression.verdict).toBe('HIGHER');
+    expect(out.aggression.lo).toBeGreaterThan(0);
+    expect(out.turnsToWin).toBeNull(); // persona never won → no paired runs survive
+  });
+});
+
+describe('config invariants — AXES is the single source of truth', () => {
+  it('every PERSONA_SIGNATURES axis is an AXES key with a direction and a DEFAULT_MDE entry', () => {
+    // If this fails, the offending persona/axis is named in the assertion's received value.
+    for (const sig of Object.values(PERSONA_SIGNATURES)) {
+      for (const { axis, direction } of sig.axes) {
+        expect(AXES).toContain(axis);
+        expect(['HIGHER', 'LOWER']).toContain(direction);
+        expect(typeof DEFAULT_MDE[axis]).toBe('number');
+      }
+    }
+  });
+
+  it('reduceRun produces exactly the AXES key set', () => {
+    const sample = {
+      won: true,
+      placement: 1,
+      turnsToWin: 20,
+      aggression: 4,
+      captureEfficiency: 0.7,
+      avgDiceReserve: 9,
+      avgTerritory: 8,
+      dicePerTerritory: 1.2,
+      largestGroup: 6,
+      kills: 2,
+      survivalTurn: 20,
+      zeroAttackTurnFrac: 0.1,
+    };
+    expect(Object.keys(reduceRun([sample])).sort()).toEqual([...AXES].sort());
   });
 });

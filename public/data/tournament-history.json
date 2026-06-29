@@ -1910,5 +1910,74 @@
         "wins": 3
       }
     ]
+  },
+  {
+    "date": "2026-06-29",
+    "gamesPlayed": 100,
+    "failedGames": 0,
+    "botCount": 12,
+    "champion": "Lookahead",
+    "standings": [
+      {
+        "name": "Lookahead",
+        "elo": 1308,
+        "wins": 6
+      },
+      {
+        "name": "PPO",
+        "elo": 1300,
+        "wins": 28
+      },
+      {
+        "name": "Expectimax",
+        "elo": 1282,
+        "wins": 6
+      },
+      {
+        "name": "BC",
+        "elo": 1242,
+        "wins": 11
+      },
+      {
+        "name": "Connector",
+        "elo": 1239,
+        "wins": 2
+      },
+      {
+        "name": "Giant Slayer",
+        "elo": 1194,
+        "wins": 0
+      },
+      {
+        "name": "Example",
+        "elo": 1189,
+        "wins": 0
+      },
+      {
+        "name": "Strategist",
+        "elo": 1159,
+        "wins": 4
+      },
+      {
+        "name": "Defensive",
+        "elo": 1155,
+        "wins": 10
+      },
+      {
+        "name": "Adaptive",
+        "elo": 1140,
+        "wins": 0
+      },
+      {
+        "name": "Blitz",
+        "elo": 1113,
+        "wins": 2
+      },
+      {
+        "name": "Default",
+        "elo": 1050,
+        "wins": 2
+      }
+    ]
   }
 ]

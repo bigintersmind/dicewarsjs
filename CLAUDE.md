@@ -115,10 +115,11 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
   - ai_defensive: Prioritizes protecting vulnerable territories
   - ai_example: Basic implementation for educational purposes
   - ai_adaptive: Adapts strategy based on game conditions
-  - ai_strategist: Expected-value strategy using exact dice odds and connectivity economics (strongest in arena benchmarks; authored by Claude Opus 4.8)
+  - ai_strategist: Expected-value strategy using exact dice odds and connectivity economics (strongest hand-written/heuristic bot; authored by Claude Opus 4.8)
   - ai_lookahead: Standalone shallow-expectimax search over win/loss branches with board-value evaluation (authored by GPT-5.5)
   - ai_expectimax: Chance-node expectimax over the exact battle distribution — the "search-first" ML-bot baseline (docs/ml-bot/), at parity with ai_lookahead
-  - ai_bc: Behavioral-cloning net that imitates ai_lookahead, running in-browser via a pure-JS forward pass (bcForward.js) over exported weights (bcPolicyWeights.js); ml-bot Phase 2
+  - ai_bc: Behavioral-cloning net that imitates ai_lookahead, running in-browser via a pure-JS forward pass (bcForward.js) over exported weights (bcPolicyWeights.js); ml-bot Phase 2 (arena/tournament entrant; not in the in-game picker)
+  - ai_ppo: Self-play PPO net (ml-bot Phase 3) — trained by reinforcement learning against a PFSP league, running in-browser via the same pure-JS forward pass (bcForward.js) over its own exported weights (ppoPolicyWeights.js, distinct from bcPolicyWeights.js). The first ML bot to beat ai_lookahead head-to-head (seat-fair win-rate Δ +27.7 pp); selectable in-game at difficulty 5 and a default tournament/leaderboard entrant
 
 - **Bot Arena** (src/arena/): Headless bot-vs-bot tournament system — ELO ratings (elo.js), match/tournament runners, custom-bot compilation & validation, replay format. Powers `npm run arena`, the in-game Arena screen, and the CLI bot tooling. See docs/BOT_GUIDE.md for authoring a bot (a function: state → { from, to } | null).
 

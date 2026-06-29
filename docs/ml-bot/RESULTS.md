@@ -692,3 +692,48 @@ checkpoints/ppo-fixedfield-1M.pt --out ../src/ai/ppoPolicyWeights.js --fixture
 `ppoPolicyWeights.js`).
 
 **Repro:** BC anchor — `npm run ppo:gate -- --weights src/ai/bcPolicyWeights.js --fixture tests/fixtures/bc/forwardCases.json --name BCanchor`; PPO — `npm run ppo:gate` (default weights = `ppoPolicyWeights.js`).
+
+---
+
+## Phase 3 — PPO long run: from-scratch control + the 20M BEAT (the headline) · 2026-06-29
+
+The task-A **+33.4** above was partly **fixed-field exploitation** (4 of 7 gate opponents — incl. all
+three strong ones — were training opponents). Two runs on `shodan` ([[infra_shodan_gpu_pc]], RTX 4070
+Ti) close that gap and deliver the headline result of the whole initiative.
+
+**Setup (both runs).** Pinned to the campaign commit `c0d1441` (PR-6 launcher), `ENCODING_VERSION 2`,
+**R=3 PFSP league**, production HPs `lr 2.5e-4 / ent_coef 0.01`. Gated by `npm run ppo:gate` (3040
+seat-fair games = 20 runs × 19 seeds × 8 seat rotations, 8-bot FFA, judged on **win%, not ELO**,
+paired Δ vs `ai_lookahead@596f781`).
+
+| Candidate (gate)                                   | Cand win% (95% CI) | Lookahead win% | Paired Δ (cand − bar)        | Verdict     |
+| -------------------------------------------------- | ------------------ | -------------- | ---------------------------- | ----------- |
+| **PPO from-scratch control** (1M, NO warm-start)   | 40.0               | 13.1           | **+26.9 ± 3.1 [23.8, 30.0]** | ✅ **BEAT** |
+| **PPO long run** (20M, BC warm-start) — _headline_ | 40.4 ± 1.6         | 12.7 ± 1.4     | **+27.7 ± 2.7 [25.0, 30.4]** | ✅ **BEAT** |
+
+**Control (1M, from scratch) — resolves the exploitation caveat.** A fresh-init run (`FROM_SCRATCH=1`,
+no BC warm-start, 1M steps, ~85 min, clean `exit 0`, attempt #1) gated **+26.9 [23.8, 30.0] → BEAT**.
+A bot that learned to beat Lookahead **from random weights** cannot be exploiting the task-A artifact —
+this proves the pipeline produces genuine PPO learning, not a fixed-field memorization trick. That
+green-lit the long run (Ivan's standing rule: "if it beats Lookahead, kick off the long run").
+
+**Long run (20M, BC warm-start) — the headline.** Warm-started from the v2-BC clone (`v2-base`), 20.00M
+env-steps to budget, **clean `exit 0`, attempt #1, ZERO auto-restarts / pointer halts**, ~29 h wall at
+~190 env-steps/s (`n_envs=12`, `SubprocVecEnv`); `explained_variance` held ~0.86–0.91 throughout. The
+launcher auto-repacked the SB3 actor → `ml/runs/ppo-long/ppo.pt` and self-verified it reloads into a
+bare `EdgePolicyNet`. Exported (`export_weights --ckpt runs/ppo-long/ppo.pt`) with **JS↔Python forward
+parity 1.9e-5**, then gated (440.5 s): **PPO 40.4 ± 1.6%** vs Lookahead **12.7 ± 1.4%**, **paired Δ
++27.7 ± 2.7 [25.0, 30.4] → ✅ BEAT** (PPO STOP 46.6%, attack-win 69.4%). The CI lower bound **25.0 ≫
+0**; this clears the canonical BC-anchor (Δ ≈ −3.7) by ~31 pp and corroborates the from-scratch control
+— **the D-7 headline BEAT gate is met at full budget with a held-out-general league, not just a fixed
+field.**
+
+The exported `src/ai/ppoPolicyWeights.js` (sha256 `f6be9b91…`, 102,787 params, `teacher=ppo`) **replaces
+the committed task-A weights** (sha256 `1a754eef…`) — same file, same `ai_ppo` bot wiring (PR #74), no
+code change. Run commit `c0d1441`; Lookahead pin `596f781`; checkpoint on shodan
+`~/dicewarsjs/ml/runs/ppo-long/ppo.pt`.
+
+**Repro:** on shodan, `cd ml && .venv/bin/python -m dicewars_bc.export_weights --ckpt
+runs/ppo-long/ppo.pt --out ../src/ai/ppoPolicyWeights.js --fixture
+../tests/fixtures/bc/ppoForwardCases.json`; then on the Mac `npm run ppo:gate` (default weights =
+`ppoPolicyWeights.js`).

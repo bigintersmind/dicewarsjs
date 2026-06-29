@@ -8,6 +8,7 @@
  */
 import { createGame } from '../../src/engine/GameRunner.js';
 import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
+import { GAME_PHASES } from '../../src/engine/constants.js';
 import { ai_bc, makeBC } from '../../src/ai/ai_bc.js';
 import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
 import { createBotState } from '../../src/arena/botState.js';
@@ -114,7 +115,10 @@ describe('ai_bc bot', () => {
      */
     let state = createGame({ seed: 7, playerCount: 7, recordHistory: false });
     for (let step = 0; step < 4000; step++) {
-      if (state.gameOver) break;
+      // Engine game-over is `phase === GAME_OVER` (no `state.gameOver` field);
+      // applyAction throws on a finished game. BC turtles so seed-7 rarely finishes
+      // inside 4000 steps, but guard on the real signal regardless (cf. ai_ppo).
+      if (state.phase === GAME_PHASES.GAME_OVER) break;
       const player = state.turnOrder[state.currentPlayerIndex];
       let move = null;
       if (player === 0) {

@@ -21,6 +21,59 @@ Entry template:
 
 ---
 
+## 2026-06-29 — 🏁 The 20M PPO long run BEATS Lookahead (Δ +27.7) — the headline result; weights merged-prep
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Ran the full shodan campaign end-to-end (§1–§5 of `scripts/shodan/RUNBOOK.md`).** §1/§2 (2026-06-28):
+  pinned shodan to `c0d1441` (detached HEAD), CUDA-safe install (`pip install -e . --no-deps` +
+  `tensorboard` — torch stayed `2.12.1+cu130`, `cuda=True`, zero re-resolve), the BLOCKING resume
+  checklist **96 passed** (incl. the GPU-only CUDA-RNG-restore test + both PR-6 corrupt-zip-fallback
+  tests), env e2e smoke 2 passed, turtle floor 95.0%/92.5% R=3 GREEN.
+- **§3 from-scratch control (1M, `FROM_SCRATCH=1`)** via schtasks `dicewars-ppo-control` → clean `exit 0`,
+  ~85 min, attempt #1. Exported to a scratch path (NOT the committed weights) + gated: **PPO 40.0% vs
+  Lookahead 13.1%, paired Δ +26.9 [23.8, 30.0] → ✅ BEAT.** A from-scratch BEAT **resolves task-A's
+  fixed-field-exploitation caveat** — the pipeline produces real PPO learning, not artifact memorization.
+- **§4 long run (20M, BC warm-start from `v2-base`)** via schtasks `dicewars-ppo-long`, R=3 PFSP league,
+  production HPs. **Completed clean `exit 0`, attempt #1, ZERO restarts / pointer halts**, ~29 h @
+  ~190 env-steps/s (`n_envs=12`); `explained_variance` ~0.86–0.91 throughout. Launcher auto-repacked the
+  actor → `ml/runs/ppo-long/ppo.pt`, self-verified export-ready (reloads into a bare `EdgePolicyNet`).
+- **§5 export + gate (the headline).** `export_weights --ckpt runs/ppo-long/ppo.pt` → `ppoPolicyWeights.js`
+  (102,787 params, **JS↔Py parity 1.9e-5**) + regenerated `ppoForwardCases.json`; `npm run ppo:gate`
+  (3040 seat-fair games, 440.5 s): **PPO 40.4 ± 1.6% vs Lookahead 12.7 ± 1.4%, paired Δ +27.7 ± 2.7
+  [25.0, 30.4] → ✅ BEAT** (PPO STOP 46.6%, atk-win 69.4%).
+- **Merge-prep (this PR).** Transferred the new weights + fixture shodan→Mac over a sentinel-extracted
+  base64 channel, **sha256-verified byte-identical** (`f6be9b91…` / `0a10847d…`), replacing the committed
+  task-A weights (`1a754eef…`) in `src/ai/ppoPolicyWeights.js`. Verified the encoder did not drift between
+  the training pin `c0d1441` and master (`encodeObservation.js`/`ai_bc.js`/`bcForward.js`/`ml/` unchanged;
+  only `ai_ppo.js` was added by PR #74). Updated RESULTS.md + this LOG + the README dashboard.
+
+**Learned / decided:**
+
+- **The D-7 headline BEAT gate is MET at full budget with a held-out-general PFSP league** — not just the
+  task-A fixed field. The from-scratch control (+26.9) and the 20M warm-start run (+27.7) are mutually
+  corroborating: the edge is genuine RL learning, ~31 pp above the canonical BC-anchor (−3.7).
+- **`ai_ppo` is decoupled from its weights (PR #74):** swapping `ppoPolicyWeights.js` ships the stronger
+  bot with no code change — the bot wiring + the `ai_ppo ≠ ai_bc` divergence test carry over unchanged.
+- The launcher's auto-restart / pointer-halt safety net was never exercised (attempt #1, 0 restarts across
+  both runs) — the resume core stayed dormant, exactly the happy path it was built to make safe.
+
+**Dead ends / surprises:**
+
+- Real-policy throughput is ~190 env-steps/s (`n_envs=12`), not the stub-probe's ~200 fps × parallelism —
+  the 20M run took ~29 h vs the ~28 h ETA. Bounded by the SB3 learner loop, as [D-24]/B5 predicted.
+
+**Next:**
+
+- **Merge** this weights-swap PR (paused for Ivan's review — it changes the live `ai_ppo` bot for everyone).
+- Housekeeping: finished schtasks (`dicewars-ppo-long`, `dicewars-ppo-control`, `-gate`) can be deleted.
+- PR-7 = the deferred test-hardening. Reward-persona roster (PERSONAS.md / EVAL_HARNESS.md) is the next
+  exploration once the headline is shipped.
+
+---
+
 ## 2026-06-28 — Task C/E PR-6 review + hardening pass (PR #73)
 
 **Phase:** 3 · **Who:** Ivan + Claude

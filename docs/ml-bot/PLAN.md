@@ -563,7 +563,7 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
   RUN itself — both need shodan + [rl]; the wiring is in place. See [D-26]._
 - [ ] **(D)** Add **annealed potential-based reward shaping** (Δlargest-group/territory/dice/elims,
       `F = γΦ(s′)−Φ(s)`, env-side in JS) only if terminal-only learning is too slow.
-- [ ] **(E) shodan training-ops (prerequisite for the long BEAT run):** schtasks-wrapped WSL launch
+- [x] **(E) shodan training-ops + the long BEAT run — ✅ DONE (2026-06-29; from-scratch control +26.9, then the 20M BC-warm-start run gated +27.7 [25.0, 30.4] → BEAT):** schtasks-wrapped WSL launch
       (the only disconnect-surviving pattern); idempotent checkpoint/resume of policy + optimizer +
       RNG + step + league pool/book (**NOT VecNormalize** — dropped per [D-26]); TensorBoard + a flat
       CSV that survives sessions; swap `DummyVecEnv` → `SubprocVecEnv` for real cross-core parallelism.
@@ -571,7 +571,7 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
       `--from-scratch`); **PR-5 MERGED** (PR #72 `b554cd7` — checkpoint/resume core + per-session CSV + B6 flag forwarding, 2 review blockers fixed); **PR-6 (this PR)** = committed shodan launcher
       (`scripts/shodan/ppo-train.sh`) + schtasks wrapper/runbook + auto-restart safety guard
       (rejected-pointer HALT via `EXIT_POINTER_REJECTED`, corrupt-`.zip` fallback to the retained
-      pair); PR-7 (deferred test-hardening). See [D-26]._
+      pair); **all three slices ran on shodan 2026-06-29 → the 20M run completed clean (attempt #1, 0 restarts) and gated BEAT.** PR-7 (deferred test-hardening). See [D-26]._
 
 **Acceptance criteria.**
 
@@ -583,17 +583,23 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
 **Go/No-Go gate (and kill criterion).**
 
 - **Statistically significant win-rate edge over `ai_lookahead`** (the bar, per
-  [D-7]) → proceed to Phase 4 with the RL bot as the candidate.
+  [D-7]) → proceed to Phase 4 with the RL bot as the candidate. **✅ MET 2026-06-29:
+  the 20M PPO run gated paired Δ win% +27.7 [25.0, 30.4] (PPO 40.4% vs 12.7%),
+  corroborated by a from-scratch control (+26.9).**
 - **No significant edge after a few training iterations** → treat as a **plateau
   signal** (exactly what the Risk thesis hit). Don't pour unbounded compute in.
   Record in `DECISIONS.md`; fall back to shipping the best of Track A / Phase 2.
 
 ---
 
-## Phase 4 — Ship the strongest bot · ⬜ Not started · ~2–4 days on top of the winner
+## Phase 4 — Ship the strongest bot · 🟨 In progress (2026-06-29) · ~2–4 days on top of the winner
 
 **Objective.** Wire whichever candidate won `arena:sweep` most decisively (Track A
-search bot, the imitation net, or the RL net) as a real shipped bot.
+search bot, the imitation net, or the RL net) as a real shipped bot. **The winner is
+the PPO net.** `ai_ppo` is already wired as a built-in + in the tournament pool (PR
+#74) and is decoupled from its weights; **this PR swaps in the BEAT-gated 20M weights
+(`ppoPolicyWeights.js`)** with no code change. Remaining: merge, confirm the daily
+tournament/leaderboard picks it up, and a `BOT_GUIDE.md`/`README.md` doc pass.
 
 **Tasks.**
 

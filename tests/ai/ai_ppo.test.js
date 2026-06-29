@@ -10,6 +10,7 @@
  */
 import { createGame } from '../../src/engine/GameRunner.js';
 import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
+import { GAME_PHASES } from '../../src/engine/constants.js';
 import { runAI } from '../../src/engine/AIAdapter.js';
 import { ai_ppo } from '../../src/ai/ai_ppo.js';
 import { ai_bc } from '../../src/ai/ai_bc.js';
@@ -70,7 +71,11 @@ describe('ai_ppo bot', () => {
   it('drives a full game as a seat without throwing', () => {
     let state = createGame({ seed: 7, playerCount: 7, recordHistory: false });
     for (let step = 0; step < 4000; step++) {
-      if (state.gameOver) break;
+      // Engine game-over is `phase === GAME_OVER` (there is no `state.gameOver`
+      // field); applyAction throws on a finished game. A strong enough seat-0 bot
+      // conquers this unopposed board inside 4000 steps, so the guard must use the
+      // real signal or the next END_TURN throws.
+      if (state.phase === GAME_PHASES.GAME_OVER) break;
       const player = state.turnOrder[state.currentPlayerIndex];
       let move = null;
       if (player === 0) {

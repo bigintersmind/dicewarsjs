@@ -39,6 +39,10 @@ Built-in strategies live in `src/ai/`, registered with metadata in `aiConfig.js`
 - `ai_adaptive` — adapts to game conditions
 - `ai_strategist` — exact expected-value using dice odds and connectivity economics (authored by Claude Opus 4.8)
 - `ai_lookahead` — standalone shallow expectimax over win/loss branches (authored by GPT-5.5)
+- `ai_expectimax` — chance-node expectimax over the exact battle distribution (the ML-bot search baseline)
+- `ai_ppo` — self-play PPO neural net trained against a league of bots; the strongest built-in bot and the first ML bot to beat `ai_lookahead` head-to-head (ml-bot Phase 3)
+
+A behavioral-cloning net, `ai_bc` (ml-bot Phase 2, imitates `ai_lookahead` via a pure-JS forward pass), also ships as an arena/tournament bot — it's registered in `src/arena/builtInBots.js` rather than `aiConfig.js`, so it isn't selectable in the in-game opponent picker.
 
 ### Writing an AI
 

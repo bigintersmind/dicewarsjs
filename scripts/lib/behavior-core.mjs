@@ -143,6 +143,8 @@ export function profileGameFromCapture(result, playerIndex, capture) {
     );
   }
 
+  // Per-turn dice density, then averaged below: a mean of per-turn (dice/territory) ratios — NOT
+  // aggregate totalDice/totalTerritory. Both are defensible; this one weights each turn equally.
   const dicePerTerritory = capture.territory.map((t, i) => (t > 0 ? capture.dice[i] / t : 0));
 
   return {
@@ -189,12 +191,14 @@ export const AXES = [
  */
 export function reduceRun(profiles) {
   if (profiles.length === 0) throw new Error('reduceRun: empty run');
+  // Number.isFinite (not `!= null`) so a stray NaN/Infinity is dropped like missing data rather
+  // than averaged in — a non-finite scalar must never survive to read as a real measurement.
   const defined = (field, filter = () => true) =>
     meanOrNull(
       profiles
         .filter(filter)
         .map(p => p[field])
-        .filter(v => v != null)
+        .filter(v => Number.isFinite(v))
     );
 
   return {
@@ -213,17 +217,19 @@ export function reduceRun(profiles) {
   };
 }
 
-/** Mean ± 95% CI of a run array, ignoring null runs. Returns null if < 1 finite run. */
+/** Mean ± 95% CI of a run array, ignoring null/non-finite runs. Returns null if < 1 finite run. */
 export function summarizeAxis(perRunValues) {
-  const vals = perRunValues.filter(v => v != null);
+  const vals = perRunValues.filter(v => Number.isFinite(v));
   if (vals.length === 0) return null;
   if (vals.length === 1) return { mean: vals[0], ci: null, n: 1 };
   return { ...meanCi(vals), n: vals.length };
 }
 
 /**
- * Drop run indices where EITHER side is null, keeping the two arrays aligned (so
- * `pairedDelta`'s positional pairing stays valid). Returns the filtered pair + kept count.
+ * Drop run indices where EITHER side is null or non-finite, keeping the two arrays aligned (so
+ * `pairedDelta`'s positional pairing stays valid). Returns the filtered pair + kept count. Treating
+ * a NaN/Infinity as a dropped index (not a paired value) keeps it out of `pairedDelta`, where it
+ * would otherwise produce a NaN CI that `classifyGate` reads as a bogus SAME at full n.
  *
  * @param {Array<number|null>} a
  * @param {Array<number|null>} b
@@ -236,7 +242,7 @@ export function alignDropNull(a, b) {
   const ao = [];
   const bo = [];
   for (let i = 0; i < a.length; i++) {
-    if (a[i] == null || b[i] == null) continue;
+    if (!Number.isFinite(a[i]) || !Number.isFinite(b[i])) continue;
     ao.push(a[i]);
     bo.push(b[i]);
   }

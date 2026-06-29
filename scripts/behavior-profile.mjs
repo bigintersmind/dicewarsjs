@@ -41,6 +41,8 @@ const args = process.argv.slice(2);
 
 const runCount = parseInt(getArg(args, 'runs', '10'), 10);
 const gamesPerRun = parseInt(getArg(args, 'games', '30'), 10);
+// Phase 1: `reference` is validated as an opponent seat and echoed into the report, but the paired
+// comparison is always against `control` (not the reference). It's a labeled seat + a Phase-2 hook.
 const referenceName = getArg(args, 'reference', 'Lookahead');
 const controlName = getArg(args, 'control', 'Defensive');
 const botNames = getArg(args, 'bots', 'Strategist')
@@ -158,23 +160,26 @@ function sweepBot(bot) {
         const field = rotatedField(baseField, rot);
         const pi = rot;
         const { capture, onTurn, onStep } = makeCapture(pi);
-        let result;
         try {
-          result = runMatch({ bots: field, seed, onTurn, onStep });
+          const result = runMatch({ bots: field, seed, onTurn, onStep });
+          played += 1;
+          if (quarantine && result.botStats.some(isForcedEnd)) {
+            quarantined += 1;
+            continue;
+          }
+          // profileGameFromCapture is in the try too: its contract throws (misaligned capture /
+          // seat mismatch) are genuine engine-contract violations and deserve the same coordinates.
+          profiles.push(profileGameFromCapture(result, pi, capture));
         } catch (err) {
           // Surface which game blew up rather than dying with a context-free stack far from its
           // cause (this is inside runCount×games×rotations×bots iterations).
           throw new Error(
-            `runMatch threw (bot=${bot.name} seed=${seed} rot=${rot}): ${err.message}`,
-            { cause: err }
+            `match failed (bot=${bot.name} seed=${seed} rot=${rot}): ${err.message}`,
+            {
+              cause: err,
+            }
           );
         }
-        played += 1;
-        if (quarantine && result.botStats.some(isForcedEnd)) {
-          quarantined += 1;
-          continue;
-        }
-        profiles.push(profileGameFromCapture(result, pi, capture));
       }
     }
     perRun.push(profiles.length ? reduceRun(profiles) : { ...NULL_RUN });

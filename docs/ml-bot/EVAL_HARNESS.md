@@ -122,7 +122,7 @@ turns and adds nothing over the turn-normalized axis. Derive on demand if ever n
 
 > **Shipped in Phase 1 (vs this design list):** `behavior-core.mjs`'s `AXES` implements g
 > (`avgDiceReserve`), h (`dicePerTerritory`), i (`captureEfficiency`), j (`zeroAttackTurnFrac`), l
-> (`largestGroup`), m (`survivalTurn`), plus the core a/d/e/f and `avgTerritory` (the scalar reduction
+> (`largestGroup`), m (`survivalTurn`), plus the core a/c/d/e/f (incl. c `kills`) and `avgTerritory` (the scalar reduction
 > of (b) that stands in for the territory AUC (n)). **Not yet implemented:** the full territory _curve_,
 > a separate `territoryAuc`, and **(k) border exposure** — these are Phase-2 / future axes, not part of
 > the shipped profiler.
@@ -314,24 +314,24 @@ The **control is always profiled** with identical run/game/rotation config (auto
 
 ## 5. Reused utilities (exact)
 
-| Function                                 | File:line                                             | Use                                        |
-| ---------------------------------------- | ----------------------------------------------------- | ------------------------------------------ |
-| `runMatch` + `onTurn`/`onStep`           | `matchRunner.js:229-366` (cb `:213/:219`)             | run each game, stream board + step signals |
-| `botStats`                               | `matchRunner.js:341-352`                              | (a num),(d),(e),(g),(i), quarantine        |
-| `MatchResult` winner/turnCount           | `matchRunner.js:355/:357`                             | (d),(f)                                    |
-| `calculatePlacements`                    | `matchRunner.js:375-395`                              | placement ranks (already applied)          |
-| `recalcPlayerStats`                      | `StateManager.js:108-117`                             | territoryCount (b), diceCount (g)          |
-| `applyAction`                            | `StateManager.js:161-173`                             | replay re-sim (kills fallback)             |
-| `trajectoryFromReplay` / `replayToState` | `trajectoryExport.js:246` / `replayFormat.js:198-208` | kill-attribution fallback (no §6)          |
-| `isStopMove` / `buildStep`               | `trajectoryExport.js:61` / `:129-140`                 | ATTACK vs STOP in `onStep`                 |
-| `botState` isBorder/connected            | `botState.js:50` / `:74`                              | (k) border, (l) largest group              |
-| `meanCi` / `tCrit` / `mean`              | `stats.mjs:60-66 / :50 / :53`                         | mean ± 95% CI — **CI math reused**         |
-| `pairedDelta` / `classifyGate`           | `ppo-gate-core.mjs:31-41 / :53-57`                    | paired Δ + HIGHER/SAME/LOWER               |
-| `rotatedField` / `buildGateField`        | `ppo-gate-core.mjs:127-132 / :103-112`                | seat fairness, field guardrails            |
-| arenaRunner accumulators                 | `arenaRunner.js:130-168`                              | **extract** shared terminal-stat helper    |
-| `BUILT_IN_BOTS`                          | `builtInBots.js:21`                                   | built-in enumeration (`ai_ppo` `:44`)      |
-| `resolveBot`/`loadBot`/`getArg`          | `cli-utils.mjs:49/:37`, `cli-args.mjs:25`             | file/weight bots + arg parsing             |
-| JSON-stdout / table-stderr               | `_tune.mjs:130-142`                                   | dual output                                |
+| Function                                 | File:line                                             | Use                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `runMatch` + `onTurn`/`onStep`           | `matchRunner.js:229-366` (cb `:213/:219`)             | run each game, stream board + step signals                                              |
+| `botStats`                               | `matchRunner.js:341-352`                              | (a num),(d),(e),(g),(i), quarantine                                                     |
+| `MatchResult` winner/turnCount           | `matchRunner.js:355/:357`                             | (d),(f)                                                                                 |
+| `calculatePlacements`                    | `matchRunner.js:375-395`                              | placement ranks (already applied)                                                       |
+| `recalcPlayerStats`                      | `StateManager.js:108-117`                             | territoryCount (b), diceCount (g)                                                       |
+| `applyAction`                            | `StateManager.js:161-173`                             | replay re-sim (kills fallback)                                                          |
+| `trajectoryFromReplay` / `replayToState` | `trajectoryExport.js:246` / `replayFormat.js:198-208` | kill-attribution fallback (no §6)                                                       |
+| `isStopMove` / `buildStep`               | `trajectoryExport.js:61` / `:129-140`                 | ATTACK vs STOP in `onStep`                                                              |
+| `botState` isBorder/connected            | `botState.js:50` / `:74`                              | (k) border, (l) largest group                                                           |
+| `meanCi` / `tCrit` / `mean`              | `stats.mjs:60-66 / :50 / :53`                         | mean ± 95% CI — **CI math reused**                                                      |
+| `pairedDelta` / `classifyGate`           | `ppo-gate-core.mjs:31-41 / :53-57`                    | paired Δ + HIGHER/SAME/LOWER                                                            |
+| `rotatedField` / `buildGateField`        | `ppo-gate-core.mjs:127-132 / :103-112`                | seat fairness, field guardrails                                                         |
+| arenaRunner accumulators                 | `arenaRunner.js:130-168`                              | **extract** shared terminal-stat helper                                                 |
+| `BUILT_IN_BOTS`                          | `builtInBots.js:21`                                   | built-in enumeration (`ai_ppo` `:44`)                                                   |
+| `resolveBot`/`loadBot`/`getArg`          | `cli-utils.mjs:49/:37`, `cli-args.mjs:25`             | arg parsing (`getArg`/`hasFlag`) now; `resolveBot`/`loadBot` = Phase-2 weight-file bots |
+| JSON-stdout / table-stderr               | `_tune.mjs:130-142`                                   | dual output                                                                             |
 
 ---
 

@@ -23,6 +23,7 @@ import {
 } from '../scripts/lib/behavior-core.mjs';
 import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
+import { isStopMove } from '../src/arena/trajectoryExport.js';
 
 const STOP = { type: 'END_TURN' };
 const attack = (from = 1, to = 2) => ({ from, to });
@@ -353,6 +354,24 @@ describe('alignDropNull + compareAxis (paired control comparison)', () => {
   it('returns null when fewer than 2 paired runs survive null-alignment', () => {
     expect(compareAxis([1, null, null], [null, 2, null])).toBeNull();
   });
+
+  it('treats a non-finite (NaN/Infinity) run as dropped data, not a paired value', () => {
+    // A NaN must never reach pairedDelta: it would yield a NaN CI that classifyGate reads as a
+    // bogus SAME at full n — the "failed measurement masquerading as no-difference" the harness
+    // exists to prevent. alignDropNull drops the index from BOTH sides.
+    expect(alignDropNull([1, NaN, 3, 4], [10, 20, 30, 40])).toEqual({
+      a: [1, 3, 4],
+      b: [10, 30, 40],
+      n: 3,
+    });
+    expect(alignDropNull([1, Infinity, 3], [10, 20, 30]).n).toBe(2);
+    // One NaN among otherwise-significant runs degrades to a clean comparison on the rest, never NaN.
+    const cmp = compareAxis([5, NaN, 7, 5, 6], [2, 3, 2, 3, 2]);
+    expect(Number.isFinite(cmp.delta)).toBe(true);
+    expect(cmp.n).toBe(4);
+    // Too few finite runs after dropping NaNs ⇒ null (no comparison), not a NaN verdict.
+    expect(compareAxis([5, NaN, NaN], [2, 3, 2])).toBeNull();
+  });
 });
 
 describe('signaturePass — MDE gate prevents trivial-but-significant passes', () => {
@@ -427,22 +446,55 @@ describe('§6 engine signal — runMatch passes actingPlayerId to onTurn', () =>
     }
   });
 
-  it('actor firings round-robin across seats and match each seat-0 active turn', () => {
-    // Cross-check the §6 actor against the engine: capture.activeTurns for seat 0 must equal the
-    // number of onTurn firings where actor === 0. A wrong-actor regression (e.g. passing
-    // currentPlayerIndex instead of currentPlayerId, or any off-by-one) breaks this — a bare
-    // in-range check would not. Also assert every seat acts at least once (round-robin sanity).
-    const { capture, onTurn, onStep } = makeCapture(0);
+  it('the onTurn actor is exactly the player who acted that turn — cross-checked vs onStep.playerId', () => {
+    // onStep.playerId is set in buildStep (turnOrder[currentPlayerIndex], DURING the turn); the
+    // onTurn actor is currentPlayerId captured in runMatch's loop — two INDEPENDENT call sites.
+    // A seat-index-vs-id swap or a next-player off-by-one in the onTurn arg desyncs them. A
+    // single-source check like `seat0Firings === capture.activeTurns` cannot catch that: both
+    // counters read the SAME actor arg, so they stay equal for any actor stream (correct OR wrong).
+    const mismatches = [];
     const seenActors = new Set();
-    let seat0Firings = 0;
-    const wrapped = (t, s, actor) => {
-      seenActors.add(actor);
-      if (actor === 0) seat0Firings += 1;
-      onTurn(t, s, actor);
-    };
-    runMatch({ bots: field, seed: 11, onTurn: wrapped, onStep });
-    expect(seat0Firings).toBe(capture.activeTurns);
+    let turnsChecked = 0;
+    let stepIds = new Set();
+    runMatch({
+      bots: field,
+      seed: 11,
+      onStep: step => stepIds.add(step.playerId),
+      onTurn: (_t, _s, actor) => {
+        turnsChecked += 1;
+        seenActors.add(actor);
+        // Every step this turn is by the acting player → exactly one distinct id, equal to `actor`.
+        const ids = [...stepIds];
+        if (ids.length !== 1 || ids[0] !== actor) {
+          mismatches.push({ turn: turnsChecked, actor, ids });
+        }
+        stepIds = new Set();
+      },
+    });
+    expect(mismatches).toEqual([]);
+    expect(turnsChecked).toBeGreaterThan(field.length); // drove a real multi-turn game, not a no-op
     for (let seat = 0; seat < field.length; seat++) expect(seenActors.has(seat)).toBe(true);
+  });
+
+  it('onStep populates from the real engine: seat-0 non-STOP steps reconcile with attacksMade', () => {
+    // Pins the real TrajectoryStep shape (step.playerId + step.chosenMove) end-to-end and exercises
+    // the _sinceStop/zeroAttackTurns wiring against the engine — the synthetic makeCapture tests
+    // fabricate steps, so without this a renamed/reshaped step field would silently early-return in
+    // onStep (leaving zeroAttackTurns at 0) with no test noticing.
+    const { capture, onTurn, onStep } = makeCapture(0);
+    let nonStopSteps = 0;
+    const result = runMatch({
+      bots: field,
+      seed: 11,
+      onTurn,
+      onStep: step => {
+        onStep(step);
+        if (step.playerId === 0 && !isStopMove(step.chosenMove)) nonStopSteps += 1;
+      },
+    });
+    expect(nonStopSteps).toBe(result.botStats[0].attacksMade);
+    // Each zero-attack turn is one of the bot's own turns, so it can't exceed the active-turn count.
+    expect(capture.zeroAttackTurns).toBeLessThanOrEqual(capture.activeTurns);
   });
 
   it('drives a real game and produces populated, finite capture metrics (not a no-op)', () => {
@@ -478,6 +530,14 @@ describe('summarizeAxis', () => {
     expect(summarizeAxis([3, null, 5]).n).toBe(2);
     expect(summarizeAxis([null, null])).toBeNull();
     expect(summarizeAxis([])).toBeNull();
+  });
+
+  it('ignores non-finite runs (NaN/Infinity) so a stray value never poisons the mean/CI', () => {
+    const s = summarizeAxis([4, NaN, 6, Infinity, 5]);
+    expect(s.n).toBe(3); // only the three finite runs
+    expect(s.mean).toBe(5);
+    expect(Number.isFinite(s.ci)).toBe(true);
+    expect(summarizeAxis([NaN, Infinity])).toBeNull();
   });
 });
 

@@ -166,6 +166,8 @@ python -m dicewars_bc.export_weights \
     --ckpt runs/ppo-long/ppo.pt \
     --out ../src/ai/ppoPolicyWeights.js \
     --fixture ../tests/fixtures/bc/ppoForwardCases.json
+# Output is the compact packed base64-f32 module (default since #51): it imports the sibling
+# ./unpackPolicyWeights.js, so it MUST land in src/ai/. (The gate below loads it the same way.)
 cd .. && npm run ppo:gate            # 20 runs x 150 games, PPO vs Lookahead@596f781, paired Δ + 95% CI
 ```
 

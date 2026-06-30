@@ -19,7 +19,7 @@ Two on-disk formats (``--packed`` / ``--no-packed``):
 
 * **packed (default)** — the ~102k float weights are emitted as ONE base64-encoded
   little-endian ``Float32`` blob plus a compact shape descriptor, and the module is
-  ``export const BC_POLICY = unpackPolicy({…})``. This is ~80% smaller than raw
+  ``export const BC_POLICY = unpackPolicy({…})``. This is ~74% smaller than raw
   JSON-in-JS floats (issue #51: the eager bundle chunk no longer carries multi-MB of
   weight text) and is numerically lossless — the values are already float32, so the
   ``Float32Array`` round-trip recovers identical doubles. The generated module imports

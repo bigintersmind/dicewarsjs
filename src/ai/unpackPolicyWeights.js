@@ -5,7 +5,7 @@
  * JSON-in-JS floats — ~2.1 MB per file, statically folded into the eager main bundle
  * chunk (issue #51). The exporter (`ml/dicewars_bc/export_weights.py`, packed mode)
  * now emits the same weights as a single base64-encoded little-endian `Float32`
- * blob + a tiny shape descriptor — ~80% smaller on disk — and the generated module is
+ * blob + a tiny shape descriptor — ~74% smaller on disk — and the generated module is
  * just `export const BC_POLICY = unpackPolicy({ … });`.
  *
  * `unpackPolicy` reconstructs the EXACT materialized object the rest of the pipeline

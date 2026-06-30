@@ -38,6 +38,30 @@ describe('unpackPolicy', () => {
     expect(policy.layers.onlyHead).toEqual([{ w, b, relu: true }]);
   });
 
+  it('decodes via the browser atob path when Buffer is unavailable', () => {
+    // The decoder feature-detects `typeof Buffer !== 'undefined'`: Node/Vitest take the Buffer
+    // branch, but every real browser user hits the `atob` + charCodeAt branch instead. Because
+    // the whole suite runs under Node (Buffer always defined), that shipped browser path is
+    // otherwise never executed — a bug in it would ship green. Force it by shadowing Buffer and
+    // assert it reconstructs the exact same floats the Buffer branch does.
+    const packed = {
+      encodingVersion: 2,
+      config: { maxAreas: 8, presentCol: 0 },
+      layers: { onlyHead: [[2, 2, true]] },
+      data: floatsToBase64([1.0, 2.0, -0.5, 0.25, 10.0, -20.0]), // built before we drop Buffer
+    };
+    const viaBuffer = unpackPolicy(packed);
+
+    const savedBuffer = globalThis.Buffer;
+    try {
+      globalThis.Buffer = undefined; // → `typeof Buffer === 'undefined'`, so unpackPolicy uses atob
+      expect(typeof atob).toBe('function'); // sanity: the browser primitive exists in this env
+      expect(unpackPolicy(packed)).toEqual(viaBuffer);
+    } finally {
+      globalThis.Buffer = savedBuffer;
+    }
+  });
+
   it('round-trips a multi-head, multi-layer policy losslessly', () => {
     // float32-exact values so the round-trip is bit-exact (no float64→float32 rounding).
     const policy = {

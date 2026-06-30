@@ -132,9 +132,10 @@ export function scaledPlacement(placements, learnerSeat, playerCount) {
  * @param {(encoded:Object, botState:Object) => number} cfg.chooseAction - action selector.
  * @param {number} [cfg.maxTurns] - stalemate cap (defaults to runMatch's 500).
  * @param {(encoded:Object, botState:Object) => void} [cfg.onObservation] - per-decision tap.
- * @param {(turnCount:number, state:Object) => void} [cfg.onTurn] - per-turn tap, forwarded to
- *   `runMatch` (called before the elimination check when `terminateOnElimination` is set). A
- *   consumer can also throw from here to abort the match early.
+ * @param {(turnCount:number, state:Object, currentPlayerId:number) => void} [cfg.onTurn] - per-turn
+ *   tap, forwarded to `runMatch` with all three args INCLUDING the acting seat (`currentPlayerId`),
+ *   on both the full-game and the `terminateOnElimination` paths (called before the elimination
+ *   check when that flag is set). A consumer can also throw from here to abort the match early.
  * @param {boolean} [cfg.terminateOnElimination=false] - end the episode the instant the LEARNER
  *   is eliminated (reward = loss), instead of playing the match out to game-over. This is the
  *   correct single-learner PPO terminal — the opponent-only tail after the learner dies is not
@@ -207,8 +208,12 @@ export function runSelfPlayEpisode(cfg) {
     let abortTurn = 0;
     let abortCoElimSeats = null;
     let prevEliminated = new Set();
-    const guardedOnTurn = (turnCount, state) => {
-      if (onTurn) onTurn(turnCount, state);
+    const guardedOnTurn = (turnCount, state, currentPlayerId) => {
+      // Forward ALL THREE args runMatch supplies — including the acting seat (currentPlayerId).
+      // The non-terminate branch passes `onTurn` straight to runMatch (3 args); this wrapper must
+      // match, or a consumer that reads the seat (e.g. the reward-shaping kill tracker, bite G)
+      // silently gets `undefined`. (Harmless pre-bite-G when onTurn was the arg-less failIfLost.)
+      if (onTurn) onTurn(turnCount, state, currentPlayerId);
       if (state.players[learnerSeat].eliminated) {
         /*
          * Co-eliminees: players who lost their last territory on this SAME turn as the learner.

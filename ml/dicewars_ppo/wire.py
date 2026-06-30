@@ -39,7 +39,9 @@ from .constants import (
     ENCODING_VERSION,
     F32,
     HEADER_BYTES,
+    HEADER_BYTES_SHAPED,
     HEADER_STRUCT,
+    HEADER_STRUCT_SHAPED,
     I32,
     NODE_W,
     OBS_FRAME_MAGIC,
@@ -83,43 +85,86 @@ class ObsFrame:
     edges: np.ndarray  # [num_edges, EDGE_W]  f32
     edge_index: np.ndarray  # [num_edges, 2]  i32
 
+    # Dense-reward tail ("bite G"): present only on shaped frames (env-server `--reward-shaping`);
+    # 0 on a base frame. RAW per-step measurements — the trainer applies the persona weights.
+    delta_territory: float = 0.0  # net learner-territory change since the prior decision frame
+    elims_by_learner: int = 0  # learner-attributed eliminations since the prior decision frame
+
     @property
     def is_terminal(self) -> bool:
         return self.terminal == 1
 
 
-def expected_frame_bytes(max_areas: int, player_count: int, num_edges: int) -> int:
-    """Body byte length (no length prefix) for a frame with these dims."""
+def expected_frame_bytes(
+    max_areas: int, player_count: int, num_edges: int, *, shaped: bool = False
+) -> int:
+    """Body byte length (no length prefix) for a frame with these dims.
+
+    ``shaped`` accounts for the optional dense-reward header tail ("bite G"): +8 bytes
+    (deltaTerritory f32 + elimsByLearner i32). The tensor payload is identical either way.
+    """
     floats = max_areas * NODE_W + player_count * PLAYER_W + BOARD_W + num_edges * EDGE_W
     ints = num_edges * 2
-    return HEADER_BYTES + floats * 4 + ints * 4
+    header = HEADER_BYTES_SHAPED if shaped else HEADER_BYTES
+    return header + floats * 4 + ints * 4
 
 
-def parse_frame(buf: bytes | bytearray | memoryview) -> ObsFrame:
+def parse_frame(buf: bytes | bytearray | memoryview, *, shaped: bool = False) -> ObsFrame:
     """Parse a single frame body (NO length prefix) into an :class:`ObsFrame`.
+
+    ``shaped`` selects the dense-reward header variant ("bite G"): the env-server emits it
+    only under ``--reward-shaping`` and a :class:`~dicewars_ppo.env.DiceWarsEnv` configured
+    with a persona shaping coefficient parses with ``shaped=True``. The flag MUST match how
+    the frame was serialized — a mismatch makes the header size wrong and is caught loudly by
+    the byte-length check below (the +8-byte tail can never coincide with a different num_edges
+    for the same dims, since one edge is 36 bytes), so a misconfig fails here, never silently.
 
     Raises:
         ValueError: bad magic, an ``encodingVersion`` mismatch, or a byte length
-            inconsistent with the header dims.
+            inconsistent with the header dims (incl. a shaped/unshaped parse mismatch).
     """
     buf = bytes(buf)
-    if len(buf) < HEADER_BYTES:
-        raise ValueError(f"frame is {len(buf)} bytes < {HEADER_BYTES}-byte header")
+    header_struct = HEADER_STRUCT_SHAPED if shaped else HEADER_STRUCT
+    header_bytes = HEADER_BYTES_SHAPED if shaped else HEADER_BYTES
+    if len(buf) < header_bytes:
+        raise ValueError(
+            f"frame is {len(buf)} bytes < {header_bytes}-byte header (shaped={shaped})"
+        )
 
-    (
-        magic,
-        encoding_version,
-        max_areas,
-        player_count,
-        num_edges,
-        active_player_id,
-        turn_number,
-        terminal,
-        winner,
-        won,
-        truncated,
-        placement,
-    ) = HEADER_STRUCT.unpack_from(buf, 0)
+    delta_territory = 0.0
+    elims_by_learner = 0
+    if shaped:
+        (
+            magic,
+            encoding_version,
+            max_areas,
+            player_count,
+            num_edges,
+            active_player_id,
+            turn_number,
+            terminal,
+            winner,
+            won,
+            truncated,
+            placement,
+            delta_territory,
+            elims_by_learner,
+        ) = header_struct.unpack_from(buf, 0)
+    else:
+        (
+            magic,
+            encoding_version,
+            max_areas,
+            player_count,
+            num_edges,
+            active_player_id,
+            turn_number,
+            terminal,
+            winner,
+            won,
+            truncated,
+            placement,
+        ) = header_struct.unpack_from(buf, 0)
 
     if magic != OBS_FRAME_MAGIC:
         raise ValueError(
@@ -133,14 +178,14 @@ def parse_frame(buf: bytes | bytearray | memoryview) -> ObsFrame:
             f"dicewars_ppo.constants.ENCODING_VERSION and the column widths together"
         )
 
-    expected = expected_frame_bytes(max_areas, player_count, num_edges)
+    expected = expected_frame_bytes(max_areas, player_count, num_edges, shaped=shaped)
     if len(buf) != expected:
         raise ValueError(
             f"frame is {len(buf)} bytes, expected {expected} for maxAreas={max_areas} "
-            f"playerCount={player_count} numEdges={num_edges}"
+            f"playerCount={player_count} numEdges={num_edges} (shaped={shaped})"
         )
 
-    off = HEADER_BYTES
+    off = header_bytes
 
     def take_f32(count: int) -> tuple[np.ndarray, int]:
         a = np.frombuffer(buf, dtype=F32, count=count, offset=off)
@@ -175,16 +220,19 @@ def parse_frame(buf: bytes | bytearray | memoryview) -> ObsFrame:
         board=board.astype(np.float32).copy(),
         edges=edges.astype(np.float32).reshape(num_edges, EDGE_W),
         edge_index=edge_index.astype(np.int32).reshape(num_edges, 2),
+        delta_territory=float(delta_territory),
+        elims_by_learner=int(elims_by_learner),
     )
 
 
-def serialize_frame(frame: ObsFrame) -> bytes:
+def serialize_frame(frame: ObsFrame, *, shaped: bool = False) -> bytes:
     """Serialize an :class:`ObsFrame` back to its body bytes (NO length prefix).
 
     The byte-exact inverse of :func:`parse_frame` — used by the round-trip parity
     test and as a debugging aid. The env-server does the real serialization in JS
     (``serializeObsFrame``); this mirror exists so the Python codec can be checked
-    hermetically without a live Node process.
+    hermetically without a live Node process. ``shaped`` appends the dense-reward tail
+    (``delta_territory``/``elims_by_learner``), matching the JS emitter.
     """
     nodes = np.ascontiguousarray(frame.nodes, dtype=F32)
     players = np.ascontiguousarray(frame.players, dtype=F32)
@@ -198,7 +246,7 @@ def serialize_frame(frame: ObsFrame) -> bytes:
     _assert_shape("edges", edges, (frame.num_edges, EDGE_W))
     _assert_shape("edge_index", edge_index, (frame.num_edges, 2))
 
-    header = HEADER_STRUCT.pack(
+    base_fields = (
         OBS_FRAME_MAGIC,
         frame.encoding_version,
         frame.max_areas,
@@ -212,6 +260,12 @@ def serialize_frame(frame: ObsFrame) -> bytes:
         frame.truncated,
         float(frame.placement),
     )
+    if shaped:
+        header = HEADER_STRUCT_SHAPED.pack(
+            *base_fields, float(frame.delta_territory), int(frame.elims_by_learner)
+        )
+    else:
+        header = HEADER_STRUCT.pack(*base_fields)
     return b"".join(
         [
             header,
@@ -245,14 +299,17 @@ def recv_all(sock: _socket.socket, n: int) -> bytes:
     return b"".join(chunks)
 
 
-def recv_frame(sock: _socket.socket, max_bytes: int | None = None) -> ObsFrame:
+def recv_frame(
+    sock: _socket.socket, max_bytes: int | None = None, *, shaped: bool = False
+) -> ObsFrame:
     """Read one length-prefixed frame ``[u32 LE len][body]`` and parse it.
 
     ``max_bytes`` bounds the untrusted ``u32`` length prefix BEFORE the body is
     read, so a desynced/corrupt stream fails loudly here instead of buffering up to
     ~4 GiB (an OOM/hang) waiting on a body that never matches. Callers pass the
-    largest legal body for their dims (``expected_frame_bytes(.., max_edges)``);
-    ``None`` leaves it unbounded (hermetic tests with trusted input).
+    largest legal body for their dims (``expected_frame_bytes(.., max_edges, shaped=…)``);
+    ``None`` leaves it unbounded (hermetic tests with trusted input). ``shaped`` is
+    forwarded to :func:`parse_frame` for the dense-reward header variant.
     """
     (length,) = _LEN_STRUCT.unpack(recv_all(sock, _LEN_STRUCT.size))
     if max_bytes is not None and length > max_bytes:
@@ -260,7 +317,7 @@ def recv_frame(sock: _socket.socket, max_bytes: int | None = None) -> ObsFrame:
             f"frame length {length} exceeds max {max_bytes} — stream desync or corrupt "
             f"prefix (refusing to buffer; check the wire framing / encodingVersion)."
         )
-    return parse_frame(recv_all(sock, length))
+    return parse_frame(recv_all(sock, length), shaped=shaped)
 
 
 def send_action(sock: _socket.socket, index: int) -> None:

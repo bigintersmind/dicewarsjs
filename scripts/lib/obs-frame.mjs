@@ -16,7 +16,7 @@
  *
  * Layout (all little-endian, tightly packed, 4-byte stride, NO alignment padding):
  *
- *   HEADER — 12 fields × 4 bytes = 48 bytes
+ *   HEADER — 12 base fields × 4 bytes = 48 bytes (+ 2 optional shaped fields → 56 bytes)
  *     [ 0] magic           i32  = OBS_FRAME_MAGIC ("DWOB") — sanity/version guard
  *     [ 1] encodingVersion i32  = ENCODING_VERSION (NOT hardcoded; bumps with the encoder)
  *     [ 2] maxAreas        i32  = node-tensor height (policy config.maxAreas)
@@ -32,6 +32,17 @@
  *                                 terminal: a win or the learner's elimination). Only
  *                                 meaningful when terminal=1.
  *     [11] placement       f32  = learner placement scaled 1=first … 0=last (terminal=1)
+ *     --- the two fields below exist ONLY when `frame.shaped` (the dense-reward opt-in,
+ *         "bite G"). Absent by default ⇒ a frame is byte-identical to today. They carry
+ *         RAW per-step measurements; the trainer applies the persona reward weights
+ *         (`--territory-reward-coef`/`--elim-bounty`) Python-side. The observation tensor
+ *         is unchanged, so this is NOT an ENCODING_VERSION bump — only a wire-frame variant
+ *         negotiated out-of-band by the env-server's `--reward-shaping` flag. See
+ *         docs/ml-bot/PERSONAS.md §2/§8 and dicewars_ppo.constants.HEADER_STRUCT_SHAPED. ---
+ *     [12] deltaTerritory  f32  = net change in the learner's owned-territory count since its
+ *                                 PREVIOUS decision frame (Expansionist; first frame = 0)
+ *     [13] elimsByLearner  i32  = players the learner eliminated since its previous decision
+ *                                 frame (Predator; non-negative)
  *   TENSOR PAYLOAD (row-major)
  *     nodes      f32  maxAreas * NODE_FEATURES.length
  *     players    f32  playerCount * PLAYER_FEATURES.length
@@ -65,6 +76,13 @@ const EDGE_W = EDGE_FEATURES.length;
 
 const HEADER_FIELDS = 12;
 const HEADER_BYTES = HEADER_FIELDS * 4;
+/* Shaped variant ("bite G"): the base header + deltaTerritory(f32) + elimsByLearner(i32). */
+const SHAPED_HEADER_FIELDS = 14;
+const SHAPED_HEADER_BYTES = SHAPED_HEADER_FIELDS * 4;
+/** Header byte length for a frame, accounting for the optional shaped (dense-reward) tail. */
+function headerBytesFor(shaped) {
+  return shaped ? SHAPED_HEADER_BYTES : HEADER_BYTES;
+}
 
 /**
  * Assemble the plain frame object the serializer consumes, from the encoder's
@@ -83,6 +101,13 @@ const HEADER_BYTES = HEADER_FIELDS * 4;
  * @param {number} [args.truncated=0] - 1 if the terminal is a maxTurns stalemate cap
  *   (Gym truncation), else 0 (genuine terminal). Only meaningful when `terminal=1`.
  * @param {number} [args.placement=0] - scaled placement (1=first … 0=last).
+ * @param {boolean} [args.shaped=false] - emit the dense-reward header tail ("bite G").
+ *   When false (default) the frame is byte-identical to today. When true the two raw
+ *   per-step measurements below ride the wire for the persona reward (Expansionist/Predator).
+ * @param {number} [args.deltaTerritory=0] - net learner-territory change since its previous
+ *   decision frame; only serialized when `shaped`.
+ * @param {number} [args.elimsByLearner=0] - players the learner eliminated since its previous
+ *   decision frame; only serialized when `shaped`.
  * @returns {ObsFrame}
  */
 export function buildObsFrame({
@@ -94,6 +119,9 @@ export function buildObsFrame({
   won = 0,
   truncated = 0,
   placement = 0,
+  shaped = false,
+  deltaTerritory = 0,
+  elimsByLearner = 0,
 }) {
   return {
     magic: OBS_FRAME_MAGIC,
@@ -108,6 +136,9 @@ export function buildObsFrame({
     won,
     truncated,
     placement,
+    shaped,
+    deltaTerritory,
+    elimsByLearner,
     nodes: encoded.nodes,
     players: encoded.players,
     board: encoded.board,
@@ -130,6 +161,9 @@ export function buildObsFrame({
  * @property {number} won
  * @property {number} truncated
  * @property {number} placement
+ * @property {boolean} [shaped]         - true ⇒ the deltaTerritory/elimsByLearner tail is on the wire
+ * @property {number} [deltaTerritory]  - net learner-territory delta since last frame (shaped only)
+ * @property {number} [elimsByLearner]  - learner-attributed eliminations since last frame (shaped only)
  * @property {number[][]} nodes      - [maxAreas][NODE_FEATURES.length]
  * @property {number[][]} players    - [playerCount][PLAYER_FEATURES.length]
  * @property {number[]}   board      - [BOARD_FEATURES.length]
@@ -163,14 +197,16 @@ export function serializeObsFrame(frame) {
   assertShape('edges', frame.edges, numEdges, EDGE_W);
   assertShape('edgeIndex', frame.edgeIndex, numEdges, 2);
 
+  const shaped = Boolean(frame.shaped);
+  const headerBytes = headerBytesFor(shaped);
   const floatCount = maxAreas * NODE_W + playerCount * PLAYER_W + BOARD_W + numEdges * EDGE_W;
   const intCount = numEdges * 2;
-  const totalBytes = HEADER_BYTES + floatCount * 4 + intCount * 4;
+  const totalBytes = headerBytes + floatCount * 4 + intCount * 4;
 
   const buf = Buffer.allocUnsafe(totalBytes);
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
 
-  // Header
+  // Header (base 12 fields; the shaped tail is written only when `frame.shaped`).
   view.setInt32(0, frame.magic, true);
   view.setInt32(4, frame.encodingVersion, true);
   view.setInt32(8, maxAreas, true);
@@ -183,8 +219,12 @@ export function serializeObsFrame(frame) {
   view.setInt32(36, frame.won, true);
   view.setInt32(40, frame.truncated, true);
   view.setFloat32(44, frame.placement, true);
+  if (shaped) {
+    view.setFloat32(48, frame.deltaTerritory ?? 0, true);
+    view.setInt32(52, frame.elimsByLearner ?? 0, true);
+  }
 
-  let off = HEADER_BYTES;
+  let off = headerBytes;
   off = writeFloatRows(view, off, frame.nodes);
   off = writeFloatRows(view, off, frame.players);
   off = writeFloatVec(view, off, frame.board);
@@ -203,12 +243,16 @@ export function serializeObsFrame(frame) {
  * Python parser's job — used by the round-trip parity test and by JS clients.
  *
  * @param {Buffer|Uint8Array|ArrayBuffer} input
+ * @param {{shaped?: boolean}} [opts] - `shaped: true` parses the dense-reward header tail
+ *   (deltaTerritory/elimsByLearner, "bite G"). MUST match how the frame was serialized — a
+ *   mismatch yields the wrong header size and is caught loudly by the byte-length check below.
  * @returns {ObsFrame}
  */
-export function parseObsFrame(input) {
+export function parseObsFrame(input, { shaped = false } = {}) {
   const buf = toBuffer(input);
-  if (buf.byteLength < HEADER_BYTES) {
-    throw new Error(`parseObsFrame: ${buf.byteLength} bytes < ${HEADER_BYTES}-byte header.`);
+  const headerBytes = headerBytesFor(shaped);
+  if (buf.byteLength < headerBytes) {
+    throw new Error(`parseObsFrame: ${buf.byteLength} bytes < ${headerBytes}-byte header.`);
   }
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
 
@@ -230,18 +274,21 @@ export function parseObsFrame(input) {
   const won = view.getInt32(36, true);
   const truncated = view.getInt32(40, true);
   const placement = view.getFloat32(44, true);
+  const deltaTerritory = shaped ? view.getFloat32(48, true) : 0;
+  const elimsByLearner = shaped ? view.getInt32(52, true) : 0;
 
   const floatCount = maxAreas * NODE_W + playerCount * PLAYER_W + BOARD_W + numEdges * EDGE_W;
   const intCount = numEdges * 2;
-  const expectedBytes = HEADER_BYTES + floatCount * 4 + intCount * 4;
+  const expectedBytes = headerBytes + floatCount * 4 + intCount * 4;
   if (buf.byteLength !== expectedBytes) {
     throw new Error(
       `parseObsFrame: ${buf.byteLength} bytes ≠ expected ${expectedBytes} for ` +
-        `maxAreas=${maxAreas} playerCount=${playerCount} numEdges=${numEdges}.`
+        `maxAreas=${maxAreas} playerCount=${playerCount} numEdges=${numEdges} ` +
+        `(shaped=${shaped}). A shaped/unshaped parse mismatch lands here.`
     );
   }
 
-  let off = HEADER_BYTES;
+  let off = headerBytes;
   const nodes = readFloatRows(view, off, maxAreas, NODE_W);
   off += maxAreas * NODE_W * 4;
   const players = readFloatRows(view, off, playerCount, PLAYER_W);
@@ -265,6 +312,9 @@ export function parseObsFrame(input) {
     won,
     truncated,
     placement,
+    shaped,
+    deltaTerritory,
+    elimsByLearner,
     nodes,
     players,
     board,

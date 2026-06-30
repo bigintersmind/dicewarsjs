@@ -23,6 +23,7 @@
  *        [--snapshot-manifest=<path>] [--snapshot-pool-cap=40]
  *        [--reserve-baselines=3] [--pfsp-epsilon=0.05] [--pfsp-k=2]
  *        [--snapshot-store=memory|disk] [--league-state-dir=<dir>] [--league-dump-every=50]
+ *        [--reward-shaping=0|1]
  *
  * The PFSP league flags (`--snapshot-*`, `--reserve-baselines`, `--pfsp-*`) only matter once a
  * snapshot pool exists; without `--snapshot-manifest` the league runs in empty-pool fixed-field mode
@@ -55,6 +56,7 @@ import {
   writeJsonAtomic,
 } from './lib/ppo-league-store.mjs';
 import { buildObsFrame, serializeObsFrame } from './lib/obs-frame.mjs';
+import { createRewardShapingTracker } from './lib/ppo-reward-shaping.mjs';
 
 const STATUS = 0;
 const ACTION = 1;
@@ -105,6 +107,13 @@ const KNOWN_FLAGS = new Set([
   'snapshot-store',
   'league-state-dir',
   'league-dump-every',
+  /*
+   * Dense-reward opt-in (bite G / [D-28], docs/ml-bot/PERSONAS.md §2/§8). `--reward-shaping=1`
+   * makes the server EMIT the shaped obs-frame tail (raw per-step deltaTerritory + elimsByLearner)
+   * for the Expansionist/Predator personas. Absent / 0 ⇒ byte-identical frames (the B5/B6 opt-in
+   * discipline). The reward WEIGHTS live trainer-side; the server only measures + emits.
+   */
+  'reward-shaping',
 ]);
 
 export function parseArgs(argv) {
@@ -297,6 +306,14 @@ async function main() {
   const seedBase = numArg(opts, 'seed-base', 1);
   // Per-decision watchdog deadline (ms). Generous — inference is sub-second; 0 disables it.
   const decisionTimeoutMs = numArg(opts, 'decision-timeout-ms', 120000);
+
+  /*
+   * Dense-reward shaping (bite G). When on, the server emits the shaped obs-frame tail and a
+   * per-episode tracker measures the learner's net territory delta + attributed eliminations.
+   * Off ⇒ `shapingTracker` is null and every emitted frame stays byte-identical to today.
+   */
+  const rewardShaping = numArg(opts, 'reward-shaping', 0) !== 0;
+  const shapingTracker = rewardShaping ? createRewardShapingTracker(learnerSeat) : null;
   /*
    * The opponent league (ml-bot task B — [D-22]). With no `--snapshot-manifest` the pool is empty, so
    * every `draw()` returns the cycled baseline field — content-identical to the static field task A
@@ -443,7 +460,14 @@ async function main() {
    */
   const chooseAction = (encoded, botState) => {
     decisionsThisEpisode++;
-    const buf = serializeObsFrame(buildObsFrame({ encoded, botState, maxAreas }));
+    let shapingFields;
+    if (shapingTracker) {
+      // The learner's own owned-territory count right now (myPlayer === learnerSeat).
+      const terr = botState.players[botState.myPlayer].territories;
+      const { deltaTerritory, elimsByLearner } = shapingTracker.frameSignals(terr);
+      shapingFields = { shaped: true, deltaTerritory, elimsByLearner };
+    }
+    const buf = serializeObsFrame(buildObsFrame({ encoded, botState, maxAreas, ...shapingFields }));
     Atomics.store(ctrl, STATUS, ST_WAITING);
     worker.postMessage({ type: 'obs', frame: frameToArrayBuffer(buf) });
 
@@ -499,6 +523,19 @@ async function main() {
     if (lostError) throw lostError;
   };
 
+  /*
+   * The onTurn hook. Always re-raises a lost learner (failIfLost); under reward shaping it ALSO
+   * folds the just-completed turn's eliminations into the learner's attributed-kill count BEFORE
+   * the failIfLost throw, so a kill on the learner's final (game-ending) turn is still credited
+   * for the terminal frame. Off ⇒ the bare failIfLost, byte-identical to today.
+   */
+  const onTurnFn = shapingTracker
+    ? (_turnNumber, state, currentPlayerId) => {
+        shapingTracker.recordTurn(state, currentPlayerId);
+        failIfLost();
+      }
+    : failIfLost;
+
   let played = 0;
   /*
    * Consecutive zero-decision episodes skipped without surfacing a frame; a long run of these means
@@ -543,6 +580,8 @@ async function main() {
       store.refreshGlobal();
       const seed = seedBase + ep;
       decisionsThisEpisode = 0;
+      // Clear the per-episode dense-reward cursors (territory baseline + kill count). No-op when off.
+      if (shapingTracker) shapingTracker.reset();
       // Draw this episode's opponent field from the league (B1: the empty-pool baseline field).
       const { opponents, drawn } = league.draw(seed);
       let result;
@@ -554,7 +593,7 @@ async function main() {
           maxAreas,
           maxTurns,
           chooseAction,
-          onTurn: failIfLost,
+          onTurn: onTurnFn,
           // End the episode at the learner's elimination, not game-over (PPO terminal; ~2×).
           terminateOnElimination: true,
         });
@@ -619,6 +658,15 @@ async function main() {
        */
       const termState = createBotState(result.finalState, learnerSeat);
       const termEnc = encodeObservationForInference(termState, { maxAreas });
+      let termShapingFields;
+      if (shapingTracker) {
+        // The last realized interval up to the terminal: net territory change since the learner's
+        // final decision (its elimination drives this to -prevTerr) and any kill on its last turn
+        // (the winning elimination for Predator). recordTurn already folded that turn via onTurn.
+        const terr = termState.players[learnerSeat].territories;
+        const { deltaTerritory, elimsByLearner } = shapingTracker.frameSignals(terr);
+        termShapingFields = { shaped: true, deltaTerritory, elimsByLearner };
+      }
       const termFrame = buildObsFrame({
         encoded: termEnc,
         botState: termState,
@@ -628,6 +676,7 @@ async function main() {
         won: result.won,
         truncated: result.truncated ? 1 : 0,
         placement: result.placement,
+        ...termShapingFields,
       });
       worker.postMessage({
         type: 'terminal',

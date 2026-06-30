@@ -96,6 +96,44 @@ describe('serializeObsFrame — shape & dim validation', () => {
   });
 });
 
+describe('serializeObsFrame / parseObsFrame — shaped (bite G) variant', () => {
+  /** A valid shaped frame: base fields + the dense-reward tail. */
+  function shapedFrame(opts = {}) {
+    return { ...validFrame(opts), shaped: true, deltaTerritory: -2.5, elimsByLearner: 3 };
+  }
+
+  it('round-trips the dense-reward fields when shaped on both sides', () => {
+    const parsed = parseObsFrame(serializeObsFrame(shapedFrame()), { shaped: true });
+    expect(parsed.shaped).toBe(true);
+    expect(parsed.deltaTerritory).toBeCloseTo(-2.5);
+    expect(parsed.elimsByLearner).toBe(3);
+    // The base payload is unchanged by the tail.
+    expect(parsed.numEdges).toBe(2);
+    expect(parsed.placement).toBe(0);
+  });
+
+  it('a shaped frame is exactly 8 bytes larger than its base equivalent', () => {
+    const base = serializeObsFrame(validFrame());
+    const shaped = serializeObsFrame(shapedFrame());
+    expect(shaped.byteLength).toBe(base.byteLength + 8);
+  });
+
+  it('an unshaped frame omits the tail (byte-identical to today) and reads 0 fields', () => {
+    // No `shaped` flag ⇒ today's exact bytes; parsing reports the dense fields as 0.
+    const parsed = parseObsFrame(serializeObsFrame(validFrame()));
+    expect(parsed.shaped).toBe(false);
+    expect(parsed.deltaTerritory).toBe(0);
+    expect(parsed.elimsByLearner).toBe(0);
+  });
+
+  it('rejects a shaped/unshaped parse mismatch via the length guard', () => {
+    const shaped = serializeObsFrame(shapedFrame());
+    expect(() => parseObsFrame(shaped)).toThrow(/bytes ≠ expected/); // shaped bytes, base parse
+    const base = serializeObsFrame(validFrame());
+    expect(() => parseObsFrame(base, { shaped: true })).toThrow(/bytes ≠ expected/);
+  });
+});
+
 describe('parseObsFrame — size & type guards', () => {
   it('rejects a buffer smaller than the fixed header', () => {
     expect(() => parseObsFrame(Buffer.alloc(10))).toThrow(/< 48-byte header/);

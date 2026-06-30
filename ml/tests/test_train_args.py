@@ -65,6 +65,28 @@ def test_parser_reward_mode_defaults_and_parse(tmp_path):
     assert b.speed_ref == 200
 
 
+def test_parser_dense_shaping_defaults_and_parse(tmp_path):
+    # Dense shaping (bite G) defaults to off (both coefs 0, clip unset) → unshaped wire.
+    a = _args(tmp_path)
+    assert a.territory_reward_coef == 0.0
+    assert a.elim_bounty == 0.0
+    assert a.shaping_clip is None
+    # The Expansionist / Predator runs set their coef + an optional clip.
+    b = _args(
+        tmp_path,
+        extra=["--territory-reward-coef", "0.02", "--elim-bounty", "0.1", "--shaping-clip", "0.5"],
+    )
+    assert b.territory_reward_coef == 0.02
+    assert b.elim_bounty == 0.1
+    assert b.shaping_clip == 0.5
+
+
+def test_validate_rejects_negative_dense_coef(tmp_path):
+    a = _args(tmp_path, extra=["--elim-bounty", "-0.1"])
+    with pytest.raises(SystemExit, match="elim-bounty"):
+        tr._validate(a)
+
+
 def test_validate_rejects_speed_bonus_without_ref(tmp_path):
     a = _args(tmp_path, extra=["--terminal-speed-bonus", "0.5"])
     with pytest.raises(SystemExit, match="speed-ref"):
@@ -78,7 +100,17 @@ def test_validate_accepts_speed_bonus_with_ref(tmp_path):
     assert a.speed_ref == 200
 
 
-@pytest.mark.parametrize("missing", ["reward_mode", "terminal_speed_bonus", "speed_ref"])
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "reward_mode",
+        "terminal_speed_bonus",
+        "speed_ref",
+        "territory_reward_coef",
+        "elim_bounty",
+        "shaping_clip",
+    ],
+)
 def test_validate_rejects_missing_reward_attr_drift_guard(tmp_path, missing):
     # train.py OWNS the reward flags, and _make_env_thunk/validate_reward_args read them via getattr
     # (to tolerate flag-less tracer/test namespaces). A future rename that decoupled a flag from its

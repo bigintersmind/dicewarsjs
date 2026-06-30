@@ -77,15 +77,19 @@ def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
         str(Path(args.snapshot_dir) / "manifest.json") if args.snapshot_dir else None
     )
 
-    # Reward shaping (persona roster, bite D — docs/ml-bot/PERSONAS.md). train.py-only flags read
-    # via getattr so the tracer (whose parser lacks them) stays byte-identical: an absent flag
-    # yields the [D-19] sparse-win defaults. All three are primitives (str/float/int|None) so the
-    # torch-free thunk stays primitive-only, and they are env-construction kwargs (reward is
-    # computed Python-side in env.step()), so NOTHING reaches the Node server_kwargs and the wire
-    # is untouched.
+    # Reward shaping (persona roster — PERSONAS.md). train.py-only flags read via getattr so the
+    # tracer (whose parser lacks them) stays byte-identical: an absent flag yields the [D-19]
+    # sparse-win defaults. All are primitives (str/float/int|None) so the torch-free thunk stays
+    # primitive-only. The bite-D terminal modes (reward_mode/speed bonus) are wire-free — computed
+    # from fields already on the wire. The bite-G DENSE coefs (territory/elim) ARE wire-touching: a
+    # non-zero coef makes DiceWarsEnv set `reward_shaping` in server_kwargs (the Node server then
+    # emits the shaped frame) and parse the shaped wire. Both default 0 ⇒ base wire, byte-identical.
     reward_mode = getattr(args, "reward_mode", "win")
     terminal_speed_bonus = getattr(args, "terminal_speed_bonus", 0.0)
     speed_ref = getattr(args, "speed_ref", None)
+    territory_reward_coef = getattr(args, "territory_reward_coef", 0.0)
+    elim_bounty = getattr(args, "elim_bounty", 0.0)
+    shaping_clip = getattr(args, "shaping_clip", None)
 
     def _thunk() -> DiceWarsEnv:
         return DiceWarsEnv(
@@ -94,6 +98,9 @@ def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
             reward_mode=reward_mode,
             terminal_speed_bonus=terminal_speed_bonus,
             speed_ref=speed_ref,
+            territory_reward_coef=territory_reward_coef,
+            elim_bounty=elim_bounty,
+            shaping_clip=shaping_clip,
             server_kwargs={
                 "opponents": args.opponents,
                 "max_turns": args.max_turns,
@@ -377,6 +384,23 @@ def validate_reward_args(args: argparse.Namespace) -> None:
         raise SystemExit(
             "--speed-ref must be a positive integer when --terminal-speed-bonus > 0 "
             f"(got {speed_ref})."
+        )
+    # Dense shaping coefs (bite G — Expansionist/Predator). Front-run DiceWarsEnv's own ValueErrors
+    # (which would otherwise surface as an opaque SubprocVecEnv worker-startup failure) with a clear
+    # launch-time SystemExit, mirroring the bite-D checks above. Both non-negative + finite; a clip,
+    # when set, must be > 0. math.isfinite mirrors the env's guard so inf/nan fail here too.
+    territory_coef = getattr(args, "territory_reward_coef", 0.0)
+    elim_bounty = getattr(args, "elim_bounty", 0.0)
+    shaping_clip = getattr(args, "shaping_clip", None)
+    if not (math.isfinite(territory_coef) and territory_coef >= 0):
+        raise SystemExit(
+            f"--territory-reward-coef must be a finite number >= 0 (got {territory_coef})."
+        )
+    if not (math.isfinite(elim_bounty) and elim_bounty >= 0):
+        raise SystemExit(f"--elim-bounty must be a finite number >= 0 (got {elim_bounty}).")
+    if shaping_clip is not None and not (math.isfinite(shaping_clip) and shaping_clip > 0):
+        raise SystemExit(
+            f"--shaping-clip must be a finite number > 0 when set (got {shaping_clip})."
         )
 
 

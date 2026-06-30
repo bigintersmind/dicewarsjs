@@ -22,6 +22,8 @@ from dicewars_ppo.wire import parse_frame, serialize_frame
 FIXTURES = Path(__file__).parent / "fixtures"
 GOLDEN_BIN = FIXTURES / "obs_frame_v2.bin"
 GOLDEN_JSON = FIXTURES / "obs_frame_v2.json"
+SHAPED_BIN = FIXTURES / "obs_frame_v2_shaped.bin"  # "bite G": dense-reward header tail
+SHAPED_JSON = FIXTURES / "obs_frame_v2_shaped.json"
 
 
 @pytest.fixture(scope="module")
@@ -99,3 +101,57 @@ def test_truncated_frame_raises() -> None:
 def test_magic_constant_is_dwob() -> None:
     # "DWOB" big-endian bytes → little-endian i32 the encoder writes.
     assert OBS_FRAME_MAGIC == int.from_bytes(b"DWOB", "big") == 0x44574F42
+
+
+# --- shaped frames ("bite G": the dense-reward header tail) -------------------------------------
+
+
+@pytest.fixture(scope="module")
+def shaped_bytes() -> bytes:
+    if not SHAPED_BIN.is_file():
+        pytest.skip(f"missing {SHAPED_BIN} — run `node {FIXTURES / 'gen_obs_frame_fixture.mjs'}`")
+    return SHAPED_BIN.read_bytes()
+
+
+@pytest.fixture(scope="module")
+def shaped_json() -> dict:
+    return json.loads(SHAPED_JSON.read_text())
+
+
+def test_shaped_parse_matches_golden_json(shaped_bytes: bytes, shaped_json: dict) -> None:
+    # The JS serializer's shaped frame is +8 bytes (deltaTerritory f32 + elimsByLearner i32) and
+    # the Python parser reproduces both raw signals exactly — the cross-language parity that keeps
+    # the trainer's dense reward in lockstep with the env-server's measurements.
+    assert len(shaped_bytes) == len(GOLDEN_BIN.read_bytes()) + 8
+    frame = parse_frame(shaped_bytes, shaped=True)
+    assert frame.delta_territory == pytest.approx(shaped_json["deltaTerritory"]) == -2.5
+    assert frame.elims_by_learner == shaped_json["elimsByLearner"] == 3
+    # The base fields and tensors are unchanged by the tail (same payload as the base golden).
+    assert frame.placement == pytest.approx(shaped_json["placement"])
+    assert frame.edges.shape == (frame.num_edges, 7)
+    assert frame.edges[-1, 3] == 1.0  # STOP row intact after the header grew
+
+
+def test_shaped_round_trip_is_byte_identical(shaped_bytes: bytes) -> None:
+    assert serialize_frame(parse_frame(shaped_bytes, shaped=True), shaped=True) == shaped_bytes
+
+
+def test_parsing_shaped_bytes_as_base_raises(shaped_bytes: bytes) -> None:
+    # A shaped/unshaped MISMATCH must fail loud, never silently mis-read: a base parser computes the
+    # wrong expected length for the +8-byte frame (the tail can't alias a different num_edges, since
+    # one edge is 36 bytes) → the byte-length guard rejects it.
+    with pytest.raises(ValueError, match="bytes"):
+        parse_frame(shaped_bytes, shaped=False)
+
+
+def test_parsing_base_bytes_as_shaped_raises(golden_bytes: bytes) -> None:
+    with pytest.raises(ValueError, match="bytes"):
+        parse_frame(golden_bytes, shaped=True)
+
+
+def test_base_frame_has_zero_shaped_fields(golden_bytes: bytes) -> None:
+    # An unshaped frame parses with the dense fields defaulted to 0 (so a base run's ObsFrame is
+    # well-formed and step_reward over it is 0).
+    frame = parse_frame(golden_bytes)
+    assert frame.delta_territory == 0.0
+    assert frame.elims_by_learner == 0

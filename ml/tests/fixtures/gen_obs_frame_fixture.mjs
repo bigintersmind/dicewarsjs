@@ -2,10 +2,11 @@
  * Generate the cross-language golden frame fixture for `dicewars_ppo.wire`.
  *
  * Writes `obs_frame_v2.bin` (the exact bytes `serializeObsFrame` produces) and
- * `obs_frame_v2.json` (the same values as plain JSON) next to this file. The
- * Python test (`ml/tests/test_ppo_wire.py`) parses the `.bin` and asserts every
- * field equals the `.json` — a hermetic, byte-exact check that the Python parser
- * matches the JS serializer, with NO live Node process at test time.
+ * `obs_frame_v2.json` (the same values as plain JSON) next to this file, PLUS the
+ * shaped-frame pair `obs_frame_v2_shaped.bin`/`.json` ("bite G": the dense-reward
+ * header tail). The Python test (`ml/tests/test_ppo_wire.py`) parses each `.bin` and
+ * asserts every field equals the `.json` — a hermetic, byte-exact check that the
+ * Python parser matches the JS serializer, with NO live Node process at test time.
  *
  * Re-run after any change to `scripts/lib/obs-frame.mjs` or the v-bump:
  *   node ml/tests/fixtures/gen_obs_frame_fixture.mjs
@@ -66,4 +67,25 @@ const bytes = serializeObsFrame(frame);
 writeFileSync(path.join(HERE, 'obs_frame_v2.bin'), bytes);
 writeFileSync(path.join(HERE, 'obs_frame_v2.json'), `${JSON.stringify(frame, null, 2)}\n`);
 
-process.stdout.write(`wrote obs_frame_v2.bin (${bytes.byteLength} bytes) + obs_frame_v2.json\n`);
+/*
+ * Shaped variant ("bite G"): the SAME base frame plus the dense-reward header tail. f32-exact
+ * deltaTerritory (a negative-power-of-two fraction) and an integer elimsByLearner make a layout/
+ * endianness bug obvious. `shaped: true` makes serializeObsFrame emit the 56-byte header.
+ */
+const shapedFrame = {
+  ...frame,
+  shaped: true,
+  deltaTerritory: -2.5, // net territory change since the prior frame (negative = land lost)
+  elimsByLearner: 3, // players the learner eliminated since the prior frame
+};
+const shapedBytes = serializeObsFrame(shapedFrame);
+writeFileSync(path.join(HERE, 'obs_frame_v2_shaped.bin'), shapedBytes);
+writeFileSync(
+  path.join(HERE, 'obs_frame_v2_shaped.json'),
+  `${JSON.stringify(shapedFrame, null, 2)}\n`
+);
+
+process.stdout.write(
+  `wrote obs_frame_v2.bin (${bytes.byteLength} bytes) + obs_frame_v2.json + ` +
+    `obs_frame_v2_shaped.bin (${shapedBytes.byteLength} bytes) + obs_frame_v2_shaped.json\n`
+);

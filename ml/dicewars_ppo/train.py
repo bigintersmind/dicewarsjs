@@ -170,6 +170,34 @@ def build_parser() -> argparse.ArgumentParser:
         "that is > 0. A win at turns >= T_ref earns no speed bonus; calibrate from the Conqueror "
         "control's mean turns-to-win.",
     )
+    # Dense per-step shaping (bite G — Expansionist/Predator). Both default 0 ⇒ no shaping ⇒ base
+    # (unshaped) wire, byte-identical to today. A non-zero coef flips the env to parse shaped frames
+    # AND launches the env-server with --reward-shaping. Unlike --reward-mode/--terminal-speed-bonus
+    # (which read fields already on the wire), these add a wire-frame variant — but NOT an
+    # ENCODING_VERSION bump (the observation tensor is unchanged; see PERSONAS.md §2/§8).
+    p.add_argument(
+        "--territory-reward-coef",
+        type=float,
+        default=0.0,
+        help="Expansionist (bite G): dense reward = coef × NET learner-territory change per step. "
+        "> 0 ⇒ shaped frames (env-server --reward-shaping). Default 0 = off (unshaped wire).",
+    )
+    p.add_argument(
+        "--elim-bounty",
+        type=float,
+        default=0.0,
+        help="Predator (bite G): dense reward += bounty × players the learner eliminated per step "
+        "(incl. the game-ending kill). > 0 ⇒ shaped frames. Keep small vs the terminal win "
+        "(PERSONAS §6) so the bot won't take losing fights for a kill. Default 0 = off.",
+    )
+    p.add_argument(
+        "--shaping-clip",
+        type=float,
+        default=None,
+        help="Optional per-step cap on the dense shaping magnitude → [-clip, +clip] (PERSONAS §6 "
+        "'cap per-turn'); bounds the variance of a big swing (e.g. the territory wipe at the "
+        "learner's elimination). Unset = unbounded.",
+    )
     return p
 
 
@@ -182,7 +210,14 @@ def _validate(args: argparse.Namespace) -> None:
     # SILENTLY fall back to the sparse-win default and train the wrong objective for a multi-hour
     # persona run. Fail loud here instead — a missing attr on THIS path is a wiring bug, not a
     # tolerated absence.
-    for _attr in ("reward_mode", "terminal_speed_bonus", "speed_ref"):
+    for _attr in (
+        "reward_mode",
+        "terminal_speed_bonus",
+        "speed_ref",
+        "territory_reward_coef",
+        "elim_bounty",
+        "shaping_clip",
+    ):
         if not hasattr(args, _attr):
             raise SystemExit(f"internal: train.py arg '{_attr}' missing — flag/getattr key drift?")
     _train_common.validate_reward_args(args)
@@ -434,6 +469,15 @@ def train(args: argparse.Namespace) -> Path:
             "from_scratch": bool(args.from_scratch),
             # None when from-scratch (no BC prior); the checkpoint path otherwise (provenance only).
             "warm_started_from": None if args.from_scratch else str(args.checkpoint),
+            # Reward objective that shaped this policy (the persona axis — PERSONAS.md). Provenance
+            # only; lets the behavior-eval gate / RESULTS row see which objective produced a weights
+            # file without re-deriving it from the launch flags.
+            "reward_mode": str(args.reward_mode),
+            "terminal_speed_bonus": float(args.terminal_speed_bonus),
+            "speed_ref": None if args.speed_ref is None else int(args.speed_ref),
+            "territory_reward_coef": float(args.territory_reward_coef),
+            "elim_bounty": float(args.elim_bounty),
+            "shaping_clip": None if args.shaping_clip is None else float(args.shaping_clip),
         },
     )
     torch.save(repacked, out_path)

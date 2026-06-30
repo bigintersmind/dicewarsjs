@@ -88,6 +88,7 @@ class EnvServerProcess:
         snapshot_store: str | None = None,
         league_state_dir: str | None = None,
         league_dump_every: int | None = None,
+        reward_shaping: bool = False,
         host: str = "127.0.0.1",
         node_bin: str | None = None,
         start_timeout_s: float = 30.0,
@@ -147,6 +148,10 @@ class EnvServerProcess:
             argv.append(f"--league-state-dir={league_state_dir}")
         if league_dump_every is not None:
             argv.append(f"--league-dump-every={league_dump_every}")
+        # Dense-reward emission (bite G). Forwarded only when True, so an unset value yields argv
+        # byte-identical to today and the Node server stays in its base (unshaped) wire mode.
+        if reward_shaping:
+            argv.append("--reward-shaping=1")
         self._argv = argv
 
     def start(self) -> EnvServerProcess:

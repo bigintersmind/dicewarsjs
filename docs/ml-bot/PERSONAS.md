@@ -19,6 +19,16 @@
 > **with no wire change**. The dense **Expansionist**/**Predator** rewards still need the per-frame
 > wire scalar ("bite G"). The eval-harness side ("bite E1") can already gate a persona's exported
 > weights. So the §2 "the reward is one line" framing below is now historical — see that knob.
+>
+> **Built since (2026-06-29, "bite F" — the persona launcher):** the shodan launcher
+> `scripts/shodan/ppo-train.sh` now has a **`PERSONA={conqueror,blitz,survivor}`** knob that wires the
+> bite-D reward objective + a default `RUN_NAME` + a warm-start from `runs/ppo-long/ppo.pt` (the BEAT
+> actor, **not** the BC net). All other HPs stay shared (set once for the batch) so the control is
+> matched on every axis but the reward. An unset `PERSONA` is byte-identical to the BEAT-run launcher.
+> Concurrency is collision-free (per-`RUN_NAME` dirs + OS-assigned ephemeral env-server ports), so the
+> three flag-only personas run together for ≈ the cost of one — see the RUNBOOK "persona" section. So
+> §8 steps 1–3 are now **executable**: the only thing left before a batch is the GPU time itself (plus
+> "bite G" for the two dense personas).
 
 ---
 
@@ -161,12 +171,18 @@ cap** — precisely the passivity failure §6 warns about. `win` mode is 0 on a 
 can't be a win), so this only disciplines the placement path. Survivor still gets a dense placement
 signal from the decisive majority of games that end in a genuine `GAME_OVER`.
 
-**Warm-start critic note.** A Survivor warm-started from `ppo-long`'s win-trained value head starts
-**miscalibrated**: that head predicts ≈win-rate (mostly 0, ~0.25 mean for 4p), but placement is a
-denser signal with mean ≈0.5. PPO's per-batch advantage normalization absorbs most of the shift,
-but expect a noisier first stretch; a short value-head warmup or a higher initial `value-coef` may
-speed convergence. Reward scale is otherwise comparable (both objectives top out at 1.0 pre-bonus),
-so shared `lr`/clip/`value-coef` stay reasonable — no normalization change is _required_.
+**Warm-start critic note (corrected by the bite-F grounding).** The PPO critic is **always a fresh
+scalar `value_net`** — `MaskableEdgePolicy._build` constructs it at random init, separate from the
+BC value head, and the repacked actor (`repack_to_bc_checkpoint` → `bc_net.state_dict()`) carries
+**only** the trunk + per-edge head, never a critic. So a warm-start (BC _or_ `ppo-long`) never
+inherits a trained value function — the critic starts uncalibrated for **every** persona, Conqueror
+included (this is unchanged from how `ppo-long` itself trained). For Survivor the practical wrinkle is
+just that `placement` is a denser target (mean ≈0.5 vs win's ~0.25 for 4p), so the fresh critic has
+more to fit early; PPO's per-batch advantage normalization absorbs most of it, but expect a noisier
+first stretch, and a short value-head warmup or a higher initial `value-coef` may speed convergence.
+Reward scale is otherwise comparable (both objectives top out at 1.0 pre-bonus), so shared
+`lr`/clip/`value-coef` stay reasonable — no normalization change is _required_. (The earlier draft of
+this note wrongly assumed `ppo-long`'s win-trained value head carries over; it does not.)
 
 ---
 
@@ -278,9 +294,11 @@ fun. The roster makes that filter _possible_; it doesn't automate it.
    Conqueror/Blitz/Survivor runnable with no wire change. **Still TODO (bite G):** add the per-frame
    territory/elim scalar to the env-server wire (Expansionist/Predator) behind a version bump, off by
    default (byte-identical to today when unset — the B5/B6 opt-in pattern).
-3. **One persona = one reward config + one schtask**, all **warm-started from `ppo-long`'s final
+3. **One persona = one reward config + one run**, all **warm-started from `ppo-long`'s final
    policy** (shared good initialization; reward shaping then specializes), running **concurrently**
-   on shodan (latency-bound, idle hardware). Re-run Conqueror as the matched control.
+   on shodan (latency-bound, idle hardware). Re-run Conqueror as the matched control. _(Bite F — done:
+   the `PERSONA` knob in `scripts/shodan/ppo-train.sh` + the RUNBOOK "persona" batch recipe make this a
+   one-line launch per persona; concurrency is collision-free.)_
 4. **Profile + gate each** (behavioral harness + `ppo:gate`), write results to `RESULTS.md`, log
    the framework decision (`D-27?`) and any wire-contract change (`D-28?`) to `DECISIONS.md`.
 5. **Ship the fun ones as selectable in-game bots** — the `ai_ppo` wiring (PR #74) generalizes:

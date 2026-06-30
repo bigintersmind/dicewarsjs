@@ -21,6 +21,72 @@ Entry template:
 
 ---
 
+## 2026-06-29 — Persona launcher: the `PERSONA` knob (bite F)
+
+**Phase:** persona-roster (training half) · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Built the persona launcher** — the last thing blocking the persona _training_ track. Grounded
+  first: the bite-D reward flags (`--reward-mode`/`--terminal-speed-bonus`/`--speed-ref`) are already
+  wired + validated in `train.py`/`_train_common`/`env.py`, but the production shodan launcher
+  `scripts/shodan/ppo-train.sh` (committed pre-bite-D) did **not** forward them and was single-run.
+  Added a **`PERSONA={conqueror,blitz,survivor}`** knob (top of the launcher, before the `RUN_NAME`
+  default): each persona `:=`-defaults the reward objective (mode / `GAMMA` / optional speed bonus) +
+  a `RUN_NAME` + a warm-start `CHECKPOINT=runs/ppo-long/ppo.pt`. Factored the `python -m
+dicewars_ppo.train` argv into `build_train_argv` (now forwards the three reward flags) so a slim
+  `run_once` calls it. The `log` line records the persona/reward config; the USAGE header + RUNBOOK
+  §8 carry the batch recipe. `ppo-train.cmd` forwards `PERSONA` (+ per-run knobs) into WSL via
+  `WSLENV` so a per-persona schtask needs no file edit.
+- **Targeted the first batch at Conqueror + Blitz + Survivor** (Ivan's call) — the three personas
+  runnable with **no wire change** (bite D); Expansionist/Predator wait on the dense-reward wire
+  scalar ("bite G"). Conqueror is the matched control; Blitz lowers `GAMMA` to 0.99 (the tempo lever,
+  PERSONAS §5); Survivor uses `--reward-mode placement`.
+- **TDD:** 9 new lean-tier tests in `test_ppo_train_launcher.py` (source-and-inspect the resolved
+  config + the assembled argv, no python/torch/GPU): the byte-identical no-persona default, each
+  persona's reward objective + warm-start checkpoint, explicit-override-beats-preset, unknown-PERSONA
+  exit, conditional `--speed-ref`, from-scratch survives the refactor, and a `.cmd` WSLENV canary.
+  Launcher suite 6→15 green; `bash -n` clean; ruff clean; the `EXIT_POINTER_REJECTED` contract canary
+  still passes.
+- **Corrected a factual error in PERSONAS.md** found while grounding the warm-start: the "warm-start
+  critic note" claimed a Survivor inherits `ppo-long`'s win-trained value head. It does **not** —
+  `MaskableEdgePolicy._build` always makes a **fresh** scalar `value_net`, and the repacked actor
+  carries only `bc_net` (trunk + edge-head), never a critic. Rewrote the note: the PPO critic starts
+  uncalibrated for **every** warm-start (BC or PPO), Conqueror included.
+
+**Learned / decided:**
+
+- **The whole persona mechanism is the `PERSONA` knob + the existing env vars.** Because the launcher
+  was already fully env-parameterized (`RUN_NAME`/`GAMMA`/`CHECKPOINT`/…), and reward is computed
+  Python-side in `env.step()` (the wire is untouched), no new training code was needed — just
+  forwarding three flags and a preset table. Personas warm-start from `runs/ppo-long/ppo.pt` (a
+  repacked BC-format actor) exactly as `ppo-long` warm-started from `bc_model.pt`.
+- **Concurrency is collision-free for free:** each env-server binds an OS-assigned ephemeral port
+  (`--port=0`) — already true _within_ a run's N `SubprocVecEnv` workers — and every dir is keyed on
+  `RUN_NAME`, so 3 personas share only the GPU + the read-only BEAT actor. Three runs cost ≈ one.
+- **`set -e` gotcha (caught by the TDD):** a trailing `[ … ] && arr+=(…)` whose test is FALSE returns
+  non-zero, which made `build_train_argv` exit 1 and abort the launcher (4 tests caught it before any
+  shodan run). The original `run_once` was safe only because the `&&` wasn't its last statement.
+  Switched the conditional appends to `if` blocks.
+
+**Dead ends / surprises:**
+
+- The Windows/WSL schtasks-per-persona path can't be unit-tested locally (no cmd.exe); pinned the
+  `.cmd`↔launcher coupling statically (WSLENV-forwards-`PERSONA` grep canary) and documented the
+  realistic first-batch path as **3 backgrounded `nohup` runs in one WSL session** (the runs are
+  short specialization passes, same-day), with schtasks as the reboot-surviving upgrade.
+
+**Next:**
+
+- Open the PR; on merge, on shodan: confirm `runs/ppo-long/ppo.pt` is present, launch the 3-persona
+  batch (`TIMESTEPS≈3M`, a lower `LR` to protect the warm start — calibrate from the first run), then
+  gate (`ppo:gate`) **and** profile (`behavior:profile`, persona-named export) each, recording win% +
+  the behavioral signature in `RESULTS.md`. Ship the fun ones via the `ai_ppo` wiring pattern (PR #74).
+- Still separable: **bite G** (dense-reward wire scalar → Expansionist/Predator) and the Phase-2b
+  eval-harness follow-ups (Holm, determinism enforcement, `--melee`, `--csv`, curve/border axes).
+
+---
+
 ## 2026-06-29 — Behavioral-eval harness can gate a persona (PR #80, "bite E1") — MERGED
 
 **Phase:** persona-roster (eval half) · **Who:** Ivan + Claude

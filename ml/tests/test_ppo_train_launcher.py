@@ -172,3 +172,173 @@ def test_transient_failure_then_success_exits_zero(tmp_path):
     r = _drive_main(tmp_path, scenario, max_fails=5)
     assert r.rc == 0
     assert r.attempts == 2  # failed once, relaunched, then succeeded
+
+
+# --- persona launcher (bite F) -------------------------------------------------------------------
+# The PERSONA preset + the bite-D reward-flag forwarding. These SOURCE the launcher (guarded main ⇒
+# not run) and inspect the resolved config / the assembled `python -m dicewars_ppo.train` argv, that
+# the launcher factors into `build_train_argv` precisely so this can be pinned in lean CI without
+# spawning python, torch, or a GPU. The contract under test: a persona only sets DEFAULTS (an
+# explicit env override always wins), and an UNSET persona is byte-identical to the BEAT-run reward.
+
+
+def _resolve(tmp_path, env=None, *, build_argv=True, snippet=None):
+    """Source the launcher with ``env``, then run an inspection ``snippet``; return ``(rc, out)``.
+
+    ``RUN_ROOT`` is pinned into ``tmp_path`` so the launcher's source-time ``mkdir -p`` can't touch
+    the real ``ml/runs`` tree. When ``build_argv`` (the default), ``build_train_argv`` runs first so
+    ``snippet`` can read ``TRAIN_ARGV``; the default snippet prints that argv one element per line.
+    """
+    run_root = tmp_path / "run"
+    lines = [
+        "set -euo pipefail",
+        f'export RUN_ROOT="{run_root}"',
+        'export DEVICE="cpu"',
+    ]
+    lines += [f'export {k}="{v}"' for k, v in (env or {}).items()]
+    lines.append(f'source "{LAUNCHER}"')
+    if build_argv:
+        lines.append("build_train_argv")
+    lines.append(snippet or 'printf "%s\\n" "${TRAIN_ARGV[@]}"')
+    script = tmp_path / "resolve.sh"
+    script.write_text("\n".join(lines) + "\n")
+    proc = subprocess.run(
+        ["bash", str(script)], capture_output=True, text=True, timeout=30, cwd=str(ML_DIR.parent)
+    )
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+def _argv_pairs(output: str) -> dict:
+    """Fold a printed ``--flag\\nvalue`` argv into a ``{flag: value}`` dict (last wins). Flags that
+    take no value map to '' (the next token is another flag or end)."""
+    toks = output.split("\n")
+    out = {}
+    i = 0
+    while i < len(toks):
+        t = toks[i]
+        if t.startswith("--"):
+            nxt = toks[i + 1] if i + 1 < len(toks) else ""
+            if nxt.startswith("--") or nxt == "":
+                out[t] = ""
+                i += 1
+            else:
+                out[t] = nxt
+                i += 2
+        else:
+            i += 1
+    return out
+
+
+def test_no_persona_is_byte_identical_to_the_beat_run(tmp_path):
+    # The KEY invariant: an unset PERSONA forwards the SAME training command as the pre-change
+    # BEAT/control launcher. Assert the WHOLE production flag set (not just the reward subset) so a
+    # future edit to build_train_argv that silently drops/alters a regime flag — e.g. removing
+    # `--snapshot-store disk` (reverting to a per-worker memory league), `--snapshot-dir` (PFSP
+    # off), or `--start-method forkserver` (the fork-after-threads hazard) — turns this test RED
+    # instead of letting a multi-day run train on a different regime under a "byte-identical" check.
+    rc, out = _resolve(tmp_path)
+    assert rc == 0
+    argv = _argv_pairs(out)
+    assert set(argv) == {
+        "--checkpoint", "--out", "--timesteps", "--n-envs", "--start-method", "--lr",
+        "--ent-coef", "--gamma", "--reward-mode", "--terminal-speed-bonus", "--device",
+        "--snapshot-dir", "--snapshot-every", "--snapshot-store", "--reserve-baselines",
+        "--league-state-dir", "--league-dump-every", "--state-dir", "--checkpoint-every",
+        "--log-dir",
+    }  # no production flag added or dropped; no --speed-ref / --from-scratch (both conditional)
+    # The [D-19] sparse terminal-win objective the BEAT run trained on:
+    assert argv["--reward-mode"] == "win"
+    assert argv["--terminal-speed-bonus"] == "0"
+    assert argv["--checkpoint"] == "checkpoints/v2-base/bc_model.pt"  # BC warm start, not a persona
+    # The regime-defining values a silent edit could flip under the multi-day run:
+    assert argv["--start-method"] == "forkserver"  # CUDA-after-fork / fork-after-threads guard
+    assert argv["--snapshot-store"] == "disk"  # cross-worker league, not per-worker memory
+    assert argv["--reserve-baselines"] == "3"  # R=3 turtle-equilibrium floor ([D-24])
+    assert argv["--snapshot-every"] == "100000"
+    assert argv["--checkpoint-every"] == "100000"
+    assert argv["--league-dump-every"] == "50"
+    # The task-A BEAT production HPs (NOT train.py's own protective defaults):
+    assert argv["--lr"] == "2.5e-4"
+    assert argv["--ent-coef"] == "0.01"
+    assert argv["--gamma"] == "0.999"
+    assert argv["--timesteps"] == "20000000"
+
+
+def test_persona_blitz_lowers_gamma_and_warm_starts_from_ppo_long(tmp_path):
+    rc, out = _resolve(
+        tmp_path,
+        {"PERSONA": "blitz"},
+        build_argv=False,
+        snippet='echo "$REWARD_MODE|$GAMMA|$RUN_NAME|$CHECKPOINT"',
+    )
+    assert rc == 0
+    reward, gamma, run_name, checkpoint = out.strip().split("|")
+    assert reward == "win"
+    assert gamma == "0.99"  # the tempo lever (PERSONAS §5) — distinct from the 0.999 default
+    assert run_name == "ppo-blitz"
+    assert checkpoint == "runs/ppo-long/ppo.pt"  # specialize the BEAT policy, not the BC net
+
+
+def test_persona_survivor_uses_placement_reward(tmp_path):
+    rc, out = _resolve(tmp_path, {"PERSONA": "survivor"})
+    assert rc == 0
+    argv = _argv_pairs(out)
+    assert argv["--reward-mode"] == "placement"
+    assert argv["--gamma"] == "0.999"
+    assert argv["--checkpoint"] == "runs/ppo-long/ppo.pt"
+
+
+def test_persona_conqueror_is_the_matched_control(tmp_path):
+    # The control re-runs today's objective (win / 0.999) but still warm-starts from ppo-long and
+    # gets its own run name, so its behavioral profile is a matched baseline for the others.
+    rc, out = _resolve(
+        tmp_path,
+        {"PERSONA": "conqueror"},
+        build_argv=False,
+        snippet='echo "$REWARD_MODE|$GAMMA|$RUN_NAME|$CHECKPOINT"',
+    )
+    assert rc == 0
+    assert out.strip() == "win|0.999|ppo-conqueror|runs/ppo-long/ppo.pt"
+
+
+def test_explicit_env_overrides_persona_preset(tmp_path):
+    # PERSONA sets DEFAULTS only (`:=`), so an explicit override always wins — needed to sweep e.g.
+    # Blitz's gamma floor without forking the launcher.
+    rc, out = _resolve(tmp_path, {"PERSONA": "blitz", "GAMMA": "0.97", "RUN_NAME": "blitz-v2"})
+    assert rc == 0
+    argv = _argv_pairs(out)
+    assert argv["--gamma"] == "0.97"
+
+
+def test_unknown_persona_exits_nonzero(tmp_path):
+    rc, out = _resolve(tmp_path, {"PERSONA": "wrecker"}, build_argv=False, snippet="echo unreached")
+    assert rc != 0
+    assert "unknown persona" in out.lower()
+    assert "unreached" not in out
+
+
+def test_speed_ref_forwarded_only_when_bonus_set(tmp_path):
+    rc, out = _resolve(
+        tmp_path, {"PERSONA": "blitz", "TERMINAL_SPEED_BONUS": "0.5", "SPEED_REF": "120"}
+    )
+    assert rc == 0
+    argv = _argv_pairs(out)
+    assert argv["--terminal-speed-bonus"] == "0.5"
+    assert argv["--speed-ref"] == "120"
+
+
+def test_from_scratch_still_appends_flag_after_refactor(tmp_path):
+    # The control run uses FROM_SCRATCH=1; pin that build_train_argv preserved it through the
+    # run_once → build_train_argv refactor.
+    rc, out = _resolve(tmp_path, {"FROM_SCRATCH": "1"})
+    assert rc == 0
+    assert "--from-scratch" in _argv_pairs(out)
+
+
+@pytest.mark.skipif(not CMD.is_file(), reason="needs ppo-train.cmd")
+def test_cmd_forwards_persona_into_wsl():
+    """The Windows→WSL bridge must export PERSONA (and the per-run knobs) into WSL via WSLENV so a
+    per-persona scheduled task can set them as Windows env vars without editing the .cmd."""
+    cmd_text = CMD.read_text()
+    assert "WSLENV" in cmd_text
+    assert re.search(r"PERSONA/u", cmd_text), "ppo-train.cmd must forward PERSONA into WSL (WSLENV)"

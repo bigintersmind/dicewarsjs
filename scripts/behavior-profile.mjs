@@ -56,8 +56,8 @@ const args = process.argv.slice(2);
 
 const runCount = parseInt(getArg(args, 'runs', '10'), 10);
 const gamesPerRun = parseInt(getArg(args, 'games', '30'), 10);
-// Phase 1: `reference` is validated as an opponent seat and echoed into the report, but the paired
-// comparison is always against `control` (not the reference). It's a labeled seat + a Phase-2 hook.
+// `reference` is validated as an opponent seat and echoed into the report, but the paired
+// comparison is always against `control` (not the reference) — it's a labeled seat only.
 const referenceName = getArg(args, 'reference', 'Lookahead');
 // --bots / --control / --opponents entries are each `Name` (built-in) or `Name=weights.js` specs.
 const controlSpec = parseBotSpec(getArg(args, 'control', 'Defensive'));
@@ -149,7 +149,13 @@ async function resolveSpec({ name, weightsPath }) {
     loadedBots.push({ name, params, parity, weightsPath });
     return { name, fn: makeBC({ policy }) };
   } catch (err) {
-    console.error(`\nFailed to load weights bot "${name}" (${weightsPath}): ${err.message}`);
+    // loadExportedPolicy throws precise, user-facing messages for every EXPECTED failure (missing
+    // file/fixture, no BC_POLICY, each parity mode). For those the message is enough; for an
+    // UNEXPECTED loader bug (e.g. a TypeError) keep the stack so it isn't permanently disguised as
+    // a bad-weights-file error.
+    console.error(
+      `\nFailed to load weights bot "${name}" (${weightsPath}): ${err.stack ?? err.message}`
+    );
     process.exit(1);
   }
 }
@@ -185,6 +191,25 @@ for (const spec of [...botSpecs, controlSpec]) {
 }
 const profiled = [];
 for (const spec of profiledSpecByName.values()) profiled.push(await resolveSpec(spec));
+
+// Fail FAST on a missing MDE, not post-sweep. Every non-control profiled bot whose name matches a
+// PERSONA_SIGNATURES key gets its signature gated below (signatureDetail), which THROWS if a
+// signature axis has no MDE. DEFAULT_MDE covers today's personas so this can't fire now, but if a
+// future signature axis lacks an MDE this would otherwise surface as an uncaught stack AFTER the
+// full runs×games×field sweep — minutes wasted. Catch it here with the other config errors instead.
+for (const bot of profiled) {
+  if (bot.name === controlName) continue;
+  const sig = PERSONA_SIGNATURES[bot.name];
+  if (!sig) continue;
+  const missing = sig.axes.map(a => a.axis).filter(axis => mde[axis] == null);
+  if (missing.length) {
+    console.error(
+      `Persona "${bot.name}" has signature axes with no registered MDE: [${missing.join(', ')}]. ` +
+        `Add them to DEFAULT_MDE or pass --mde ${missing.map(a => `${a}:<value>`).join(',')}.`
+    );
+    process.exit(1);
+  }
+}
 
 const fieldSize = opponents.length + 1; // profiled seat + fixed opponents
 const STRIDE = Math.max(1_000_000, gamesPerRun * 1000);

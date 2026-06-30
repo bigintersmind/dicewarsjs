@@ -328,24 +328,24 @@ The **control is always profiled** with identical run/game/rotation config (auto
 
 ## 5. Reused utilities (exact)
 
-| Function                                           | File:line                                                    | Use                                                                                             |
-| -------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `runMatch` + `onTurn`/`onStep`                     | `matchRunner.js:229-366` (cb `:213/:219`)                    | run each game, stream board + step signals                                                      |
-| `botStats`                                         | `matchRunner.js:341-352`                                     | (a num),(d),(e),(g),(i), quarantine                                                             |
-| `MatchResult` winner/turnCount                     | `matchRunner.js:355/:357`                                    | (d),(f)                                                                                         |
-| `calculatePlacements`                              | `matchRunner.js:375-395`                                     | placement ranks (already applied)                                                               |
-| `recalcPlayerStats`                                | `StateManager.js:108-117`                                    | territoryCount (b), diceCount (g)                                                               |
-| `applyAction`                                      | `StateManager.js:161-173`                                    | replay re-sim (kills fallback)                                                                  |
-| `trajectoryFromReplay` / `replayToState`           | `trajectoryExport.js:246` / `replayFormat.js:198-208`        | kill-attribution fallback (no §6)                                                               |
-| `isStopMove` / `buildStep`                         | `trajectoryExport.js:61` / `:129-140`                        | ATTACK vs STOP in `onStep`                                                                      |
-| `botState` isBorder/connected                      | `botState.js:50` / `:74`                                     | (k) border, (l) largest group                                                                   |
-| `meanCi` / `tCrit` / `mean`                        | `stats.mjs:60-66 / :50 / :53`                                | mean ± 95% CI — **CI math reused**                                                              |
-| `pairedDelta` / `classifyGate`                     | `ppo-gate-core.mjs:31-41 / :53-57`                           | paired Δ + HIGHER/SAME/LOWER                                                                    |
-| `rotatedField` / `buildGateField`                  | `ppo-gate-core.mjs:127-132 / :103-112`                       | seat fairness, field guardrails                                                                 |
-| arenaRunner accumulators                           | `arenaRunner.js:130-168`                                     | **extract** shared terminal-stat helper                                                         |
-| `BUILT_IN_BOTS`                                    | `builtInBots.js:21`                                          | built-in enumeration (`ai_ppo` `:44`)                                                           |
-| `getArg`/`hasFlag` + `loadExportedPolicy`/`makeBC` | `cli-utils.mjs:37/:49`, `load-bc-policy.mjs:163`, `ai_bc.js` | arg parsing; weight-file bots loaded + parity-checked exactly like `ppo:gate` (Phase-2a, built) |
-| JSON-stdout / table-stderr                         | `_tune.mjs:130-142`                                          | dual output                                                                                     |
+| Function                                           | File:line                                                      | Use                                                                                             |
+| -------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `runMatch` + `onTurn`/`onStep`                     | `matchRunner.js:229-366` (cb `:213/:219`)                      | run each game, stream board + step signals                                                      |
+| `botStats`                                         | `matchRunner.js:341-352`                                       | (a num),(d),(e),(g),(i), quarantine                                                             |
+| `MatchResult` winner/turnCount                     | `matchRunner.js:355/:357`                                      | (d),(f)                                                                                         |
+| `calculatePlacements`                              | `matchRunner.js:375-395`                                       | placement ranks (already applied)                                                               |
+| `recalcPlayerStats`                                | `StateManager.js:108-117`                                      | territoryCount (b), diceCount (g)                                                               |
+| `applyAction`                                      | `StateManager.js:161-173`                                      | replay re-sim (kills fallback)                                                                  |
+| `trajectoryFromReplay` / `replayToState`           | `trajectoryExport.js:246` / `replayFormat.js:198-208`          | kill-attribution fallback (no §6)                                                               |
+| `isStopMove` / `buildStep`                         | `trajectoryExport.js:61` / `:129-140`                          | ATTACK vs STOP in `onStep`                                                                      |
+| `botState` isBorder/connected                      | `botState.js:50` / `:74`                                       | (k) border, (l) largest group                                                                   |
+| `meanCi` / `tCrit` / `mean`                        | `stats.mjs:60-66 / :50 / :53`                                  | mean ± 95% CI — **CI math reused**                                                              |
+| `pairedDelta` / `classifyGate`                     | `ppo-gate-core.mjs:31-41 / :53-57`                             | paired Δ + HIGHER/SAME/LOWER                                                                    |
+| `rotatedField` / `buildGateField`                  | `ppo-gate-core.mjs:127-132 / :103-112`                         | seat fairness, field guardrails                                                                 |
+| arenaRunner accumulators                           | `arenaRunner.js:130-168`                                       | **extract** shared terminal-stat helper                                                         |
+| `BUILT_IN_BOTS`                                    | `builtInBots.js:21`                                            | built-in enumeration (`ai_ppo` `:44`)                                                           |
+| `getArg`/`hasFlag` + `loadExportedPolicy`/`makeBC` | `cli-args.mjs:25/:59`, `load-bc-policy.mjs:163`, `ai_bc.js:67` | arg parsing; weight-file bots loaded + parity-checked exactly like `ppo:gate` (Phase-2a, built) |
+| JSON-stdout / table-stderr                         | `_tune.mjs:130-142`                                            | dual output                                                                                     |
 
 ---
 

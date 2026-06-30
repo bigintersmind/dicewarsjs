@@ -471,6 +471,18 @@ describe('signatureDetail — per-axis breakdown behind signaturePass', () => {
     expect(ttw.sigInDir).toBe(false); // CI is on the HIGHER side, so the LOWER hypothesis is unmet
   });
 
+  it('AND rule: PASSES when BOTH axes clear MDE in the right direction (the headline happy path)', () => {
+    const passingBlitz = {
+      aggression: compareAxis([5, 6, 7, 5, 6], [2, 3, 2, 3, 2]), // Δ ≈ +3.4, CI > 0 (HIGHER ✓)
+      turnsToWin: compareAxis([10, 11, 10, 11, 10], [20, 21, 20, 21, 20]), // Δ ≈ -10, CI < 0 (LOWER ✓)
+    };
+    const mde = { aggression: 1, turnsToWin: 5 };
+    const d = signatureDetail(blitz, passingBlitz, mde);
+    expect(d.pass).toBe(true);
+    expect(d.axes.every(a => a.ok)).toBe(true); // every required axis cleared
+    expect(signaturePass(blitz, passingBlitz, mde)).toBe(true);
+  });
+
   it('fails closed (no throw) on a null comparison, even when that axis has no MDE', () => {
     const partial = { aggression: vsControl.aggression, turnsToWin: null };
     let d;
@@ -506,6 +518,19 @@ describe('parseBotSpec — built-in name vs Name=weights.js', () => {
       weightsPath: 'a/b=c.weights.js',
     });
   });
+
+  // The null (bare name) vs '' (has '=' but empty path) distinction is load-bearing: resolveSpec
+  // routes weightsPath==null to the built-in registry and an empty-but-non-null path to its
+  // "empty path" error. Pin both, plus the empty-name case its first guard catches.
+  it('distinguishes a bare name (weightsPath null) from an empty path (weightsPath "")', () => {
+    expect(parseBotSpec('Blitz=')).toEqual({ name: 'Blitz', weightsPath: '' });
+    expect(parseBotSpec('Blitz').weightsPath).toBeNull();
+  });
+
+  it('yields an empty name for "" or "=foo" (resolveSpec rejects these loudly)', () => {
+    expect(parseBotSpec('')).toEqual({ name: '', weightsPath: null });
+    expect(parseBotSpec('=foo.weights.js')).toEqual({ name: '', weightsPath: 'foo.weights.js' });
+  });
 });
 
 describe('parseMdeOverrides — calibrate signature thresholds without a code edit', () => {
@@ -525,13 +550,19 @@ describe('parseMdeOverrides — calibrate signature thresholds without a code ed
     expect(out.kills).toBe(DEFAULT_MDE.kills); // untouched
   });
 
-  it('throws on a malformed entry, an unknown axis, or a negative/non-finite value', () => {
+  it('throws on a malformed entry, an unknown axis, or a non-positive/non-finite value', () => {
     expect(() => parseMdeOverrides('aggression', DEFAULT_MDE)).toThrow(
       /not of the form axis:value/
     );
     expect(() => parseMdeOverrides('bogus:1', DEFAULT_MDE)).toThrow(/not a known axis/);
-    expect(() => parseMdeOverrides('aggression:-1', DEFAULT_MDE)).toThrow(/non-negative number/);
-    expect(() => parseMdeOverrides('aggression:abc', DEFAULT_MDE)).toThrow(/non-negative number/);
+    expect(() => parseMdeOverrides('aggression:-1', DEFAULT_MDE)).toThrow(/positive number/);
+    expect(() => parseMdeOverrides('aggression:abc', DEFAULT_MDE)).toThrow(/positive number/);
+  });
+
+  it('rejects an explicit 0 — it would collapse the |Δ|≥MDE gate to a bare significance test', () => {
+    // A 0 MDE makes Math.abs(delta) >= 0 always true; this is the exact silent gate-disable the
+    // missing-MDE throw guards against, so the calibration path must refuse it too (not just `<0`).
+    expect(() => parseMdeOverrides('aggression:0', DEFAULT_MDE)).toThrow(/positive number/);
   });
 });
 

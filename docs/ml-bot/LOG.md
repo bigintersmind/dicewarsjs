@@ -21,6 +21,43 @@ Entry template:
 
 ---
 
+## 2026-06-30 — Shrink + lazy-load the in-browser net weights (issue #51)
+
+**Phase:** 3 · **Who:** Claude
+**Did:**
+
+- **Packed weight format.** `export_weights.py` now emits the ~102k-param net as one base64
+  little-endian Float32 blob + a shape descriptor (default `--packed`), wrapped as
+  `export const BC_POLICY = unpackPolicy({…})`. New runtime decoder
+  `src/ai/unpackPolicyWeights.js` rebuilds the _identical_ materialized object — nothing
+  downstream (`forward`/`makeBC`/parity loaders/league snapshot loader) changes. Regenerated the
+  two shipped files via the new `--repack-js` mode (no checkpoint needed): `bcPolicyWeights.js`
+  2,109,608 → 549,170 B, `ppoPolicyWeights.js` 2,093,408 → 549,114 B (~74% smaller; **decoded
+  weights verified bit-identical** to the originals). Fixtures untouched — float32 round-trip is
+  lossless, so `bcForward`/`ppoForward` parity still passes against the existing reference logits.
+- **Off the eager critical path.** `App.jsx` now lazy-loads `ArenaScreen` + `TournamentScreen`
+  (the only eager importers of `builtInBots → ai_bc/ai_ppo → weights`). Eager `index` chunk
+  **4,152 kB → 114 kB** (gzip 1,897 → 37); the weights live in a lazy chunk fetched only when a
+  player opens Arena/Tournament or faces PPO in-game.
+- PPO-league snapshots keep the self-contained `--no-packed` JSON (they're written to a transient
+  run dir with no decoder sibling). Updated `snapshot_callback.py`, `test_export_weights.py`, added
+  `tests/ai/unpackPolicyWeights.test.js`.
+  **Learned / decided:**
+- base64 inflates the 411 KB float32 binary to ~549 KB of text (the LOG's earlier "≈410 KB" was the
+  raw binary). Still a big win raw + gzip, and the lazy split is what actually removes it from every
+  page load. ES-module-friendly + keeps the synchronous-import contract; a raw `.bin` + `fetch()`
+  would break sync-at-module-load and every Node/test importer.
+- A packed module `import`s its sibling decoder by relative path, so packed exports must land in
+  `src/ai/`. The exporter fails loud (sibling-existence check) rather than emitting a module that
+  would `Cannot find module` at load.
+  **Next:**
+- Optional follow-up: split `makeBC` into a weight-free module so the in-game PPO lazy chunk doesn't
+  also drag the BC weights (~0.5 MB). Deferred — it'd change `makeBC()`'s `BC_POLICY` default
+  (asserted by `ai_bc.test.js`) and touch league-snapshot semantics; not worth it for a chunk that's
+  already off the eager path.
+
+---
+
 ## 2026-06-30 — Dense-reward wire for Expansionist + Predator (bite G)
 
 **Phase:** persona-roster (training half) · **Who:** Ivan + Claude

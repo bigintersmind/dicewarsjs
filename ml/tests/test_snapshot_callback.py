@@ -32,9 +32,14 @@ def _patch_export(monkeypatch):
     def fake_repack(policy, *, extra=None):
         return {"fake_state": 1, "extra": dict(extra or {})}
 
-    def fake_export(ckpt_path, out_path, fixture_path=None):
+    def fake_export(ckpt_path, out_path, fixture_path=None, *, packed=True):
         from pathlib import Path
 
+        # Snapshots are written to a transient run dir with no sibling decoder, so they MUST
+        # be exported self-contained (packed=False). Lock that contract here: a regression to
+        # the packed default would emit `import './unpackPolicyWeights.js'`, which can't resolve
+        # from the snapshot dir at load time.
+        assert packed is False, "snapshot export must be unpacked (packed=False)"
         Path(out_path).write_text("export const BC_POLICY = {};\n")
         return Path(out_path)
 

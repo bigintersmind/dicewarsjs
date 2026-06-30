@@ -6,6 +6,8 @@
  * @module ui/App
  */
 
+import { lazy, Suspense } from 'preact/compat';
+
 import { useGameStore } from './hooks/useGameStore.js';
 import { ErrorBoundary } from './ErrorBoundary.jsx';
 import { TitleScreen } from './TitleScreen.jsx';
@@ -13,12 +15,43 @@ import { GameHUD } from './GameHUD.jsx';
 import { MapPreview } from './MapPreview.jsx';
 import { GameOverlay } from './GameOverlay.jsx';
 import { GameOverScreen } from './GameOverScreen.jsx';
-import { ArenaScreen } from './ArenaScreen.jsx';
-import { TournamentScreen } from './TournamentScreen.jsx';
 import { OnlineLeaderboardScreen } from './OnlineLeaderboardScreen.jsx';
 import { ReplayViewer } from './ReplayViewer.jsx';
 import { SettingsPanel } from './SettingsPanel.jsx';
 import { ScreenReaderAnnouncer } from './ScreenReaderAnnouncer.jsx';
+
+/*
+ * Arena & Tournament are the only screens that pull in the bot registry
+ * (builtInBots → ai_bc/ai_ppo → the packed policy-weight modules, ~0.5 MB each).
+ * Importing them statically folds those weights into the eager main bundle chunk, so
+ * every page load downloads them — even for players who never open either screen
+ * (issue #51). Code-split each behind a dynamic import() so the weights land in a lazy
+ * chunk fetched only when the screen is actually opened. (`lazy` wants a default export;
+ * both screens are named exports, hence the `.then` remap.)
+ */
+const ArenaScreen = lazy(() => import('./ArenaScreen.jsx').then(m => ({ default: m.ArenaScreen })));
+const TournamentScreen = lazy(() =>
+  import('./TournamentScreen.jsx').then(m => ({ default: m.TournamentScreen }))
+);
+
+/** Brief full-screen placeholder shown while a code-split screen chunk loads. */
+function ScreenLoading() {
+  return (
+    <div
+      style={{
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--ui-bg)',
+        color: 'var(--ui-text-muted)',
+        fontSize: '1.1rem',
+      }}
+    >
+      Loading…
+    </div>
+  );
+}
 
 /**
  * @param {Object} props
@@ -56,10 +89,12 @@ export function App({ store, controller, preferencesManager }) {
     return (
       <ErrorBoundary>
         {settings}
-        <ArenaScreen
-          onBack={() => controller.goToTitle()}
-          onViewReplay={replay => controller.goToReplay(replay)}
-        />
+        <Suspense fallback={<ScreenLoading />}>
+          <ArenaScreen
+            onBack={() => controller.goToTitle()}
+            onViewReplay={replay => controller.goToReplay(replay)}
+          />
+        </Suspense>
       </ErrorBoundary>
     );
   }
@@ -68,10 +103,12 @@ export function App({ store, controller, preferencesManager }) {
     return (
       <ErrorBoundary>
         {settings}
-        <TournamentScreen
-          onBack={() => controller.goToTitle()}
-          onViewReplay={replay => controller.goToReplay(replay)}
-        />
+        <Suspense fallback={<ScreenLoading />}>
+          <TournamentScreen
+            onBack={() => controller.goToTitle()}
+            onViewReplay={replay => controller.goToReplay(replay)}
+          />
+        </Suspense>
       </ErrorBoundary>
     );
   }

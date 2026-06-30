@@ -234,7 +234,12 @@ class SnapshotCallback(BaseCallback):
         tmp_js = weights_path.with_name(weights_path.name + ".tmp")
         try:
             torch.save(repacked, tmp_pt)
-            export(tmp_pt, tmp_js, fixture_path=None)
+            # packed=False: snapshots are written to this transient run dir, not src/ai/, so the
+            # default packed format — which requires the sibling ./unpackPolicyWeights.js decoder
+            # beside the output and raises FileNotFoundError at export if it's missing (always, in
+            # this temp dir) — can't be used here. The self-contained JSON form loads from any dir;
+            # snapshots are short-lived training artifacts that never ship, so their size is moot.
+            export(tmp_pt, tmp_js, fixture_path=None, packed=False)
             _fsync_path(tmp_js)
             os.replace(tmp_js, weights_path)  # atomic on POSIX; the final name is never torn
         finally:

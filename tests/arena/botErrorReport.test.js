@@ -54,6 +54,39 @@ describe('reportBotErrors', () => {
     expect(warned).toEqual([]);
   });
 
+  it('flags a bot that only ever submits invalid moves — never lands an attack (#53)', () => {
+    // A mis-registered bot (wrong coordinate space) returns an illegal move every turn:
+    // invalidMoves climbs while errors and attacks stay 0. The errors fraction is undefined
+    // (denom 0), so without the invalid-move guard this masquerades as a clean low-ELO loss.
+    const warned = [];
+    const flagged = reportBotErrors(
+      [{ name: 'misregistered', errors: 0, attacks: 0, invalidMoves: 30, maxMovesHit: 0 }],
+      { warn: msg => warned.push(msg) }
+    );
+
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].name).toBe('misregistered');
+    expect(flagged[0].errorFraction).toBe(1);
+
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toContain('misregistered');
+    expect(warned[0]).toContain('30 invalid move(s)');
+    expect(warned[0]).toContain('100.0%');
+  });
+
+  it('does NOT fold invalid moves into the fraction once a bot lands real attacks', () => {
+    // Deliberate scope: the invalid-move rescue only covers the never-landed-an-attack case.
+    // A bot that attacks (denom > 0) is measured purely on the spec errors fraction, so a
+    // buggy-but-functioning bot with many invalid moves but real attacks is not flagged here.
+    const flagged = reportBotErrors(
+      [{ name: 'buggy', errors: 0, attacks: 50, invalidMoves: 200 }],
+      {
+        warn: () => {},
+      }
+    );
+    expect(flagged).toEqual([]);
+  });
+
   it('does not flag a bot exactly at the threshold (strictly greater than)', () => {
     // errors/(errors+attacks) === 0.5 exactly, which is not > 0.5
     const flagged = reportBotErrors([{ name: 'borderline', errors: 50, attacks: 50 }], {

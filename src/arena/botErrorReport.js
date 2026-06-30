@@ -37,8 +37,12 @@ export const ERROR_FRACTION_THRESHOLD = 0.5;
  * @property {number} errors         - Total turns that ended in an error across the run
  * @property {number} attacks        - Total attacks made (applied) across the run — the
  *   `attacksMade` counter, not the `attacksWon` subset
- * @property {number} [invalidMoves] - Total invalid moves attempted (context for the message)
- * @property {number} [maxMovesHit]  - Total turns force-ended by the per-turn move cap
+ * @property {number} [invalidMoves] - Total invalid moves attempted. Folded into the flag
+ *   decision (a bot that only ever submits invalid moves never lands an attack, so the
+ *   errors fraction can't see it — see {@link reportBotErrors}) and printed in the message.
+ * @property {number} [maxMovesHit]  - Total turns force-ended by the per-turn move cap.
+ *   NOT a breakage signal on its own — a legitimately aggressive bot reaches the cap only by
+ *   making many valid attacks — so it is deliberately excluded from the flag decision.
  */
 
 /**
@@ -48,11 +52,18 @@ export const ERROR_FRACTION_THRESHOLD = 0.5;
 /**
  * Warn loudly about bots whose turn-level error fraction exceeds `threshold`.
  *
- * The fraction is `errors / (errors + attacks)` — the metric the #53 issue calls out:
- * a bot that makes no attacks and all errors scores 1.0, a healthy bot scores 0.
- * Bots that never acted (no errors and no attacks — e.g. a bot that always voluntarily
- * passes) have an undefined fraction and are skipped: an all-STOP bot is degenerate but
- * not *broken*, and is not the failure mode this guards.
+ * The primary metric is `errors / (errors + attacks)` — the fraction the #53 issue calls
+ * out: a bot that makes no attacks and all errors scores 1.0, a healthy bot scores 0.
+ *
+ * That fraction has a blind spot, though: a bot that errors via *invalid moves* rather than
+ * throws never lands an attack, so its denominator is 0 and the fraction is undefined. A bot
+ * mis-registered into the wrong coordinate space submits an illegal `{from,to}` every turn —
+ * `invalidMoves` climbs while `errors` and `attacks` stay 0 — which is the same masquerade as
+ * a 100%-error bot (#53), just reached through a different forced-end signal. So when the
+ * errors-fraction denominator is 0 we split the two no-attack cases: a bot that also made no
+ * invalid moves never acted at all (a voluntary all-STOP/pass bot — degenerate but not broken)
+ * and is skipped, whereas a bot with `invalidMoves > 0` attempted to act every turn and never
+ * once landed a valid attack, so it is flagged at fraction 1.0.
  *
  * @param {BotErrorTotals[]} totals - Per-bot error/attack totals for the whole run
  * @param {Object} [options]
@@ -68,11 +79,21 @@ export function reportBotErrors(totals, options = {}) {
   for (const t of totals) {
     const errors = t.errors || 0;
     const attacks = t.attacks || 0;
+    const invalidMoves = t.invalidMoves || 0;
     const denom = errors + attacks;
-    if (denom === 0) continue; // never acted (pure pass) — no error signal to report
-    const errorFraction = errors / denom;
+    let errorFraction;
+    if (denom === 0) {
+      // No errors and no landed attacks. If it also made no invalid moves it never acted
+      // (a voluntary all-STOP/pass bot) — degenerate but not broken, so skip it. A bot that
+      // DID submit invalid moves every turn never landed a single valid attack: that is the
+      // #53 masquerade reached via the invalid-move signal, so treat it as fully broken.
+      if (invalidMoves === 0) continue;
+      errorFraction = 1;
+    } else {
+      errorFraction = errors / denom;
+    }
     if (errorFraction > threshold) {
-      flagged.push({ ...t, errors, attacks, errorFraction });
+      flagged.push({ ...t, errors, attacks, invalidMoves, errorFraction });
     }
   }
 
@@ -81,9 +102,10 @@ export function reportBotErrors(totals, options = {}) {
   for (const f of flagged) {
     const pct = (f.errorFraction * 100).toFixed(1);
     warn(
-      `${label} bot "${f.name}": ${f.errors} of its turns ended in an error vs ${f.attacks} ` +
-        `attack(s) made (error fraction ${pct}%). Its win% / ELO is NOT a meaningful measurement ` +
-        `— this looks like a broken or mis-registered bot, not legitimate losing.`
+      `${label} bot "${f.name}": ${f.errors} turn(s) ended in an error and ${f.invalidMoves} ` +
+        `invalid move(s) attempted, vs ${f.attacks} attack(s) landed (error fraction ${pct}%). ` +
+        `Its win% / ELO is NOT a meaningful measurement — this looks like a broken or ` +
+        `mis-registered bot, not legitimate losing.`
     );
   }
 

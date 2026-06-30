@@ -173,11 +173,18 @@ export function nextTurn(state) {
  * @param {{ areas: import('./types.js').Area[], players: import('./types.js').Player[] }} state
  * @param {number} playerId
  * @param {Object} rng - Seeded RNG instance (from engine/rng.js)
+ * @param {number} [precomputedReinforcements] - Optional reinforcement count to use instead of
+ *   recomputing via calculateReinforcements. Reinforcement equals the size of the player's
+ *   largest connected group, a pure function of their owned-territory set — so a caller that
+ *   already maintains that value (e.g. applyEndTurn, where END_TURN changes no ownership) can
+ *   pass it to skip a redundant findLargestConnectedGroup union-find pass. MUST equal what
+ *   calculateReinforcements(state, playerId) would return, or dice placement diverges. Omit
+ *   (or pass undefined) to recompute — the default for all other callers.
  * @returns {{ areas: import('./types.js').Area[], playerStock: number }}
  */
-export function distributeReinforcements(state, playerId, rng) {
+export function distributeReinforcements(state, playerId, rng, precomputedReinforcements) {
   const player = state.players[playerId];
-  const reinforcements = calculateReinforcements(state, playerId);
+  const reinforcements = precomputedReinforcements ?? calculateReinforcements(state, playerId);
   let stock = Math.min(player.stock + reinforcements, STOCK_MAX);
 
   if (stock <= 0) {

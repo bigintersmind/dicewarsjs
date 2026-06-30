@@ -328,4 +328,88 @@ describe('distributeReinforcements', () => {
     expect(result1.areas[2].dice).toBe(result2.areas[2].dice);
     expect(result1.playerStock).toBe(result2.playerStock);
   });
+
+  it('precomputed reinforcement count yields output identical to recomputing', () => {
+    // Player 0 owns a connected chain 1↔2↔3 — largestGroup (= reinforcements) is 3.
+    const buildAreas = () =>
+      [area(0, -1, 0, [], 0), area(1, 0, 2, [2]), area(2, 0, 2, [1, 3]), area(3, 0, 2, [2])].map(
+        a => ({ ...a, neighborAreaIds: [...a.neighborAreaIds], cells: [...a.cells] })
+      );
+    const mkState = () =>
+      makeState({
+        areas: buildAreas(),
+        players: [player(0, { territoryCount: 3, largestGroup: 3, stock: 0 })],
+      });
+
+    expect(calculateReinforcements(mkState(), 0)).toBe(3);
+
+    // Passing the maintained largestGroup must produce byte-identical output to recomputing
+    // it — this is the invariant applyEndTurn relies on to skip the union-find pass.
+    const recomputed = distributeReinforcements(mkState(), 0, createRng(7));
+    const precomputed = distributeReinforcements(mkState(), 0, createRng(7), 3);
+    expect(precomputed).toEqual(recomputed);
+  });
+
+  it('honors an explicit precomputed count instead of recomputing largestGroup', () => {
+    // Single isolated territory ⇒ recompute would give largestGroup 1; force 5 instead.
+    const areas = [area(0, -1, 0, [], 0), area(1, 0, 2, [])].map(a => ({
+      ...a,
+      neighborAreaIds: [...a.neighborAreaIds],
+      cells: [...a.cells],
+    }));
+    const state = makeState({
+      areas,
+      players: [player(0, { territoryCount: 1, largestGroup: 1, stock: 0 })],
+    });
+    const { areas: newAreas } = distributeReinforcements(state, 0, createRng(1), 5);
+    // 2 + 5 = 7 dice placed (recompute would give 2 + 1 = 3), proving the passed value won.
+    expect(newAreas[1].dice).toBe(7);
+  });
+
+  it('respects a precomputed count of 0 (uses ??, not ||)', () => {
+    // largestGroup is 1, but an explicit 0 must short-circuit to "no reinforcements".
+    const areas = [area(0, -1, 0, [], 0), area(1, 0, 3, [])].map(a => ({
+      ...a,
+      neighborAreaIds: [...a.neighborAreaIds],
+      cells: [...a.cells],
+    }));
+    const state = makeState({
+      areas,
+      players: [player(0, { territoryCount: 1, largestGroup: 1, stock: 0 })],
+    });
+    const { areas: newAreas, playerStock } = distributeReinforcements(state, 0, createRng(1), 0);
+    // A `||` fallback would recompute to 1 and add a die; `??` keeps the explicit 0.
+    expect(playerStock).toBe(0);
+    expect(newAreas[1].dice).toBe(3);
+  });
+
+  it('clamps a precomputed count at STOCK_MAX identically to recomputing', () => {
+    // Same board as the recompute STOCK_MAX test (largestGroup 6, stock 63 ⇒ min(63+6,64)=64).
+    // Exercising the clamp through the precomputed 4th arg proves the downstream placement is
+    // byte-identical regardless of where `reinforcements` came from.
+    const buildAreas = () =>
+      [
+        area(0, -1, 0, [], 0),
+        area(1, 0, 3, [2, 3, 4, 5, 6, 7]),
+        area(2, 0, 3, [1]),
+        area(3, 0, 3, [1]),
+        area(4, 0, 3, [1]),
+        area(5, 0, 3, [1]),
+        area(6, 0, 3, [1]),
+        area(7, 1, 3, [1]),
+      ].map(a => ({ ...a, neighborAreaIds: [...a.neighborAreaIds], cells: [...a.cells] }));
+    const mkState = () =>
+      makeState({
+        areas: buildAreas(),
+        players: [
+          player(0, { territoryCount: 6, diceCount: 18, largestGroup: 6, stock: 63 }),
+          player(1, { territoryCount: 1, diceCount: 3, largestGroup: 1, stock: 0 }),
+        ],
+      });
+
+    const recomputed = distributeReinforcements(mkState(), 0, createRng(42));
+    const precomputed = distributeReinforcements(mkState(), 0, createRng(42), 6);
+    expect(precomputed.playerStock).toBeLessThanOrEqual(64);
+    expect(precomputed).toEqual(recomputed);
+  });
 });

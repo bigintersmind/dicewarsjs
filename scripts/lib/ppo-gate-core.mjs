@@ -90,9 +90,11 @@ export function verdictLine(verdict, delta) {
 }
 
 /**
- * Build the gate field: the built-in bots with the existing BC clone dropped, plus
- * the candidate in its place. Dropping `ai_bc` keeps the field at 8 seats (one
- * full FFA table) and avoids two near-identical clones diluting the head-to-head.
+ * Build the gate field: the built-in heuristic + PPO bots with the BC clone and the
+ * shippable personas dropped, plus the candidate in its place. Dropping `ai_bc` (a
+ * near-identical clone) and the `persona`-tagged bots (Conqueror/Blitz/Survivor — these
+ * are challengers measured AGAINST the field, not part of it) keeps the field at 8 seats
+ * (one full FFA table), so the documented gate baselines stay fixed as personas are added.
  *
  * @param {Array<{ name: string, fn: Function }>} builtInBots - BUILT_IN_BOTS
  * @param {Function} candidateFn - the candidate move fn (makeBC result)
@@ -101,7 +103,9 @@ export function verdictLine(verdict, delta) {
  * @returns {Array<{ name: string, fn: Function }>}
  */
 export function buildGateField(builtInBots, candidateFn, candidateName, barName = 'Lookahead') {
-  const base = builtInBots.filter(b => b.name !== 'BC').map(b => ({ name: b.name, fn: b.fn }));
+  const base = builtInBots
+    .filter(b => b.name !== 'BC' && !b.persona)
+    .map(b => ({ name: b.name, fn: b.fn }));
   if (!base.some(b => b.name === barName)) {
     throw new Error(`gate bar "${barName}" missing from the built-in field`);
   }

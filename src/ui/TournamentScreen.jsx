@@ -8,7 +8,7 @@
 
 import { useState, useCallback } from 'preact/hooks';
 import { runRoundRobin, runSingleElimination } from '../arena/tournament.js';
-import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
+import { PLAYER_VISIBLE_BOTS } from '../arena/builtInBots.js';
 import { createReplay } from '../arena/replayFormat.js';
 import { Leaderboard } from './Leaderboard.jsx';
 import { AddBotViaGithub } from './AddBotViaGithub.jsx';
@@ -134,7 +134,7 @@ const STYLE = {
  * @param {(replay: Object) => void} [props.onViewReplay] - Navigate to replay viewer
  */
 export function TournamentScreen({ onBack, onViewReplay }) {
-  const [selectedBots, setSelectedBots] = useState(new Set(BUILT_IN_BOTS.map(b => b.id)));
+  const [selectedBots, setSelectedBots] = useState(new Set(PLAYER_VISIBLE_BOTS.map(b => b.id)));
   const [tournamentType, setTournamentType] = useState('round-robin');
   const [gamesPerRound, setGamesPerRound] = useState(3);
   const [running, setRunning] = useState(false);
@@ -164,7 +164,7 @@ export function TournamentScreen({ onBack, onViewReplay }) {
     setReplays([]);
     setError(null);
 
-    const bots = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id));
+    const bots = PLAYER_VISIBLE_BOTS.filter(b => selectedBots.has(b.id));
 
     setTimeout(() => {
       try {
@@ -243,7 +243,7 @@ export function TournamentScreen({ onBack, onViewReplay }) {
       <div style={STYLE.section}>
         <span style={STYLE.label}>SELECT BOTS (min 2)</span>
         <div style={STYLE.row}>
-          {BUILT_IN_BOTS.map(bot => (
+          {PLAYER_VISIBLE_BOTS.map(bot => (
             <button
               key={bot.id}
               style={{

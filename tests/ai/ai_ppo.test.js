@@ -2,19 +2,18 @@
  * PPO bot — the in-browser self-play RL net (ml-bot Phase 3).
  *
  * PPO reuses ai_bc's machinery (forward pass + encoder), so the numeric parity is
- * already covered by tests/ai/ppoForward.test.js. This file covers the wiring that
- * makes PPO *playable*: that it returns legal moves on a real BotState, that the
- * in-game aiConfig path reverse-adapts it so runAI drives it without throwing (the
- * "modern bot on the legacy path throws every turn" trap), and that its raw arena
- * registration actually runs its policy.
+ * already covered by tests/ai/ppoForward.test.js. PPO is no longer a player-facing
+ * in-game pick — it's a hidden dev-harness baseline (the player-facing Conqueror persona
+ * ships the same weights), so the in-game aiConfig adaptation is covered by the persona
+ * tests (tests/ai/ai_conqueror.test.js). This file covers the wiring that keeps PPO
+ * usable as an arena/harness bot: that it returns legal moves on a real BotState and that
+ * its raw arena registration actually runs its policy.
  */
 import { createGame } from '../../src/engine/GameRunner.js';
 import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
 import { GAME_PHASES } from '../../src/engine/constants.js';
-import { runAI } from '../../src/engine/AIAdapter.js';
 import { ai_ppo } from '../../src/ai/ai_ppo.js';
 import { ai_bc } from '../../src/ai/ai_bc.js';
-import { getAIImplementation } from '../../src/ai/aiConfig.js';
 import { createBotState } from '../../src/arena/botState.js';
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
 import { runMatch } from '../../src/arena/matchRunner.js';
@@ -89,28 +88,6 @@ describe('ai_ppo bot', () => {
     }
     expect(state).toBeDefined();
   }, 30_000);
-});
-
-describe('PPO in the in-game AI loop (aiConfig)', () => {
-  it('loads pre-adapted and drives runAI without hitting the legacy path', async () => {
-    /*
-     * Regression: a raw modern `(BotState) => move` bot dropped into aiConfig would
-     * hit runAI's LEGACY branch — handed a mutable game view, not a BotState — and
-     * throw every turn (the legacy-path trap). The loader must return an
-     * `adaptModernBot`-tagged function so runAI takes the modern path (sanitize
-     * engine state → BotState → call the bot).
-     */
-    const fn = await getAIImplementation('ai_ppo');
-    expect(fn.__modernBot).toBe(true);
-
-    const state = firstStateWithMoves();
-    const move = runAI(state, fn); // must NOT throw; returns { from, to } | null
-
-    if (move !== null) {
-      const legal = new Set(getValidMoves(state).map(moveKey));
-      expect(legal.has(moveKey(move))).toBe(true);
-    }
-  });
 });
 
 describe('PPO built-in arena registration', () => {

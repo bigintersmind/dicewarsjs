@@ -11,7 +11,7 @@ import { useState, useCallback } from 'preact/hooks';
 import { runMatch } from '../arena/matchRunner.js';
 import { updateEloRatings, DEFAULT_RATING } from '../arena/elo.js';
 import { reportBotErrors } from '../arena/botErrorReport.js';
-import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
+import { PLAYER_VISIBLE_BOTS } from '../arena/builtInBots.js';
 import { createReplay } from '../arena/replayFormat.js';
 import { Leaderboard } from './Leaderboard.jsx';
 import { AddBotViaGithub } from './AddBotViaGithub.jsx';
@@ -166,7 +166,7 @@ const STYLE = {
  * @param {(replay: Object) => void} [props.onViewReplay] - Navigate to replay viewer
  */
 export function ArenaScreen({ onBack, onViewReplay }) {
-  const [selectedBots, setSelectedBots] = useState(new Set(BUILT_IN_BOTS.map(b => b.id)));
+  const [selectedBots, setSelectedBots] = useState(new Set(PLAYER_VISIBLE_BOTS.map(b => b.id)));
   const [gameCount, setGameCount] = useState(25);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -197,7 +197,7 @@ export function ArenaScreen({ onBack, onViewReplay }) {
     setReplays([]);
     setError(null);
 
-    const bots = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
+    const bots = PLAYER_VISIBLE_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
       name: b.name,
       fn: b.fn,
     }));
@@ -347,7 +347,7 @@ export function ArenaScreen({ onBack, onViewReplay }) {
       <div style={STYLE.section}>
         <span style={STYLE.label}>SELECT BOTS (min 2)</span>
         <div style={STYLE.botRow}>
-          {BUILT_IN_BOTS.map(bot => (
+          {PLAYER_VISIBLE_BOTS.map(bot => (
             <button
               key={bot.id}
               style={{

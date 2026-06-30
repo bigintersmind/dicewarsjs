@@ -15,18 +15,32 @@ export const load_ai_strategist = async () => (await import('./ai_strategist.js'
 export const load_ai_lookahead = async () => (await import('./ai_lookahead.js')).ai_lookahead;
 export const load_ai_expectimax = async () => (await import('./ai_expectimax.js')).ai_expectimax;
 /*
- * PPO is a modern `(BotState) => move` neural bot, not a legacy mutable-game-view
- * AI, so its loader returns it pre-wrapped by `adaptModernBot` — the same reverse
- * adapter community bots use. That tags it `__modernBot` so the in-game `runAI`
- * loop drives it with a sanitized BotState instead of a legacy game view (which it
- * cannot read — an unwrapped modern bot would throw every turn). The arena and
- * tournament screens use the RAW bot from `builtInBots.js`, whose consumers already
- * call `fn(botState)` directly, so no wrapper is needed there.
+ * Personas (docs/ml-bot/PERSONAS.md) are modern `(BotState) => move` neural bots, not
+ * legacy mutable-game-view AIs, so their loaders return them pre-wrapped by
+ * `adaptModernBot` — the same reverse adapter community bots use. That tags them
+ * `__modernBot` so the in-game `runAI` loop drives them with a sanitized BotState
+ * instead of a legacy game view (which they cannot read — an unwrapped modern bot would
+ * throw every turn). The arena/tournament screens use the RAW bots from `builtInBots.js`,
+ * whose consumers already call `fn(botState)` directly, so no wrapper is needed there.
+ *
+ * Conqueror reuses the `ppo-long` weights (the balanced flagship net); Blitz and Survivor
+ * have their own fine-tuned checkpoints. The internal `ai_ppo`/`ai_bc` nets are NOT in
+ * this player-facing picker — they stay in `builtInBots.js` (hidden) for the dev harness.
  */
-export const load_ai_ppo = async () => {
-  const { ai_ppo } = await import('./ai_ppo.js');
+export const load_ai_conqueror = async () => {
+  const { ai_conqueror } = await import('./ai_conqueror.js');
   const { adaptModernBot } = await import('../arena/modernBotAdapter.js');
-  return adaptModernBot(ai_ppo, 'ai_ppo');
+  return adaptModernBot(ai_conqueror, 'ai_conqueror');
+};
+export const load_ai_blitz = async () => {
+  const { ai_blitz } = await import('./ai_blitz.js');
+  const { adaptModernBot } = await import('../arena/modernBotAdapter.js');
+  return adaptModernBot(ai_blitz, 'ai_blitz');
+};
+export const load_ai_survivor = async () => {
+  const { ai_survivor } = await import('./ai_survivor.js');
+  const { adaptModernBot } = await import('../arena/modernBotAdapter.js');
+  return adaptModernBot(ai_survivor, 'ai_survivor');
 };
 
 /**
@@ -111,14 +125,34 @@ export const AI_STRATEGIES = {
     implementation: null,
   },
 
-  // PPO self-play RL net (Phase 3). No search: a single reactive forward pass, so
-  // it plays on learned instinct, not lookahead.
-  ai_ppo: {
-    id: 'ai_ppo',
-    name: 'PPO AI',
-    description: 'Neural net trained by PPO self-play against a league of bots',
+  /*
+   * Personas — the player-facing self-play roster (docs/ml-bot/PERSONAS.md). Each is a
+   * single reactive forward pass (no search), so it plays on learned instinct. Conqueror
+   * is the balanced flagship (the strongest net the game ships); Blitz closes games fast;
+   * Survivor outlasts the field. The internal PPO/BC nets are hidden — see builtInBots.js.
+   */
+  ai_conqueror: {
+    id: 'ai_conqueror',
+    name: 'Conqueror',
+    description: 'Balanced self-play net that plays the long game to win outright',
     difficulty: 5,
-    loader: load_ai_ppo,
+    loader: load_ai_conqueror,
+    implementation: null,
+  },
+  ai_blitz: {
+    id: 'ai_blitz',
+    name: 'Blitz',
+    description: 'Aggressive self-play net that presses hard and ends games fast',
+    difficulty: 5,
+    loader: load_ai_blitz,
+    implementation: null,
+  },
+  ai_survivor: {
+    id: 'ai_survivor',
+    name: 'Survivor',
+    description: 'Patient self-play net that outlasts rivals and climbs the standings',
+    difficulty: 5,
+    loader: load_ai_survivor,
     implementation: null,
   },
 };

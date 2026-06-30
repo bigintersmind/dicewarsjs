@@ -279,6 +279,33 @@ def test_step_terminal_adds_dense_to_terminal_reward(golden_frame, monkeypatch):
     assert reward == pytest.approx(1.0 + 0.3)
 
 
+def test_step_terminal_truncation_still_pays_dense(golden_frame, monkeypatch):
+    # The dense signal is REALIZED, so unlike the terminal OUTCOME reward (which terminal_reward
+    # zeroes on a truncation to avoid double-counting V(s)), the per-step shaping IS paid at a
+    # maxTurns cap. Pins the comment claim "paid on a truncation too": coef × delta = 0.02 × 5 =
+    # 0.1, NOT the 0.0 the unshaped truncation test asserts. trunc stays True (SB3 bootstraps).
+    env = _env(territory_reward_coef=0.02)
+    term = dataclasses.replace(
+        golden_frame, terminal=1, winner=0, won=0, truncated=1, placement=0.67, delta_territory=5
+    )
+    _obs, reward, terminated, trunc, _info = _drive_step_with_terminal(monkeypatch, env, term)
+    assert (terminated, trunc) == (False, True)  # truncation → bootstrap, not a genuine terminal
+    assert reward == pytest.approx(0.1)  # the realized dense interval, NOT zeroed like the outcome
+
+
+def test_step_terminal_loss_pays_negative_territory_wipe(golden_frame, monkeypatch):
+    # The learner's own elimination: a genuine (non-truncated) loss in win mode pays terminal_reward
+    # 0, plus the negative dense interval for the territory it lost down to 0 (the honest cost of
+    # overextending). 0.02 × -4 = -0.08 — proves a shaped loss carries the negative signal, not 0.
+    env = _env(territory_reward_coef=0.02)
+    term = dataclasses.replace(
+        golden_frame, terminal=1, winner=0, won=0, truncated=0, placement=0.0, delta_territory=-4
+    )
+    _obs, reward, terminated, trunc, _info = _drive_step_with_terminal(monkeypatch, env, term)
+    assert (terminated, trunc) == (True, False)  # a real loss is a genuine terminal (bootstrap 0)
+    assert reward == pytest.approx(-0.08)
+
+
 def test_step_unshaped_env_ignores_dense_fields(golden_frame, monkeypatch):
     # An env with no dense coef is NOT shaped: a non-terminal step pays 0 even if the (stub) frame
     # happens to carry dense values — step() never reads them, so a base run stays byte-identical.

@@ -61,6 +61,18 @@ describe('ppo-env-server — PFSP flag bridge (Node side)', () => {
     expect(opts['league-state-dir']).toBe('/tmp/league');
     expect(numArg(opts, 'league-dump-every', 50)).toBe(25);
   });
+
+  it('knows the bite-G --reward-shaping flag and defaults it OFF when absent', () => {
+    // The Node side of the dense-reward bridge: Python emits `--reward-shaping=1` only when a
+    // persona coef is active (test_env_server_argv.py), and the env-server reads it back as
+    // `numArg(opts, 'reward-shaping', 0) !== 0`. Without this, a mistyped flag would either trip
+    // the unknown-flag guard on a live shodan spawn or silently fall back to the unshaped wire =
+    // a no-op dense run that wastes a multi-day GPU job (the exact bug class bite G guards).
+    expect(numArg(parseArgs(['--reward-shaping=1']), 'reward-shaping', 0)).toBe(1);
+    expect(numArg(parseArgs([]), 'reward-shaping', 0)).toBe(0); // absent ⇒ off (byte-identical wire)
+    expect(numArg(parseArgs(['--reward-shaping=0']), 'reward-shaping', 0)).toBe(0); // explicit off
+    expect(() => parseArgs(['--reward-shapng=1'])).toThrow(/Unknown flag --reward-shapng/); // typo
+  });
 });
 
 describe('ppo-env-server — B6 league persistence resolution (resolveLeaguePersistence)', () => {

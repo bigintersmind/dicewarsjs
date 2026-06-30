@@ -6,6 +6,9 @@ The byte layout is documented in obs-frame.mjs; the short version:
 
     HEADER  48 bytes  — 11 × i32 then placement f32 (see constants.HEADER_STRUCT)
                         (the 11th i32 is `truncated`: 1 = maxTurns stalemate cap)
+                        (+8-byte dense-reward tail under `shaped=True`, "bite G":
+                         deltaTerritory f32 then elimsByLearner i32 — see
+                         constants.HEADER_STRUCT_SHAPED. Off by default ⇒ 48 bytes.)
     nodes      f32  maxAreas   × NODE_W
     players    f32  playerCount × PLAYER_W
     board      f32  BOARD_W

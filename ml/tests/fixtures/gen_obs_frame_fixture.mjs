@@ -68,8 +68,8 @@ writeFileSync(path.join(HERE, 'obs_frame_v2.bin'), bytes);
 writeFileSync(path.join(HERE, 'obs_frame_v2.json'), `${JSON.stringify(frame, null, 2)}\n`);
 
 /*
- * Shaped variant ("bite G"): the SAME base frame plus the dense-reward header tail. f32-exact
- * deltaTerritory (a negative-power-of-two fraction) and an integer elimsByLearner make a layout/
+ * Shaped variant ("bite G"): the SAME base frame plus the dense-reward header tail. An exactly-
+ * f32-representable dyadic deltaTerritory (-5/2) and an integer elimsByLearner make a layout/
  * endianness bug obvious. `shaped: true` makes serializeObsFrame emit the 56-byte header.
  */
 const shapedFrame = {

@@ -6,7 +6,11 @@ import {
   deserializeState,
 } from '../../src/engine/StateManager.js';
 import { generateMap } from '../../src/engine/MapGenerator.js';
-import { createTurnOrder, findLargestConnectedGroup } from '../../src/engine/TurnManager.js';
+import {
+  createTurnOrder,
+  findLargestConnectedGroup,
+  calculateReinforcements,
+} from '../../src/engine/TurnManager.js';
 import { createRng } from '../../src/engine/rng.js';
 
 const DEFAULT_CONFIG = {
@@ -343,6 +347,29 @@ describe('applyAction — END_TURN', () => {
     const changed = newState.areas.findIndex((a, i) => a.dice > before[i].dice);
     expect(changed).toBeGreaterThan(0);
     expect(newState.areas[changed]).not.toBe(state.areas[changed]);
+  });
+
+  it('reinforcement dice count matches the recompute (maintained-largestGroup shortcut)', () => {
+    /*
+     * applyEndTurn now feeds the current player's maintained largestGroup into
+     * distributeReinforcements instead of recomputing it. Pin that the dice actually
+     * placed still equal calculateReinforcements — i.e. the shortcut changed nothing.
+     * On a fresh map the current player has stock 0 and ample per-territory capacity, so
+     * every reinforcement die lands and the board's total dice rises by exactly that count.
+     */
+    const state = createTestState();
+    const currentPlayer = state.turnOrder[state.currentPlayerIndex];
+    const expectedReinforcements = calculateReinforcements(state, currentPlayer);
+
+    // Sanity: the maintained value the shortcut reads equals the from-scratch recompute.
+    expect(state.players[currentPlayer].largestGroup).toBe(expectedReinforcements);
+    expect(expectedReinforcements).toBeGreaterThan(0);
+
+    const totalBefore = state.areas.reduce((sum, a) => sum + a.dice, 0);
+    const newState = applyAction(state, { type: 'END_TURN' });
+    const totalAfter = newState.areas.reduce((sum, a) => sum + a.dice, 0);
+
+    expect(totalAfter - totalBefore).toBe(expectedReinforcements);
   });
 });
 

@@ -260,15 +260,25 @@ function applyEndTurn(state) {
   const rng = createRng(state.rngState);
 
   /*
-   * Distribute reinforcements (calculates reinforcements + places dice randomly).
+   * Distribute reinforcements (places dice randomly).
    * distributeReinforcements is pure — it clones areas internally before mutating —
    * so pass state.areas directly. Pre-cloning here would deep-copy the whole areas
    * array a second time only to discard it.
+   *
+   * Reinforcement count = the current player's largest connected group, which is a pure
+   * function of their owned territories. END_TURN adds dice but changes no ownership, and
+   * the ending player is always active (nextTurn never lands on an eliminated seat) with
+   * >= 1 territory — so the maintained players[currentPlayer].largestGroup already equals
+   * calculateReinforcements(...). Pass it to skip a redundant findLargestConnectedGroup
+   * union-find pass per END_TURN. (territoryCount === 0 ⇒ 0 mirrors calculateReinforcements'
+   * guard; that branch is unreachable here but kept conservative.)
    */
+  const currentStats = players[currentPlayer];
   const { areas: newAreas, playerStock } = distributeReinforcementsDice(
     { areas: state.areas, players },
     currentPlayer,
-    rng
+    rng,
+    currentStats.territoryCount === 0 ? 0 : currentStats.largestGroup
   );
 
   const newRngState = rng.state();

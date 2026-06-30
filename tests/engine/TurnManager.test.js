@@ -382,4 +382,34 @@ describe('distributeReinforcements', () => {
     expect(playerStock).toBe(0);
     expect(newAreas[1].dice).toBe(3);
   });
+
+  it('clamps a precomputed count at STOCK_MAX identically to recomputing', () => {
+    // Same board as the recompute STOCK_MAX test (largestGroup 6, stock 63 ⇒ min(63+6,64)=64).
+    // Exercising the clamp through the precomputed 4th arg proves the downstream placement is
+    // byte-identical regardless of where `reinforcements` came from.
+    const buildAreas = () =>
+      [
+        area(0, -1, 0, [], 0),
+        area(1, 0, 3, [2, 3, 4, 5, 6, 7]),
+        area(2, 0, 3, [1]),
+        area(3, 0, 3, [1]),
+        area(4, 0, 3, [1]),
+        area(5, 0, 3, [1]),
+        area(6, 0, 3, [1]),
+        area(7, 1, 3, [1]),
+      ].map(a => ({ ...a, neighborAreaIds: [...a.neighborAreaIds], cells: [...a.cells] }));
+    const mkState = () =>
+      makeState({
+        areas: buildAreas(),
+        players: [
+          player(0, { territoryCount: 6, diceCount: 18, largestGroup: 6, stock: 63 }),
+          player(1, { territoryCount: 1, diceCount: 3, largestGroup: 1, stock: 0 }),
+        ],
+      });
+
+    const recomputed = distributeReinforcements(mkState(), 0, createRng(42));
+    const precomputed = distributeReinforcements(mkState(), 0, createRng(42), 6);
+    expect(precomputed.playerStock).toBeLessThanOrEqual(64);
+    expect(precomputed).toEqual(recomputed);
+  });
 });

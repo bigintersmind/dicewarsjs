@@ -10,6 +10,7 @@ import {
   createTurnOrder,
   findLargestConnectedGroup,
   calculateReinforcements,
+  distributeReinforcements,
 } from '../../src/engine/TurnManager.js';
 import { createRng } from '../../src/engine/rng.js';
 
@@ -370,6 +371,44 @@ describe('applyAction — END_TURN', () => {
     const totalAfter = newState.areas.reduce((sum, a) => sum + a.dice, 0);
 
     expect(totalAfter - totalBefore).toBe(expectedReinforcements);
+  });
+
+  it('places END_TURN dice identical to the recompute path across every rotating seat', () => {
+    /*
+     * The test above pins the shortcut for one seat (turnOrder[0], turn 0, fresh board).
+     * The largestGroup fuzz test below cannot extend that guard: it recomputes diceCount
+     * from the post-action board, so a wrong END_TURN dice *count* would still match its
+     * reference. So oracle each END_TURN directly — replay the same rngState through
+     * distributeReinforcements' RECOMPUTE path (no 4th arg) and assert applyAction (which
+     * takes the precomputed-largestGroup path) placed byte-identical dice. Pure END_TURNs
+     * change no ownership, so largestGroup stays maintained and one full rotation exercises
+     * all 7 seats. Per-territory equality is immune to MAX_DICE/STOCK_MAX clamping — both
+     * sides clamp identically — so it holds even once stock accumulates on later passes.
+     */
+    let state = createTestState();
+    for (let i = 0; i < state.turnOrder.length; i++) {
+      const currentPlayer = state.turnOrder[state.currentPlayerIndex];
+
+      // The maintained value the shortcut reads must equal the from-scratch recompute, so
+      // both paths resolve reinforcements from the same number.
+      expect(state.players[currentPlayer].largestGroup).toBe(
+        calculateReinforcements(state, currentPlayer)
+      );
+
+      // Independent oracle: the recompute path fed the same RNG state applyEndTurn uses.
+      const expected = distributeReinforcements(
+        { areas: state.areas, players: state.players },
+        currentPlayer,
+        createRng(state.rngState)
+      );
+
+      const newState = applyAction(state, { type: 'END_TURN' });
+
+      newState.areas.forEach((a, idx) => expect(a.dice).toBe(expected.areas[idx].dice));
+      expect(newState.players[currentPlayer].stock).toBe(expected.playerStock);
+
+      state = newState;
+    }
   });
 });
 

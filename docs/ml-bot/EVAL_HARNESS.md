@@ -18,15 +18,23 @@
 >
 > - **Phase 1 — ✅ BUILT (2026-06-28):** the harness + its tests, validated on _existing built-ins_.
 >   Shipped: the §6 engine signal (`onTurn(…, actingPlayerId)` in `matchRunner.js`),
->   `scripts/lib/behavior-core.mjs` (pure logic, 17 unit tests), `scripts/behavior-profile.mjs`
+>   `scripts/lib/behavior-core.mjs` (pure logic, 42 unit tests as of bite E1), `scripts/behavior-profile.mjs`
 >   (`npm run behavior:profile`), `tests/behaviorCore.test.js`. Acceptance check (a **manual pilot**,
 >   not an automated assertion — the exact Δ depends on field & budget): `Strategist` vs `Defensive`
 >   separate on aggression / zero-attack-turn fraction with a CI excluding 0 at a small pilot budget.
 >   Adversarially reviewed (kill-attribution timing, seat mapping, null-alignment) — clean.
-> - **Phase 2 (after the personas are trained):** point it at the persona weight files and produce the
->   signature table. The persona rows in §8 are **aspirational** until those bots exist; the
->   `PERSONA_SIGNATURES` / `DEFAULT_MDE` stubs in `behavior-core.mjs` already encode the pre-registered
->   hypotheses so the multiplicity story is fixed in advance.
+> - **Phase 2a — ✅ BUILT (2026-06-29, "bite E1"):** the harness can now load a freshly-exported
+>   persona and gate it. `--bots`/`--control` accept a `Name=path/to/weights.js` spec, loaded +
+>   parity-checked via the same `loadExportedPolicy → makeBC` path as `ppo:gate` (`parseBotSpec` in
+>   `behavior-core.mjs`); when a profiled bot's name matches a `PERSONA_SIGNATURES` key, its
+>   pre-registered signature is gated **PASS/FAIL** in the console + JSON (`signatureDetail`), with the
+>   placeholder MDEs calibratable from the pilot via `--mde axis:value,...` (`parseMdeOverrides`).
+>   Smoke-verified end-to-end against a persona-named export. So the §8 persona rows are now
+>   **runnable** the moment the weight files exist — no harness code change needed.
+> - **Phase 2b (still TODO — separable follow-ups):** Holm adjustment across the ≤5 confirmatory tests
+>   (a no-op for a 1–2-persona pilot), §3.6 determinism enforcement in the loader, the §3.8
+>   training-field-match assertion, the §3.5 `--melee` persona×persona separation matrix, `--csv`, the
+>   territory _curve_/AUC + border-exposure axes, and the with/without-quarantine dual pass.
 
 ---
 
@@ -253,32 +261,38 @@ summarizeAxis(perRunValues[]) -> { mean, ci, n } | null // mean ± 95% CI; n = R
 alignDropNull(a[], b[]) -> { a[], b[], n }              // drop indices null on either side (§3.4)
 compareAxis(personaRuns[], controlRuns[]) -> { delta, ci, lo, hi, verdict, n } | null  // paired Δ
 compareToControl(personaRuns[], controlRuns[]) -> Record<axis, compareAxis-result | null>
-signaturePass(signature, vsControl, mde) -> boolean     // §3.2 MDE AND CI-excludes-0; THROWS w/o MDE
+signatureDetail(signature, vsControl, mde) -> { pass, rule, axes[] }  // per-axis meetsMde/sigInDir/ok
+signaturePass(signature, vsControl, mde) -> boolean     // = signatureDetail(...).pass; THROWS w/o MDE
+parseBotSpec(spec) -> { name, weightsPath|null }        // "Name" (built-in) vs "Name=weights.js"
+parseMdeOverrides(str, base=DEFAULT_MDE) -> Record<axis, number>  // "--mde axis:val,..." merged over base
 
 AXES                // the canonical axis-key list (single source of truth)
-PERSONA_SIGNATURES  // persona -> { axes: [{ axis, direction }], rule: 'AND'|'single' }   (Phase-2 stub)
+PERSONA_SIGNATURES  // persona -> { axes: [{ axis, direction }], rule: 'AND'|'single' }   (gated when a profiled bot's name matches)
 DEFAULT_MDE         // partial Record<axis, number>; a signature axis MUST have an entry (else throws)
 ```
 
-> **Not yet built (Phase 2 / future):** `aggregateCurves` (territory _curve_ alignment/padding),
+> **Not yet built (Phase 2b / future):** `aggregateCurves` (territory _curve_ alignment/padding),
 > `separationMatrix` (§3.5 persona×persona melee), Holm adjustment across the 5 confirmatory tests, and
 > the `--melee`/`--csv` CLI modes. The shipped `summarizeAxis` is the `aggregateRuns` thin-`meanCi`
 > wrapper the draft named. The terminal-stat math (`avgPlacement`, win%, capture-efficiency) is computed
 > in `behavior-core.mjs` directly; extracting a shared helper from `arenaRunner.js:130-168` remains a
-> **TODO** (the one duplication the review flagged).
+> **TODO** (the one duplication the review flagged). Weight-file bot loading + the signature PASS/FAIL
+> verdict + `--mde` calibration are **now built** (Phase 2a, "bite E1").
 
 ### CLI
 
 ```
 node scripts/behavior-profile.mjs \
-  --bots PPO,Blitz,Expansionist,Predator,Survivor \   # profiled seats (Phase 2)
+  --bots Blitz=ml/runs/ppo-blitz/blitz.weights.js \   # profiled seat(s): built-in name OR Name=weights.js
+  --control Conqueror=ml/runs/ppo-conqueror/conqueror.weights.js \  # matched control; auto-injected into the profiled set
   --opponents Default,Defensive,Strategist,Adaptive,Expectimax,Lookahead \  # fixed FFA filler; MUST include the reference
   --reference Lookahead \                              # win%-vs-ref; one of --opponents (fills a seat in every field)
-  --control Conqueror \                               # auto-injected into the profiled set if absent
-  --runs 20 --games 150 \                             # CALIBRATE via §3.2 pilot, don't hard-code
+  --mde aggression:1.5,turnsToWin:8 \                 # CALIBRATE the signature thresholds from the §3.2 pilot
+  --runs 20 --games 150 \                             # CALIBRATE runs/games via the §3.2 pilot, don't hard-code
   --no-quarantine \                                   # run a second, unfiltered pass (§3.7)
   --json                                              # JSON->stdout, human table->stderr
-  # --melee (§3.5 persona×persona) is NOT yet implemented — Phase 2.
+  # A weights bot named `Blitz` opts into PERSONA_SIGNATURES.Blitz → a PASS/FAIL verdict vs the control.
+  # --melee (§3.5 persona×persona) is NOT yet implemented — Phase 2b.
 ```
 
 Above is a 7-seat field (6 opponents incl. the reference + 1 profiled seat). The reference **must** be
@@ -314,24 +328,24 @@ The **control is always profiled** with identical run/game/rotation config (auto
 
 ## 5. Reused utilities (exact)
 
-| Function                                 | File:line                                             | Use                                                                                     |
-| ---------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `runMatch` + `onTurn`/`onStep`           | `matchRunner.js:229-366` (cb `:213/:219`)             | run each game, stream board + step signals                                              |
-| `botStats`                               | `matchRunner.js:341-352`                              | (a num),(d),(e),(g),(i), quarantine                                                     |
-| `MatchResult` winner/turnCount           | `matchRunner.js:355/:357`                             | (d),(f)                                                                                 |
-| `calculatePlacements`                    | `matchRunner.js:375-395`                              | placement ranks (already applied)                                                       |
-| `recalcPlayerStats`                      | `StateManager.js:108-117`                             | territoryCount (b), diceCount (g)                                                       |
-| `applyAction`                            | `StateManager.js:161-173`                             | replay re-sim (kills fallback)                                                          |
-| `trajectoryFromReplay` / `replayToState` | `trajectoryExport.js:246` / `replayFormat.js:198-208` | kill-attribution fallback (no §6)                                                       |
-| `isStopMove` / `buildStep`               | `trajectoryExport.js:61` / `:129-140`                 | ATTACK vs STOP in `onStep`                                                              |
-| `botState` isBorder/connected            | `botState.js:50` / `:74`                              | (k) border, (l) largest group                                                           |
-| `meanCi` / `tCrit` / `mean`              | `stats.mjs:60-66 / :50 / :53`                         | mean ± 95% CI — **CI math reused**                                                      |
-| `pairedDelta` / `classifyGate`           | `ppo-gate-core.mjs:31-41 / :53-57`                    | paired Δ + HIGHER/SAME/LOWER                                                            |
-| `rotatedField` / `buildGateField`        | `ppo-gate-core.mjs:127-132 / :103-112`                | seat fairness, field guardrails                                                         |
-| arenaRunner accumulators                 | `arenaRunner.js:130-168`                              | **extract** shared terminal-stat helper                                                 |
-| `BUILT_IN_BOTS`                          | `builtInBots.js:21`                                   | built-in enumeration (`ai_ppo` `:44`)                                                   |
-| `resolveBot`/`loadBot`/`getArg`          | `cli-utils.mjs:49/:37`, `cli-args.mjs:25`             | arg parsing (`getArg`/`hasFlag`) now; `resolveBot`/`loadBot` = Phase-2 weight-file bots |
-| JSON-stdout / table-stderr               | `_tune.mjs:130-142`                                   | dual output                                                                             |
+| Function                                           | File:line                                                      | Use                                                                                             |
+| -------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `runMatch` + `onTurn`/`onStep`                     | `matchRunner.js:229-366` (cb `:213/:219`)                      | run each game, stream board + step signals                                                      |
+| `botStats`                                         | `matchRunner.js:341-352`                                       | (a num),(d),(e),(g),(i), quarantine                                                             |
+| `MatchResult` winner/turnCount                     | `matchRunner.js:355/:357`                                      | (d),(f)                                                                                         |
+| `calculatePlacements`                              | `matchRunner.js:375-395`                                       | placement ranks (already applied)                                                               |
+| `recalcPlayerStats`                                | `StateManager.js:108-117`                                      | territoryCount (b), diceCount (g)                                                               |
+| `applyAction`                                      | `StateManager.js:161-173`                                      | replay re-sim (kills fallback)                                                                  |
+| `trajectoryFromReplay` / `replayToState`           | `trajectoryExport.js:246` / `replayFormat.js:198-208`          | kill-attribution fallback (no §6)                                                               |
+| `isStopMove` / `buildStep`                         | `trajectoryExport.js:61` / `:129-140`                          | ATTACK vs STOP in `onStep`                                                                      |
+| `botState` isBorder/connected                      | `botState.js:50` / `:74`                                       | (k) border, (l) largest group                                                                   |
+| `meanCi` / `tCrit` / `mean`                        | `stats.mjs:60-66 / :50 / :53`                                  | mean ± 95% CI — **CI math reused**                                                              |
+| `pairedDelta` / `classifyGate`                     | `ppo-gate-core.mjs:31-41 / :53-57`                             | paired Δ + HIGHER/SAME/LOWER                                                                    |
+| `rotatedField` / `buildGateField`                  | `ppo-gate-core.mjs:127-132 / :103-112`                         | seat fairness, field guardrails                                                                 |
+| arenaRunner accumulators                           | `arenaRunner.js:130-168`                                       | **extract** shared terminal-stat helper                                                         |
+| `BUILT_IN_BOTS`                                    | `builtInBots.js:21`                                            | built-in enumeration (`ai_ppo` `:44`)                                                           |
+| `getArg`/`hasFlag` + `loadExportedPolicy`/`makeBC` | `cli-args.mjs:25/:59`, `load-bc-policy.mjs:163`, `ai_bc.js:67` | arg parsing; weight-file bots loaded + parity-checked exactly like `ppo:gate` (Phase-2a, built) |
+| JSON-stdout / table-stderr                         | `_tune.mjs:130-142`                                            | dual output                                                                                     |
 
 ---
 

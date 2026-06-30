@@ -5,9 +5,10 @@
  * `ppo:gate`'s "is it STRONGER?" (paired Δwin% vs Lookahead). See
  * `docs/ml-bot/EVAL_HARNESS.md` for the full spec.
  *
- * Phase 1 (this file): the metric extraction + aggregation + control comparison,
- * runnable against existing built-in bots. Phase 2 wires the trained persona bots and
- * the pre-registered signature gates (the PERSONA_SIGNATURES stub at the bottom).
+ * This file: the metric extraction + aggregation + control comparison, the pre-registered
+ * signature gate (`signatureDetail`/`signaturePass` over PERSONA_SIGNATURES), and the CLI
+ * spec/MDE parsing (`parseBotSpec`/`parseMdeOverrides`). All runnable today; the only thing
+ * still pending is the persona *weight files* the CLI points at (see PERSONA_SIGNATURES below).
  *
  * Design notes that the spec's review pinned down (do not regress):
  *   - Active turns are counted from `onTurn` firings attributed to the profiled seat,
@@ -287,21 +288,38 @@ export function compareToControl(personaRuns, controlRuns) {
 }
 
 /**
- * Whether a persona's pre-registered signature holds: every required axis must clear its
- * minimum-detectable-effect AND have a CI excluding 0 in the expected direction (§3.2/§3.3).
- * Two requirements (|Δ| ≥ MDE and significant) guard against a statistically-significant but
- * behaviorally-trivial "difference" passing.
+ * Per-axis breakdown of a persona's pre-registered signature: for each required axis, whether
+ * it clears its minimum-detectable-effect (|Δ| ≥ MDE) AND is significant in the expected
+ * direction (CI excludes 0 the right way). The boolean gate {@link signaturePass} is just
+ * `detail.pass`; the CLI uses the per-axis `axes` to EXPLAIN a PASS/FAIL. Two requirements
+ * (MDE and significance) guard against a statistically-significant but behaviorally-trivial
+ * "difference" passing.
  *
  * @param {{ axes: Array<{axis:string, direction:'HIGHER'|'LOWER'}>, rule:'AND'|'single' }} signature
  * @param {Record<string, ReturnType<typeof compareAxis>>} vsControl
  * @param {Record<string, number>} mde - per-axis minimum |Δ| that counts as meaningful
- * @returns {boolean}
- * @throws if a signature axis has no registered MDE (see below)
+ * @returns {{ pass:boolean, rule:string, axes:Array<{axis:string, direction:string, delta:number|null, lo:number|null, hi:number|null, mde:number|null, meetsMde:boolean, sigInDir:boolean, ok:boolean}> }}
+ * @throws if a signature axis HAS a comparison but no registered MDE (see below)
  */
-export function signaturePass(signature, vsControl, mde) {
-  const checks = signature.axes.map(({ axis, direction }) => {
+export function signatureDetail(signature, vsControl, mde) {
+  const axes = signature.axes.map(({ axis, direction }) => {
     const cmp = vsControl[axis];
-    if (!cmp) return false;
+    // Fail CLOSED (not throw) when a required axis has no comparison: a persona that rarely wins
+    // yields all-null turnsToWin runs → compareAxis null → the signature simply does not hold.
+    // (Checked before the MDE lookup so a null-cmp axis never trips the missing-MDE throw.)
+    if (!cmp) {
+      return {
+        axis,
+        direction,
+        delta: null,
+        lo: null,
+        hi: null,
+        mde: mde[axis] ?? null,
+        meetsMde: false,
+        sigInDir: false,
+        ok: false,
+      };
+    }
     // Fail loud on a missing MDE rather than defaulting to 0: an `?? 0` fallback would make
     // |Δ| ≥ 0 always true, silently collapsing the gate back to a bare significance test — the
     // exact "trivially-significant pass" this function exists to prevent. A pre-registered
@@ -309,22 +327,49 @@ export function signaturePass(signature, vsControl, mde) {
     const axisMde = mde[axis];
     if (axisMde == null) {
       throw new Error(
-        `signaturePass: no MDE registered for axis "${axis}" — every pre-registered signature ` +
+        `signatureDetail: no MDE registered for axis "${axis}" — every pre-registered signature ` +
           `axis must have an MDE (else the |Δ| ≥ MDE guard is silently disabled).`
       );
     }
     const meetsMde = Math.abs(cmp.delta) >= axisMde;
     const sigInDir = direction === 'HIGHER' ? cmp.lo > 0 : cmp.hi < 0;
-    return meetsMde && sigInDir;
+    return {
+      axis,
+      direction,
+      delta: cmp.delta,
+      lo: cmp.lo,
+      hi: cmp.hi,
+      mde: axisMde,
+      meetsMde,
+      sigInDir,
+      ok: meetsMde && sigInDir,
+    };
   });
   // 'single' and 'AND' both require all listed axes; the distinction is documentation of intent.
-  return checks.every(Boolean);
+  return { pass: axes.every(a => a.ok), rule: signature.rule, axes };
 }
 
 /**
- * Pre-registered confirmatory signature per persona (§8 of the spec). Phase-2 stub — the
- * persona bots do not exist yet; this encodes the one hypothesis each will be judged on so
- * the multiplicity story (≤ 5 confirmatory tests, Holm-adjusted) is fixed in advance.
+ * Whether a persona's pre-registered signature holds — the boolean gate. Thin convenience
+ * wrapper over {@link signatureDetail} (the single decision path), retained as the public
+ * boolean entry point. See {@link signatureDetail} for the per-axis requirements and the
+ * throw contract.
+ *
+ * @param {{ axes: Array<{axis:string, direction:'HIGHER'|'LOWER'}>, rule:'AND'|'single' }} signature
+ * @param {Record<string, ReturnType<typeof compareAxis>>} vsControl
+ * @param {Record<string, number>} mde - per-axis minimum |Δ| that counts as meaningful
+ * @returns {boolean}
+ * @throws if a signature axis has no registered MDE (see {@link signatureDetail})
+ */
+export function signaturePass(signature, vsControl, mde) {
+  return signatureDetail(signature, vsControl, mde).pass;
+}
+
+/**
+ * Pre-registered confirmatory signature per persona (§8 of the spec). Actively gated: when a
+ * profiled bot's name matches a key here, `signatureDetail` judges it PASS/FAIL. The persona
+ * weight files don't exist yet, so this still encodes the one hypothesis each will be judged on
+ * — fixing the multiplicity story (≤ 5 confirmatory tests, Holm-adjusted) in advance.
  *
  * @type {Record<string, { axes: Array<{axis:string, direction:'HIGHER'|'LOWER'}>, rule:'AND'|'single' }>}
  */
@@ -352,3 +397,64 @@ export const DEFAULT_MDE = {
   zeroAttackTurnFrac: 0.1,
   captureEfficiency: 0.05,
 };
+
+/**
+ * Parse a `--bots`/`--control` entry. A bare name (`Lookahead`) is a built-in registry lookup;
+ * a `Name=path/to/weights.js` entry is a weights-file bot the CLI loads + parity-checks via the
+ * same `loadExportedPolicy → makeBC` path as `ppo:gate`. The display name doubles as the
+ * {@link PERSONA_SIGNATURES} key, so naming a weights bot `Blitz` opts it into the Blitz gate.
+ * Splits on the FIRST `=` only, so a weights path may itself contain `=`.
+ *
+ * @param {string} spec
+ * @returns {{ name: string, weightsPath: string|null }} weightsPath null ⇒ built-in lookup
+ */
+export function parseBotSpec(spec) {
+  const s = String(spec).trim();
+  const eq = s.indexOf('=');
+  if (eq === -1) return { name: s, weightsPath: null };
+  return { name: s.slice(0, eq).trim(), weightsPath: s.slice(eq + 1).trim() };
+}
+
+/**
+ * Parse a `--mde axis:value,...` override string, merged OVER a base MDE map (never deletes a
+ * base entry, so every signature axis always keeps an MDE). This is how the placeholder
+ * {@link DEFAULT_MDE} thresholds get CALIBRATED from a pilot at the CLI without a code edit.
+ * Throws on a malformed entry, an unknown axis, or a non-positive/non-finite value so a typo can't
+ * silently widen or disable a gate (in particular `axis:0`, which would collapse it to a bare
+ * significance test).
+ *
+ * @param {string} str - e.g. "aggression:1.5,turnsToWin:8"
+ * @param {Record<string, number>} [base=DEFAULT_MDE]
+ * @returns {Record<string, number>} a fresh merged map (base is not mutated)
+ */
+export function parseMdeOverrides(str, base = DEFAULT_MDE) {
+  const out = { ...base };
+  const trimmed = (str ?? '').trim();
+  if (!trimmed) return out;
+  for (const pair of trimmed.split(',')) {
+    const part = pair.trim();
+    if (!part) continue;
+    const colon = part.indexOf(':');
+    if (colon === -1) {
+      throw new Error(`--mde entry "${part}" is not of the form axis:value`);
+    }
+    const axis = part.slice(0, colon).trim();
+    const value = Number(part.slice(colon + 1).trim());
+    if (!AXES.includes(axis)) {
+      throw new Error(`--mde axis "${axis}" is not a known axis (${AXES.join(', ')})`);
+    }
+    if (!Number.isFinite(value) || value <= 0) {
+      // Reject 0, not just negatives: an MDE of 0 makes `|Δ| ≥ 0` always true in signatureDetail,
+      // silently collapsing the gate to a bare significance test — the exact "trivially-significant
+      // pass" the missing-MDE throw exists to prevent. A 0 here is the unsafe direction (it ships a
+      // non-distinct persona); a too-large MDE merely fails closed. So the calibration path must
+      // refuse it too, not just the implicit `?? 0` fallback signatureDetail already avoids.
+      throw new Error(
+        `--mde value for "${axis}" must be a positive number (got "${part}") — 0 disables the ` +
+          `|Δ| ≥ MDE guard and collapses the signature to a bare significance test.`
+      );
+    }
+    out[axis] = value;
+  }
+  return out;
+}

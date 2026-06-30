@@ -135,9 +135,21 @@ def _drive_step_with_terminal(monkeypatch, env, term_frame):
     action passes the legality guard.
     """
     monkeypatch.setattr("dicewars_ppo.env.send_action", lambda _sock, _idx: None)
-    monkeypatch.setattr("dicewars_ppo.env.recv_frame", lambda _sock, _max: term_frame)
+    # `**_kw` swallows the `shaped=` kwarg step() passes (bite G) so this harness works for both the
+    # base and shaped wire variants.
+    monkeypatch.setattr("dicewars_ppo.env.recv_frame", lambda _sock, _max, **_kw: term_frame)
     env._awaiting_reset = False
     env._mask = np.array([True] + [False] * (env.max_edges - 1))  # action 0 legal
+    return env.step(0)
+
+
+def _drive_step_with_obs(monkeypatch, env, obs_frame):
+    """Drive one ``env.step()`` whose server reply is a NON-terminal ``obs_frame`` — exercises the
+    per-step reward branch (0 by default; the dense shaping reward when a persona coef is set)."""
+    monkeypatch.setattr("dicewars_ppo.env.send_action", lambda _sock, _idx: None)
+    monkeypatch.setattr("dicewars_ppo.env.recv_frame", lambda _sock, _max, **_kw: obs_frame)
+    env._awaiting_reset = False
+    env._mask = np.array([True] + [False] * (env.max_edges - 1))
     return env.step(0)
 
 
@@ -229,3 +241,98 @@ def test_step_terminal_speed_bonus_scales_a_fast_win(golden_frame, monkeypatch):
     _obs, reward, terminated, trunc, _info = _drive_step_with_terminal(monkeypatch, env, term)
     assert (terminated, trunc) == (True, False)
     assert reward == pytest.approx(1.375)
+
+
+# --- step() dense shaping (bite G) wired through the REAL step() body -------------------------
+# Pin the shaped-frame field → step_reward-arg wiring on BOTH the non-terminal and terminal paths,
+# plus that an unshaped env never reads (or pays) the dense fields.
+
+
+def test_step_nonterminal_expansionist_pays_territory_delta(golden_frame, monkeypatch):
+    # A non-terminal step under territory_reward_coef pays coef × delta_territory (and is NOT a
+    # terminal — terminated/truncated stay False, the env stays awaiting the next step).
+    env = _env(territory_reward_coef=0.02)
+    assert env._shaped is True
+    obs_frame = dataclasses.replace(golden_frame, terminal=0, delta_territory=4, elims_by_learner=0)
+    _obs, reward, terminated, trunc, info = _drive_step_with_obs(monkeypatch, env, obs_frame)
+    assert (terminated, trunc) == (False, False)
+    assert reward == pytest.approx(0.08)
+    assert info["delta_territory"] == pytest.approx(4) and info["elims_by_learner"] == 0
+
+
+def test_step_nonterminal_predator_pays_kill_bounty(golden_frame, monkeypatch):
+    env = _env(elim_bounty=0.1)
+    obs_frame = dataclasses.replace(golden_frame, terminal=0, delta_territory=0, elims_by_learner=2)
+    _obs, reward, _terminated, _trunc, _info = _drive_step_with_obs(monkeypatch, env, obs_frame)
+    assert reward == pytest.approx(0.2)
+
+
+def test_step_terminal_adds_dense_to_terminal_reward(golden_frame, monkeypatch):
+    # Predator's winning kill: a terminal WIN (terminal_reward 1.0) PLUS the dense bounty for the
+    # game-ending eliminations carried on the terminal frame (3 × 0.1) = 1.3.
+    env = _env(elim_bounty=0.1)
+    term = dataclasses.replace(
+        golden_frame, terminal=1, winner=0, won=1, truncated=0, placement=1.0, elims_by_learner=3
+    )
+    _obs, reward, terminated, trunc, _info = _drive_step_with_terminal(monkeypatch, env, term)
+    assert (terminated, trunc) == (True, False)
+    assert reward == pytest.approx(1.0 + 0.3)
+
+
+def test_step_terminal_truncation_still_pays_dense(golden_frame, monkeypatch):
+    # The dense signal is REALIZED, so unlike the terminal OUTCOME reward (which terminal_reward
+    # zeroes on a truncation to avoid double-counting V(s)), the per-step shaping IS paid at a
+    # maxTurns cap. Pins the comment claim "paid on a truncation too": coef × delta = 0.02 × 5 =
+    # 0.1, NOT the 0.0 the unshaped truncation test asserts. trunc stays True (SB3 bootstraps).
+    env = _env(territory_reward_coef=0.02)
+    term = dataclasses.replace(
+        golden_frame, terminal=1, winner=0, won=0, truncated=1, placement=0.67, delta_territory=5
+    )
+    _obs, reward, terminated, trunc, _info = _drive_step_with_terminal(monkeypatch, env, term)
+    assert (terminated, trunc) == (False, True)  # truncation → bootstrap, not a genuine terminal
+    assert reward == pytest.approx(0.1)  # the realized dense interval, NOT zeroed like the outcome
+
+
+def test_step_terminal_loss_pays_negative_territory_wipe(golden_frame, monkeypatch):
+    # The learner's own elimination: a genuine (non-truncated) loss in win mode pays terminal_reward
+    # 0, plus the negative dense interval for the territory it lost down to 0 (the honest cost of
+    # overextending). 0.02 × -4 = -0.08 — proves a shaped loss carries the negative signal, not 0.
+    env = _env(territory_reward_coef=0.02)
+    term = dataclasses.replace(
+        golden_frame, terminal=1, winner=0, won=0, truncated=0, placement=0.0, delta_territory=-4
+    )
+    _obs, reward, terminated, trunc, _info = _drive_step_with_terminal(monkeypatch, env, term)
+    assert (terminated, trunc) == (True, False)  # a real loss is a genuine terminal (bootstrap 0)
+    assert reward == pytest.approx(-0.08)
+
+
+def test_step_unshaped_env_ignores_dense_fields(golden_frame, monkeypatch):
+    # An env with no dense coef is NOT shaped: a non-terminal step pays 0 even if the (stub) frame
+    # happens to carry dense values — step() never reads them, so a base run stays byte-identical.
+    env = _env()
+    assert env._shaped is False
+    obs_frame = dataclasses.replace(golden_frame, terminal=0, delta_territory=9, elims_by_learner=5)
+    _obs, reward, _terminated, _trunc, _info = _drive_step_with_obs(monkeypatch, env, obs_frame)
+    assert reward == 0.0
+
+
+def test_step_dense_clip_bounds_a_big_swing(golden_frame, monkeypatch):
+    # shaping_clip caps the per-step magnitude (PERSONAS §6): a +100 territory swing × 0.02 = 2.0
+    # clamps to the 0.05 cap.
+    env = _env(territory_reward_coef=0.02, shaping_clip=0.05)
+    obs_frame = dataclasses.replace(
+        golden_frame, terminal=0, delta_territory=100, elims_by_learner=0
+    )
+    _obs, reward, _terminated, _trunc, _info = _drive_step_with_obs(monkeypatch, env, obs_frame)
+    assert reward == pytest.approx(0.05)
+
+
+def test_step_shaped_rejects_negative_elims(golden_frame, monkeypatch):
+    # A corrupt negative kill count must fail loud rather than feed a poisoned reward (mirrors the
+    # won/placement/truncated terminal guards, but validated on EVERY shaped frame).
+    env = _env(elim_bounty=0.1)
+    obs_frame = dataclasses.replace(
+        golden_frame, terminal=0, delta_territory=0, elims_by_learner=-1
+    )
+    with pytest.raises(ValueError, match="elims_by_learner=-1"):
+        _drive_step_with_obs(monkeypatch, env, obs_frame)

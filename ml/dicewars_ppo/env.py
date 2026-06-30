@@ -25,6 +25,11 @@ learner won, else ``0``; ``0`` on every non-terminal step. The persona roster
 ``terminal_speed_bonus`` (Blitz) — see :func:`terminal_reward`. All such modes
 read wire fields already present, so they are wire-contract-free (no
 ``ENCODING_VERSION`` bump); the defaults are byte-identical to the sparse win.
+The two DENSE personas add a per-step shaping reward (bite G): ``territory_reward_coef``
+(Expansionist) and ``elim_bounty`` (Predator), applied via :func:`step_reward` on every
+step (incl. the terminal) from the shaped wire's raw ``delta_territory``/``elims_by_learner``
+fields. A non-zero coef flips the env to parse shaped frames and tells the managed server to
+emit them (``reward_shaping`` server kwarg); both default 0 ⇒ base wire, byte-identical to today.
 
 **Episode model.** The server streams episodes back-to-back over one connection:
 a run of obs frames (``terminal == 0``), each answered with an action, then one
@@ -35,6 +40,7 @@ frame that follows the action — uniform across the first and subsequent episod
 
 from __future__ import annotations
 
+import math
 import socket
 from typing import Any
 
@@ -110,6 +116,38 @@ def terminal_reward(
     return base
 
 
+def step_reward(
+    *,
+    delta_territory: float,
+    elims_by_learner: int,
+    territory_coef: float = 0.0,
+    elim_bounty: float = 0.0,
+    clip: float | None = None,
+) -> float:
+    """The dense per-step reward from the shaped wire's RAW measurements (pure → lean-testable).
+
+    The persona roster's two DENSE objectives (``docs/ml-bot/PERSONAS.md`` §4, bite G), applied
+    on every step including the terminal:
+
+      - **Expansionist** — ``territory_coef`` × net learner-territory change since the prior
+        decision (``delta_territory``). The env-server measures NET change, so the
+        capture-then-lose ping-pong hack (§6) nets 0; land lost — including the learner's own
+        elimination, where its count drops to 0 — is a negative signal, the honest cost of
+        overextending.
+      - **Predator** — ``elim_bounty`` × players the learner eliminated since the prior decision
+        (``elims_by_learner`` ≥ 0). Rewards taking the kill, including the game-ending one.
+
+    Both coefficients default to 0, so an unshaped run (the [D-19]/Conqueror default) returns 0.0
+    every step — identical to today. ``clip`` (§6 "cap per-turn") bounds the per-step shaping
+    magnitude to ``[-clip, +clip]`` when set — capping the variance a big swing injects (e.g. the
+    territory wipe on the learner's elimination); ``None`` leaves it unbounded.
+    """
+    reward = territory_coef * float(delta_territory) + elim_bounty * float(elims_by_learner)
+    if clip is not None:
+        reward = min(clip, max(-clip, reward))
+    return reward
+
+
 class DiceWarsEnv(gym.Env):
     """Single-agent masked env wrapping one Node self-play env-server."""
 
@@ -134,6 +172,12 @@ class DiceWarsEnv(gym.Env):
         reward_mode: str = "win",
         terminal_speed_bonus: float = 0.0,
         speed_ref: int | None = None,
+        # Dense per-step shaping (bite G — Expansionist/Predator). Both default 0 ⇒ no shaping ⇒
+        # base (unshaped) wire, byte-identical to the sparse-win path. A non-zero coef flips the
+        # env to parse shaped frames AND tells the managed server to emit them (see below).
+        territory_reward_coef: float = 0.0,
+        elim_bounty: float = 0.0,
+        shaping_clip: float | None = None,
     ) -> None:
         super().__init__()
         self.max_areas = max_areas
@@ -158,12 +202,36 @@ class DiceWarsEnv(gym.Env):
         self._speed_bonus = float(terminal_speed_bonus)
         self._speed_ref = speed_ref
 
+        # Dense shaping coefs (bite G). Both non-negative + finite: a kill is always good (bounty
+        # >= 0) and more net territory is always good (coef >= 0); a clip, when set, must be > 0.
+        if not (math.isfinite(territory_reward_coef) and territory_reward_coef >= 0.0):
+            raise ValueError(
+                f"territory_reward_coef must be a finite number >= 0 (got {territory_reward_coef})"
+            )
+        if not (math.isfinite(elim_bounty) and elim_bounty >= 0.0):
+            raise ValueError(f"elim_bounty must be a finite number >= 0 (got {elim_bounty})")
+        if shaping_clip is not None and not (math.isfinite(shaping_clip) and shaping_clip > 0.0):
+            raise ValueError(
+                f"shaping_clip must be a finite number > 0 when set (got {shaping_clip})"
+            )
+        self._territory_coef = float(territory_reward_coef)
+        self._elim_bounty = float(elim_bounty)
+        self._shaping_clip = shaping_clip
+        # Shaped iff a dense coef is active. Drives both the wire-parse variant and (for a managed
+        # server) the --reward-shaping forward below; off ⇒ everything is byte-identical to today.
+        self._shaped = self._territory_coef > 0.0 or self._elim_bounty > 0.0
+
         if not managed and (host is None or port is None):
             raise ValueError("managed=False requires explicit host and port.")
         if managed:
             # The env owns these dims, so pin the server to the same ones.
             self._server_kwargs.setdefault("players", player_count)
             self._server_kwargs.setdefault("max_areas", max_areas)
+            # Tell the managed server to EMIT shaped frames when a dense persona is active. (For an
+            # unmanaged server the caller is responsible for launching it with --reward-shaping=1;
+            # a mismatch is caught loudly by the frame-length guard in parse_frame.)
+            if self._shaped:
+                self._server_kwargs.setdefault("reward_shaping", True)
 
         self._server: EnvServerProcess | None = None
         self._sock: socket.socket | None = None
@@ -172,8 +240,11 @@ class DiceWarsEnv(gym.Env):
         self._mask = np.zeros(self.max_edges, dtype=bool)
         self._awaiting_reset = True  # gym contract: must reset() before step()
         # Tight upper bound on a legal frame body (num_edges ≤ max_edges); recv_frame
-        # rejects a larger length prefix as a desync instead of buffering it.
-        self._max_frame_bytes = expected_frame_bytes(max_areas, player_count, max_edges)
+        # rejects a larger length prefix as a desync instead of buffering it. Accounts for the
+        # +8-byte shaped header tail so a shaped run's max isn't undersized.
+        self._max_frame_bytes = expected_frame_bytes(
+            max_areas, player_count, max_edges, shaped=self._shaped
+        )
 
         self.action_space = spaces.Discrete(self.max_edges)
         self.observation_space = spaces.Dict(
@@ -229,7 +300,7 @@ class DiceWarsEnv(gym.Env):
         super().reset(seed=seed)
         self._ensure_connected()
 
-        frame = recv_frame(self._sock, self._max_frame_bytes)
+        frame = recv_frame(self._sock, self._max_frame_bytes, shaped=self._shaped)
         if frame.is_terminal:
             raise RuntimeError(
                 "env-server sent a terminal frame at reset() — episode desync "
@@ -249,7 +320,7 @@ class DiceWarsEnv(gym.Env):
             )
 
         send_action(self._sock, action)
-        frame = recv_frame(self._sock, self._max_frame_bytes)
+        frame = recv_frame(self._sock, self._max_frame_bytes, shaped=self._shaped)
 
         if frame.is_terminal:
             # Terminal reward — sparse win by default ([D-19] decision 3); persona modes
@@ -286,6 +357,14 @@ class DiceWarsEnv(gym.Env):
                 speed_bonus=self._speed_bonus,
                 speed_ref=self._speed_ref,
             )
+            # The dense personas (bite G) ALSO pay the last realized interval at the terminal: the
+            # net territory change up to the end and any game-ending kill (Predator's winning
+            # elimination). This is an immediate per-step reward, orthogonal to the bootstrap below
+            # — unlike the terminal OUTCOME reward, it is paid on a truncation too (it is realized,
+            # not the artificial cap's would-be placement that terminal_reward zeroes to avoid
+            # double-counting with V(s)).
+            if self._shaped:
+                reward += self._step_shaping(frame)
             # A maxTurns stalemate cap is a Gym TRUNCATION, not a real terminal: the game did
             # not actually end, so SB3 must bootstrap V(s) here (it keys off `truncated` via the
             # gym→VecEnv shim's `TimeLimit.truncated` info). A win or the learner's elimination is
@@ -295,7 +374,33 @@ class DiceWarsEnv(gym.Env):
             self._awaiting_reset = True
             return self._frame_to_obs(frame), reward, terminated, truncated, self._info(frame)
 
-        return self._frame_to_obs(frame), 0.0, False, False, self._info(frame)
+        # Non-terminal: 0 by default; the dense personas add a per-step shaping reward read from
+        # the shaped wire fields (Expansionist territory delta / Predator kill bounty).
+        step_r = self._step_shaping(frame) if self._shaped else 0.0
+        return self._frame_to_obs(frame), step_r, False, False, self._info(frame)
+
+    def _step_shaping(self, frame: ObsFrame) -> float:
+        """Validate the shaped wire fields, then apply the persona reward weights (bite G).
+
+        Validates on EVERY shaped frame (not just terminal, unlike the won/placement guards) so a
+        server/encoder regression that poisons a dense reward fails loud here instead of silently
+        feeding garbage into the replay buffer.
+        """
+        if frame.elims_by_learner < 0:
+            raise ValueError(
+                f"frame elims_by_learner={frame.elims_by_learner} < 0 — wire corruption?"
+            )
+        if not math.isfinite(frame.delta_territory):
+            raise ValueError(
+                f"frame delta_territory={frame.delta_territory} not finite — wire corruption?"
+            )
+        return step_reward(
+            delta_territory=frame.delta_territory,
+            elims_by_learner=frame.elims_by_learner,
+            territory_coef=self._territory_coef,
+            elim_bounty=self._elim_bounty,
+            clip=self._shaping_clip,
+        )
 
     def action_masks(self) -> np.ndarray:
         """The boolean legal-action mask of the current observation (sb3-contrib).
@@ -369,4 +474,7 @@ class DiceWarsEnv(gym.Env):
             "num_edges": frame.num_edges,
             "active_player_id": frame.active_player_id,
             "turn_number": frame.turn_number,
+            # Dense-reward raw signals (bite G); 0 on a base/unshaped frame.
+            "delta_territory": frame.delta_territory,
+            "elims_by_learner": frame.elims_by_learner,
         }

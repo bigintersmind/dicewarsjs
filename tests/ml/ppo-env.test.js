@@ -29,6 +29,7 @@ import {
   LEARNER_NAME,
   scaledPlacement,
 } from '../../scripts/lib/ppo-env.mjs';
+import { createRewardShapingTracker } from '../../scripts/lib/ppo-reward-shaping.mjs';
 
 const PLAYER_COUNT = 7;
 const MAX_AREAS = BC_POLICY.config.maxAreas;
@@ -508,6 +509,61 @@ describe('runSelfPlayEpisode — onTurn is the abort seam (env-server disconnect
     expect(calls).toBeGreaterThan(0); // the learner WAS asked to act
     expect(ep.eliminated).toBe(true); // a forfeiting seat among real bots is conquered
     expect(ep.won).toBe(0);
+  });
+
+  it('forwards the acting seat (currentPlayerId) to onTurn in terminateOnElimination mode', () => {
+    /*
+     * Regression for bite G: `runMatch` calls onTurn(turnCount, state, currentPlayerId), but the
+     * terminateOnElimination wrapper (`guardedOnTurn`) used to forward only the first two args —
+     * silently feeding `undefined` to any consumer that reads the seat. The reward-shaping kill
+     * tracker (Predator persona) keys attribution on currentPlayerId === learnerSeat, so the dropped
+     * arg made elimsByLearner identically 0. Pin that the 3rd arg is delivered through the wrapper,
+     * and that the learner's own seat actually appears among the callbacks (it takes turns).
+     */
+    const seats = [];
+    runSelfPlayEpisode({
+      seed: 777,
+      opponents: sixAiBc,
+      learnerSeat: 2,
+      maxAreas: MAX_AREAS,
+      maxTurns: SHORT_TURNS,
+      chooseAction: alwaysStop,
+      terminateOnElimination: true,
+      onTurn: (turnCount, state, currentPlayerId) => {
+        seats.push(currentPlayerId);
+      },
+    });
+    expect(seats.length).toBeGreaterThan(0);
+    // Every callback delivers a real seat id, never undefined (the dropped-arg bug).
+    expect(seats.every(s => Number.isInteger(s) && s >= 0 && s < PLAYER_COUNT)).toBe(true);
+    // The learner seat takes turns too, so the attribution check (seat === learnerSeat) can fire.
+    expect(seats).toContain(2);
+  });
+
+  it('the real reward-shaping tracker credits the learner’s kills through the onTurn chain', () => {
+    /*
+     * End-to-end semantic guard for bite G: drive the ACTUAL createRewardShapingTracker through
+     * runSelfPlayEpisode's onTurn (the exact wiring the env-server uses), on a seed where the learner
+     * WINS by conquering the board. A board-conquering win means the learner makes at least the final
+     * elimination, so killsTotal MUST be >= 1. With the dropped-arg bug, recordTurn would see
+     * currentPlayerId=undefined, never credit a kill, and killsTotal would be 0 — so this fails
+     * exactly when the contract regresses, catching the semantic loss the unit tests can't (they call
+     * recordTurn with an explicit seat and never exercise the wrapper chain).
+     */
+    const tracker = createRewardShapingTracker(0); // learner at seat 0
+    runSelfPlayEpisode({
+      seed: 11, // a learner win (same seed as the no-op-on-win test)
+      opponents: sixAiBc,
+      learnerSeat: 0,
+      maxAreas: MAX_AREAS,
+      maxTurns: MAX_TURNS,
+      chooseAction: mimicAiBc,
+      terminateOnElimination: true,
+      onTurn: (_turnCount, state, currentPlayerId) => tracker.recordTurn(state, currentPlayerId),
+    });
+    // frameSignals never called during the episode ⇒ prevKills is 0, so this returns killsTotal.
+    const { elimsByLearner } = tracker.frameSignals(0);
+    expect(elimsByLearner).toBeGreaterThanOrEqual(1); // at minimum, the game-ending kill
   });
 });
 

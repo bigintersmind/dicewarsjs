@@ -90,3 +90,16 @@ def test_persistence_flags_coexist_with_pfsp_flags():
     assert "--snapshot-store=disk" in argv
     assert "--league-state-dir=/tmp/snap" in argv
     assert "--league-dump-every=50" in argv
+
+
+def test_reward_shaping_flag_forwarded_when_enabled():
+    # Bite G: a dense-persona env tells its managed server to EMIT shaped frames. The flag is the
+    # ONLY thing that makes the wire grow, so its forwarding is the bridge guard for the dense path.
+    assert "--reward-shaping=1" in _argv(reward_shaping=True)
+
+
+def test_reward_shaping_flag_absent_by_default():
+    # Off by default ⇒ argv byte-identical to today and the Node server stays on the base (unshaped)
+    # wire — the B5/B6 opt-in discipline.
+    assert "--reward-shaping" not in " ".join(_argv())
+    assert "--reward-shaping" not in " ".join(_argv(reward_shaping=False))

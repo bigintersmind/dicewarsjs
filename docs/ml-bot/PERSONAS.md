@@ -29,6 +29,20 @@
 > three flag-only personas run together for ≈ the cost of one — see the RUNBOOK "persona" section. So
 > §8 steps 1–3 are now **executable**: the only thing left before a batch is the GPU time itself (plus
 > "bite G" for the two dense personas).
+>
+> **Built since (2026-06-30, "bite G" — the dense-reward wire):** the two DENSE personas are now
+> runnable. A new **opt-in shaped obs-frame** carries two RAW per-step measurements — `deltaTerritory`
+> (f32) + `elimsByLearner` (i32) — emitted by the env-server only under `--reward-shaping` (the B5/B6
+> opt-in pattern: **byte-identical wire when off**). The trainer applies the persona WEIGHTS Python-side
+> via `--territory-reward-coef` (**Expansionist**) and `--elim-bounty` (**Predator**) in the pure
+> `dicewars_ppo.env.step_reward`, with an optional `--shaping-clip` (§6 "cap per-turn"). Kills are
+> ATTRIBUTED via the `onTurn` hook (eliminations during a turn where the learner is the acting seat),
+> so the game-ending kill is credited; territory delta is NET (the env-server reads the count directly).
+> Crucially this is **NOT an `ENCODING_VERSION` bump** — the observation tensor (the policy net's input)
+> is unchanged, so the `ppo-long` warm-start + BC/PPO weight guards stay valid; only the binary
+> frame-HEADER grows (`HEADER_STRUCT_SHAPED`, [D-28]). The launcher gained `PERSONA={expansionist,predator}`.
+> So §8 step 2 is now **fully done** and all five personas are launchable — the only thing left before a
+> batch is the GPU time.
 
 ---
 
@@ -82,15 +96,15 @@ reward = float(frame.won)   # +1 if learner won, else 0  (sparse terminal-win, D
 The wire protocol (`ml/dicewars_ppo/wire.py`, `src/arena/trajectoryExport.js`) **already carries
 more terminal signal than the reward uses**:
 
-| Signal                                      | On the wire today?                   | Cost to use as reward                                                         |
-| ------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------- |
-| `won` (1/0)                                 | ✅ (used)                            | —                                                                             |
-| `winner` (seat/-1)                          | ✅                                   | free                                                                          |
-| `placement` (1=1st…0=last, range-validated) | ✅                                   | **built** — `--reward-mode placement` (Survivor)                              |
-| `truncated` (stalemate cap)                 | ✅ (used)                            | **built** — gates the terminal payout to 0 (bite D; avoids double-counting)   |
-| `turn_number` (terminal frame)              | ✅                                   | **built** — `--terminal-speed-bonus`/`--speed-ref` (Blitz)                    |
-| Δterritory / turn                           | ❌                                   | small: env-server emits a per-frame scalar → wire/header field + version bump |
-| elimination event                           | ❌ (derivable from placement deltas) | small, same as above                                                          |
+| Signal                                      | On the wire today?         | Cost to use as reward                                                       |
+| ------------------------------------------- | -------------------------- | --------------------------------------------------------------------------- |
+| `won` (1/0)                                 | ✅ (used)                  | —                                                                           |
+| `winner` (seat/-1)                          | ✅                         | free                                                                        |
+| `placement` (1=1st…0=last, range-validated) | ✅                         | **built** — `--reward-mode placement` (Survivor)                            |
+| `truncated` (stalemate cap)                 | ✅ (used)                  | **built** — gates the terminal payout to 0 (bite D; avoids double-counting) |
+| `turn_number` (terminal frame)              | ✅                         | **built** — `--terminal-speed-bonus`/`--speed-ref` (Blitz)                  |
+| Δterritory / turn                           | ✅ (shaped opt-in, bite G) | **built** — `--territory-reward-coef` (Expansionist); env-server NET delta  |
+| elimination event                           | ✅ (shaped opt-in, bite G) | **built** — `--elim-bounty` (Predator); attributed via the `onTurn` hook    |
 
 So **placement-, tempo-, and turn-count-based personas are now runnable with no wire change** —
 the signals were already plumbed and bite D added the trainer flags that consume them
@@ -121,8 +135,8 @@ can't attribute the behavioral difference. This note holds axis 2 fixed at the c
 | ----------------- | ------------------------------------------- | ---------------------------------- | --------------------------------------- | ------------------ | ------------------------- |
 | **Conqueror**     | `frame.won` (today)                         | Balanced; turtle→strike            | — (control)                             | none               | the bar (pure-wins)       |
 | **Blitz / Tempo** | lower `gamma` (+ opt. terminal speed-bonus) | Fast, aggressive, early pressure   | multiplicative-time                     | **built** (flags)  | likely **below** bar; fun |
-| **Expansionist**  | dense Δ(net territory)/turn                 | Grabs land now; overextends        | dense + net                             | small (wire field) | below bar                 |
-| **Predator**      | bounty per player eliminated                | Hunts kills; takes risky finishers | dense + net                             | small (wire field) | below/near bar            |
+| **Expansionist**  | dense Δ(net territory)/turn                 | Grabs land now; overextends        | dense + net                             | **built** (bite G) | below bar                 |
+| **Predator**      | bounty per player eliminated                | Hunts kills; takes risky finishers | dense + net                             | **built** (bite G) | below/near bar            |
 | **Survivor**      | `placement` instead of binary win           | Conservative; plays for 2nd/3rd    | rank ≠ win (the "ELO trap", repurposed) | **built** (flag)   | high ELO, lower win%      |
 
 ### Conqueror (control)
@@ -294,9 +308,11 @@ fun. The roster makes that filter _possible_; it doesn't automate it.
    _(Bite E1 — done: the harness can load a persona's exported weights and gate its signature.)_
 2. **Wire the reward knobs:** ✅ _bite D_ — `--reward-mode {win,placement}` +
    `--terminal-speed-bonus`/`--speed-ref` (plus the long-standing `--gamma`/`--ent-coef`) make
-   Conqueror/Blitz/Survivor runnable with no wire change. **Still TODO (bite G):** add the per-frame
-   territory/elim scalar to the env-server wire (Expansionist/Predator) behind a version bump, off by
-   default (byte-identical to today when unset — the B5/B6 opt-in pattern).
+   Conqueror/Blitz/Survivor runnable with no wire change. ✅ _bite G_ — the per-frame territory/elim
+   scalar now rides an **opt-in shaped obs-frame** (env-server `--reward-shaping`, off by default →
+   byte-identical wire; the B5/B6 pattern), consumed by `--territory-reward-coef` (Expansionist) /
+   `--elim-bounty` (Predator) / `--shaping-clip` via the pure `step_reward`. It is a frame-HEADER
+   variant, **not** an `ENCODING_VERSION` bump (the observation tensor is unchanged — see [D-28]).
 3. **One persona = one reward config + one run**, all **warm-started from `ppo-long`'s final
    policy** (shared good initialization; reward shaping then specializes), running **concurrently**
    on shodan (latency-bound, idle hardware). Re-run Conqueror as the matched control. _(Bite F — done:

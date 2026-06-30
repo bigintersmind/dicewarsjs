@@ -96,6 +96,18 @@ HEADER_STRUCT = struct.Struct("<11if")
 HEADER_BYTES = HEADER_STRUCT.size  # 48
 assert HEADER_BYTES == 48, "header layout drifted from obs-frame.mjs"
 
+# Shaped-header variant ("bite G", docs/ml-bot/PERSONAS.md §2/§8): the base header plus two
+# RAW per-step reward measurements the env-server emits ONLY under `--reward-shaping` —
+# `deltaTerritory` (f32, net learner-territory change since the prior decision) then
+# `elimsByLearner` (i32, learner-attributed eliminations since the prior decision). Off by
+# default ⇒ a frame is byte-identical to today. This is a WIRE-FRAME variant, NOT an
+# observation-layout change: the tensor payload (and thus the policy net's input) is identical,
+# so it is deliberately NOT gated by ENCODING_VERSION — the warm-start/weights guards stay valid.
+# The Python consumer (wire.parse_frame) and the JS emitter (obs-frame.mjs) must change together.
+HEADER_STRUCT_SHAPED = struct.Struct("<11iffi")
+HEADER_BYTES_SHAPED = HEADER_STRUCT_SHAPED.size  # 56
+assert HEADER_BYTES_SHAPED == 56, "shaped header layout drifted from obs-frame.mjs"
+
 # Little-endian dtype strings for the tensor payload (matches the corpus blobs).
 F32 = "<f4"
 I32 = "<i4"

@@ -239,16 +239,39 @@ def test_no_persona_is_byte_identical_to_the_beat_run(tmp_path):
     rc, out = _resolve(tmp_path)
     assert rc == 0
     argv = _argv_pairs(out)
-    assert set(argv) == {
-        "--checkpoint", "--out", "--timesteps", "--n-envs", "--start-method", "--lr",
-        "--ent-coef", "--gamma", "--reward-mode", "--terminal-speed-bonus", "--device",
-        "--snapshot-dir", "--snapshot-every", "--snapshot-store", "--reserve-baselines",
-        "--league-state-dir", "--league-dump-every", "--state-dir", "--checkpoint-every",
-        "--log-dir",
-    }  # no production flag added or dropped; no --speed-ref / --from-scratch (both conditional)
-    # The [D-19] sparse terminal-win objective the BEAT run trained on:
+    assert (
+        set(argv)
+        == {
+            "--checkpoint",
+            "--out",
+            "--timesteps",
+            "--n-envs",
+            "--start-method",
+            "--lr",
+            "--ent-coef",
+            "--gamma",
+            "--reward-mode",
+            "--terminal-speed-bonus",
+            "--territory-reward-coef",
+            "--elim-bounty",
+            "--device",
+            "--snapshot-dir",
+            "--snapshot-every",
+            "--snapshot-store",
+            "--reserve-baselines",
+            "--league-state-dir",
+            "--league-dump-every",
+            "--state-dir",
+            "--checkpoint-every",
+            "--log-dir",
+        }
+    )  # no prod flag added/dropped; --speed-ref/--shaping-clip/--from-scratch are conditional
+    # The [D-19] sparse terminal-win objective the BEAT run trained on — and the UNSHAPED wire
+    # (both dense coefs 0, so the env-server gets no --reward-shaping):
     assert argv["--reward-mode"] == "win"
     assert argv["--terminal-speed-bonus"] == "0"
+    assert argv["--territory-reward-coef"] == "0"
+    assert argv["--elim-bounty"] == "0"
     assert argv["--checkpoint"] == "checkpoints/v2-base/bc_model.pt"  # BC warm start, not a persona
     # The regime-defining values a silent edit could flip under the multi-day run:
     assert argv["--start-method"] == "forkserver"  # CUDA-after-fork / fork-after-threads guard
@@ -299,6 +322,36 @@ def test_persona_conqueror_is_the_matched_control(tmp_path):
     )
     assert rc == 0
     assert out.strip() == "win|0.999|ppo-conqueror|runs/ppo-long/ppo.pt"
+
+
+def test_persona_expansionist_sets_territory_coef(tmp_path):
+    # Bite G dense persona: warm-start + win mode like Conqueror, plus a non-zero territory coef
+    # that (via DiceWarsEnv) flips the env-server to --reward-shaping. Elim bounty stays 0.
+    rc, out = _resolve(tmp_path, {"PERSONA": "expansionist"})
+    assert rc == 0
+    argv = _argv_pairs(out)
+    assert argv["--territory-reward-coef"] == "0.02"
+    assert argv["--elim-bounty"] == "0"
+    assert argv["--reward-mode"] == "win"
+    assert argv["--checkpoint"] == "runs/ppo-long/ppo.pt"
+
+
+def test_persona_predator_sets_elim_bounty(tmp_path):
+    rc, out = _resolve(tmp_path, {"PERSONA": "predator"})
+    assert rc == 0
+    argv = _argv_pairs(out)
+    assert argv["--elim-bounty"] == "0.1"
+    assert argv["--territory-reward-coef"] == "0"
+    assert argv["--reward-mode"] == "win"
+    assert argv["--checkpoint"] == "runs/ppo-long/ppo.pt"
+
+
+def test_shaping_clip_forwarded_iff_set(tmp_path):
+    # --shaping-clip is gated on SHAPING_CLIP being non-empty (like --speed-ref), so an unset clip
+    # stays off (unbounded). Set it explicitly and it rides through.
+    rc, out = _resolve(tmp_path, {"PERSONA": "expansionist", "SHAPING_CLIP": "0.5"})
+    assert rc == 0
+    assert _argv_pairs(out)["--shaping-clip"] == "0.5"
 
 
 def test_explicit_env_overrides_persona_preset(tmp_path):
@@ -357,7 +410,20 @@ def test_cmd_forwards_persona_into_wsl():
     assert "WSLENV" in cmd_text
     # Every launcher env var a scheduled task may set per-persona (RUNBOOK "persona" batch knobs).
     for var in (
-        "PERSONA", "CHECKPOINT", "TIMESTEPS", "LR", "ENT_COEF", "GAMMA", "RUN_NAME",
-        "REWARD_MODE", "TERMINAL_SPEED_BONUS", "SPEED_REF", "N_ENVS", "RESERVE_BASELINES",
+        "PERSONA",
+        "CHECKPOINT",
+        "TIMESTEPS",
+        "LR",
+        "ENT_COEF",
+        "GAMMA",
+        "RUN_NAME",
+        "REWARD_MODE",
+        "TERMINAL_SPEED_BONUS",
+        "SPEED_REF",
+        "TERRITORY_REWARD_COEF",
+        "ELIM_BOUNTY",
+        "SHAPING_CLIP",
+        "N_ENVS",
+        "RESERVE_BASELINES",
     ):
         assert re.search(rf"{var}/u", cmd_text), f"ppo-train.cmd must forward {var} via WSLENV"

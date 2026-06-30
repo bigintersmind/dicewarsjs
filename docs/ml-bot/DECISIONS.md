@@ -1642,3 +1642,47 @@ task C/E ops slice before the long BEAT run. Three parts:
    resume/fresh/halt tests in `test_resume_state.py`); the sb3 corrupt-`.zip` fallback +
    all-corrupt→`ResumeCheckpointError` tests in `test_resume.py` run on **shodan**. The PR-5 shodan
    validation checklist is the BLOCKING gate before the long run actually launches (see `RUNBOOK.md`).
+
+## D-28 — bite G: the dense-reward wire is an opt-in frame-HEADER variant, NOT an `ENCODING_VERSION` bump · Accepted (2026-06-30) · realizes [PERSONAS.md](./PERSONAS.md) §2/§8 step 2 (the deferred "bite G")
+
+**Context.** The two DENSE personas (Expansionist = net-territory/turn, Predator = elimination bounty)
+need a per-step reward signal that the terminal-only wire ([D-19]) doesn't carry. PERSONAS §2/§6 specced
+this as "the env-server emits a per-frame scalar → wire/header field + version bump; JS emitter and
+Python consumer change in one commit, off by default (the B5/B6 opt-in pattern)."
+
+**The load-bearing call: do NOT reuse `ENCODING_VERSION`.** `ENCODING_VERSION` (2) governs the
+OBSERVATION feature layout — the policy net's input. The dense signal is a REWARD measurement consumed by
+`env.step()`, never fed to the net, and it rides the binary frame **header** (which the net never sees),
+not the tensor payload. Bumping `ENCODING_VERSION` would have rejected the `ppo-long` warm-start and the
+BC/PPO weight files (the `policy.py` / `ai_bc.js` load guards hard-throw on skew) for a change that does
+not touch the net's input — a self-inflicted disaster. So the observation version stays 2, and the wire
+gains a SEPARATE header variant `HEADER_STRUCT_SHAPED` (`<11iffi`, +8 bytes: `deltaTerritory` f32 +
+`elimsByLearner` i32), gated by the env-server's `--reward-shaping` flag.
+
+**Decisions.**
+
+1. **Opt-in, byte-identical when off.** `--reward-shaping` absent ⇒ the env-server emits today's exact
+   48-byte-header frames (the B5/B6 discipline: an unset persona is byte-identical on the wire). A
+   non-zero `--territory-reward-coef`/`--elim-bounty` flips `DiceWarsEnv` to parse shaped frames AND sets
+   the `reward_shaping` server kwarg, so the two sides can't silently disagree; a residual mismatch is
+   caught loudly by the existing frame-length guard (the +8-byte tail can't coincide with a different
+   `numEdges`, since one edge is 36 bytes), never silently mis-read.
+2. **Raw measurements on the wire, weights in the trainer.** The JS env-server emits only RAW signals
+   (NET territory delta read off the board; learner-attributed kills via the `onTurn` hook — eliminations
+   during a turn where the learner is the acting seat, so the game-ending kill is credited). The persona
+   WEIGHTS live Python-side in the pure, lean-testable `env.step_reward` (`--territory-reward-coef` /
+   `--elim-bounty` / optional `--shaping-clip`), mirroring `terminal_reward` — so retuning a persona is a
+   trainer flag, never a JS edit.
+3. **Dense reward paid every step, incl. the terminal.** Unlike the terminal OUTCOME reward (which pays 0
+   on a truncation to avoid double-counting the bootstrapped `V(s)`), the dense per-step reward is a
+   realized signal and is paid on the terminal frame too — so Predator's winning kill and the final
+   territory delta are not dropped.
+
+**Verification.** JS: shaped round-trip + tracker unit tests + a shaped golden fixture (`obs-frame.test.js`,
+`ppo-reward-shaping.test.js`, `gen_obs_frame_fixture.mjs`); 219 `tests/ml` green. Python (torch-free tier):
+shaped wire parity + the shaped/unshaped mismatch guard (`test_ppo_wire.py`), `step_reward` math +
+`DiceWarsEnv` validation + `validate_reward_args` (`test_reward_modes.py`), the real-`step()` dense path
+(`test_ppo_env_unit.py`), the `reward_shaping` argv forward (`test_env_server_argv.py`), and the launcher
+`PERSONA={expansionist,predator}` + flag-forward (`test_ppo_train_launcher.py`); 104 affected torch-free
+tests green. The argparse + `_validate` cases land in the sb3-gated `test_train_args.py` (CI/shodan tier).
+The framework-acceptance decision for the roster (D-27?) stays open until the first batch profiles out.

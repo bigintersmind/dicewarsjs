@@ -21,6 +21,64 @@ Entry template:
 
 ---
 
+## 2026-06-30 — Dense-reward wire for Expansionist + Predator (bite G)
+
+**Phase:** persona-roster (training half) · **Who:** Ivan + Claude
+
+**Did:**
+
+- Shipped **bite G**, the last build before the persona batch: the two DENSE personas
+  (**Expansionist** = net Δterritory/turn, **Predator** = elimination bounty) are now runnable.
+- **Wire (one lockstep commit, JS + Python):** an opt-in **shaped obs-frame** — `HEADER_STRUCT_SHAPED`
+  (`<11iffi`, +8 bytes = `deltaTerritory` f32 + `elimsByLearner` i32) — in `scripts/lib/obs-frame.mjs`
+  - `dicewars_ppo/{constants,wire}.py`. Off by default ⇒ byte-identical to today (the B5/B6 pattern).
+- **Env-server:** `--reward-shaping` flag + a testable `scripts/lib/ppo-reward-shaping.mjs` tracker
+  (per-episode NET territory delta off `botState`; learner-attributed kills via the `onTurn` hook —
+  eliminations during a turn where the learner is the acting seat, so the game-ending kill counts).
+  Emits the shaped header on obs + terminal frames when enabled.
+- **Trainer:** pure `env.step_reward` (mirrors `terminal_reward`) + `DiceWarsEnv` coefs
+  (`territory_reward_coef`/`elim_bounty`/`shaping_clip`) that flip it to parse shaped frames AND set the
+  `reward_shaping` server kwarg; CLI flags `--territory-reward-coef`/`--elim-bounty`/`--shaping-clip` +
+  reward-objective provenance in the export metadata. **Launcher:** `PERSONA={expansionist,predator}` +
+  the WSLENV bridge.
+- **Tests:** 219 `tests/ml` JS green (shaped round-trip, tracker, mismatch guard); 104 affected
+  torch-free Python tests green (wire parity + mismatch, `step_reward`, real-`step()` dense path,
+  argv/launcher forwarding). Shaped golden fixture regenerated.
+
+**Learned / decided ([D-28]):**
+
+- The load-bearing call: the dense signal is a **reward measurement, not an observation feature**, so it
+  rides the frame HEADER (which the net never sees) — **NOT an `ENCODING_VERSION` bump**. Bumping it
+  would have rejected the `ppo-long` warm-start + BC/PPO weights via the load guards, for a change that
+  doesn't touch the net's input. Observation version stays 2.
+- Raw measurements on the wire, weights in the trainer — retuning a persona is a flag, never a JS edit.
+- Dense reward is paid every step **including the terminal** (unlike the terminal OUTCOME reward), so
+  Predator's winning kill and the final territory delta aren't dropped.
+
+**Dead ends / surprises:**
+
+- **CRITICAL bug the unit tests missed, caught by an adversarial multi-agent review:** Predator's kill
+  attribution was silently DEAD. `runSelfPlayEpisode`'s `terminateOnElimination` wrapper (`guardedOnTurn`
+  in `ppo-env.mjs`) forwarded only `(turnCount, state)` to `onTurn`, dropping the 3rd arg
+  `currentPlayerId`. That was harmless pre-bite-G (the old `onTurn` was the arg-less `failIfLost`), but
+  my env-server `onTurnFn` reads the seat → it got `undefined`, so `recordTurn`'s `byLearner` check was
+  always false and `elimsByLearner` was identically 0 — a Predator pilot would have trained as a no-op
+  baseline and wasted the GPU run. The tracker UNIT tests passed because they call `recordTurn` with an
+  explicit seat, never through the wrapper chain. Fix: `guardedOnTurn` now forwards `currentPlayerId`;
+  added two regression tests in `ppo-env.test.js` (the wrapper delivers the seat; the real tracker
+  credits ≥1 kill on a winning episode). Lesson: a per-frame contract needs an INTEGRATION test through
+  the real wrapper, not just a unit test of the leaf.
+- The `recv_frame(..., shaped=…)` signature change broke the 2-arg monkeypatch in `test_ppo_env_unit.py`
+  — fixed the harness lambdas to swallow the kwarg (caught before the test run).
+- Pre-existing: this Mac's system Python is 3.9, so `test_export_onnx.py`'s `zip(strict=True)` fails (6) —
+  unrelated to bite G; the sb3-gated train tests skip here and run on CI/shodan.
+
+**Next:**
+
+- Launch the 3 flag-only personas + Expansionist + Predator on shodan (collision-free batch); calibrate
+  the dense coefs from the first run; profile via `behavior:profile` and write the first persona rows to
+  `RESULTS.md`. The roster framework-acceptance decision (D-27?) stays open until the batch profiles out.
+
 ## 2026-06-29 — Persona launcher: the `PERSONA` knob (bite F)
 
 **Phase:** persona-roster (training half) · **Who:** Ivan + Claude

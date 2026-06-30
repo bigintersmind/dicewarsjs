@@ -27,9 +27,12 @@
 #   bash scripts/shodan/ppo-train.sh                       # the long BEAT run (warm-started)
 #   FROM_SCRATCH=1 RUN_NAME=ppo-control TIMESTEPS=1000000 \
 #       bash scripts/shodan/ppo-train.sh                   # the [D-19] from-scratch control run
-#   PERSONA=blitz    TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh   # a reward-persona run: warm-
-#   PERSONA=survivor TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh   # starts from ppo-long's actor
-#   PERSONA=conqueror TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh  # (control). See RUNBOOK "persona".
+#   PERSONA=blitz        TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh   # a reward-persona run:
+#   PERSONA=survivor     TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh   # warm-starts from ppo-
+#   PERSONA=conqueror    TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh   # long's actor (control).
+#   PERSONA=expansionist TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh   # bite-G DENSE personas
+#   PERSONA=predator     TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh   # (--reward-shaping wire).
+#                                                                             # See RUNBOOK "persona".
 #
 set -euo pipefail
 
@@ -39,9 +42,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ML_DIR="$REPO_ROOT/ml"
 ENCODE_JS="$REPO_ROOT/src/arena/encodeObservation.js"
 
-# --- reward-persona preset (bite F; docs/ml-bot/PERSONAS.md §8 step 3) -----------------------------
+# --- reward-persona preset (bite F + G; docs/ml-bot/PERSONAS.md §8 step 3) -------------------------
 # Each persona is the SAME warm-started run differing ONLY in the reward OBJECTIVE (mode / discount /
-# optional speed bonus). Every OTHER hyperparameter (TIMESTEPS/LR/ENT_COEF/N_ENVS/R) is shared, set
+# optional speed bonus / dense territory|elim coef). Every OTHER hyperparameter (TIMESTEPS/LR/ENT_COEF/N_ENVS/R) is shared, set
 # once for the batch, so the Conqueror control is matched on everything but the reward axis
 # (PERSONAS §3: vary reward XOR opponent field, never both). A persona only sets DEFAULTS (`:=`), so
 # an explicit env override always wins, and an UNSET persona is a pure no-op — byte-identical to the
@@ -51,10 +54,15 @@ ENCODE_JS="$REPO_ROOT/src/arena/encodeObservation.js"
 PERSONA="${PERSONA:-}"
 case "$PERSONA" in
   "") ;;  # no persona → the long BEAT run / control behavior, unchanged (byte-identical)
-  conqueror) : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=win}";       : "${GAMMA:=0.999}"; : "${RUN_NAME:=ppo-conqueror}" ;;
-  blitz)     : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=win}";       : "${GAMMA:=0.99}";  : "${RUN_NAME:=ppo-blitz}" ;;
-  survivor)  : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=placement}"; : "${GAMMA:=0.999}"; : "${RUN_NAME:=ppo-survivor}" ;;
-  *) echo "ppo-train: unknown PERSONA='$PERSONA' (expected: conqueror | blitz | survivor)" >&2; exit 1 ;;
+  conqueror)    : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=win}";       : "${GAMMA:=0.999}"; : "${RUN_NAME:=ppo-conqueror}" ;;
+  blitz)        : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=win}";       : "${GAMMA:=0.99}";  : "${RUN_NAME:=ppo-blitz}" ;;
+  survivor)     : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=placement}"; : "${GAMMA:=0.999}"; : "${RUN_NAME:=ppo-survivor}" ;;
+  # The two DENSE personas (bite G): warm-start + win mode like Conqueror, plus a small per-step
+  # shaping coef that flips the env-server to --reward-shaping. Coefs are deliberately modest vs the
+  # terminal win (PERSONAS §6) and are STARTING points — calibrate from the first run's profile.
+  expansionist) : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=win}";       : "${GAMMA:=0.999}"; : "${TERRITORY_REWARD_COEF:=0.02}"; : "${RUN_NAME:=ppo-expansionist}" ;;
+  predator)     : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=win}";       : "${GAMMA:=0.999}"; : "${ELIM_BOUNTY:=0.1}";            : "${RUN_NAME:=ppo-predator}" ;;
+  *) echo "ppo-train: unknown PERSONA='$PERSONA' (expected: conqueror | blitz | survivor | expansionist | predator)" >&2; exit 1 ;;
 esac
 
 # --- run identity + paths -------------------------------------------------------------------------
@@ -75,11 +83,14 @@ LR="${LR:-2.5e-4}"                                  # task-A BEAT config (produc
 ENT_COEF="${ENT_COEF:-0.01}"                        # task-A BEAT config (production HP)
 GAMMA="${GAMMA:-0.999}"                             # a persona may have lowered this above (Blitz)
 
-# --- persona reward objective (bite D flags). Defaults reproduce the [D-19] sparse terminal-win the
-# BEAT run trained on, so an unset persona forwards a byte-identical objective. ----------------------
+# --- persona reward objective (bite D + G flags). Defaults reproduce the [D-19] sparse terminal-win
+# the BEAT run trained on, so an unset persona forwards a byte-identical objective + UNSHAPED wire. --
 REWARD_MODE="${REWARD_MODE:-win}"                   # 'win' = Conqueror/Blitz; 'placement' = Survivor
 TERMINAL_SPEED_BONUS="${TERMINAL_SPEED_BONUS:-0}"   # Blitz's optional secondary lever (0 = off)
 SPEED_REF="${SPEED_REF:-}"                          # turn-count ref; train.py REQUIRES it when bonus>0
+TERRITORY_REWARD_COEF="${TERRITORY_REWARD_COEF:-0}" # Expansionist (bite G): dense net-territory coef (0 = off → unshaped)
+ELIM_BOUNTY="${ELIM_BOUNTY:-0}"                     # Predator (bite G): per-kill bounty (0 = off → unshaped)
+SHAPING_CLIP="${SHAPING_CLIP:-}"                    # optional per-step shaping cap (empty = unbounded)
 
 # --- parallelism ([D-26] Q4: SubprocVecEnv(forkserver), CUDA inits AFTER the fork) ----------------
 # Size to cores but leave headroom for the learner + the per-worker Node env-servers. n_steps*n_envs
@@ -174,10 +185,11 @@ check_commit_pinned() {
 
 # Assemble the `python -m dicewars_ppo.train` argv into the global TRAIN_ARGV array. Factored out of
 # run_once so the launcher tests (ml/tests/test_ppo_train_launcher.py) can pin that the persona reward
-# flags (bite D) are forwarded WITHOUT spawning python/torch/a GPU. --reward-mode/--terminal-speed-
-# bonus are ALWAYS passed (their win/0 defaults are train.py's own, so an unset persona stays the
-# [D-19] sparse-win objective); --speed-ref is added only when set (train.py REQUIRES it iff the bonus
-# > 0, and rejects a bare flag), and --from-scratch only for the [D-19] control.
+# flags (bite D + G) are forwarded WITHOUT spawning python/torch/a GPU. --reward-mode/--terminal-speed-
+# bonus/--territory-reward-coef/--elim-bounty are ALWAYS passed (their win/0/0/0 defaults are train.py's
+# own, so an unset persona stays the [D-19] sparse-win objective on the UNSHAPED wire); --speed-ref and
+# --shaping-clip are added only when set (train.py REQUIRES --speed-ref iff the bonus > 0 and rejects a
+# bare flag; --shaping-clip is an optional cap), and --from-scratch only for the [D-19] control.
 build_train_argv() {
   TRAIN_ARGV=(
     --checkpoint "$CHECKPOINT"
@@ -187,6 +199,7 @@ build_train_argv() {
     --start-method forkserver
     --lr "$LR" --ent-coef "$ENT_COEF" --gamma "$GAMMA"
     --reward-mode "$REWARD_MODE" --terminal-speed-bonus "$TERMINAL_SPEED_BONUS"
+    --territory-reward-coef "$TERRITORY_REWARD_COEF" --elim-bounty "$ELIM_BOUNTY"
     --device "$DEVICE"
     --snapshot-dir "$SNAPSHOT_DIR" --snapshot-every "$SNAPSHOT_EVERY"
     --snapshot-store disk
@@ -198,6 +211,7 @@ build_train_argv() {
   # `if` (not `[ … ] && …`): a trailing `&&` whose test is FALSE returns non-zero, which under
   # `set -e` would make this function exit 1 and abort the launcher. `if` always returns 0 here.
   if [ -n "$SPEED_REF" ]; then TRAIN_ARGV+=(--speed-ref "$SPEED_REF"); fi
+  if [ -n "$SHAPING_CLIP" ]; then TRAIN_ARGV+=(--shaping-clip "$SHAPING_CLIP"); fi
   if [ "${FROM_SCRATCH:-0}" = "1" ]; then TRAIN_ARGV+=(--from-scratch); fi
 }
 

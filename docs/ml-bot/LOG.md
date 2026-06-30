@@ -21,6 +21,53 @@ Entry template:
 
 ---
 
+## 2026-06-29 — Behavioral-eval harness can gate a persona (PR #80, "bite E1") — MERGED
+
+**Phase:** persona-roster (eval half) · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Reviewed + merged PR #80** — the first slice of the _eval half_ of the reward-persona roster
+  ([PERSONAS.md](./PERSONAS.md) / [EVAL_HARNESS.md](./EVAL_HARNESS.md)). It closes the two gaps that
+  blocked gating a freshly-trained persona: (1) **weight-file bot loading** — `--bots`/`--control`
+  accept `Name=path/to/weights.js`, dynamic-imported + parity-checked via the same
+  `loadExportedPolicy → makeBC` path `ppo:gate` uses (`parseBotSpec`); (2) the **signature PASS/FAIL
+  verdict** surfaced in console + JSON (`signatureDetail`, which `signaturePass` now delegates to),
+  plus `--mde axis:value,…` MDE calibration (`parseMdeOverrides`). So **EVAL_HARNESS Phase 2a is
+  BUILT + MERGED** (squash `8de26c9`); the §8 persona rows are runnable the moment the weight files
+  exist — no harness code change needed.
+- **Review-hardened before merge.** A 4-agent PR review (code / silent-failure / tests / comments)
+  flagged one real issue, independently confirmed by 3 of 4: `parseMdeOverrides` accepted an
+  explicit `--mde axis:0`, which makes `|Δ| ≥ 0` always true in `signatureDetail` — silently
+  collapsing the signature gate to a bare significance test (the exact "trivially-significant pass"
+  the missing-MDE throw exists to prevent). Fixed to reject **non-positive** MDEs. Also added a
+  **fail-fast** pre-sweep MDE-coverage check (a missing MDE on a profiled persona now exits cleanly
+  before the multi-minute sweep instead of throwing an uncaught stack after it), kept `err.stack` on
+  unexpected loader failures, and de-staled the "Phase 1 / Phase-2 stub" comments + a doc line-ref.
+- **Verified:** a 4-lens adversarial workflow (gate-completeness / regression / comment-doc /
+  test-quality) returned **all clean**. `behaviorCore` tests 42→46 (0-MDE rejection, a positive
+  multi-axis AND pass, two `parseBotSpec` empty edges) + a new spawn-based
+  `tests/scripts/behaviorProfile.test.js` (6 fast pre-sweep CLI exit-code cases). **Full suite 1215
+  green**; CI green; lint + prettier clean.
+
+**Learned / decided:**
+
+- The eval harness is now **decoupled from the personas**: it's a finished, gated measurement tool
+  waiting only on the persona weight files. Naming a weights bot after a `PERSONA_SIGNATURES` key
+  (e.g. `Blitz`) is what opts it into that persona's gate — the display name _is_ the signature key.
+- An MDE of `0` is never legitimate here (every axis whose MDE is consulted is a confirmatory
+  signature axis), so the calibration path rejects it outright rather than treating it as a
+  "significance-only" mode.
+
+**Next:**
+
+- Train the persona PPO nets (the **reward-persona roster** proper) so the harness has weight files
+  to gate. Then the **Phase 2b** harness follow-ups remain separable: Holm adjustment, §3.6
+  determinism enforcement, the §3.8 training-field-match assertion, the §3.5 `--melee`
+  persona×persona matrix, `--csv`, and the territory-curve/border-exposure axes.
+
+---
+
 ## 2026-06-29 — 🏁 The 20M PPO long run BEATS Lookahead (Δ +27.7) — the headline result; weights merged-prep
 
 **Phase:** 3 · **Who:** Ivan + Claude

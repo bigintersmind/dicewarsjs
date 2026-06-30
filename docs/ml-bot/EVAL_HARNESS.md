@@ -23,14 +23,20 @@
 >   not an automated assertion — the exact Δ depends on field & budget): `Strategist` vs `Defensive`
 >   separate on aggression / zero-attack-turn fraction with a CI excluding 0 at a small pilot budget.
 >   Adversarially reviewed (kill-attribution timing, seat mapping, null-alignment) — clean.
-> - **Phase 2a — ✅ BUILT (2026-06-29, "bite E1"):** the harness can now load a freshly-exported
->   persona and gate it. `--bots`/`--control` accept a `Name=path/to/weights.js` spec, loaded +
->   parity-checked via the same `loadExportedPolicy → makeBC` path as `ppo:gate` (`parseBotSpec` in
->   `behavior-core.mjs`); when a profiled bot's name matches a `PERSONA_SIGNATURES` key, its
->   pre-registered signature is gated **PASS/FAIL** in the console + JSON (`signatureDetail`), with the
->   placeholder MDEs calibratable from the pilot via `--mde axis:value,...` (`parseMdeOverrides`).
->   Smoke-verified end-to-end against a persona-named export. So the §8 persona rows are now
->   **runnable** the moment the weight files exist — no harness code change needed.
+> - **Phase 2a — ✅ BUILT + MERGED (PR #80, squash `8de26c9`, 2026-06-29, "bite E1"):** the harness
+>   can now load a freshly-exported persona and gate it. `--bots`/`--control` accept a
+>   `Name=path/to/weights.js` spec, loaded + parity-checked via the same `loadExportedPolicy → makeBC`
+>   path as `ppo:gate` (`parseBotSpec` in `behavior-core.mjs`); when a profiled bot's name matches a
+>   `PERSONA_SIGNATURES` key, its pre-registered signature is gated **PASS/FAIL** in the console + JSON
+>   (`signatureDetail`), with the placeholder MDEs calibratable from the pilot via
+>   `--mde axis:value,...` (`parseMdeOverrides`). Smoke-verified end-to-end against a persona-named
+>   export. So the §8 persona rows are now **runnable** the moment the weight files exist — no harness
+>   code change needed. **Review-hardened before merge** (4 PR-review agents + a 4-lens adversarial
+>   verify, all clean): `parseMdeOverrides` rejects a **non-positive** MDE (an `--mde axis:0` would
+>   have collapsed the `|Δ| ≥ MDE` gate to a bare significance test); a **fail-fast** pre-sweep check
+>   rejects a profiled persona whose signature axis lacks an MDE (no more uncaught throw _after_ the
+>   full sweep); `behaviorCore` tests 42→46 + a new spawn-based `tests/scripts/behaviorProfile.test.js`
+>   pinning the CLI exit codes. CI green; full suite 1215.
 > - **Phase 2b (still TODO — separable follow-ups):** Holm adjustment across the ≤5 confirmatory tests
 >   (a no-op for a 1–2-persona pilot), §3.6 determinism enforcement in the loader, the §3.8
 >   training-field-match assertion, the §3.5 `--melee` persona×persona separation matrix, `--csv`, the

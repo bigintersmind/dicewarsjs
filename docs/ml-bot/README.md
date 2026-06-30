@@ -99,6 +99,16 @@ a row in [`RESULTS.md`](./RESULTS.md).
 - **[`DECISIONS.md`](./DECISIONS.md)** — why we chose what we chose (PPO over
   AlphaZero, JS-engine-as-source-of-truth, etc.). Add an entry at each real
   fork-in-the-road.
+- **[`PERSONAS.md`](./PERSONAS.md)** — the **reward-persona roster** plan (the
+  post-BEAT initiative): train several PPO bots with distinct _play-styles_
+  (Conqueror/Blitz/Expansionist/Predator/Survivor) rather than one max-strength net.
+- **[`EVAL_HARNESS.md`](./EVAL_HARNESS.md)** — the **behavioral-eval harness** spec
+  (the measurement half of the roster): profiles a bot on behavioral axes vs a
+  control and gates a pre-registered persona signature PASS/FAIL — the complement to
+  `ppo:gate`'s "is it stronger?". **Phase 2a (persona gating) is BUILT + MERGED
+  (PR #80, "bite E1"):** `npm run behavior:profile` can load a `Name=weights.js`
+  export and emit its PASS/FAIL signature. The persona _weight files_ are the only
+  thing still pending.
 
 ---
 

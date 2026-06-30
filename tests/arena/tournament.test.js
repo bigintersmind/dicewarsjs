@@ -169,3 +169,63 @@ describe('runSingleElimination', () => {
     expect(calls.length).toBeGreaterThan(0);
   });
 });
+
+describe('tournament error observability (#53)', () => {
+  const brokenBot = {
+    name: 'Broken',
+    fn: () => {
+      throw new Error('boom');
+    },
+  };
+
+  it('round-robin standings expose errors/invalidMoves/maxMovesHit (zero for healthy bots)', () => {
+    const result = runRoundRobin({
+      bots: [exampleBot, defaultBot],
+      gamesPerPairing: 1,
+      baseSeed: 1,
+    });
+
+    for (const s of result.standings) {
+      expect(typeof s.errors).toBe('number');
+      expect(typeof s.invalidMoves).toBe('number');
+      expect(typeof s.maxMovesHit).toBe('number');
+      expect(s.errors).toBe(0);
+    }
+  });
+
+  it('round-robin accumulates errors and warns when a bot errors every turn', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = runRoundRobin({
+      bots: [brokenBot, defaultBot],
+      gamesPerPairing: 2,
+      baseSeed: 1,
+    });
+
+    const broken = result.standings.find(s => s.name === 'Broken');
+    expect(broken.errors).toBeGreaterThan(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/\[Tournament\] bot "Broken".*error fraction 100\.0%/s)
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('single-elimination accumulates errors and warns when a bot errors every turn', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = runSingleElimination({
+      bots: [brokenBot, defaultBot],
+      gamesPerRound: 2,
+      baseSeed: 1,
+    });
+
+    const broken = result.standings.find(s => s.name === 'Broken');
+    expect(broken.errors).toBeGreaterThan(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/\[Tournament\] bot "Broken".*error fraction 100\.0%/s)
+    );
+
+    warnSpy.mockRestore();
+  });
+});

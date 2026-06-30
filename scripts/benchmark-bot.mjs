@@ -152,6 +152,17 @@ console.log(
 );
 console.log(`    Avg Placement:  ${targetStats.avgPlacement}`);
 console.log(`    Attack Win Rate: ${(targetStats.attackWinRate * 100).toFixed(1)}%`);
+/*
+ * Arena-side forced-end counts. A non-zero `errors` means the bot threw on some turns —
+ * a broken/mis-registered bot can otherwise hide behind a clean low win% / low ELO (#53).
+ * runArena already console.warns above a high error fraction; this surfaces the raw counts.
+ */
+if (targetStats.errors > 0 || targetStats.invalidMoves > 0 || targetStats.maxMovesHit > 0) {
+  console.log(
+    `    Forced ends:    ${targetStats.errors} error(s), ` +
+      `${targetStats.invalidMoves} invalid move(s), ${targetStats.maxMovesHit} cap-hit turn(s)`
+  );
+}
 
 console.log();
 console.log('  Comparison (all bots by ELO):');

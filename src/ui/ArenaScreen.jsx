@@ -10,6 +10,7 @@
 import { useState, useCallback } from 'preact/hooks';
 import { runMatch } from '../arena/matchRunner.js';
 import { updateEloRatings, DEFAULT_RATING } from '../arena/elo.js';
+import { reportBotErrors } from '../arena/botErrorReport.js';
 import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
 import { createReplay } from '../arena/replayFormat.js';
 import { Leaderboard } from './Leaderboard.jsx';
@@ -213,6 +214,9 @@ export function ArenaScreen({ onBack, onViewReplay }) {
         totalTerritories: 0,
         totalAttacks: 0,
         totalAttackWins: 0,
+        errors: 0,
+        invalidMoves: 0,
+        maxMovesHit: 0,
       };
     }
 
@@ -233,8 +237,28 @@ export function ArenaScreen({ onBack, onViewReplay }) {
           avgAttacks: a.gamesPlayed > 0 ? +(a.totalAttacks / a.gamesPlayed).toFixed(1) : 0,
           attackWinRate: a.totalAttacks > 0 ? +(a.totalAttackWins / a.totalAttacks).toFixed(3) : 0,
           elo: ratings[bot.name],
+          errors: a.errors,
+          invalidMoves: a.invalidMoves,
+          maxMovesHit: a.maxMovesHit,
         };
       });
+
+      /*
+       * Warn loudly if any bot errored on most of its turns — its win%/ELO in the table
+       * below is not a meaningful measurement, it's a broken/mis-registered bot. This
+       * screen runs its own arena loop (not runArena), so it must call this itself. (#53)
+       */
+      reportBotErrors(
+        bots.map(bot => ({
+          name: bot.name,
+          errors: accum[bot.name].errors,
+          attacks: accum[bot.name].totalAttacks,
+          invalidMoves: accum[bot.name].invalidMoves,
+          maxMovesHit: accum[bot.name].maxMovesHit,
+        })),
+        { label: '[Arena]' }
+      );
+
       botStats.sort((a, b) => b.elo - a.elo);
 
       setResult({
@@ -284,6 +308,9 @@ export function ArenaScreen({ onBack, onViewReplay }) {
           a.totalTerritories += stat.finalTerritories;
           a.totalAttacks += stat.attacksMade;
           a.totalAttackWins += stat.attacksWon;
+          a.errors += stat.errors;
+          a.invalidMoves += stat.invalidMoves;
+          a.maxMovesHit += stat.maxMovesHit;
           if (matchResult.winner === stat.playerIndex) {
             a.wins++;
           }

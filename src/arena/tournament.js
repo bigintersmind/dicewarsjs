@@ -9,6 +9,7 @@
 
 import { runMatch } from './matchRunner.js';
 import { updateEloRatings, DEFAULT_RATING } from './elo.js';
+import { reportBotErrors } from './botErrorReport.js';
 
 /**
  * @typedef {Object} TournamentBotConfig
@@ -24,6 +25,10 @@ import { updateEloRatings, DEFAULT_RATING } from './elo.js';
  * @property {number} gamesPlayed - Total games
  * @property {number} elo         - ELO rating
  * @property {number} points      - Tournament points (3 per win, 1 per stalemate)
+ * @property {number} errors      - Total turns that ended in an error (forced-end signal —
+ *   a non-zero count means this bot's standing may not be a meaningful measurement; see #53)
+ * @property {number} invalidMoves - Total invalid moves attempted across the tournament
+ * @property {number} maxMovesHit  - Total turns force-ended by the per-turn move cap
  */
 
 /**
@@ -75,7 +80,16 @@ export function runRoundRobin(config) {
   const stats = {};
   for (const bot of bots) {
     ratings[bot.name] = DEFAULT_RATING;
-    stats[bot.name] = { wins: 0, losses: 0, gamesPlayed: 0, points: 0 };
+    stats[bot.name] = {
+      wins: 0,
+      losses: 0,
+      gamesPlayed: 0,
+      points: 0,
+      attacks: 0,
+      errors: 0,
+      invalidMoves: 0,
+      maxMovesHit: 0,
+    };
   }
 
   const pairings = generatePairings(bots, playersPerGame);
@@ -136,8 +150,26 @@ export function runRoundRobin(config) {
       gamesPlayed: stats[bot.name].gamesPlayed,
       elo: ratings[bot.name],
       points: stats[bot.name].points,
+      errors: stats[bot.name].errors,
+      invalidMoves: stats[bot.name].invalidMoves,
+      maxMovesHit: stats[bot.name].maxMovesHit,
     }))
     .sort((a, b) => b.points - a.points || b.elo - a.elo);
+
+  /*
+   * Surface broken bots loudly: a bot that errors on most of its turns isn't losing the
+   * tournament, it's failing to play — its standing is not a meaningful measurement. (#53)
+   */
+  reportBotErrors(
+    bots.map(bot => ({
+      name: bot.name,
+      errors: stats[bot.name].errors,
+      attacks: stats[bot.name].attacks,
+      invalidMoves: stats[bot.name].invalidMoves,
+      maxMovesHit: stats[bot.name].maxMovesHit,
+    })),
+    { label: '[Tournament]' }
+  );
 
   return {
     type: 'round-robin',
@@ -173,7 +205,16 @@ export function runSingleElimination(config) {
   const stats = {};
   for (const bot of bots) {
     ratings[bot.name] = DEFAULT_RATING;
-    stats[bot.name] = { wins: 0, losses: 0, gamesPlayed: 0, points: 0 };
+    stats[bot.name] = {
+      wins: 0,
+      losses: 0,
+      gamesPlayed: 0,
+      points: 0,
+      attacks: 0,
+      errors: 0,
+      invalidMoves: 0,
+      maxMovesHit: 0,
+    };
   }
 
   // Pad to power of 2 if needed
@@ -271,8 +312,26 @@ export function runSingleElimination(config) {
       gamesPlayed: stats[bot.name].gamesPlayed,
       elo: ratings[bot.name],
       points: stats[bot.name].points,
+      errors: stats[bot.name].errors,
+      invalidMoves: stats[bot.name].invalidMoves,
+      maxMovesHit: stats[bot.name].maxMovesHit,
     }))
     .sort((a, b) => b.points - a.points || b.elo - a.elo);
+
+  /*
+   * Surface broken bots loudly: a bot that errors on most of its turns isn't losing the
+   * tournament, it's failing to play — its standing is not a meaningful measurement. (#53)
+   */
+  reportBotErrors(
+    bots.map(bot => ({
+      name: bot.name,
+      errors: stats[bot.name].errors,
+      attacks: stats[bot.name].attacks,
+      invalidMoves: stats[bot.name].invalidMoves,
+      maxMovesHit: stats[bot.name].maxMovesHit,
+    })),
+    { label: '[Tournament]' }
+  );
 
   const champion = bracket.length === 1 && bracket[0] ? bracket[0].name : null;
 
@@ -300,6 +359,10 @@ function updateMatchStats(stats, ratings, result) {
   for (const botStat of result.botStats) {
     const s = stats[botStat.name];
     s.gamesPlayed++;
+    s.attacks += botStat.attacksMade;
+    s.errors += botStat.errors;
+    s.invalidMoves += botStat.invalidMoves;
+    s.maxMovesHit += botStat.maxMovesHit;
     if (isStalemate) {
       s.points += 1;
     } else if (result.winner === botStat.playerIndex) {

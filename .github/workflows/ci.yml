@@ -51,11 +51,15 @@ jobs:
       # `ML CI` job has no `node`). Fast + deterministic; bash errexit fails the step on
       # the first non-zero exit. booking-smoke guards the B2 "book before the zero-decision
       # wire gate" reordering, which no vitest test covers (the book is internal Node state).
+      # shaped-smoke runs the real main() under --reward-shaping=1 (bite G / issue #84): the
+      # hermetic vitest test pins the extracted makeShapedEmission glue, but only this live run
+      # exercises main()'s WIRING of it (per-episode reset(), the shaped-tail emission) in CI.
       - name: PPO env-server smoke checks
         run: |
           npm run ppo:env-smoke
           npm run ppo:disconnect-smoke
           npm run ppo:booking-smoke
+          npm run ppo:shaped-smoke
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v7

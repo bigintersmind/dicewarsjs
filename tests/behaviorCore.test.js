@@ -17,6 +17,9 @@ import {
   compareAxis,
   compareToControl,
   signaturePass,
+  signatureDetail,
+  parseBotSpec,
+  parseMdeOverrides,
   AXES,
   PERSONA_SIGNATURES,
   DEFAULT_MDE,
@@ -425,6 +428,110 @@ describe('signaturePass — MDE gate prevents trivial-but-significant passes', (
     const partial = { aggression: vsControl.aggression, turnsToWin: null };
     expect(() => signaturePass(blitz, partial, { aggression: 1, turnsToWin: 5 })).not.toThrow();
     expect(signaturePass(blitz, partial, { aggression: 1, turnsToWin: 5 })).toBe(false);
+  });
+});
+
+describe('signatureDetail — per-axis breakdown behind signaturePass', () => {
+  const vsControl = {
+    aggression: compareAxis([5, 6, 7, 5, 6], [2, 3, 2, 3, 2]), // Δ ≈ +3.4, CI > 0
+    turnsToWin: compareAxis([20, 21, 20, 21, 20], [19, 20, 19, 20, 19]), // HIGHER, tiny
+  };
+  const blitz = PERSONA_SIGNATURES.Blitz; // aggression HIGHER AND turnsToWin LOWER
+
+  it('returns pass plus an ok/why breakdown per axis, and pass agrees with signaturePass', () => {
+    const sig = { axes: [{ axis: 'aggression', direction: 'HIGHER' }], rule: 'single' };
+    const d = signatureDetail(sig, vsControl, { aggression: 1.0 });
+    expect(d.pass).toBe(true);
+    expect(d.rule).toBe('single');
+    expect(d.axes).toHaveLength(1);
+    expect(d.axes[0]).toMatchObject({
+      axis: 'aggression',
+      meetsMde: true,
+      sigInDir: true,
+      ok: true,
+    });
+    expect(Number.isFinite(d.axes[0].delta)).toBe(true);
+    // The boolean wrapper must equal detail.pass (single decision path).
+    expect(signaturePass(sig, vsControl, { aggression: 1.0 })).toBe(d.pass);
+  });
+
+  it('marks a sub-MDE axis meetsMde:false and fails the gate', () => {
+    const sig = { axes: [{ axis: 'aggression', direction: 'HIGHER' }], rule: 'single' };
+    const d = signatureDetail(sig, vsControl, { aggression: 10.0 });
+    expect(d.axes[0].meetsMde).toBe(false);
+    expect(d.axes[0].ok).toBe(false);
+    expect(d.pass).toBe(false);
+  });
+
+  it('AND rule: the wrong-direction turnsToWin axis fails the whole signature', () => {
+    const d = signatureDetail(blitz, vsControl, { aggression: 1, turnsToWin: 1 });
+    expect(d.pass).toBe(false);
+    const ttw = d.axes.find(a => a.axis === 'turnsToWin');
+    expect(ttw.direction).toBe('LOWER');
+    expect(ttw.sigInDir).toBe(false); // CI is on the HIGHER side, so the LOWER hypothesis is unmet
+  });
+
+  it('fails closed (no throw) on a null comparison, even when that axis has no MDE', () => {
+    const partial = { aggression: vsControl.aggression, turnsToWin: null };
+    let d;
+    expect(() => {
+      d = signatureDetail(blitz, partial, { aggression: 1 }); // turnsToWin MDE intentionally absent
+    }).not.toThrow();
+    expect(d.pass).toBe(false);
+    const ttw = d.axes.find(a => a.axis === 'turnsToWin');
+    expect(ttw).toMatchObject({ delta: null, ok: false });
+  });
+
+  it('throws when a present-comparison axis has no MDE (the guard signaturePass relies on)', () => {
+    const sig = { axes: [{ axis: 'aggression', direction: 'HIGHER' }], rule: 'single' };
+    expect(() => signatureDetail(sig, vsControl, {})).toThrow(/no MDE registered for axis/);
+  });
+});
+
+describe('parseBotSpec — built-in name vs Name=weights.js', () => {
+  it('treats a bare name as a built-in lookup (weightsPath null)', () => {
+    expect(parseBotSpec('Lookahead')).toEqual({ name: 'Lookahead', weightsPath: null });
+  });
+
+  it('splits a Name=path spec into name + weightsPath, trimming whitespace', () => {
+    expect(parseBotSpec(' Blitz = ml/runs/ppo-blitz/blitz.weights.js ')).toEqual({
+      name: 'Blitz',
+      weightsPath: 'ml/runs/ppo-blitz/blitz.weights.js',
+    });
+  });
+
+  it('splits on the FIRST = only, so a path may contain =', () => {
+    expect(parseBotSpec('X=a/b=c.weights.js')).toEqual({
+      name: 'X',
+      weightsPath: 'a/b=c.weights.js',
+    });
+  });
+});
+
+describe('parseMdeOverrides — calibrate signature thresholds without a code edit', () => {
+  it('returns a copy of the base when the string is empty/whitespace (base not mutated)', () => {
+    const base = { ...DEFAULT_MDE };
+    const out = parseMdeOverrides('', base);
+    expect(out).toEqual(DEFAULT_MDE);
+    expect(out).not.toBe(base); // fresh object
+    out.aggression = 999;
+    expect(base.aggression).toBe(DEFAULT_MDE.aggression); // base untouched
+  });
+
+  it('merges overrides over the base, leaving other axes at their default', () => {
+    const out = parseMdeOverrides('aggression:1.5, turnsToWin:8', DEFAULT_MDE);
+    expect(out.aggression).toBe(1.5);
+    expect(out.turnsToWin).toBe(8);
+    expect(out.kills).toBe(DEFAULT_MDE.kills); // untouched
+  });
+
+  it('throws on a malformed entry, an unknown axis, or a negative/non-finite value', () => {
+    expect(() => parseMdeOverrides('aggression', DEFAULT_MDE)).toThrow(
+      /not of the form axis:value/
+    );
+    expect(() => parseMdeOverrides('bogus:1', DEFAULT_MDE)).toThrow(/not a known axis/);
+    expect(() => parseMdeOverrides('aggression:-1', DEFAULT_MDE)).toThrow(/non-negative number/);
+    expect(() => parseMdeOverrides('aggression:abc', DEFAULT_MDE)).toThrow(/non-negative number/);
   });
 });
 

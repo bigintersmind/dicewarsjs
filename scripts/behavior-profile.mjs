@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Behavioral-Eval Harness — CLI (Phase 1)
+ * Behavioral-Eval Harness — CLI
  *
  * Profiles bots across a seat-fair seed sweep on behavioral axes (aggression, dice
  * reserve, kills, turns-to-win, placement, …) and reports each axis as mean ± 95% CI,
@@ -14,19 +14,29 @@
  * the control comparison is paired at the seed/map level (NOT within-game — honest about
  * its strength). Personas are deliberately NOT pitted against each other.
  *
- * Phase 1 runs against existing built-ins (the persona bots don't exist yet). Its
- * acceptance test: two known-different built-ins separate on the expected axis.
+ * A profiled/control entry is either a built-in name (`Lookahead`) OR a freshly-exported
+ * persona weights file as `Name=path/to/weights.js` — the same loadExportedPolicy→makeBC
+ * path (parity-checked) `ppo:gate` uses. When a profiled bot's name matches a
+ * PERSONA_SIGNATURES entry (e.g. `Blitz`), its pre-registered signature is gated PASS/FAIL
+ * against the control (|Δ| ≥ MDE AND significant in the expected direction). The placeholder
+ * MDEs are calibrated from a pilot via `--mde axis:value,...`.
  *
  * Usage:
  *   npm run behavior:profile                                   # defaults: Strategist vs Defensive control
  *   npm run behavior:profile -- --bots Strategist,Expectimax --control Defensive --runs 10 --games 30
  *   npm run behavior:profile -- --opponents Default,Adaptive,Example,Expectimax,Lookahead --reference Lookahead
+ *   # Gate a freshly-trained persona's exported weights against the matched Conqueror control:
+ *   npm run behavior:profile -- --bots Blitz=ml/runs/ppo-blitz/blitz.weights.js \
+ *                               --control Conqueror=ml/runs/ppo-conqueror/conqueror.weights.js \
+ *                               --mde aggression:1.5,turnsToWin:8
  *   npm run behavior:profile -- --json > profile.json
  */
 
 import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
+import { makeBC } from '../src/ai/ai_bc.js';
 import { rotatedField } from './lib/ppo-gate-core.mjs';
+import { loadExportedPolicy, siblingFixturePath } from './lib/load-bc-policy.mjs';
 import { getArg, hasFlag } from './lib/cli-utils.mjs';
 import {
   makeCapture,
@@ -34,7 +44,12 @@ import {
   reduceRun,
   summarizeAxis,
   compareToControl,
+  signatureDetail,
+  parseBotSpec,
+  parseMdeOverrides,
   AXES,
+  PERSONA_SIGNATURES,
+  DEFAULT_MDE,
 } from './lib/behavior-core.mjs';
 
 const args = process.argv.slice(2);
@@ -44,17 +59,32 @@ const gamesPerRun = parseInt(getArg(args, 'games', '30'), 10);
 // Phase 1: `reference` is validated as an opponent seat and echoed into the report, but the paired
 // comparison is always against `control` (not the reference). It's a labeled seat + a Phase-2 hook.
 const referenceName = getArg(args, 'reference', 'Lookahead');
-const controlName = getArg(args, 'control', 'Defensive');
-const botNames = getArg(args, 'bots', 'Strategist')
+// --bots / --control / --opponents entries are each `Name` (built-in) or `Name=weights.js` specs.
+const controlSpec = parseBotSpec(getArg(args, 'control', 'Defensive'));
+const controlName = controlSpec.name;
+const botSpecs = getArg(args, 'bots', 'Strategist')
   .split(',')
   .map(s => s.trim())
-  .filter(Boolean);
-const opponentNames = getArg(args, 'opponents', 'Default,Adaptive,Example,Expectimax,Lookahead')
+  .filter(Boolean)
+  .map(parseBotSpec);
+const opponentSpecs = getArg(args, 'opponents', 'Default,Adaptive,Example,Expectimax,Lookahead')
   .split(',')
   .map(s => s.trim())
-  .filter(Boolean);
+  .filter(Boolean)
+  .map(parseBotSpec);
+const botNames = botSpecs.map(s => s.name);
+const opponentNames = opponentSpecs.map(s => s.name);
 const quarantine = !hasFlag(args, 'no-quarantine');
 const asJson = hasFlag(args, 'json');
+
+// Calibrated per-axis MDEs for the signature gate (defaults are placeholders until a pilot).
+let mde;
+try {
+  mde = parseMdeOverrides(getArg(args, 'mde', ''), DEFAULT_MDE);
+} catch (err) {
+  console.error(`Invalid --mde: ${err.message}`);
+  process.exit(1);
+}
 
 if (!Number.isFinite(runCount) || runCount < 2) {
   console.error('Invalid --runs: need an integer >= 2 (a CI needs >= 2 runs).');
@@ -77,25 +107,56 @@ if (new Set(opponentNames).size !== opponentNames.length) {
   process.exit(1);
 }
 
-// --- Resolve bots from the registry ---
+// --- Resolve bots: built-in by name, or a parity-checked weights file (Name=path) ---
 
 const byName = new Map(BUILT_IN_BOTS.map(b => [b.name, b]));
-const resolve = name => {
-  const b = byName.get(name);
-  if (!b) {
-    console.error(`Unknown bot "${name}". Available: ${[...byName.keys()].join(', ')}`);
+// Per-weights-bot {params, parity} so the header can show what was loaded (mirrors ppo:gate).
+const loadedBots = [];
+
+/**
+ * Resolve one parsed spec to `{ name, fn }`. A bare name hits the built-in registry; a
+ * `Name=weights.js` spec is dynamic-imported + parity-checked (fail loud) and wrapped exactly
+ * like the in-browser bot via `makeBC({ policy })`. Exits with a clear message on any failure.
+ */
+async function resolveSpec({ name, weightsPath }) {
+  if (!name) {
+    console.error('A bot spec has an empty name (expected `Name` or `Name=path/to/weights.js`).');
     process.exit(1);
   }
-  return { name: b.name, fn: b.fn };
-};
-
-const opponents = opponentNames.map(resolve);
-// The control is profiled like any other bot so the comparison shares the same seed blocks.
-const profiledNames = [...new Set([...botNames, controlName])];
-const profiled = profiledNames.map(resolve);
+  if (weightsPath == null) {
+    const b = byName.get(name);
+    if (!b) {
+      console.error(
+        `Unknown bot "${name}". Available built-ins: ${[...byName.keys()].join(', ')} ` +
+          `(or pass a weights file as ${name}=path/to/weights.js).`
+      );
+      process.exit(1);
+    }
+    return { name: b.name, fn: b.fn };
+  }
+  if (!weightsPath) {
+    console.error(`Weights bot "${name}" has an empty path (expected ${name}=path/to/weights.js).`);
+    process.exit(1);
+  }
+  // The exported persona weights follow the capacity-probe layout: foo.weights.js ↔ foo.fixture.json.
+  const fixturePath = siblingFixturePath(weightsPath);
+  try {
+    const { policy, parity, params } = await loadExportedPolicy({
+      weightsPath,
+      fixturePath,
+      label: name,
+    });
+    loadedBots.push({ name, params, parity, weightsPath });
+    return { name, fn: makeBC({ policy }) };
+  } catch (err) {
+    console.error(`\nFailed to load weights bot "${name}" (${weightsPath}): ${err.message}`);
+    process.exit(1);
+  }
+}
 
 // --- Validate the fixed-field invariants (keeps every field identical in size & opponents) ---
 
+const profiledNames = [...new Set([...botNames, controlName])];
 const oppSet = new Set(opponentNames);
 const collide = profiledNames.filter(n => oppSet.has(n));
 if (collide.length) {
@@ -109,10 +170,21 @@ if (!oppSet.has(referenceName)) {
   console.error(`--reference "${referenceName}" must be one of --opponents (it fills a seat).`);
   process.exit(1);
 }
-if (opponents.length < 1) {
+if (opponentSpecs.length < 1) {
   console.error('Need at least one opponent.');
   process.exit(1);
 }
+
+// Resolve after validation. Profiled = the requested bots + the control (deduped by name, first
+// spec wins), each profiled in the same field so the control comparison shares seed blocks.
+const opponents = [];
+for (const spec of opponentSpecs) opponents.push(await resolveSpec(spec));
+const profiledSpecByName = new Map();
+for (const spec of [...botSpecs, controlSpec]) {
+  if (!profiledSpecByName.has(spec.name)) profiledSpecByName.set(spec.name, spec);
+}
+const profiled = [];
+for (const spec of profiledSpecByName.values()) profiled.push(await resolveSpec(spec));
 
 const fieldSize = opponents.length + 1; // profiled seat + fixed opponents
 const STRIDE = Math.max(1_000_000, gamesPerRun * 1000);
@@ -127,6 +199,12 @@ log(`  profiled: ${profiledNames.join(', ')}   control: ${controlName}`);
 log(
   `  field (${fieldSize} seats): [profiled] + ${opponentNames.join(', ')}   ref: ${referenceName}`
 );
+for (const lb of loadedBots) {
+  log(
+    `  loaded ${lb.name}: ${lb.params.toLocaleString()} params, ` +
+      `parity ${lb.parity.toExponential(1)} (${lb.weightsPath})`
+  );
+}
 log(`  quarantine forced-end games: ${quarantine ? 'on' : 'off'}\n`);
 
 // --- Sweep: profile each bot in the one profiled seat of an identical field ---
@@ -213,6 +291,7 @@ const report = {
     control: controlName,
     opponents: opponentNames,
     fieldSize,
+    mde, // the (possibly calibrated) per-axis thresholds the signature gate used
     quarantine: {
       on: quarantine,
       rate: totalPlayed ? totalQuarantined / totalPlayed : 0,
@@ -228,7 +307,12 @@ const report = {
       AXES.map(axis => [axis, summarizeAxis(perRun.map(r => r[axis]))])
     );
     const vsControl = bot.name === controlName ? null : compareToControl(perRun, controlRuns);
-    return { name: bot.name, metrics, vsControl, liveRuns: liveRunCount(perRun) };
+    // Gate the pre-registered signature when the profiled bot's name names a persona (and it
+    // isn't the control). DEFAULT_MDE covers every signature axis, so signatureDetail won't throw.
+    const sig = PERSONA_SIGNATURES[bot.name];
+    const signature =
+      sig && vsControl ? { persona: bot.name, ...signatureDetail(sig, vsControl, mde) } : null;
+    return { name: bot.name, metrics, vsControl, signature, liveRuns: liveRunCount(perRun) };
   }),
 };
 
@@ -294,4 +378,25 @@ for (const b of report.bots) {
   log(
     `${b.name} vs ${controlName}: ${moved.length ? moved.join(', ') : 'no axis differs'}${dataNote}`
   );
+}
+
+// --- Pre-registered persona signature verdicts (the "ships when distinct" gate, §3.2/§3.3) ---
+const signed = report.bots.filter(b => b.signature);
+if (signed.length) {
+  log('');
+  for (const b of signed) {
+    const s = b.signature;
+    const detail = s.axes
+      .map(a => {
+        const dir = a.direction === 'HIGHER' ? '↑' : '↓';
+        if (a.delta == null) return `${a.axis}${dir} no data`;
+        // Why this axis did/didn't pass: sub-MDE vs not-significant vs both-clear (ok).
+        const why = a.ok ? 'ok' : !a.meetsMde ? `|Δ|<MDE(${a.mde})` : 'CI∌0';
+        return `${a.axis}${dir} Δ${a.delta.toFixed(2)} [${a.lo.toFixed(2)},${a.hi.toFixed(2)}] ${why}`;
+      })
+      .join('; ');
+    log(
+      `${s.persona} signature (${s.rule}) vs ${controlName}: ${s.pass ? 'PASS ✓' : 'FAIL ✗'} — ${detail}`
+    );
+  }
 }

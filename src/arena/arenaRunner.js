@@ -9,6 +9,7 @@
 
 import { runMatch } from './matchRunner.js';
 import { updateEloRatings, DEFAULT_RATING } from './elo.js';
+import { reportBotErrors } from './botErrorReport.js';
 
 /**
  * @typedef {Object} ArenaBotStat
@@ -20,6 +21,10 @@ import { updateEloRatings, DEFAULT_RATING } from './elo.js';
  * @property {number} avgAttacks      - Average attacks per game
  * @property {number} attackWinRate   - Attack success rate (0–1)
  * @property {number} elo             - Current ELO rating
+ * @property {number} errors          - Total turns that ended in an error (forced-end signal —
+ *   a non-zero count means this bot's win%/ELO may not be a meaningful measurement; see #53)
+ * @property {number} invalidMoves    - Total invalid moves attempted across the run
+ * @property {number} maxMovesHit     - Total turns force-ended by the per-turn move cap
  */
 
 /**
@@ -88,6 +93,9 @@ export function runArena(config) {
       totalTerritories: 0,
       totalAttacks: 0,
       totalAttackWins: 0,
+      errors: 0,
+      invalidMoves: 0,
+      maxMovesHit: 0,
     };
   }
 
@@ -134,6 +142,9 @@ export function runArena(config) {
       a.totalTerritories += stat.finalTerritories;
       a.totalAttacks += stat.attacksMade;
       a.totalAttackWins += stat.attacksWon;
+      a.errors += stat.errors;
+      a.invalidMoves += stat.invalidMoves;
+      a.maxMovesHit += stat.maxMovesHit;
       if (result.winner === stat.playerIndex) {
         a.wins++;
       }
@@ -164,8 +175,27 @@ export function runArena(config) {
       avgAttacks: a.gamesPlayed > 0 ? +(a.totalAttacks / a.gamesPlayed).toFixed(1) : 0,
       attackWinRate: a.totalAttacks > 0 ? +(a.totalAttackWins / a.totalAttacks).toFixed(3) : 0,
       elo: ratings[bot.name],
+      errors: a.errors,
+      invalidMoves: a.invalidMoves,
+      maxMovesHit: a.maxMovesHit,
     };
   });
+
+  /*
+   * Turn a silent failure into a loud one: a bot that errors on most of its turns is
+   * broken, not losing, and its win%/ELO is meaningless. Warn before returning so every
+   * runArena consumer (benchmark-bot, bc-stopbias-sweep, the CLI sweeps) surfaces it. (#53)
+   */
+  reportBotErrors(
+    bots.map(bot => ({
+      name: bot.name,
+      errors: accum[bot.name].errors,
+      attacks: accum[bot.name].totalAttacks,
+      invalidMoves: accum[bot.name].invalidMoves,
+      maxMovesHit: accum[bot.name].maxMovesHit,
+    })),
+    { label: '[Arena]' }
+  );
 
   // Sort by ELO descending
   botStats.sort((a, b) => b.elo - a.elo);

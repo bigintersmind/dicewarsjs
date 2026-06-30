@@ -325,4 +325,69 @@ describe('runArena', () => {
 
     expect(result.matches[0].trajectory).toBeUndefined();
   });
+
+  it('exposes errors/invalidMoves/maxMovesHit on each bot (zero for healthy bots)', () => {
+    const result = runArena({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: defaultBot },
+      ],
+      gameCount: 2,
+      baseSeed: 1,
+    });
+
+    for (const bot of result.bots) {
+      expect(typeof bot.errors).toBe('number');
+      expect(typeof bot.invalidMoves).toBe('number');
+      expect(typeof bot.maxMovesHit).toBe('number');
+      expect(bot.errors).toBe(0);
+    }
+  });
+
+  it('accumulates errors and warns when a bot errors on every turn (#53)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const throwingBot = () => {
+      throw new Error('boom');
+    };
+
+    const result = runArena({
+      bots: [
+        { name: 'broken', fn: throwingBot },
+        { name: 'default', fn: defaultBot },
+      ],
+      gameCount: 3,
+      baseSeed: 1,
+    });
+
+    const broken = result.bots.find(b => b.name === 'broken');
+    expect(broken.errors).toBeGreaterThan(0);
+    expect(broken.avgAttacks).toBe(0);
+
+    // A broken bot must not silently masquerade as a clean low-ELO result.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/bot "broken".*error fraction 100\.0%/s)
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not warn when all bots are healthy', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    runArena({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: defaultBot },
+      ],
+      gameCount: 2,
+      baseSeed: 1,
+    });
+
+    // The only console.warn runArena emits in a clean run would be an error-rate warning.
+    const errorWarnings = warnSpy.mock.calls.filter(call => /error fraction/.test(String(call[0])));
+    expect(errorWarnings).toEqual([]);
+
+    warnSpy.mockRestore();
+  });
 });

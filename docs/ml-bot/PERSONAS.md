@@ -11,6 +11,14 @@
 > equally-trained bots with deliberately different play styles**, some of which are _supposed_ to
 > sacrifice win% for character. New decisions this implies are flagged `D-27?` etc. (next free
 > number after D-26) and should be promoted to `DECISIONS.md` if/when accepted.
+>
+> **Built since (2026-06-29, "bite D"):** the **wire-free reward knob** now exists. `train.py` gained
+> `--reward-mode {win,placement}` plus `--terminal-speed-bonus B`/`--speed-ref T`, computed by
+> `dicewars_ppo.env.terminal_reward`. This makes **Conqueror** (`win`, the default), **Survivor**
+> (`placement`), and **Blitz** (lower `--gamma`, optionally `--terminal-speed-bonus`) runnable
+> **with no wire change**. The dense **Expansionist**/**Predator** rewards still need the per-frame
+> wire scalar ("bite G"). The eval-harness side ("bite E1") can already gate a persona's exported
+> weights. So the §2 "the reward is one line" framing below is now historical — see that knob.
 
 ---
 
@@ -48,10 +56,16 @@ almost always one of:
 
 ## 2. Where the reward lives (implementation surface)
 
-The reward is **one line**:
+> **Now built (bite D):** the terminal reward is no longer a single hard-coded line — it is
+> `dicewars_ppo.env.terminal_reward(...)`, selected by `--reward-mode {win,placement}` and an
+> optional win-gated `--terminal-speed-bonus B`/`--speed-ref T`. The default (`win`, bonus 0) is
+> byte-identical to the line below. The rest of this section is the original analysis that motivated
+> that knob.
+
+Originally the reward was **one line**:
 
 ```python
-# ml/dicewars_ppo/env.py:205
+# ml/dicewars_ppo/env.py (pre-bite-D)
 reward = float(frame.won)   # +1 if learner won, else 0  (sparse terminal-win, D-19)
 ```
 
@@ -62,16 +76,18 @@ more terminal signal than the reward uses**:
 | ------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------- |
 | `won` (1/0)                                 | ✅ (used)                            | —                                                                             |
 | `winner` (seat/-1)                          | ✅                                   | free                                                                          |
-| `placement` (1=1st…0=last, range-validated) | ✅ (unused)                          | **free** — Survivor persona                                                   |
-| `truncated` (stalemate cap)                 | ✅                                   | free                                                                          |
-| game `turnCount`                            | ✅ (`finalize()`, JS side)           | cheap — Blitz terminal speed-bonus                                            |
+| `placement` (1=1st…0=last, range-validated) | ✅                                   | **built** — `--reward-mode placement` (Survivor)                              |
+| `truncated` (stalemate cap)                 | ✅ (used)                            | **built** — gates the terminal payout to 0 (bite D; avoids double-counting)   |
+| `turn_number` (terminal frame)              | ✅                                   | **built** — `--terminal-speed-bonus`/`--speed-ref` (Blitz)                    |
 | Δterritory / turn                           | ❌                                   | small: env-server emits a per-frame scalar → wire/header field + version bump |
 | elimination event                           | ❌ (derivable from placement deltas) | small, same as above                                                          |
 
-So **placement-, tempo-, and turn-count-based personas are essentially free** (signal already
-plumbed + a `--gamma` flag). Dense-territory and elimination-bounty personas need the **JS
-env-server to emit a per-frame scalar** — a wire/header addition carrying the same discipline as
-the encoding contract (bump a version constant; JS emitter and Python consumer change in one commit).
+So **placement-, tempo-, and turn-count-based personas are now runnable with no wire change** —
+the signals were already plumbed and bite D added the trainer flags that consume them
+(`--reward-mode`, `--terminal-speed-bonus`, plus the long-standing `--gamma`). Dense-territory and
+elimination-bounty personas still need the **JS env-server to emit a per-frame scalar** — a
+wire/header addition carrying the same discipline as the encoding contract (bump a version
+constant; JS emitter and Python consumer change in one commit). That is "bite G".
 
 ---
 
@@ -94,10 +110,10 @@ can't attribute the behavioral difference. This note holds axis 2 fixed at the c
 | Persona           | Reward change                               | Expected tendency                  | Diverges from win via                   | Impl cost          | Gate expectation          |
 | ----------------- | ------------------------------------------- | ---------------------------------- | --------------------------------------- | ------------------ | ------------------------- |
 | **Conqueror**     | `frame.won` (today)                         | Balanced; turtle→strike            | — (control)                             | none               | the bar (pure-wins)       |
-| **Blitz / Tempo** | lower `gamma` (+ opt. terminal speed-bonus) | Fast, aggressive, early pressure   | multiplicative-time                     | **free** (flag)    | likely **below** bar; fun |
+| **Blitz / Tempo** | lower `gamma` (+ opt. terminal speed-bonus) | Fast, aggressive, early pressure   | multiplicative-time                     | **built** (flags)  | likely **below** bar; fun |
 | **Expansionist**  | dense Δ(net territory)/turn                 | Grabs land now; overextends        | dense + net                             | small (wire field) | below bar                 |
 | **Predator**      | bounty per player eliminated                | Hunts kills; takes risky finishers | dense + net                             | small (wire field) | below/near bar            |
-| **Survivor**      | `placement` instead of binary win           | Conservative; plays for 2nd/3rd    | rank ≠ win (the "ELO trap", repurposed) | **free** (on wire) | high ELO, lower win%      |
+| **Survivor**      | `placement` instead of binary win           | Conservative; plays for 2nd/3rd    | rank ≠ win (the "ELO trap", repurposed) | **built** (flag)   | high ELO, lower win%      |
 
 ### Conqueror (control)
 
@@ -111,9 +127,10 @@ The intuition: scale the win reward _down_ by game length so a 1-turn win is wor
 1000-turn win, coaxing aggression. **This is principled** — see §6 for the full treatment. Short
 version: the current `gamma=0.999` is _why_ the bot turtles (a slow win is worth ~82% of a fast one
 — almost no tempo pressure), so the cleanest first cut is **just lower gamma** (e.g. 0.99 → a
-200-turn win worth ~13% of an instant win). Optional escalation: an explicit bounded terminal
-speed-bonus keyed on `turnCount`. Foregrounded because it directly targets the turtle Ivan saw and
-costs zero new code.
+200-turn win worth ~13% of an instant win). Optional escalation: the explicit bounded terminal
+speed-bonus, now `--terminal-speed-bonus B`/`--speed-ref T` (bite D), keyed on the terminal frame's
+`turn_number`. Foregrounded because it directly targets the turtle Ivan saw and is now a flag, not
+new code.
 
 ### Expansionist
 
@@ -132,7 +149,24 @@ described. Derivable from placement deltas without a new territory field.
 [D-19] explicitly avoided placement reward for the gate bot, calling it **"the ELO trap"**:
 optimizing rank rather than the win produces a bot that plays for 2nd/3rd instead of going for 1st
 — great ELO, mediocre win%. For a _personality_ bot that conservative, survive-don't-conquer style
-**is the deliverable.** Costs nothing — `placement` is already on the wire.
+**is the deliverable.** Now a one-flag run — `--reward-mode placement` (bite D); the `placement`
+signal was already on the wire, so it cost no wire change.
+
+**Truncation must pay 0 (a bite-D correctness point).** A `maxTurns` stalemate cap is a Gym
+_truncation_, not a realized terminal: `step()` returns `truncated=True` so SB3 **bootstraps**
+`V(s)`. `terminal_reward` therefore pays **0 on a truncation in every mode** — paying the non-zero
+rank-at-cap `placement` there too would _double-count_ the survival signal (reward **plus** a
+bootstrapped value that already estimates the eventual placement) and reward **stalling to the
+cap** — precisely the passivity failure §6 warns about. `win` mode is 0 on a cap regardless (a cap
+can't be a win), so this only disciplines the placement path. Survivor still gets a dense placement
+signal from the decisive majority of games that end in a genuine `GAME_OVER`.
+
+**Warm-start critic note.** A Survivor warm-started from `ppo-long`'s win-trained value head starts
+**miscalibrated**: that head predicts ≈win-rate (mostly 0, ~0.25 mean for 4p), but placement is a
+denser signal with mean ≈0.5. PPO's per-batch advantage normalization absorbs most of the shift,
+but expect a noisier first stretch; a short value-head warmup or a higher initial `value-coef` may
+speed convergence. Reward scale is otherwise comparable (both objectives top out at 1.0 pre-bonus),
+so shared `lr`/clip/`value-coef` stay reasonable — no normalization change is _required_.
 
 ---
 
@@ -140,7 +174,7 @@ optimizing rank rather than the win produces a bot that plays for 2nd/3rd instea
 
 Ivan's framing: _"win in 1 turn → 1000 points; win in 1000 turns → 1 point."_ That's a
 **multiplicative terminal time-bonus**, and it's the sharper cousin of the discount factor `gamma`,
-which the trainer already exposes as `--gamma` (default **0.999**, `_train_common.py:149`).
+which the trainer already exposes as `--gamma` (default **0.999**, in `_train_common.build_parser`).
 
 **Why gamma is the principled lever.** With sparse `+1` terminal-win and discount `γ`, the value of
 a state that wins in `T` steps is `γ^T · P(win)`. So `γ` _is_ a smooth "win fast" multiplier:
@@ -168,9 +202,11 @@ There are two ways to say "win fast":
 So Ivan's multiplicative framing is exactly the _safe_ formulation. **Recommended Blitz config:**
 lower `gamma` first (0.99, maybe 0.97); if that isn't punchy enough, add a small **bounded**
 terminal speed-bonus `reward = won × (1 + b·clip(1 − turns/T_ref, 0, 1))` with `b` modest (e.g.
-0.5) so it never dominates the win/loss ordering. **Secondary knob:** `ent_coef` — the applicable
-default for the **warm-started** personas is **0.0** (`_train_common.py:153`; `0.01` is only the
-_from-scratch_ fallback at `:340`). More entropy = more exploration = less likely to settle into the
+0.5) so it never dominates the win/loss ordering — now `--terminal-speed-bonus 0.5 --speed-ref T`
+(bite D; `terminal_reward` implements exactly this formula, win-gated). **Secondary knob:** `ent_coef` — the applicable
+default for the **warm-started** personas is **0.0** (the `--ent-coef` default in
+`_train_common.build_parser`; `0.01` is only the _from-scratch_ fallback in `resolve_from_scratch`).
+More entropy = more exploration = less likely to settle into the
 safe turtle; bump it (e.g. toward `0.01`) for Blitz, but it's a training-dynamics knob, not a reward,
 so tune it second.
 
@@ -236,9 +272,12 @@ fun. The roster makes that filter _possible_; it doesn't automate it.
 ## 8. Execution plan (post-`ppo-long`)
 
 1. **Land the harness first** (§7) — measure today's Conqueror to set the baseline profile.
-2. **Wire the reward knobs:** `--gamma`/`--ent-coef` are already flags (Blitz/Survivor free);
-   add the per-frame territory/elim scalar to the env-server wire (Expansionist/Predator) behind a
-   version bump, off by default (byte-identical to today when unset — the B5/B6 opt-in pattern).
+   _(Bite E1 — done: the harness can load a persona's exported weights and gate its signature.)_
+2. **Wire the reward knobs:** ✅ _bite D_ — `--reward-mode {win,placement}` +
+   `--terminal-speed-bonus`/`--speed-ref` (plus the long-standing `--gamma`/`--ent-coef`) make
+   Conqueror/Blitz/Survivor runnable with no wire change. **Still TODO (bite G):** add the per-frame
+   territory/elim scalar to the env-server wire (Expansionist/Predator) behind a version bump, off by
+   default (byte-identical to today when unset — the B5/B6 opt-in pattern).
 3. **One persona = one reward config + one schtask**, all **warm-started from `ppo-long`'s final
    policy** (shared good initialization; reward shaping then specializes), running **concurrently**
    on shodan (latency-bound, idle hardware). Re-run Conqueror as the matched control.

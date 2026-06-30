@@ -183,3 +183,49 @@ def test_step_terminal_rejects_won_and_truncated(golden_frame, monkeypatch):
     term = dataclasses.replace(golden_frame, terminal=1, winner=0, won=1, truncated=1)
     with pytest.raises(ValueError, match="both truncated and won"):
         _drive_step_with_terminal(monkeypatch, env, term)
+
+
+# --- step() terminal: the persona reward modes wired through the REAL step() body ------------
+# These pin the frame-field → terminal_reward-arg wiring (placement/turn_number/truncated +
+# the env's reward_mode/speed_bonus/speed_ref). The pure terminal_reward unit tests bypass
+# step(), so a miswire there (e.g. won into the placement slot) would pass them but fail here.
+
+
+def test_step_terminal_placement_mode_pays_scaled_rank(golden_frame, monkeypatch):
+    # Survivor: a genuine (non-truncated) loss pays the scaled rank, NOT 0 — proves step() feeds
+    # frame.placement into terminal_reward under reward_mode="placement".
+    env = _env(reward_mode="placement")
+    term = dataclasses.replace(
+        golden_frame, terminal=1, winner=0, won=0, truncated=0, placement=0.5
+    )
+    _obs, reward, terminated, trunc, _info = _drive_step_with_terminal(monkeypatch, env, term)
+    assert (terminated, trunc) == (True, False)  # a real loss is a genuine terminal (bootstrap 0)
+    assert reward == 0.5
+
+
+def test_step_terminal_placement_mode_truncation_pays_zero(golden_frame, monkeypatch):
+    # C1: a maxTurns CAP in placement mode must pay 0 (truncated → SB3 bootstraps V(s)), NOT the
+    # non-zero rank-at-cap on the wire — otherwise the survival signal is double-counted and the
+    # Survivor is biased toward stalling to the cap. Exercised through the real step() body.
+    env = _env(reward_mode="placement")
+    term = dataclasses.replace(
+        golden_frame, terminal=1, winner=0, won=0, truncated=1, placement=0.67
+    )
+    _obs, reward, terminated, trunc, _info = _drive_step_with_terminal(monkeypatch, env, term)
+    assert (terminated, trunc) == (False, True)  # truncation → bootstrap, not a genuine terminal
+    assert reward == 0.0
+
+
+def test_step_terminal_speed_bonus_scales_a_fast_win(golden_frame, monkeypatch):
+    # Blitz: step() must thread frame.turn_number + the env's speed_bonus/speed_ref into
+    # terminal_reward. A win at turn 50 of a 200-turn ref pays 1*(1 + 0.5*clip(1-50/200)) = 1.375.
+    # The turn_number is a DISTINCTIVE non-zero value (≠ winner/truncated/placement on this frame),
+    # so a miswire sourcing the turn_number kwarg from any other (zero-or-other-valued) field would
+    # produce a different reward and fail — uniquely pinning the frame.turn_number wire.
+    env = _env(terminal_speed_bonus=0.5, speed_ref=200)
+    term = dataclasses.replace(
+        golden_frame, terminal=1, winner=0, won=1, truncated=0, placement=1.0, turn_number=50
+    )
+    _obs, reward, terminated, trunc, _info = _drive_step_with_terminal(monkeypatch, env, term)
+    assert (terminated, trunc) == (True, False)
+    assert reward == pytest.approx(1.375)

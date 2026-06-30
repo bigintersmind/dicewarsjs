@@ -28,7 +28,7 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .env import DiceWarsEnv
+from .env import REWARD_MODES, DiceWarsEnv
 
 if TYPE_CHECKING:  # annotation-only; never imported at runtime (keeps this module torch-free)
     from dicewars_bc.model import ModelConfig
@@ -77,10 +77,23 @@ def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
         str(Path(args.snapshot_dir) / "manifest.json") if args.snapshot_dir else None
     )
 
+    # Reward shaping (persona roster, bite D — docs/ml-bot/PERSONAS.md). train.py-only flags read
+    # via getattr so the tracer (whose parser lacks them) stays byte-identical: an absent flag
+    # yields the [D-19] sparse-win defaults. All three are primitives (str/float/int|None) so the
+    # torch-free thunk stays primitive-only, and they are env-construction kwargs (reward is
+    # computed Python-side in env.step()), so NOTHING reaches the Node server_kwargs and the wire
+    # is untouched.
+    reward_mode = getattr(args, "reward_mode", "win")
+    terminal_speed_bonus = getattr(args, "terminal_speed_bonus", 0.0)
+    speed_ref = getattr(args, "speed_ref", None)
+
     def _thunk() -> DiceWarsEnv:
         return DiceWarsEnv(
             max_areas=max_areas,
             player_count=player_count,
+            reward_mode=reward_mode,
+            terminal_speed_bonus=terminal_speed_bonus,
+            speed_ref=speed_ref,
             server_kwargs={
                 "opponents": args.opponents,
                 "max_turns": args.max_turns,
@@ -338,6 +351,33 @@ def resolve_from_scratch(args: argparse.Namespace) -> None:
         args.lr = 1e-3 if from_scratch else 1e-4
     if getattr(args, "ent_coef", None) is None:
         args.ent_coef = 0.01 if from_scratch else 0.0
+
+
+def validate_reward_args(args: argparse.Namespace) -> None:
+    """Validate the persona reward-shaping flags (bite D) at launch (torch-free → lean-testable).
+
+    Reads the flags via ``getattr`` so this is a safe no-op for a caller whose ``Namespace`` lacks
+    them — e.g. a programmatic/test ``Namespace`` built without them. (The tracer doesn't call this:
+    it shares only ``_validate_args``/``_make_env_thunk``; ``train.py`` is the sole caller and it
+    owns these flags.) Front-runs all THREE of the env's own constructor ``ValueError``\\ s (which
+    would otherwise fire when ``DiceWarsEnv`` is built inside a ``SubprocVecEnv`` worker and surface
+    as an opaque worker-startup failure) so a misconfig fails HERE with a clear ``SystemExit`` at
+    launch — before any worker/Node server spawns — mirroring how ``_validate_args`` front-runs the
+    Node league guards. ``--reward-mode`` membership is also enforced by argparse ``choices`` on the
+    CLI path; the explicit check here additionally covers a non-CLI ``Namespace``.
+    """
+    reward_mode = getattr(args, "reward_mode", "win")
+    if reward_mode not in REWARD_MODES:
+        raise SystemExit(f"--reward-mode must be one of {REWARD_MODES} (got {reward_mode!r}).")
+    speed_bonus = getattr(args, "terminal_speed_bonus", 0.0)
+    speed_ref = getattr(args, "speed_ref", None)
+    if speed_bonus < 0:
+        raise SystemExit(f"--terminal-speed-bonus must be >= 0 (got {speed_bonus}).")
+    if speed_bonus > 0 and not (speed_ref is not None and speed_ref > 0):
+        raise SystemExit(
+            "--speed-ref must be a positive integer when --terminal-speed-bonus > 0 "
+            f"(got {speed_ref})."
+        )
 
 
 def _remaining_timesteps(total: int, num_timesteps: int) -> int:

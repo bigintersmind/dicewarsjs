@@ -27,6 +27,9 @@
 #   bash scripts/shodan/ppo-train.sh                       # the long BEAT run (warm-started)
 #   FROM_SCRATCH=1 RUN_NAME=ppo-control TIMESTEPS=1000000 \
 #       bash scripts/shodan/ppo-train.sh                   # the [D-19] from-scratch control run
+#   PERSONA=blitz    TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh   # a reward-persona run: warm-
+#   PERSONA=survivor TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh   # starts from ppo-long's actor
+#   PERSONA=conqueror TIMESTEPS=3000000 bash scripts/shodan/ppo-train.sh  # (control). See RUNBOOK "persona".
 #
 set -euo pipefail
 
@@ -35,6 +38,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ML_DIR="$REPO_ROOT/ml"
 ENCODE_JS="$REPO_ROOT/src/arena/encodeObservation.js"
+
+# --- reward-persona preset (bite F; docs/ml-bot/PERSONAS.md §8 step 3) -----------------------------
+# Each persona is the SAME warm-started run differing ONLY in the reward OBJECTIVE (mode / discount /
+# optional speed bonus). Every OTHER hyperparameter (TIMESTEPS/LR/ENT_COEF/N_ENVS/R) is shared, set
+# once for the batch, so the Conqueror control is matched on everything but the reward axis
+# (PERSONAS §3: vary reward XOR opponent field, never both). A persona only sets DEFAULTS (`:=`), so
+# an explicit env override always wins, and an UNSET persona is a pure no-op — byte-identical to the
+# BEAT-run launcher. Persona runs warm-start from ppo-long's repacked actor (PERSONAS §8 step 3), not
+# the BC net; preflight HALTs loudly if that actor isn't on this box. This block must precede the
+# RUN_NAME default below so a persona can name its own run.
+PERSONA="${PERSONA:-}"
+case "$PERSONA" in
+  "") ;;  # no persona → the long BEAT run / control behavior, unchanged (byte-identical)
+  conqueror) : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=win}";       : "${GAMMA:=0.999}"; : "${RUN_NAME:=ppo-conqueror}" ;;
+  blitz)     : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=win}";       : "${GAMMA:=0.99}";  : "${RUN_NAME:=ppo-blitz}" ;;
+  survivor)  : "${CHECKPOINT:=runs/ppo-long/ppo.pt}"; : "${REWARD_MODE:=placement}"; : "${GAMMA:=0.999}"; : "${RUN_NAME:=ppo-survivor}" ;;
+  *) echo "ppo-train: unknown PERSONA='$PERSONA' (expected: conqueror | blitz | survivor)" >&2; exit 1 ;;
+esac
 
 # --- run identity + paths -------------------------------------------------------------------------
 RUN_NAME="${RUN_NAME:-ppo-long}"
@@ -52,7 +73,13 @@ TIMESTEPS="${TIMESTEPS:-20000000}"                  # ABSOLUTE env-step budget f
 DEVICE="${DEVICE:-cuda}"                             # shodan GPU; "cpu" only for a smoke
 LR="${LR:-2.5e-4}"                                  # task-A BEAT config (production HP — NOT a default)
 ENT_COEF="${ENT_COEF:-0.01}"                        # task-A BEAT config (production HP)
-GAMMA="${GAMMA:-0.999}"
+GAMMA="${GAMMA:-0.999}"                             # a persona may have lowered this above (Blitz)
+
+# --- persona reward objective (bite D flags). Defaults reproduce the [D-19] sparse terminal-win the
+# BEAT run trained on, so an unset persona forwards a byte-identical objective. ----------------------
+REWARD_MODE="${REWARD_MODE:-win}"                   # 'win' = Conqueror/Blitz; 'placement' = Survivor
+TERMINAL_SPEED_BONUS="${TERMINAL_SPEED_BONUS:-0}"   # Blitz's optional secondary lever (0 = off)
+SPEED_REF="${SPEED_REF:-}"                          # turn-count ref; train.py REQUIRES it when bonus>0
 
 # --- parallelism ([D-26] Q4: SubprocVecEnv(forkserver), CUDA inits AFTER the fork) ----------------
 # Size to cores but leave headroom for the learner + the per-worker Node env-servers. n_steps*n_envs
@@ -145,30 +172,46 @@ check_commit_pinned() {
   fi
 }
 
+# Assemble the `python -m dicewars_ppo.train` argv into the global TRAIN_ARGV array. Factored out of
+# run_once so the launcher tests (ml/tests/test_ppo_train_launcher.py) can pin that the persona reward
+# flags (bite D) are forwarded WITHOUT spawning python/torch/a GPU. --reward-mode/--terminal-speed-
+# bonus are ALWAYS passed (their win/0 defaults are train.py's own, so an unset persona stays the
+# [D-19] sparse-win objective); --speed-ref is added only when set (train.py REQUIRES it iff the bonus
+# > 0, and rejects a bare flag), and --from-scratch only for the [D-19] control.
+build_train_argv() {
+  TRAIN_ARGV=(
+    --checkpoint "$CHECKPOINT"
+    --out "$OUT"
+    --timesteps "$TIMESTEPS"
+    --n-envs "$N_ENVS"
+    --start-method forkserver
+    --lr "$LR" --ent-coef "$ENT_COEF" --gamma "$GAMMA"
+    --reward-mode "$REWARD_MODE" --terminal-speed-bonus "$TERMINAL_SPEED_BONUS"
+    --device "$DEVICE"
+    --snapshot-dir "$SNAPSHOT_DIR" --snapshot-every "$SNAPSHOT_EVERY"
+    --snapshot-store disk
+    --reserve-baselines "$RESERVE_BASELINES"
+    --league-state-dir "$LEAGUE_STATE_DIR" --league-dump-every "$LEAGUE_DUMP_EVERY"
+    --state-dir "$STATE_DIR" --checkpoint-every "$CHECKPOINT_EVERY"
+    --log-dir "$LOG_DIR"
+  )
+  # `if` (not `[ … ] && …`): a trailing `&&` whose test is FALSE returns non-zero, which under
+  # `set -e` would make this function exit 1 and abort the launcher. `if` always returns 0 here.
+  if [ -n "$SPEED_REF" ]; then TRAIN_ARGV+=(--speed-ref "$SPEED_REF"); fi
+  if [ "${FROM_SCRATCH:-0}" = "1" ]; then TRAIN_ARGV+=(--from-scratch); fi
+}
+
 run_once() {
-  local extra=()
-  [ "${FROM_SCRATCH:-0}" = "1" ] && extra+=(--from-scratch)
-  ( cd "$ML_DIR" && python -m dicewars_ppo.train \
-      --checkpoint "$CHECKPOINT" \
-      --out "$OUT" \
-      --timesteps "$TIMESTEPS" \
-      --n-envs "$N_ENVS" \
-      --start-method forkserver \
-      --lr "$LR" --ent-coef "$ENT_COEF" --gamma "$GAMMA" \
-      --device "$DEVICE" \
-      --snapshot-dir "$SNAPSHOT_DIR" --snapshot-every "$SNAPSHOT_EVERY" \
-      --snapshot-store disk \
-      --reserve-baselines "$RESERVE_BASELINES" \
-      --league-state-dir "$LEAGUE_STATE_DIR" --league-dump-every "$LEAGUE_DUMP_EVERY" \
-      --state-dir "$STATE_DIR" --checkpoint-every "$CHECKPOINT_EVERY" \
-      --log-dir "$LOG_DIR" \
-      "${extra[@]}" )
+  build_train_argv
+  ( cd "$ML_DIR" && python -m dicewars_ppo.train "${TRAIN_ARGV[@]}" )
 }
 
 main() {
   preflight
-  log "run=$RUN_NAME root=$RUN_ROOT timesteps=$TIMESTEPS n_envs=$N_ENVS device=$DEVICE lr=$LR \
-ent_coef=$ENT_COEF R=$RESERVE_BASELINES from_scratch=${FROM_SCRATCH:-0}"
+  log "run=$RUN_NAME root=$RUN_ROOT persona=${PERSONA:-none} reward_mode=$REWARD_MODE gamma=$GAMMA \
+speed_bonus=$TERMINAL_SPEED_BONUS speed_ref=${SPEED_REF:-none} checkpoint=$CHECKPOINT \
+timesteps=$TIMESTEPS n_envs=$N_ENVS device=$DEVICE lr=$LR ent_coef=$ENT_COEF \
+R=$RESERVE_BASELINES from_scratch=${FROM_SCRATCH:-0}"
 
   local fails=0 prev_step=-1 attempt=0
   while true; do

@@ -230,3 +230,94 @@ not want it to relaunch at next logon/boot).
 2. Update `docs/ml-bot/RESULTS.md` (win% table + the Lookahead pin) and `LOG.md`.
 3. Deferred test-hardening (env-server `main()` persistence integration test, live cross-worker
    `SharedDiskStore`, live forkserver two-half resume smoke) is **PR-7**, not part of this run.
+
+---
+
+## 8. Reward-persona batch (bite F) — the concurrent persona runs
+
+The headline BEAT run is done. This launches the **reward-persona roster**
+([docs/ml-bot/PERSONAS.md](../../docs/ml-bot/PERSONAS.md)): several PPO bots that share the BEAT
+policy as their starting point but specialize toward distinct play-styles via the reward objective.
+**Prerequisite:** `ml/runs/ppo-long/ppo.pt` (the BEAT actor) must exist on this box — each persona
+warm-starts from it (PERSONAS §8 step 3). Preflight HALTs if it is missing.
+
+The launcher's `PERSONA` knob is the whole mechanism: it sets the reward objective + a default
+`RUN_NAME` + warm-starts from `runs/ppo-long/ppo.pt`. **Everything else (TIMESTEPS / LR / N_ENVS / R)
+is shared — set it once for the batch** so the Conqueror control is matched on every axis but the
+reward (PERSONAS §3: vary reward XOR field, never both). The three flag-only personas:
+
+| `PERSONA`   | Reward objective                         | Run name        |
+| ----------- | ---------------------------------------- | --------------- |
+| `conqueror` | `win`, γ=0.999 — **the matched control** | `ppo-conqueror` |
+| `blitz`     | `win`, **γ=0.99** (tempo lever, §5)      | `ppo-blitz`     |
+| `survivor`  | **`placement`**, γ=0.999                 | `ppo-survivor`  |
+
+These are **specialization** runs from an already-strong policy, so the budget is far smaller than the
+20M from-scratch/BC run — start at **`TIMESTEPS=3000000`** (≈ a few hours each; calibrate from the
+first run's TensorBoard). Consider a **lower `LR`** than the BEAT `2.5e-4` so the reward shaping nudges
+rather than wrecks the warm start. (Expansionist/Predator need the per-frame territory/elim wire scalar
+— "bite G" — and are not in this batch.)
+
+### 8a. Launch concurrently (the simple path — one WSL session)
+
+The box is idle and the runs are latency-bound, so 3 concurrent runs cost ≈ the time of one
+(PERSONAS §1). For a same-day batch, background all three in one WSL session:
+
+```bash
+cd <repo> && source ml/.venv/bin/activate
+for P in conqueror blitz survivor; do
+  PERSONA=$P TIMESTEPS=3000000 LR=1e-4 nohup bash scripts/shodan/ppo-train.sh \
+      > ml/runs/ppo-$P.boot.log 2>&1 &
+done
+jobs -l   # 3 PIDs; each persona has its OWN runs/<name>/ tree (state/league/tb) — no collision
+```
+
+Each run is fully isolated: dirs are keyed on `RUN_NAME`, and every Node env-server binds an
+**OS-assigned ephemeral port** (`--port=0`), so nothing is shared but the read-only BEAT actor and the
+GPU. Monitor each at `ml/runs/<name>/launcher.log` + `ml/runs/<name>/tb/` (§6).
+
+### 8b. Launch via Task Scheduler (reboot-surviving — for longer runs)
+
+`ppo-train.cmd` forwards `PERSONA` (+ the per-run knobs) into WSL via `WSLENV`, so each var only has to
+be present in the **Windows process environment** when the task runs. But Task Scheduler's `<Exec>`
+action has no env-var field and `ppo-train.cmd` takes no arguments, and a single _global_ Windows
+`PERSONA` var can't differentiate three concurrent persona tasks — so set it **per task** one of two
+ways (clone `ppo-train-task.xml` per persona, each with a distinct `<URI>`/name):
+
+- **Wrapper command (no extra file):** point the task action at
+  `cmd.exe /c "set PERSONA=blitz&& set TIMESTEPS=3000000&& set LR=1e-4&& scripts\shodan\ppo-train.cmd"`
+  (the `set`s populate the process env that `WSLENV` then forwards).
+- **Per-persona .cmd copy:** copy `ppo-train.cmd` → `ppo-train-blitz.cmd` with `set PERSONA=blitz` (and
+  any per-run knobs) near the top, and point that persona's task at the copy.
+
+The auto-restart / HALT semantics (§6) apply per persona, independently.
+
+### 8c. Gate + profile each persona
+
+Each persona gets **two** measurements — strength **and** style:
+
+```bash
+# Export each persona's actor to the `.weights.js` / sibling `.fixture.json` convention. This naming
+# is LOAD-BEARING for step 2: behavior:profile has NO --fixture flag — it derives the parity fixture
+# from the weights path via siblingFixturePath (`*.weights.js` → `*.fixture.json`, same dir). Run from
+# ml/ (cd ml && source .venv/bin/activate); repeat for ppo-conqueror (the control) and ppo-survivor.
+python -m dicewars_bc.export_weights --ckpt runs/ppo-blitz/ppo.pt \
+    --out runs/ppo-blitz/blitz.weights.js --fixture runs/ppo-blitz/blitz.fixture.json
+
+# 1. Strength (does it still beat Lookahead, or how much win% did the persona cost?) — §5 gate.
+#    ppo:gate DOES take an explicit --fixture (unlike behavior:profile):
+cd .. && npm run ppo:gate -- --weights ml/runs/ppo-blitz/blitz.weights.js \
+    --fixture ml/runs/ppo-blitz/blitz.fixture.json --name Blitz
+
+# 2. Style (did a DISTINCT personality emerge?) — the behavioral-eval harness gates the persona's
+#    pre-registered signature. The bot's display NAME must match the PERSONA_SIGNATURES key (Blitz);
+#    the fixture is found as the weights file's `.fixture.json` sibling automatically.
+npm run behavior:profile -- --bots Blitz=ml/runs/ppo-blitz/blitz.weights.js \
+    --control Conqueror=ml/runs/ppo-conqueror/conqueror.weights.js \
+    --mde aggression:1.5,turnsToWin:8   # calibrate the MDEs from the pilot; see EVAL_HARNESS.md
+```
+
+Personas are **not** gated on beating Lookahead — a Blitz that trades win% for tempo is the
+deliverable (PERSONAS §9). Record each persona's win% **and** behavioral signature in
+`docs/ml-bot/RESULTS.md`. Ship the fun ones as in-game bots (a weights file + a thin `ai_<persona>.js`
+alias + an `aiConfig`/`builtInBots` entry — the `ai_ppo` wiring from PR #74 generalizes).

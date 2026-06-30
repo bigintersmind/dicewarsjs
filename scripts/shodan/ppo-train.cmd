@@ -22,6 +22,16 @@ if "%WSL_DISTRO%"==""    set "WSL_DISTRO=Ubuntu"
 if "%REPO_WSL_PATH%"=="" set "REPO_WSL_PATH=/home/%USERNAME%/dicewarsjs"
 if "%VENV_ACTIVATE%"=="" set "VENV_ACTIVATE=ml/.venv/bin/activate"
 
+REM Forward selected launcher knobs INTO WSL so a per-persona scheduled task can set them as Windows
+REM environment variables (e.g. PERSONA=blitz, TIMESTEPS=3000000) without editing this file — that is
+REM how the reward-persona batch (RUNBOOK "persona") runs each persona as its own schtask off this one
+REM bridge. `/u` is the Win32->WSL DIRECTION flag (forward this var only when invoking WSL from
+REM Windows); an UNSET Windows var simply doesn't appear in WSL (the launcher then uses its own
+REM default), so this stays byte-identical to the BEAT run when none are set. The list covers every
+REM per-run knob the RUNBOOK "persona" batch describes as shared (incl. N_ENVS / RESERVE_BASELINES).
+REM Append to any existing WSLENV rather than clobbering it.
+if "%WSLENV%"=="" (set "WSLENV=PERSONA/u:CHECKPOINT/u:TIMESTEPS/u:LR/u:ENT_COEF/u:GAMMA/u:RUN_NAME/u:REWARD_MODE/u:TERMINAL_SPEED_BONUS/u:SPEED_REF/u:N_ENVS/u:RESERVE_BASELINES/u") else (set "WSLENV=%WSLENV%:PERSONA/u:CHECKPOINT/u:TIMESTEPS/u:LR/u:ENT_COEF/u:GAMMA/u:RUN_NAME/u:REWARD_MODE/u:TERMINAL_SPEED_BONUS/u:SPEED_REF/u:N_ENVS/u:RESERVE_BASELINES/u")
+
 REM -l = login shell so a conda/venv init in the user's profile is honored; then activate the [rl]
 REM venv explicitly (the launcher's preflight HALTS loudly if torch/sb3 are still missing).
 REM `cd ... || exit 1` so a misconfigured REPO_WSL_PATH fails with a clear error instead of running

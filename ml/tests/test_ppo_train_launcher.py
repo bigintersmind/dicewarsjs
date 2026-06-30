@@ -317,7 +317,18 @@ def test_unknown_persona_exits_nonzero(tmp_path):
     assert "unreached" not in out
 
 
-def test_speed_ref_forwarded_only_when_bonus_set(tmp_path):
+def test_speed_ref_forwarded_iff_speed_ref_set(tmp_path):
+    # The launcher gates `--speed-ref` on `[ -n "$SPEED_REF" ]` — i.e. on SPEED_REF being non-empty,
+    # NOT on the bonus. Pin both that coupling and the footgun: SPEED_REF set with the bonus still 0
+    # STILL forwards `--speed-ref` (train.py then rejects bonus==0 + a ref, fail-loud — RUNBOOK §8).
+    # The absent-when-unset direction is covered by the byte-identical test's whole-flag-set assert
+    # (no --speed-ref there).
+    rc, out = _resolve(tmp_path, {"PERSONA": "blitz", "SPEED_REF": "120"})  # bonus left at 0
+    assert rc == 0
+    argv = _argv_pairs(out)
+    assert argv["--terminal-speed-bonus"] == "0"  # bonus untouched...
+    assert argv["--speed-ref"] == "120"  # ...yet --speed-ref forwarded purely because SPEED_REF set
+
     rc, out = _resolve(
         tmp_path, {"PERSONA": "blitz", "TERMINAL_SPEED_BONUS": "0.5", "SPEED_REF": "120"}
     )
@@ -337,8 +348,16 @@ def test_from_scratch_still_appends_flag_after_refactor(tmp_path):
 
 @pytest.mark.skipif(not CMD.is_file(), reason="needs ppo-train.cmd")
 def test_cmd_forwards_persona_into_wsl():
-    """The Windows→WSL bridge must export PERSONA (and the per-run knobs) into WSL via WSLENV so a
-    per-persona scheduled task can set them as Windows env vars without editing the .cmd."""
+    """The Windows→WSL bridge must export PERSONA AND every per-run knob into WSL via WSLENV so a
+    per-persona scheduled task can set them as Windows env vars without editing it. Assert each
+    `*/u` token (not just PERSONA): dropping e.g. REWARD_MODE/u or SPEED_REF/u would silently strand
+    the matching `:=`-override path (test_explicit_env_overrides_persona_preset) at the Windows→WSL
+    boundary with nothing to catch it."""
     cmd_text = CMD.read_text()
     assert "WSLENV" in cmd_text
-    assert re.search(r"PERSONA/u", cmd_text), "ppo-train.cmd must forward PERSONA into WSL (WSLENV)"
+    # Every launcher env var a scheduled task may set per-persona (RUNBOOK "persona" batch knobs).
+    for var in (
+        "PERSONA", "CHECKPOINT", "TIMESTEPS", "LR", "ENT_COEF", "GAMMA", "RUN_NAME",
+        "REWARD_MODE", "TERMINAL_SPEED_BONUS", "SPEED_REF", "N_ENVS", "RESERVE_BASELINES",
+    ):
+        assert re.search(rf"{var}/u", cmd_text), f"ppo-train.cmd must forward {var} via WSLENV"

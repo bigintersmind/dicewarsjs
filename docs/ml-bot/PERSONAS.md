@@ -172,11 +172,14 @@ can't be a win), so this only disciplines the placement path. Survivor still get
 signal from the decisive majority of games that end in a genuine `GAME_OVER`.
 
 **Warm-start critic note (corrected by the bite-F grounding).** The PPO critic is **always a fresh
-scalar `value_net`** — `MaskableEdgePolicy._build` constructs it at random init, separate from the
-BC value head, and the repacked actor (`repack_to_bc_checkpoint` → `bc_net.state_dict()`) carries
-**only** the trunk + per-edge head, never a critic. So a warm-start (BC _or_ `ppo-long`) never
-inherits a trained value function — the critic starts uncalibrated for **every** persona, Conqueror
-included (this is unchanged from how `ppo-long` itself trained). For Survivor the practical wrinkle is
+scalar `value_net`** — `MaskableEdgePolicy._build` constructs it at random init and
+`warm_start_from_bc` intentionally leaves it there, separate from the BC value head. The repacked
+actor (`repack_to_bc_checkpoint` → `bc_net.state_dict()`) carries the trunk, the per-edge head, **and
+the BC value head** (the `EdgePolicyNet`'s own `[won, placement]` head, which loads but PPO never
+trains or reads — no loss references it) — but it carries **no PPO critic**. So a warm-start (BC _or_
+`ppo-long`) never inherits a trained value function: the surviving BC value head is inert under PPO,
+and the PPO `value_net` starts uncalibrated for **every** persona, Conqueror included (this is
+unchanged from how `ppo-long` itself trained). For Survivor the practical wrinkle is
 just that `placement` is a denser target (mean ≈0.5 vs win's ~0.25 for 4p), so the fresh critic has
 more to fit early; PPO's per-batch advantage normalization absorbs most of it, but expect a noisier
 first stretch, and a short value-head warmup or a higher initial `value-coef` may speed convergence.

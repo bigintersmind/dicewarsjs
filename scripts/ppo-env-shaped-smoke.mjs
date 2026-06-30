@@ -11,8 +11,11 @@
  *
  * Drives an ATTACKING learner (first legal attack, else STOP) so the learner's owned-territory count
  * actually moves — a non-trivial dense signal. Asserts, against the live shaped wire:
- *   - every frame carries the shaped header tail (parses with `{ shaped: true }`; `shaped === true`,
- *     `deltaTerritory` finite, `elimsByLearner >= 0`) — i.e. `main()` actually threads the tail;
+ *   - the +8-byte shaped tail is genuinely on the wire: a BASE (unshaped) parse of the first frame
+ *     trips the frame-length guard (an unshaped frame is 8 bytes short), and the `{ shaped: true }`
+ *     parse then yields finite `deltaTerritory` / `elimsByLearner >= 0` — i.e. `main()` threads the
+ *     tail. (`parseObsFrame` echoes its `shaped` option verbatim, so checking `shaped === true` on
+ *     the shaped parse would be tautological; the length guard is the real proof.)
  *   - the FIRST decision frame of EVERY episode reports `deltaTerritory === 0` — the per-episode
  *     `shapedEmission.reset()` in the loop genuinely fires (a dropped reset leaks the prior episode's
  *     territory baseline into the next, so this would be non-zero); and
@@ -85,6 +88,9 @@ async function main() {
   let observations = 0;
   let terminals = 0;
   let sawNonZeroDelta = false;
+  // Proven once, on the first frame: a base (unshaped) parse must trip the length guard, i.e. the
+  // +8-byte shaped tail is genuinely present (not just trusted from the `{ shaped: true }` parse).
+  let verifiedTailPresent = false;
   // The next obs frame begins a fresh episode → its dense baseline must be 0 (reset() fired).
   let expectEpisodeStart = true;
   let disconnected = false;
@@ -94,7 +100,6 @@ async function main() {
       fail(`encodingVersion ${frame.encodingVersion} != ${ENCODING_VERSION}`);
     }
     if (frame.numEdges < 1) fail(`numEdges ${frame.numEdges} < 1 (STOP must exist)`);
-    if (frame.shaped !== true) fail('frame is missing the shaped header tail (shaped !== true)');
     if (!Number.isFinite(frame.deltaTerritory)) {
       fail(`deltaTerritory ${frame.deltaTerritory} not finite — botState.territories read broke?`);
     }
@@ -111,6 +116,24 @@ async function main() {
       if (inbound.length < 4 + len) return;
       const frameBytes = inbound.subarray(4, 4 + len);
       inbound = inbound.subarray(4 + len);
+
+      // Prove the +8-byte shaped tail is genuinely on the wire (not merely trusted): the FIRST frame,
+      // parsed as a BASE (unshaped) frame, must trip the length guard — a shaped frame is 8 bytes
+      // longer than the unshaped expected length, so a base parse computes the wrong size and throws.
+      if (!verifiedTailPresent) {
+        let guarded = false;
+        try {
+          parseObsFrame(Buffer.from(frameBytes));
+        } catch (err) {
+          guarded = /bytes ≠ expected/.test(err.message);
+        }
+        if (!guarded) {
+          return fail(
+            'shaped tail missing — a base (unshaped) parse did not trip the length guard'
+          );
+        }
+        verifiedTailPresent = true;
+      }
 
       let frame;
       try {

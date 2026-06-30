@@ -143,12 +143,40 @@ def build_parser() -> argparse.ArgumentParser:
         "50000 (the same default as --snapshot-every, but NOT dynamically coupled to it — set this "
         "explicitly if you change --snapshot-every and want checkpoints to follow).",
     )
+    # Reward shaping for the persona roster ([D-bite], docs/ml-bot/PERSONAS.md). All wire-free and
+    # default to the [D-19] sparse terminal-win, so an omitted flag is byte-identical to today.
+    p.add_argument(
+        "--reward-mode",
+        choices=("win", "placement"),
+        default="win",
+        help="Terminal reward objective: 'win' = sparse terminal-win ([D-19] default, Conqueror); "
+        "'placement' = scaled finishing rank in [0,1] (Survivor). Reads wire fields already "
+        "present — no ENCODING_VERSION bump.",
+    )
+    p.add_argument(
+        "--terminal-speed-bonus",
+        type=float,
+        default=0.0,
+        help="Blitz's optional secondary lever: scale a WIN by how fast it came — "
+        "reward *= 1 + b*clip(1 - turns/speed_ref, 0, 1). Default 0 = off (byte-identical). "
+        "Multiplicative + win-gated (a per-step time penalty would let the bot throw games). Lower "
+        "--gamma FIRST; add this only if that isn't punchy enough.",
+    )
+    p.add_argument(
+        "--speed-ref",
+        type=int,
+        default=None,
+        help="Turn-count reference T_ref (player-turns) for --terminal-speed-bonus; REQUIRED when "
+        "that is > 0. A win at turns >= T_ref earns no speed bonus; calibrate from the Conqueror "
+        "control's mean turns-to-win.",
+    )
     return p
 
 
 def _validate(args: argparse.Namespace) -> None:
     _train_common._validate_args(args)
     _train_common.resolve_from_scratch(args)
+    _train_common.validate_reward_args(args)
     if args.checkpoint_every <= 0:
         raise SystemExit(f"--checkpoint-every must be > 0 (got {args.checkpoint_every}).")
     if args.freeze_trunk and args.state_dir is not None:
@@ -367,9 +395,7 @@ def train(args: argparse.Namespace) -> Path:
         else:
             # Fresh run: reset_num_timesteps defaults True ⇒ num_timesteps starts at 0 and
             # --timesteps is the absolute budget.
-            model.learn(
-                total_timesteps=args.timesteps, progress_bar=False, callback=learn_callback
-            )
+            model.learn(total_timesteps=args.timesteps, progress_bar=False, callback=learn_callback)
     finally:
         # Always reap the env workers (each owns a Node child) even on error/HALT. Guard the close:
         # when learn() raised because a SubprocVecEnv worker already died (the common failure here),

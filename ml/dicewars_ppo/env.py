@@ -18,9 +18,13 @@ chosen index is sent verbatim to the server, which decodes it against its own
 ``board`` ``[5]``, ``edge_feat`` ``[MAX_EDGES, 7]``, ``edge_from``/``edge_to``
 ``[MAX_EDGES]`` (territory ids, pad → 0), ``edge_mask`` ``[MAX_EDGES]`` (1 legal).
 
-**Reward** — sparse terminal-win only ([D-19] decision 3): ``+1`` if the learner
-won, else ``0``; ``0`` on every non-terminal step. Potential-based shaping is a
-later step and is deliberately NOT here.
+**Reward** — sparse terminal-win by default ([D-19] decision 3): ``+1`` if the
+learner won, else ``0``; ``0`` on every non-terminal step. The persona roster
+(``docs/ml-bot/PERSONAS.md``) selects an alternate terminal objective via
+``reward_mode`` (``"placement"`` = Survivor) and/or a win-gated
+``terminal_speed_bonus`` (Blitz) — see :func:`terminal_reward`. All such modes
+read wire fields already present, so they are wire-contract-free (no
+``ENCODING_VERSION`` bump); the defaults are byte-identical to the sparse win.
 
 **Episode model.** The server streams episodes back-to-back over one connection:
 a run of obs frames (``terminal == 0``), each answered with an action, then one
@@ -50,6 +54,47 @@ from .constants import (
 from .env_server import EnvServerProcess
 from .wire import ObsFrame, expected_frame_bytes, recv_frame, send_action
 
+REWARD_MODES = ("win", "placement")
+
+
+def terminal_reward(
+    *,
+    won: int,
+    placement: float,
+    turn_number: int,
+    reward_mode: str = "win",
+    speed_bonus: float = 0.0,
+    speed_ref: int | None = None,
+) -> float:
+    """The terminal-frame reward from already-validated wire fields (pure → lean-testable).
+
+    Every input (``won``/``placement``/``turn_number``) is already on the obs-frame wire today,
+    so all of these modes are **wire-contract-free** — no ``ENCODING_VERSION`` bump. The persona
+    roster (``docs/ml-bot/PERSONAS.md``) uses this to specialize play-style without touching the
+    encoder.
+
+    Modes:
+      - ``"win"`` — sparse terminal-win (``+1`` win else ``0``), the [D-19] default (Conqueror).
+      - ``"placement"`` — the scaled finishing rank in ``[0, 1]`` (1=first … 0=last) — the
+        Survivor objective (the "ELO trap" [D-19] avoided for the gate bot, repurposed here).
+
+    Optional bounded terminal SPEED bonus (Blitz's secondary lever; lower ``--gamma`` first)::
+
+        reward *= 1 + speed_bonus * clip(1 - turn_number / speed_ref, 0, 1)
+
+    It is **multiplicative and win-gated**: a faster WIN is worth strictly more, while a loss is
+    untouched. An additive per-step time PENALTY would instead let the bot throw games just to
+    end them sooner — exactly why [D-19] keeps the base reward sparse and lets time only scale a
+    win. ``speed_ref`` must be a positive turn count when ``speed_bonus > 0`` (callers validate).
+    """
+    base = float(placement) if reward_mode == "placement" else float(won)
+    if speed_bonus > 0.0 and won:
+        # speed_ref is guaranteed positive when speed_bonus > 0 (validated at construction).
+        frac = 1.0 - (turn_number / speed_ref)
+        frac = min(1.0, max(0.0, frac))  # clip to [0, 1]: no bonus once turn_number >= speed_ref
+        base *= 1.0 + speed_bonus * frac
+    return base
+
 
 class DiceWarsEnv(gym.Env):
     """Single-agent masked env wrapping one Node self-play env-server."""
@@ -70,6 +115,11 @@ class DiceWarsEnv(gym.Env):
         server_kwargs: dict[str, Any] | None = None,
         connect_timeout_s: float = 30.0,
         read_timeout_s: float = 180.0,
+        # Reward shaping (persona roster, docs/ml-bot/PERSONAS.md). All wire-free (see
+        # terminal_reward); the defaults reproduce the [D-19] sparse terminal-win exactly.
+        reward_mode: str = "win",
+        terminal_speed_bonus: float = 0.0,
+        speed_ref: int | None = None,
     ) -> None:
         super().__init__()
         self.max_areas = max_areas
@@ -81,6 +131,18 @@ class DiceWarsEnv(gym.Env):
         self._server_kwargs = dict(server_kwargs or {})
         self._connect_timeout_s = connect_timeout_s
         self._read_timeout_s = read_timeout_s
+
+        if reward_mode not in REWARD_MODES:
+            raise ValueError(f"reward_mode must be one of {REWARD_MODES}, got {reward_mode!r}")
+        if terminal_speed_bonus < 0.0:
+            raise ValueError(f"terminal_speed_bonus must be >= 0 (got {terminal_speed_bonus})")
+        if terminal_speed_bonus > 0.0 and not (speed_ref is not None and speed_ref > 0):
+            raise ValueError(
+                f"speed_ref must be a positive int when terminal_speed_bonus > 0 (got {speed_ref})"
+            )
+        self._reward_mode = reward_mode
+        self._speed_bonus = float(terminal_speed_bonus)
+        self._speed_ref = speed_ref
 
         if not managed and (host is None or port is None):
             raise ValueError("managed=False requires explicit host and port.")
@@ -162,9 +224,7 @@ class DiceWarsEnv(gym.Env):
         self._awaiting_reset = False
         return self._frame_to_obs(frame), self._info(frame)
 
-    def step(
-        self, action: int
-    ) -> tuple[dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:
+    def step(self, action: int) -> tuple[dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:
         if self._awaiting_reset:
             raise RuntimeError("step() called before reset() (or after a terminal step).")
         action = int(action)
@@ -202,7 +262,14 @@ class DiceWarsEnv(gym.Env):
                     f"truncated={frame.truncated}) — a maxTurns stalemate cap cannot be a win; "
                     "summarizeOutcome regression or wire corruption?"
                 )
-            reward = float(frame.won)
+            reward = terminal_reward(
+                won=frame.won,
+                placement=frame.placement,
+                turn_number=frame.turn_number,
+                reward_mode=self._reward_mode,
+                speed_bonus=self._speed_bonus,
+                speed_ref=self._speed_ref,
+            )
             # A maxTurns stalemate cap is a Gym TRUNCATION, not a real terminal: the game did
             # not actually end, so SB3 must bootstrap V(s) here (it keys off `truncated` via the
             # gym→VecEnv shim's `TimeLimit.truncated` info). A win or the learner's elimination is

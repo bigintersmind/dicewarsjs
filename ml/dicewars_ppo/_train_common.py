@@ -77,10 +77,22 @@ def _make_env_thunk(cfg: ModelConfig, args: argparse.Namespace, env_index: int):
         str(Path(args.snapshot_dir) / "manifest.json") if args.snapshot_dir else None
     )
 
+    # Reward shaping (persona roster, [D-bite]). train.py-only flags read via getattr so the tracer
+    # (whose parser lacks them) stays byte-identical: an absent flag yields the [D-19] sparse-win
+    # defaults. All three are primitives (str/float/int|None) so the torch-free thunk stays
+    # primitive-only, and they are env-construction kwargs (reward is computed Python-side in
+    # env.step()), so NOTHING reaches the Node server_kwargs and the wire is untouched.
+    reward_mode = getattr(args, "reward_mode", "win")
+    terminal_speed_bonus = getattr(args, "terminal_speed_bonus", 0.0)
+    speed_ref = getattr(args, "speed_ref", None)
+
     def _thunk() -> DiceWarsEnv:
         return DiceWarsEnv(
             max_areas=max_areas,
             player_count=player_count,
+            reward_mode=reward_mode,
+            terminal_speed_bonus=terminal_speed_bonus,
+            speed_ref=speed_ref,
             server_kwargs={
                 "opponents": args.opponents,
                 "max_turns": args.max_turns,
@@ -338,6 +350,26 @@ def resolve_from_scratch(args: argparse.Namespace) -> None:
         args.lr = 1e-3 if from_scratch else 1e-4
     if getattr(args, "ent_coef", None) is None:
         args.ent_coef = 0.01 if from_scratch else 0.0
+
+
+def validate_reward_args(args: argparse.Namespace) -> None:
+    """Validate the persona reward-shaping flags ([D-bite]) at launch (torch-free → lean-testable).
+
+    train.py-only flags, read via ``getattr`` so this is a safe no-op for any caller (the tracer)
+    that lacks them. Front-runs the env's own ``ValueError`` (raised when ``DiceWarsEnv`` is built
+    inside a ``SubprocVecEnv`` worker) so a misconfig fails HERE with a clear ``SystemExit`` at
+    launch — before any worker/Node server spawns — mirroring how ``_validate_args`` front-runs the
+    Node league guards. ``--reward-mode`` itself is constrained by argparse ``choices``.
+    """
+    speed_bonus = getattr(args, "terminal_speed_bonus", 0.0)
+    speed_ref = getattr(args, "speed_ref", None)
+    if speed_bonus < 0:
+        raise SystemExit(f"--terminal-speed-bonus must be >= 0 (got {speed_bonus}).")
+    if speed_bonus > 0 and not (speed_ref is not None and speed_ref > 0):
+        raise SystemExit(
+            "--speed-ref must be a positive integer when --terminal-speed-bonus > 0 "
+            f"(got {speed_ref})."
+        )
 
 
 def _remaining_timesteps(total: int, num_timesteps: int) -> int:

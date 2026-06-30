@@ -49,6 +49,35 @@ def test_parser_adds_from_scratch_and_sentinels(tmp_path):
     assert a.checkpoint_every == 50_000
 
 
+def test_parser_reward_mode_defaults_and_parse(tmp_path):
+    # Reward shaping ([D-bite]) defaults to the [D-19] sparse win (byte-identical to before).
+    a = _args(tmp_path)
+    assert a.reward_mode == "win"
+    assert a.terminal_speed_bonus == 0.0
+    assert a.speed_ref is None
+    # A persona run sets the alternate objective + Blitz's optional speed bonus.
+    b = _args(
+        tmp_path,
+        extra=["--reward-mode", "placement", "--terminal-speed-bonus", "0.5", "--speed-ref", "200"],
+    )
+    assert b.reward_mode == "placement"
+    assert b.terminal_speed_bonus == 0.5
+    assert b.speed_ref == 200
+
+
+def test_validate_rejects_speed_bonus_without_ref(tmp_path):
+    a = _args(tmp_path, extra=["--terminal-speed-bonus", "0.5"])
+    with pytest.raises(SystemExit, match="speed-ref"):
+        tr._validate(a)
+
+
+def test_validate_accepts_speed_bonus_with_ref(tmp_path):
+    a = _args(tmp_path, extra=["--terminal-speed-bonus", "0.5", "--speed-ref", "200"])
+    tr._validate(a)  # no raise
+    assert a.terminal_speed_bonus == 0.5
+    assert a.speed_ref == 200
+
+
 def test_validate_rejects_from_scratch_with_freeze_trunk(tmp_path):
     a = _args(tmp_path, extra=["--from-scratch", "--freeze-trunk"])
     with pytest.raises(SystemExit, match="mutually exclusive"):
@@ -378,9 +407,12 @@ def test_resume_passes_remaining_and_skips_build_model(tmp_path, monkeypatch):
     a = _args(
         tmp_path,
         extra=[
-            "--state-dir", str(tmp_path / "state"),
-            "--timesteps", "1000",
-            "--out", str(tmp_path / "o.pt"),
+            "--state-dir",
+            str(tmp_path / "state"),
+            "--timesteps",
+            "1000",
+            "--out",
+            str(tmp_path / "o.pt"),
         ],
     )
     tr._validate(a)
@@ -414,9 +446,12 @@ def test_resume_zero_remaining_skips_learn_but_exports(tmp_path, monkeypatch):
     a = _args(
         tmp_path,
         extra=[
-            "--state-dir", str(tmp_path / "state"),
-            "--timesteps", "1000",
-            "--out", str(tmp_path / "o.pt"),
+            "--state-dir",
+            str(tmp_path / "state"),
+            "--timesteps",
+            "1000",
+            "--out",
+            str(tmp_path / "o.pt"),
         ],
     )
     tr._validate(a)
@@ -451,9 +486,12 @@ def test_fresh_run_when_state_dir_empty(tmp_path, monkeypatch):
     a = _args(
         tmp_path,
         extra=[
-            "--state-dir", str(tmp_path / "fresh-state"),
-            "--timesteps", "2048",
-            "--out", str(tmp_path / "o.pt"),
+            "--state-dir",
+            str(tmp_path / "fresh-state"),
+            "--timesteps",
+            "2048",
+            "--out",
+            str(tmp_path / "o.pt"),
         ],
     )
     tr._validate(a)  # state_dir is empty (no latest.json) ⇒ classify_latest_pointer reads ABSENT
@@ -473,9 +511,7 @@ def test_freeze_trunk_plus_state_dir_rejected_eagerly(tmp_path):
 
 @pytest.mark.parametrize("bad", ["0", "-1"])
 def test_validate_rejects_nonpositive_checkpoint_every(tmp_path, bad):
-    a = _args(
-        tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--checkpoint-every", bad]
-    )
+    a = _args(tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--checkpoint-every", bad])
     with pytest.raises(SystemExit, match="checkpoint-every"):
         tr._validate(a)
 
@@ -572,9 +608,12 @@ def test_both_callbacks_wrapped_in_callbacklist(tmp_path, monkeypatch):
     a = _args(
         tmp_path,
         extra=[
-            "--state-dir", str(tmp_path / "fresh-state"),
-            "--snapshot-dir", str(tmp_path / "league"),
-            "--out", str(tmp_path / "o.pt"),
+            "--state-dir",
+            str(tmp_path / "fresh-state"),
+            "--snapshot-dir",
+            str(tmp_path / "league"),
+            "--out",
+            str(tmp_path / "o.pt"),
         ],
     )
     tr._validate(a)

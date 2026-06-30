@@ -62,21 +62,30 @@ def terminal_reward(
     won: int,
     placement: float,
     turn_number: int,
+    truncated: int = 0,
     reward_mode: str = "win",
     speed_bonus: float = 0.0,
     speed_ref: int | None = None,
 ) -> float:
     """The terminal-frame reward from already-validated wire fields (pure → lean-testable).
 
-    Every input (``won``/``placement``/``turn_number``) is already on the obs-frame wire today,
-    so all of these modes are **wire-contract-free** — no ``ENCODING_VERSION`` bump. The persona
-    roster (``docs/ml-bot/PERSONAS.md``) uses this to specialize play-style without touching the
-    encoder.
+    Every input (``won``/``placement``/``turn_number``/``truncated``) is already on the obs-frame
+    wire today, so all of these modes are **wire-contract-free** — no ``ENCODING_VERSION`` bump.
+    The persona roster (``docs/ml-bot/PERSONAS.md``) uses this to specialize play-style without
+    touching the encoder.
 
     Modes:
       - ``"win"`` — sparse terminal-win (``+1`` win else ``0``), the [D-19] default (Conqueror).
       - ``"placement"`` — the scaled finishing rank in ``[0, 1]`` (1=first … 0=last) — the
         Survivor objective (the "ELO trap" [D-19] avoided for the gate bot, repurposed here).
+
+    A ``maxTurns`` stalemate cap (``truncated``) pays **0 in every mode**. The cap is an artificial
+    Gym truncation, not a realized outcome, so ``step()`` bootstraps ``V(s)`` there (it returns
+    ``truncated=True``). Paying a non-zero terminal reward too — the rank-at-cap that ``placement``
+    mode would otherwise yield — AND bootstrapping would *double-count* the outcome (the value head
+    already estimates the eventual placement) and bias the Survivor toward stalling to the cap.
+    ``win`` mode is 0 here regardless (a cap can't be a win, enforced upstream by ``step()``), so
+    the early return only changes the ``placement`` path; it keeps truncation handling uniform.
 
     Optional bounded terminal SPEED bonus (Blitz's secondary lever; lower ``--gamma`` first)::
 
@@ -87,9 +96,14 @@ def terminal_reward(
     end them sooner — exactly why [D-19] keeps the base reward sparse and lets time only scale a
     win. ``speed_ref`` must be a positive turn count when ``speed_bonus > 0`` (callers validate).
     """
+    if truncated:
+        # Artificial cap → no realized outcome; step() bootstraps V(s). A non-zero payout here
+        # would double-count placement and reward stalling to the cap (see docstring).
+        return 0.0
     base = float(placement) if reward_mode == "placement" else float(won)
     if speed_bonus > 0.0 and won:
-        # speed_ref is guaranteed positive when speed_bonus > 0 (validated at construction).
+        # speed_ref is positive when speed_bonus > 0 — callers validate (DiceWarsEnv.__init__ /
+        # validate_reward_args); a direct call that breaks this raises TypeError/ZeroDivisionError.
         frac = 1.0 - (turn_number / speed_ref)
         frac = min(1.0, max(0.0, frac))  # clip to [0, 1]: no bonus once turn_number >= speed_ref
         base *= 1.0 + speed_bonus * frac
@@ -238,8 +252,9 @@ class DiceWarsEnv(gym.Env):
         frame = recv_frame(self._sock, self._max_frame_bytes)
 
         if frame.is_terminal:
-            # Sparse terminal-win reward ([D-19] decision 3). Validate the wire values
-            # so an encoder/server regression fails loud here instead of feeding a
+            # Terminal reward — sparse win by default ([D-19] decision 3); persona modes
+            # (placement / speed bonus) are selected via `terminal_reward`. Validate the wire
+            # values so an encoder/server regression fails loud here instead of feeding a
             # poisoned reward into the replay buffer.
             if frame.won not in (0, 1):
                 raise ValueError(
@@ -266,6 +281,7 @@ class DiceWarsEnv(gym.Env):
                 won=frame.won,
                 placement=frame.placement,
                 turn_number=frame.turn_number,
+                truncated=frame.truncated,
                 reward_mode=self._reward_mode,
                 speed_bonus=self._speed_bonus,
                 speed_ref=self._speed_ref,

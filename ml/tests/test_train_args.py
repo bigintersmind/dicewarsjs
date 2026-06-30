@@ -50,7 +50,7 @@ def test_parser_adds_from_scratch_and_sentinels(tmp_path):
 
 
 def test_parser_reward_mode_defaults_and_parse(tmp_path):
-    # Reward shaping ([D-bite]) defaults to the [D-19] sparse win (byte-identical to before).
+    # Reward shaping (bite D) defaults to the [D-19] sparse win (byte-identical to before).
     a = _args(tmp_path)
     assert a.reward_mode == "win"
     assert a.terminal_speed_bonus == 0.0
@@ -76,6 +76,18 @@ def test_validate_accepts_speed_bonus_with_ref(tmp_path):
     tr._validate(a)  # no raise
     assert a.terminal_speed_bonus == 0.5
     assert a.speed_ref == 200
+
+
+@pytest.mark.parametrize("missing", ["reward_mode", "terminal_speed_bonus", "speed_ref"])
+def test_validate_rejects_missing_reward_attr_drift_guard(tmp_path, missing):
+    # train.py OWNS the reward flags, and _make_env_thunk/validate_reward_args read them via getattr
+    # (to tolerate flag-less tracer/test namespaces). A future rename that decoupled a flag from its
+    # getattr key would SILENTLY train sparse-win; the drift guard turns that into a launch
+    # SystemExit. Simulate the drift by deleting the attr the parser produced.
+    a = _args(tmp_path)
+    delattr(a, missing)
+    with pytest.raises(SystemExit, match=missing):
+        tr._validate(a)
 
 
 def test_validate_rejects_from_scratch_with_freeze_trunk(tmp_path):

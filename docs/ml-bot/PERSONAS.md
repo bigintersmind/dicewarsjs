@@ -77,7 +77,7 @@ more terminal signal than the reward uses**:
 | `won` (1/0)                                 | ✅ (used)                            | —                                                                             |
 | `winner` (seat/-1)                          | ✅                                   | free                                                                          |
 | `placement` (1=1st…0=last, range-validated) | ✅                                   | **built** — `--reward-mode placement` (Survivor)                              |
-| `truncated` (stalemate cap)                 | ✅                                   | free                                                                          |
+| `truncated` (stalemate cap)                 | ✅ (used)                            | **built** — gates the terminal payout to 0 (bite D; avoids double-counting)   |
 | `turn_number` (terminal frame)              | ✅                                   | **built** — `--terminal-speed-bonus`/`--speed-ref` (Blitz)                    |
 | Δterritory / turn                           | ❌                                   | small: env-server emits a per-frame scalar → wire/header field + version bump |
 | elimination event                           | ❌ (derivable from placement deltas) | small, same as above                                                          |
@@ -152,13 +152,29 @@ optimizing rank rather than the win produces a bot that plays for 2nd/3rd instea
 **is the deliverable.** Now a one-flag run — `--reward-mode placement` (bite D); the `placement`
 signal was already on the wire, so it cost no wire change.
 
+**Truncation must pay 0 (a bite-D correctness point).** A `maxTurns` stalemate cap is a Gym
+_truncation_, not a realized terminal: `step()` returns `truncated=True` so SB3 **bootstraps**
+`V(s)`. `terminal_reward` therefore pays **0 on a truncation in every mode** — paying the non-zero
+rank-at-cap `placement` there too would _double-count_ the survival signal (reward **plus** a
+bootstrapped value that already estimates the eventual placement) and reward **stalling to the
+cap** — precisely the passivity failure §6 warns about. `win` mode is 0 on a cap regardless (a cap
+can't be a win), so this only disciplines the placement path. Survivor still gets a dense placement
+signal from the decisive majority of games that end in a genuine `GAME_OVER`.
+
+**Warm-start critic note.** A Survivor warm-started from `ppo-long`'s win-trained value head starts
+**miscalibrated**: that head predicts ≈win-rate (mostly 0, ~0.25 mean for 4p), but placement is a
+denser signal with mean ≈0.5. PPO's per-batch advantage normalization absorbs most of the shift,
+but expect a noisier first stretch; a short value-head warmup or a higher initial `value-coef` may
+speed convergence. Reward scale is otherwise comparable (both objectives top out at 1.0 pre-bonus),
+so shared `lr`/clip/`value-coef` stay reasonable — no normalization change is _required_.
+
 ---
 
 ## 5. The tempo lever in depth (Blitz)
 
 Ivan's framing: _"win in 1 turn → 1000 points; win in 1000 turns → 1 point."_ That's a
 **multiplicative terminal time-bonus**, and it's the sharper cousin of the discount factor `gamma`,
-which the trainer already exposes as `--gamma` (default **0.999**, `_train_common.py:149`).
+which the trainer already exposes as `--gamma` (default **0.999**, in `_train_common.build_parser`).
 
 **Why gamma is the principled lever.** With sparse `+1` terminal-win and discount `γ`, the value of
 a state that wins in `T` steps is `γ^T · P(win)`. So `γ` _is_ a smooth "win fast" multiplier:
@@ -188,8 +204,9 @@ lower `gamma` first (0.99, maybe 0.97); if that isn't punchy enough, add a small
 terminal speed-bonus `reward = won × (1 + b·clip(1 − turns/T_ref, 0, 1))` with `b` modest (e.g.
 0.5) so it never dominates the win/loss ordering — now `--terminal-speed-bonus 0.5 --speed-ref T`
 (bite D; `terminal_reward` implements exactly this formula, win-gated). **Secondary knob:** `ent_coef` — the applicable
-default for the **warm-started** personas is **0.0** (`_train_common.py:153`; `0.01` is only the
-_from-scratch_ fallback at `:340`). More entropy = more exploration = less likely to settle into the
+default for the **warm-started** personas is **0.0** (the `--ent-coef` default in
+`_train_common.build_parser`; `0.01` is only the _from-scratch_ fallback in `resolve_from_scratch`).
+More entropy = more exploration = less likely to settle into the
 safe turtle; bump it (e.g. toward `0.01`) for Blitz, but it's a training-dynamics knob, not a reward,
 so tune it second.
 

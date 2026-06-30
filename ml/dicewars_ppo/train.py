@@ -143,7 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
         "50000 (the same default as --snapshot-every, but NOT dynamically coupled to it — set this "
         "explicitly if you change --snapshot-every and want checkpoints to follow).",
     )
-    # Reward shaping for the persona roster ([D-bite], docs/ml-bot/PERSONAS.md). All wire-free and
+    # Reward shaping for the persona roster (bite D, docs/ml-bot/PERSONAS.md). All wire-free and
     # default to the [D-19] sparse terminal-win, so an omitted flag is byte-identical to today.
     p.add_argument(
         "--reward-mode",
@@ -176,6 +176,15 @@ def build_parser() -> argparse.ArgumentParser:
 def _validate(args: argparse.Namespace) -> None:
     _train_common._validate_args(args)
     _train_common.resolve_from_scratch(args)
+    # train.py OWNS the reward-shaping flags, so they must be present on this path. Both
+    # _make_env_thunk and validate_reward_args read them via getattr (to tolerate the flag-less
+    # tracer/test Namespaces), which means a rename that decoupled a flag from its getattr key would
+    # SILENTLY fall back to the sparse-win default and train the wrong objective for a multi-hour
+    # persona run. Fail loud here instead — a missing attr on THIS path is a wiring bug, not a
+    # tolerated absence.
+    for _attr in ("reward_mode", "terminal_speed_bonus", "speed_ref"):
+        if not hasattr(args, _attr):
+            raise SystemExit(f"internal: train.py arg '{_attr}' missing — flag/getattr key drift?")
     _train_common.validate_reward_args(args)
     if args.checkpoint_every <= 0:
         raise SystemExit(f"--checkpoint-every must be > 0 (got {args.checkpoint_every}).")

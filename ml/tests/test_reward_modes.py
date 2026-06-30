@@ -1,4 +1,4 @@
-"""Persona reward-shaping ([D-bite], docs/ml-bot/PERSONAS.md) — the wire-free terminal-reward modes.
+"""Persona reward-shaping (bite D, docs/ml-bot/PERSONAS.md) — the wire-free terminal-reward modes.
 
 Lean tier (torch-free): exercises the pure ``terminal_reward`` math, the ``DiceWarsEnv`` constructor
 validation, and the launch-time ``validate_reward_args`` guard — none of which need torch, sb3, or a
@@ -77,6 +77,48 @@ def test_speed_bonus_off_is_identical_to_plain_modes():
     )
 
 
+def test_truncation_pays_zero_in_placement_mode():
+    # A maxTurns stalemate CAP (truncated=1, won=0) is an artificial Gym truncation: step()
+    # bootstraps V(s) there. Paying the rank-at-cap `placement` reward on top would double-count
+    # the outcome and reward stalling to the cap — so the truncated terminal pays 0 in placement
+    # mode despite a non-zero `placement` on the wire. (The C1 fix; see the docstring.)
+    assert (
+        terminal_reward(
+            won=0, placement=0.67, turn_number=500, truncated=1, reward_mode="placement"
+        )
+        == 0.0
+    )
+    # Without the truncated flag, the same frame would (incorrectly) pay the rank — guards the fix.
+    assert (
+        terminal_reward(
+            won=0, placement=0.67, turn_number=500, truncated=0, reward_mode="placement"
+        )
+        == 0.67
+    )
+
+
+def test_truncation_is_zero_in_win_mode_too_and_default_off():
+    # win mode is already 0 on a cap (a cap can't be a win), so the truncated guard is a no-op
+    # there — the default path stays byte-identical. truncated defaults to 0 (off).
+    assert terminal_reward(won=0, placement=0.5, turn_number=500, truncated=1) == 0.0
+    assert terminal_reward(won=0, placement=0.5, turn_number=500) == 0.0  # default truncated=0
+
+
+def test_truncation_zeroes_even_a_would_be_speed_bonus():
+    # The truncated early-return dominates EVERY other field: even a bonus-eligible win (won=1 with
+    # a speed bonus configured) pays 0 on a cap, because the guard precedes the win-gated bonus.
+    # won=1+truncated=1 can't occur in production (step() rejects the pair), but feeding it to the
+    # pure helper pins its control-flow ordering so it never silently relies on that upstream guard.
+    # Without the early return this would compute 1*(1 + 0.5*clip(1 - 1/200)) ~= 1.4975, not 0 — so
+    # this test genuinely fails if the C1 guard is removed.
+    assert (
+        terminal_reward(
+            won=1, placement=1.0, turn_number=1, truncated=1, speed_bonus=0.5, speed_ref=200
+        )
+        == 0.0
+    )
+
+
 # --- DiceWarsEnv constructor validation (no server is started) ---------------------------------
 
 
@@ -113,8 +155,8 @@ def test_env_rejects_bad_reward_config(kwargs, match):
 
 
 def test_validate_reward_args_accepts_valid_and_defaults():
-    # A valid speed-bonus config, a placement run, and a Namespace MISSING the flags (the tracer
-    # case — getattr falls back to the [D-19] defaults) all pass without raising.
+    # A valid speed-bonus config, a placement run, and a Namespace MISSING the flags (a
+    # programmatic/test caller — getattr falls back to the [D-19] defaults) all pass, no raise.
     validate_reward_args(SimpleNamespace(terminal_speed_bonus=0.5, speed_ref=200))
     validate_reward_args(
         SimpleNamespace(reward_mode="placement", terminal_speed_bonus=0.0, speed_ref=None)
@@ -125,6 +167,9 @@ def test_validate_reward_args_accepts_valid_and_defaults():
 @pytest.mark.parametrize(
     "ns, match",
     [
+        # reward_mode is also front-run here (not only by argparse choices), so a non-CLI Namespace
+        # with a bad mode fails at launch instead of late inside a SubprocVecEnv worker.
+        (SimpleNamespace(reward_mode="bogus"), "reward-mode must be one of"),
         (SimpleNamespace(terminal_speed_bonus=-1.0, speed_ref=None), "must be >= 0"),
         (SimpleNamespace(terminal_speed_bonus=0.5, speed_ref=None), "must be a positive integer"),
         (SimpleNamespace(terminal_speed_bonus=0.5, speed_ref=0), "must be a positive integer"),

@@ -14,6 +14,7 @@ installed.
 
 from __future__ import annotations
 
+import math
 import shutil
 
 import numpy as np
@@ -27,7 +28,7 @@ if shutil.which("node") is None:
     )
 
 from dicewars_ppo.constants import DEFAULT_MAX_AREAS, EDGE_W, MAX_EDGES, NODE_W  # noqa: E402
-from dicewars_ppo.env import DiceWarsEnv  # noqa: E402
+from dicewars_ppo.env import DiceWarsEnv, step_reward  # noqa: E402
 
 PLAYERS = 4
 EPISODES = 3
@@ -38,6 +39,19 @@ def _stop_index(mask: np.ndarray) -> int:
     legal = np.flatnonzero(mask)
     assert legal.size >= 1, "every decision must have at least the STOP action"
     return int(legal[-1])
+
+
+def _first_attack_or_stop(mask: np.ndarray) -> int:
+    """The first legal attack (slot 0) when one exists, else STOP (the lone legal slot).
+
+    A deliberately aggressive driver for the shaped-reward e2e: attacking wins or loses border
+    tiles, so the learner's owned-territory count actually moves turn to turn — a non-trivial dense
+    ``delta_territory`` signal — where a STOP-only seat can settle into a stable-territory
+    stalemate.
+    """
+    legal = np.flatnonzero(mask)
+    assert legal.size >= 1, "every decision must have at least the STOP action"
+    return int(legal[0]) if legal.size > 1 else int(legal[-1])
 
 
 def test_stop_only_episodes_run_end_to_end() -> None:
@@ -113,6 +127,81 @@ def test_zero_decision_episode_does_not_desync() -> None:
         env.close()
 
     assert completed == 3, "every surfaced episode should complete cleanly past the skipped one"
+
+
+def test_shaped_episode_round_trips_dense_signals() -> None:
+    """A ``--reward-shaping`` run round-trips the bite-G dense wire end-to-end (issue #84).
+
+    The hermetic JS test (``tests/ml/ppo-env-server-shaping.test.js``) pins the Node emission glue —
+    the per-decision/terminal ``.territories`` reads, the ``recordTurn``-before-``failIfLost``
+    ordering, the per-episode ``reset()``, the shaped-tail threading — and is the CI-gating check
+    (the JS suite runs in CI; this Python e2e skips there because the ML CI job installs no
+    ``node``). This is the matching LIVE integration: a managed env-server launched with
+    ``--reward-shaping=1`` (auto-forwarded by a non-zero dense coef), one episode driven through the
+    real ``DiceWarsEnv``, asserting the shaped frame round-trips through the real socket + Python
+    parser (the +8-byte header tail), the raw ``delta_territory``/``elims_by_learner`` signals
+    surface in ``info``, and the per-step reward is exactly the persona weighting of them.
+
+    The learner ATTACKS (``_first_attack_or_stop``) so its owned-territory count actually moves — a
+    non-trivial dense signal — rather than settling into a stable-territory stalemate as a STOP-only
+    seat can. We do not seed-hunt for a kill: the deterministic JS test owns the
+    Predator/game-ending-kill path; here the elimination wire field is still parsed + validated on
+    every frame (``elims_by_learner >= 0``), just not relied on to be non-zero. ``episodes=0``
+    (run-until-disconnect) so a zero-decision seed is skipped server-side and ``reset()`` always
+    lands on a real first decision.
+    """
+    coef = 0.02
+    env = DiceWarsEnv(
+        player_count=PLAYERS,
+        # A non-zero dense coef flips the env to the shaped wire AND forwards --reward-shaping=1 to
+        # the managed server, so both ends agree without the caller wiring the flag by hand.
+        territory_reward_coef=coef,
+        server_kwargs={"opponents": "ai_bc", "seed_base": 100, "episodes": 0},
+    )
+    assert env._shaped is True
+    assert env._server_kwargs.get("reward_shaping") is True
+
+    deltas: list[float] = []
+    try:
+        obs, info = env.reset()
+        _assert_obs(obs)
+        assert info["terminal"] == 0
+        # The episode's first decision frame is the baseline → no realized interval yet.
+        assert info["delta_territory"] == 0.0
+        assert info["elims_by_learner"] == 0
+
+        terminated = truncated = False
+        reward = 0.0
+        while not (terminated or truncated):
+            obs, reward, terminated, truncated, info = env.step(
+                _first_attack_or_stop(env.action_masks())
+            )
+            _assert_obs(obs)
+            # Every shaped frame carries well-formed raw signals (the env validates >= 0 / finite).
+            assert info["elims_by_learner"] >= 0
+            assert math.isfinite(info["delta_territory"])
+            deltas.append(info["delta_territory"])
+            shaping = step_reward(
+                delta_territory=info["delta_territory"],
+                elims_by_learner=info["elims_by_learner"],
+                territory_coef=coef,
+            )
+            if not (terminated or truncated):
+                # Mid-episode: the reward IS the dense per-step shaping (no terminal outcome yet).
+                assert reward == pytest.approx(shaping)
+            else:
+                # Terminal: the sparse-win outcome (win mode ⇒ float(won)) PLUS the realized
+                # dense interval.
+                assert reward == pytest.approx(float(info["won"]) + shaping)
+
+        assert info["terminal"] == 1
+        assert info["won"] in (0, 1)
+        # The dense territory signal is genuinely non-trivial — an attacking learner wins/loses
+        # border tiles, so its count moves at least once (not the all-zero stalemate stream).
+        assert deltas, "the learner must surface at least one shaped step frame"
+        assert any(d != 0.0 for d in deltas), "an attacking learner must move its territory count"
+    finally:
+        env.close()
 
 
 def _assert_obs(obs: dict) -> None:

@@ -288,6 +288,89 @@ export function shouldRunEpisode(ep, episodes) {
   return episodes === 0 || ep < episodes;
 }
 
+/**
+ * Build the env-server's dense-reward ("bite G" / [D-28]) emission glue, OR the no-op null-object
+ * when reward shaping is off. Extracted from `main()` so the WHOLE shaped-emission seam — the
+ * per-decision + terminal `.territories` reads, the `buildObsFrame` shaped-tail threading, the
+ * per-episode `reset()`, and the `recordTurn`-before-`failIfLost` `onTurn` ORDERING — is importable
+ * and unit-testable without spawning the worker + socket (`main` is not exported). This is the seam
+ * issue #84 flags as untested: both ends are pinned (the codec, the tracker math, the Python step),
+ * but the Node glue that wires them was only exercised on a live shodan spawn. The frame BUILD lives
+ * here (not just the raw signals) so a dropped `...shapingFields` spread fails a unit test too.
+ *
+ * Off (`shapingTracker` null) ⇒ every method is a no-op / undefined tail, so each emitted frame is
+ * byte-identical to the pre-bite-G wire (the B5/B6 opt-in discipline). The reward WEIGHTS live
+ * trainer-side; this only measures (via the tracker) and threads the raw signals onto the wire.
+ *
+ * @param {object} cfg
+ * @param {ReturnType<import('./lib/ppo-reward-shaping.mjs').createRewardShapingTracker>|null}
+ *   cfg.shapingTracker - the per-episode tracker, or null when `--reward-shaping` is off.
+ * @param {number} cfg.maxAreas - node-tensor height (policy config.maxAreas), for the frame header.
+ * @param {number} cfg.learnerSeat - the learner's seat; the terminal `.territories` read indexes it.
+ * @returns {{
+ *   reset: () => void,
+ *   decisionFrame: (encoded: object, botState: object) => import('./lib/obs-frame.mjs').ObsFrame,
+ *   terminalFrame: (encoded: object, termState: object, meta: object) =>
+ *     import('./lib/obs-frame.mjs').ObsFrame,
+ *   wrapOnTurn: (failIfLost: () => void) =>
+ *     ((turnNumber: number, state: object, currentPlayerId: number) => void),
+ * }}
+ */
+export function makeShapedEmission({ shapingTracker, maxAreas, learnerSeat }) {
+  return {
+    /** Clear the per-episode dense-reward cursors (territory baseline + kill count). No-op when off. */
+    reset() {
+      if (shapingTracker) shapingTracker.reset();
+    },
+
+    /**
+     * Build the per-decision observation frame. Under shaping it reads the learner's OWN
+     * owned-territory count right now (`botState.myPlayer === learnerSeat`) and threads the raw
+     * `{shaped, deltaTerritory, elimsByLearner}` tail; off ⇒ no tail (byte-identical frame).
+     */
+    decisionFrame(encoded, botState) {
+      let shapingFields;
+      if (shapingTracker) {
+        const terr = botState.players[botState.myPlayer].territories;
+        const { deltaTerritory, elimsByLearner } = shapingTracker.frameSignals(terr);
+        shapingFields = { shaped: true, deltaTerritory, elimsByLearner };
+      }
+      return buildObsFrame({ encoded, botState, maxAreas, ...shapingFields });
+    },
+
+    /**
+     * Build the terminal observation frame for `termState`, merging the caller's terminal `meta`
+     * (terminal/winner/won/truncated/placement). Under shaping the tail is the last realized
+     * interval up to the terminal: net territory change since the learner's final decision (its
+     * elimination drives this to `-prevTerr`) and any kill on its last turn (the winning
+     * elimination for Predator — `recordTurn` already folded that turn via `onTurn`). Off ⇒ no tail.
+     */
+    terminalFrame(encoded, termState, meta) {
+      let shapingFields;
+      if (shapingTracker) {
+        const terr = termState.players[learnerSeat].territories;
+        const { deltaTerritory, elimsByLearner } = shapingTracker.frameSignals(terr);
+        shapingFields = { shaped: true, deltaTerritory, elimsByLearner };
+      }
+      return buildObsFrame({ encoded, botState: termState, maxAreas, ...meta, ...shapingFields });
+    },
+
+    /**
+     * Wrap the loop's `failIfLost` guard as the match `onTurn` hook. Under shaping it folds the
+     * just-completed turn's eliminations into the kill count via `recordTurn` BEFORE `failIfLost`
+     * throws, so a kill on the learner's final (game-ending) turn is still credited for the terminal
+     * frame. Off ⇒ returns `failIfLost` unchanged (byte-identical to the pre-bite-G hook).
+     */
+    wrapOnTurn(failIfLost) {
+      if (!shapingTracker) return failIfLost;
+      return (_turnNumber, state, currentPlayerId) => {
+        shapingTracker.recordTurn(state, currentPlayerId);
+        failIfLost();
+      };
+    },
+  };
+}
+
 async function main() {
   /*
    * A learner client (or the parent reading our stdout) can vanish mid-run; a broken
@@ -314,6 +397,13 @@ async function main() {
    */
   const rewardShaping = numArg(opts, 'reward-shaping', 0) !== 0;
   const shapingTracker = rewardShaping ? createRewardShapingTracker(learnerSeat) : null;
+  /*
+   * The dense-reward emission glue (per-decision/terminal `.territories` reads, the shaped-tail
+   * frame threading, the per-episode reset, and the `recordTurn`-before-`failIfLost` onTurn
+   * ordering). Extracted (makeShapedEmission) so this whole seam is unit-testable without the
+   * worker/socket. A no-op null-object when shaping is off ⇒ byte-identical frames.
+   */
+  const shapedEmission = makeShapedEmission({ shapingTracker, maxAreas, learnerSeat });
   /*
    * The opponent league (ml-bot task B — [D-22]). With no `--snapshot-manifest` the pool is empty, so
    * every `draw()` returns the cycled baseline field — content-identical to the static field task A
@@ -460,14 +550,9 @@ async function main() {
    */
   const chooseAction = (encoded, botState) => {
     decisionsThisEpisode++;
-    let shapingFields;
-    if (shapingTracker) {
-      // The learner's own owned-territory count right now (myPlayer === learnerSeat).
-      const terr = botState.players[botState.myPlayer].territories;
-      const { deltaTerritory, elimsByLearner } = shapingTracker.frameSignals(terr);
-      shapingFields = { shaped: true, deltaTerritory, elimsByLearner };
-    }
-    const buf = serializeObsFrame(buildObsFrame({ encoded, botState, maxAreas, ...shapingFields }));
+    // Build (+ optionally shape) the per-decision obs frame; the shaped-tail glue lives in
+    // shapedEmission so the `.territories` read + threading are unit-testable off the hot path.
+    const buf = serializeObsFrame(shapedEmission.decisionFrame(encoded, botState));
     Atomics.store(ctrl, STATUS, ST_WAITING);
     worker.postMessage({ type: 'obs', frame: frameToArrayBuffer(buf) });
 
@@ -526,15 +611,11 @@ async function main() {
   /*
    * The onTurn hook. Always re-raises a lost learner (failIfLost); under reward shaping it ALSO
    * folds the just-completed turn's eliminations into the learner's attributed-kill count BEFORE
-   * the failIfLost throw, so a kill on the learner's final (game-ending) turn is still credited
-   * for the terminal frame. Off ⇒ the bare failIfLost, byte-identical to today.
+   * the failIfLost throw (the ordering shapedEmission.wrapOnTurn pins), so a kill on the learner's
+   * final (game-ending) turn is still credited for the terminal frame. Off ⇒ the bare failIfLost,
+   * byte-identical to today.
    */
-  const onTurnFn = shapingTracker
-    ? (_turnNumber, state, currentPlayerId) => {
-        shapingTracker.recordTurn(state, currentPlayerId);
-        failIfLost();
-      }
-    : failIfLost;
+  const onTurnFn = shapedEmission.wrapOnTurn(failIfLost);
 
   let played = 0;
   /*
@@ -581,7 +662,7 @@ async function main() {
       const seed = seedBase + ep;
       decisionsThisEpisode = 0;
       // Clear the per-episode dense-reward cursors (territory baseline + kill count). No-op when off.
-      if (shapingTracker) shapingTracker.reset();
+      shapedEmission.reset();
       // Draw this episode's opponent field from the league (B1: the empty-pool baseline field).
       const { opponents, drawn } = league.draw(seed);
       let result;
@@ -658,25 +739,14 @@ async function main() {
        */
       const termState = createBotState(result.finalState, learnerSeat);
       const termEnc = encodeObservationForInference(termState, { maxAreas });
-      let termShapingFields;
-      if (shapingTracker) {
-        // The last realized interval up to the terminal: net territory change since the learner's
-        // final decision (its elimination drives this to -prevTerr) and any kill on its last turn
-        // (the winning elimination for Predator). recordTurn already folded that turn via onTurn.
-        const terr = termState.players[learnerSeat].territories;
-        const { deltaTerritory, elimsByLearner } = shapingTracker.frameSignals(terr);
-        termShapingFields = { shaped: true, deltaTerritory, elimsByLearner };
-      }
-      const termFrame = buildObsFrame({
-        encoded: termEnc,
-        botState: termState,
-        maxAreas,
+      // shapedEmission.terminalFrame threads the dense-reward tail (the final realized interval up
+      // to the terminal) when shaping is on, and is a plain buildObsFrame otherwise (byte-identical).
+      const termFrame = shapedEmission.terminalFrame(termEnc, termState, {
         terminal: 1,
         winner: result.winner ?? -1,
         won: result.won,
         truncated: result.truncated ? 1 : 0,
         placement: result.placement,
-        ...termShapingFields,
       });
       worker.postMessage({
         type: 'terminal',

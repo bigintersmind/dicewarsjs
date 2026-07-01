@@ -25,12 +25,20 @@ This is a PRODUCER only — sub-second work in the training loop (a repack + a t
 fixture; ``SnapshotCallback`` already proves that is ~tens of ms). The ~7-min arena scoring runs
 out-of-band on a CPU box against this durable stream, so it never stalls the GPU rollout.
 
-Atomic publish ordering (so a poller/scorer never sees a torn or dangling reference). Each
-artifact is written to a ``.tmp`` sibling, ``fsync``'d, then ``os.replace``'d into place — and the
-``.weights.js`` is renamed **last**, so its presence on disk implies the sibling ``.fixture.json``
-and ``.pt`` are already durable (the resume disk-scan keys on ``eval-*.weights.js``).
-``index.jsonl`` is rewritten atomically **after** all three artifacts are durable, so it never
-references a file that isn't fully on disk.
+Publish ordering (so a poller/scorer never reads a torn file or adopts a dangling reference). Each
+artifact is written to a ``.tmp`` sibling, ``fsync``'d, then ``os.replace``'d into place — an atomic
+rename, so a consumer never sees a half-written file at its final name. The ``.weights.js`` is
+renamed **last** and the resume disk-scan keys on ``eval-*.weights.js``, so a crash mid-``_emit``
+leaves at most an un-adopted ``.fixture.json``/``.pt`` — never a discoverable weights file missing
+its siblings. ``index.jsonl`` is rewritten (same temp→rename dance) only **after** all three renames
+return, so it never lists a checkpoint whose weights file isn't on disk.
+
+We ``fsync`` file *data*, not the parent *directory entry* (matching ``SnapshotCallback``): the
+rename ordering above holds within a process and across a clean crash, but is not strictly
+guaranteed across a *power loss* on a filesystem that may reorder directory updates. Both failure
+windows self-correct — the index is rebuilt from disk on the next resume, and a lost/half-visible
+checkpoint is at worst a missing curve point or a fixture-less file the scorer's parity pre-flight
+rejects (never a mis-graded one). On shodan's ordered-journal FS this ordering holds in practice.
 
 Resume. ``_on_training_start`` reads ``self.model.num_timesteps`` (the resumed env-step count SB3
 restores under ``learn(reset_num_timesteps=False)``; the callback's own ``self.num_timesteps`` is
@@ -38,8 +46,10 @@ not synced yet at training-start), seeds the cadence cursor to it so a relaunch 
 steps ``0..resumed``, and rebuilds the tracked index by SCANNING disk. Any eval artifact AHEAD of
 the resumed step is stale — the resumed rollout diverges from the pre-crash trajectory, so a
 ``eval-<future>`` would grade a policy state this run will never actually revisit — so those files
-are deleted and dropped from the index (they are re-emitted, for the resumed trajectory, when the
-step is re-reached).
+are deleted and dropped from the index. The resumed run re-covers that region at its next
+``eval_every`` multiple past the resume point — the cadence grid re-anchors to the resume step, so
+a dropped ``eval-<future>`` is not necessarily re-emitted at the same step (harmless: curve points
+are keyed on the actual step in the filename/index).
 """
 
 from __future__ import annotations

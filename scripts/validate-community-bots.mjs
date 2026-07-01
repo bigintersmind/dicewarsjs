@@ -17,6 +17,7 @@ import path from 'node:path';
 import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
 import { compileSandboxedBot } from './lib/bot-sandbox.mjs';
+import { communityDisplayName } from './lib/tournament-field.mjs';
 import { colors, pass, fail, warn } from './lib/cli-utils.mjs';
 
 const COMMUNITY_DIR = path.resolve(import.meta.dirname, '..', 'community-bots');
@@ -55,6 +56,38 @@ console.log(`\n${colors.bold}Validating ${activeBots.length} community bot(s)...
 
 let failures = 0;
 const compiledBots = [];
+
+/*
+ * Registry-level uniqueness: two active entries with the same `id`, or the same
+ * author-namespaced tournament name (`communityDisplayName`), collide when the online
+ * tournament builds its field — runArena throws "Bot names must be unique" and aborts
+ * the unattended daily run. buildTournamentField suffixes such a collision with " #n"
+ * so it can't crash, but a duplicate registry is still a mistake; fail it here (at
+ * review/merge time) rather than silently renaming a contributor's bot in production.
+ */
+const seenIds = new Map();
+const seenNames = new Map();
+for (const entry of activeBots) {
+  if (entry.id) {
+    if (seenIds.has(entry.id)) {
+      fail(`Duplicate registry id "${entry.id}" (already used by "${seenIds.get(entry.id)}")`);
+      failures++;
+    } else {
+      seenIds.set(entry.id, entry.name || entry.id);
+    }
+  }
+  if (entry.name && entry.author) {
+    const display = communityDisplayName(entry);
+    if (seenNames.has(display)) {
+      fail(
+        `Duplicate tournament name "${display}" (same name+author as "${seenNames.get(display)}")`
+      );
+      failures++;
+    } else {
+      seenNames.set(display, entry.id || entry.name);
+    }
+  }
+}
 
 for (const entry of activeBots) {
   const label = entry.id || entry.name || '<unnamed>';

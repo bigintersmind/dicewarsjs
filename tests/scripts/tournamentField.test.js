@@ -107,6 +107,31 @@ describe('buildTournamentField — community bots (real registry)', () => {
     expect(authorByName.get('Conqueror (someone)')).toBe('someone');
   });
 
+  it('disambiguates two community entries with the SAME name AND author (no duplicate crash)', () => {
+    /*
+     * Author-namespacing alone does NOT make community entries unique: two active
+     * registry rows with the same name and author collapse to one string ("Raider
+     * (alice)") and runArena throws "Bot names must be unique", aborting the daily
+     * tournament — the exact failure class the fix exists to prevent. The " #n"
+     * suffix keeps the field globally unique regardless of registry contents.
+     */
+    const dupes = [
+      { name: 'Raider', author: 'alice', file: 'bigintersmind/blitz.js', active: true },
+      { name: 'Raider', author: 'alice', file: 'bigintersmind/connector.js', active: true },
+    ];
+    const { bots, authorByName } = buildTournamentField({
+      registry: dupes,
+      communityDir: COMMUNITY_DIR,
+    });
+    const names = bots.map(b => b.name);
+
+    expect(new Set(names).size).toBe(names.length); // the runArena/runRoundRobin invariant
+    expect(names).toContain('Raider (alice)');
+    expect(names).toContain('Raider (alice) #2');
+    expect(authorByName.get('Raider (alice)')).toBe('alice');
+    expect(authorByName.get('Raider (alice) #2')).toBe('alice');
+  });
+
   it('skips (does not throw on) inactive, missing, or traversing entries', () => {
     const warnings = [];
     const messy = [

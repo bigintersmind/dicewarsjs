@@ -12,12 +12,15 @@
  *     {@link PLAYER_VISIBLE_BOTS}, not the full `BUILT_IN_BOTS`. (This also drops
  *     the `PPO`/`Conqueror` duplicate: Conqueror ships the same weights as the
  *     hidden PPO, so only Conqueror remains.)
- *  2. **No name collisions.** `runArena`/`runRoundRobin` reject a field with
- *     duplicate names. A built-in and a community bot can share a name (e.g. the
+ *  2. **No name collisions.** `runArena`/`runRoundRobin` reject a field with any
+ *     duplicate name. A built-in and a community bot can share a name (e.g. the
  *     first-party "Blitz" persona vs. the community "Blitz" bot), which would
- *     crash the daily tournament. Community bots are therefore always
- *     author-namespaced (`"<name> (<author>)"`) so they can never collide with a
- *     bare first-party name.
+ *     crash the daily tournament. Community bots are therefore author-namespaced
+ *     (`"<name> (<author>)"`) to clear the first-party names, and then every
+ *     display name is reserved with a `" #n"` suffix on any residual duplicate
+ *     (two registry entries with the same name AND author would otherwise collapse
+ *     to one string) — so the field is guaranteed globally unique regardless of
+ *     what the registry contains.
  *
  * @module scripts/lib/tournament-field
  */
@@ -62,8 +65,30 @@ export function buildTournamentField({
   onWarn = () => {},
   onLoad = () => {},
 } = {}) {
-  const bots = PLAYER_VISIBLE_BOTS.map(b => ({ name: b.name, fn: b.fn }));
-  const authorByName = new Map(bots.map(b => [b.name, 'built-in']));
+  const bots = [];
+  const authorByName = new Map();
+
+  /*
+   * runArena/runRoundRobin throw on ANY duplicate name, so reserve each display
+   * name and disambiguate a residual collision with a " #n" suffix (the same tactic
+   * selfplay-core/ppo-env use for duplicate seats). Built-ins are reserved first, so
+   * they keep their bare names; author-namespacing already clears community bots of
+   * first-party names, and this closes the community-vs-community case (two registry
+   * entries with the same name AND author).
+   */
+  const taken = new Set();
+  const claimUnique = base => {
+    let name = base;
+    for (let n = 2; taken.has(name); n++) name = `${base} #${n}`;
+    taken.add(name);
+    return name;
+  };
+
+  for (const b of PLAYER_VISIBLE_BOTS) {
+    const name = claimUnique(b.name);
+    bots.push({ name, fn: b.fn });
+    authorByName.set(name, 'built-in');
+  }
 
   const activeBots = Array.isArray(registry) ? registry.filter(e => e.active !== false) : [];
   for (const entry of activeBots) {
@@ -86,7 +111,7 @@ export function buildTournamentField({
       continue;
     }
 
-    const name = communityDisplayName(entry);
+    const name = claimUnique(communityDisplayName(entry));
     bots.push({ name, fn });
     authorByName.set(name, entry.author);
     onLoad(name);

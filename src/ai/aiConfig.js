@@ -131,12 +131,16 @@ export const AI_STRATEGIES = {
    * is the balanced flagship (the strongest balanced net the game ships); Blitz closes
    * games fast; Survivor outlasts the field (and is the strongest net overall). The
    * internal PPO/BC nets are hidden — see builtInBots.js.
+   *
+   * `category: 'self-play'` groups them under the picker's **Self-Play** section (shown
+   * above the hand-written **General** bots) — see {@link getAIStrategiesByCategory}.
    */
   ai_conqueror: {
     id: 'ai_conqueror',
     name: 'Conqueror',
     description: 'Balanced self-play net that plays the long game to win outright',
     difficulty: 5,
+    category: 'self-play',
     loader: load_ai_conqueror,
     implementation: null,
   },
@@ -145,6 +149,7 @@ export const AI_STRATEGIES = {
     name: 'Blitz',
     description: 'Aggressive self-play net that presses hard and ends games fast',
     difficulty: 5,
+    category: 'self-play',
     loader: load_ai_blitz,
     implementation: null,
   },
@@ -153,6 +158,7 @@ export const AI_STRATEGIES = {
     name: 'Survivor',
     description: 'Patient self-play net that outlasts rivals and climbs the standings',
     difficulty: 5,
+    category: 'self-play',
     loader: load_ai_survivor,
     implementation: null,
   },
@@ -186,6 +192,22 @@ export async function getAIImplementation(aiId) {
  */
 export function getAllAIStrategies() {
   return Object.values(AI_STRATEGIES);
+}
+
+/**
+ * Partition the strategies into the picker's two built-in sections, preserving
+ * registry insertion order within each. `selfPlay` is the learned neural roster
+ * (`category: 'self-play'` — the personas); `general` is everything else (the
+ * hand-written heuristic AIs). The Title Screen renders Self-Play above General.
+ *
+ * @returns {{ selfPlay: Array, general: Array }}
+ */
+export function getAIStrategiesByCategory() {
+  const all = Object.values(AI_STRATEGIES);
+  return {
+    selfPlay: all.filter(s => s.category === 'self-play'),
+    general: all.filter(s => s.category !== 'self-play'),
+  };
 }
 
 /**

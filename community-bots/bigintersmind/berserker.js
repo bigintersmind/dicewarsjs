@@ -1,10 +1,10 @@
 /**
- * Blitz — relentless expansion. Grabs every favorable capture and will even
+ * Berserker — relentless expansion. Grabs every favorable capture and will even
  * take a coin-flip (equal dice) when nothing safer is on the board, trading
  * risk for board presence and tempo.
  *
  * Picks the single best attack each call; the engine calls the bot again until
- * it returns null, so Blitz keeps swinging while it has loaded territories.
+ * it returns null, so Berserker keeps swinging while it has loaded territories.
  *
  * Deterministic (no Math.random).
  */

@@ -8,9 +8,12 @@
  *     roster, so `BC`/`PPO` never appear (and the PPO/Conqueror weight duplicate
  *     collapses to just Conqueror).
  *  2. **No name collisions.** `runArena`/`runRoundRobin` throw on duplicate names.
- *     A first-party built-in and a community bot can share a bare name (the
- *     built-in "Blitz" persona vs. the community "Blitz" bot) — author-namespacing
- *     community bots keeps the field unique so the daily tournament can't crash.
+ *     A first-party built-in and a community bot can share a bare name — e.g. the
+ *     "Blitz" persona and a (hypothetical) community "Blitz". This exact clash is
+ *     why the shipped community bot was renamed Blitz→Berserker, but the guard must
+ *     still hold for any future contributor, so these tests keep exercising a
+ *     "Blitz" community fixture: author-namespacing (plus a " #n" tie-breaker) keeps
+ *     the field unique so the daily tournament can't crash.
  */
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,7 +62,7 @@ describe('buildTournamentField — community bots (real registry)', () => {
       file: 'bigintersmind/connector.js',
       active: true,
     },
-    { name: 'Blitz', author: 'bigintersmind', file: 'bigintersmind/blitz.js', active: true },
+    { name: 'Blitz', author: 'bigintersmind', file: 'bigintersmind/berserker.js', active: true },
     {
       name: 'Giant Slayer',
       author: 'bigintersmind',
@@ -68,14 +71,14 @@ describe('buildTournamentField — community bots (real registry)', () => {
     },
   ];
 
-  it('produces a field with unique names — the community "Blitz" no longer collides with the persona "Blitz"', () => {
+  it('produces a field with unique names — a community "Blitz" would not collide with the persona "Blitz"', () => {
     const { bots } = buildTournamentField({ registry, communityDir: COMMUNITY_DIR });
     const names = bots.map(b => b.name);
 
     // The exact invariant runArena/runRoundRobin enforce (they throw otherwise).
     expect(new Set(names).size).toBe(names.length);
 
-    // Both "Blitz" bots are present, distinguished by the namespace.
+    // A (hypothetical) community "Blitz" and the first-party persona coexist, split by namespace.
     expect(names).toContain('Blitz'); // the first-party persona
     expect(names).toContain('Blitz (bigintersmind)'); // the community bot
   });
@@ -93,7 +96,7 @@ describe('buildTournamentField — community bots (real registry)', () => {
     // exact class of collision namespacing must neutralize. (Compiles a real bot
     // file under the colliding display name.)
     const colliding = [
-      { name: 'Conqueror', author: 'someone', file: 'bigintersmind/blitz.js', active: true },
+      { name: 'Conqueror', author: 'someone', file: 'bigintersmind/berserker.js', active: true },
     ];
     const { bots, authorByName } = buildTournamentField({
       registry: colliding,
@@ -116,7 +119,7 @@ describe('buildTournamentField — community bots (real registry)', () => {
      * suffix keeps the field globally unique regardless of registry contents.
      */
     const dupes = [
-      { name: 'Raider', author: 'alice', file: 'bigintersmind/blitz.js', active: true },
+      { name: 'Raider', author: 'alice', file: 'bigintersmind/berserker.js', active: true },
       { name: 'Raider', author: 'alice', file: 'bigintersmind/connector.js', active: true },
     ];
     const { bots, authorByName } = buildTournamentField({
@@ -135,7 +138,7 @@ describe('buildTournamentField — community bots (real registry)', () => {
   it('skips (does not throw on) inactive, missing, or traversing entries', () => {
     const warnings = [];
     const messy = [
-      { name: 'Inactive', author: 'x', file: 'bigintersmind/blitz.js', active: false },
+      { name: 'Inactive', author: 'x', file: 'bigintersmind/berserker.js', active: false },
       { name: 'Missing', author: 'x', file: 'bigintersmind/does-not-exist.js', active: true },
       { name: 'Escape', author: 'x', file: '../../package.json', active: true },
     ];

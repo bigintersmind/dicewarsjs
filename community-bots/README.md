@@ -55,5 +55,5 @@ copy one as a starting point for your own.
 | Bot              | Strategy                                                      |
 | ---------------- | ------------------------------------------------------------- |
 | **Connector**    | Grows its largest connected group to maximize reinforcements. |
-| **Blitz**        | Hyper-aggressive expander; takes even-odds fights for tempo.  |
+| **Berserker**    | Hyper-aggressive expander; takes even-odds fights for tempo.  |
 | **Giant Slayer** | Focuses fire on the strongest player to stop runaways.        |

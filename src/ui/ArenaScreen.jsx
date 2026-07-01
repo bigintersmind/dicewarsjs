@@ -18,6 +18,14 @@ import { AddBotViaGithub } from './AddBotViaGithub.jsx';
 
 const GAME_COUNT_OPTIONS = [5, 10, 25, 50, 100];
 
+/*
+ * The visible built-ins split into the two sections the Title Screen picker also
+ * shows: the learned neural personas (Self-Play) above the hand-written heuristics
+ * (General). `persona` is the same flag builtInBots.js tags them with.
+ */
+const SELF_PLAY_BOTS = PLAYER_VISIBLE_BOTS.filter(b => b.persona);
+const GENERAL_BOTS = PLAYER_VISIBLE_BOTS.filter(b => !b.persona);
+
 const STYLE = {
   container: {
     display: 'flex',
@@ -49,6 +57,15 @@ const STYLE = {
     marginBottom: '0.5rem',
     display: 'block',
     letterSpacing: '0.05em',
+  },
+  groupLabel: {
+    fontFamily: 'Roboto, sans-serif',
+    fontSize: '0.75rem',
+    color: 'var(--ui-text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    display: 'block',
+    margin: '0.5rem 0 0.35rem',
   },
   botRow: {
     display: 'flex',
@@ -338,6 +355,19 @@ export function ArenaScreen({ onBack, onViewReplay }) {
     setTimeout(() => runNextGame(0), 50);
   }, [canRun, selectedBots, gameCount]);
 
+  const renderBotButton = bot => (
+    <button
+      key={bot.id}
+      style={{
+        ...STYLE.botBtn,
+        ...(selectedBots.has(bot.id) ? STYLE.botBtnActive : {}),
+      }}
+      onClick={() => toggleBot(bot.id)}
+    >
+      {bot.name}
+    </button>
+  );
+
   return (
     <div style={STYLE.container}>
       <h1 style={STYLE.title}>ARENA</h1>
@@ -346,20 +376,10 @@ export function ArenaScreen({ onBack, onViewReplay }) {
 
       <div style={STYLE.section}>
         <span style={STYLE.label}>SELECT BOTS (min 2)</span>
-        <div style={STYLE.botRow}>
-          {PLAYER_VISIBLE_BOTS.map(bot => (
-            <button
-              key={bot.id}
-              style={{
-                ...STYLE.botBtn,
-                ...(selectedBots.has(bot.id) ? STYLE.botBtnActive : {}),
-              }}
-              onClick={() => toggleBot(bot.id)}
-            >
-              {bot.name}
-            </button>
-          ))}
-        </div>
+        <span style={STYLE.groupLabel}>Self-Play</span>
+        <div style={STYLE.botRow}>{SELF_PLAY_BOTS.map(renderBotButton)}</div>
+        <span style={STYLE.groupLabel}>General</span>
+        <div style={STYLE.botRow}>{GENERAL_BOTS.map(renderBotButton)}</div>
       </div>
 
       <div style={STYLE.section}>

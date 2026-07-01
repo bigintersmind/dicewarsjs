@@ -28,7 +28,7 @@ describe('getCommunityBotList', () => {
   it('includes the known curated bots', () => {
     const ids = getCommunityBotList().map(b => b.id);
     expect(ids).toContain('bigintersmind/connector');
-    expect(ids).toContain('bigintersmind/blitz');
+    expect(ids).toContain('bigintersmind/berserker');
     expect(ids).toContain('bigintersmind/giant-slayer');
   });
 });
@@ -49,8 +49,8 @@ describe('loadCommunityBot', () => {
   });
 
   it('memoizes the compiled function (same reference on repeat)', () => {
-    const a = loadCommunityBot('bigintersmind/blitz');
-    const b = loadCommunityBot('bigintersmind/blitz');
+    const a = loadCommunityBot('bigintersmind/berserker');
+    const b = loadCommunityBot('bigintersmind/berserker');
     expect(a).toBe(b);
   });
 

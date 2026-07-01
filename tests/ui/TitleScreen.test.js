@@ -206,17 +206,33 @@ describe('TitleScreen', () => {
       expect(aiAssignments[1]).toBe('ai_lookahead');
     });
 
-    it('offers curated community bots in a "Community" optgroup', () => {
+    it('groups bots into Self-Play, General, then Community sections (in that order)', () => {
       renderTitle();
       act(() => customizeBtn().click());
       const select = slotSelect(2);
-      const builtIn = select.querySelector('optgroup[label="Built-in"]');
+
+      // The learned personas lead, then the hand-written heuristics, then community bots.
+      const groups = [...select.querySelectorAll('optgroup')].map(g => g.label);
+      expect(groups).toEqual(['Self-Play', 'General', 'Community']);
+
+      // Self-Play holds exactly the neural personas.
+      const selfPlay = select.querySelector('optgroup[label="Self-Play"]');
+      expect([...selfPlay.querySelectorAll('option')].map(o => o.textContent)).toEqual([
+        'Conqueror',
+        'Blitz',
+        'Survivor',
+      ]);
+
+      // General holds the heuristics — and no persona leaks into it.
+      const general = select.querySelector('optgroup[label="General"]');
+      const genValues = [...general.querySelectorAll('option')].map(o => o.value);
+      expect(genValues).toContain('ai_default');
+      expect(genValues).not.toContain('ai_conqueror');
+
+      // Community option values are namespaced so the controller can route them.
       const community = select.querySelector('optgroup[label="Community"]');
-      expect(builtIn).toBeTruthy();
-      expect(community).toBeTruthy();
       const values = [...community.querySelectorAll('option')].map(o => o.value);
       expect(values).toContain('community:bigintersmind/connector');
-      // Community option values are namespaced so the controller can route them.
       expect(values.every(v => v.startsWith('community:'))).toBe(true);
     });
 

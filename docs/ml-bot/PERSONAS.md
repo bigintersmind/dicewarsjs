@@ -43,6 +43,17 @@
 > frame-HEADER grows (`HEADER_STRUCT_SHAPED`, [D-28]). The launcher gained `PERSONA={expansionist,predator}`.
 > So §8 step 2 is now **fully done** and all five personas are launchable — the only thing left before a
 > batch is the GPU time.
+>
+> **SHIPPED (2026-06-30) — the 3 flag-only personas are in the game.** The pilot batch (Conqueror /
+> Blitz / Survivor, 3M steps each off `ppo-long`) trained, gated, and profiled (see RESULTS.md). All
+> three BEAT Lookahead; Survivor's signature PASSED (Blitz's after recalibrating the aggression MDE
+> 1.0→0.3, which this pilot's data justified). The head-to-head vs `ppo-long` decided the roster:
+> Conqueror's fine-tune came out **−7.6 pp WEAKER** than `ppo-long`, Blitz **TIED**, Survivor **BEAT
+> (+8.4)**. Per **[D-27] (now resolved)**: the player-facing **Conqueror ships the `ppo-long` weights
+> directly** (it _is_ the balanced win-objective net — no downgrade), while **Blitz/Survivor ship their
+> own checkpoints**. The internal `PPO`/`BC` nets are **hidden from players** (kept in `builtInBots.js`
+> for the dev harness). The weaker `ppo-conqueror` checkpoint stays in the repo as a training artifact,
+> not shipped. **Batch 2 (Expansionist + Predator, dense rewards) is still queued.**
 
 ---
 

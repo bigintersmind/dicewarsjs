@@ -386,9 +386,18 @@ export const PERSONA_SIGNATURES = {
   Survivor: { axes: [{ axis: 'avgPlacement', direction: 'LOWER' }], rule: 'single' },
 };
 
-/** Placeholder per-axis MDEs (§3.2). Calibrate from a pilot once a persona exists. */
+/**
+ * Per-axis MDEs (§3.2) — the minimum effect a persona signature must clear to count.
+ * `aggression` is calibrated from the 2026-06-30 persona pilot (see RESULTS.md): the real
+ * Blitz aggression effect was Δ≈0.42 with a tight CI, so the original 1.0 placeholder
+ * mis-rejected a genuine style shift (the AND-signature failed on this axis alone). Lowered
+ * to 0.3 — comfortably detectable yet below the observed effect. `turnsToWin` and
+ * `avgPlacement` were confirmed fine that run (effects −16.8 / −0.82, both ≫ their MDE).
+ * The remaining axes stay placeholders until a persona exercises them (`avgTerritory` →
+ * Expansionist, `kills` → Predator) — calibrate those in batch 2.
+ */
 export const DEFAULT_MDE = {
-  aggression: 1.0,
+  aggression: 0.3,
   turnsToWin: 5.0,
   avgTerritory: 3.0,
   kills: 0.5,

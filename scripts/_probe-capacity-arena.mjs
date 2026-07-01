@@ -69,7 +69,10 @@ const CONFIGS = [
 ];
 
 const YARDSTICK = 'Lookahead';
-const baseField = BUILT_IN_BOTS.filter(b => b.name !== 'BC').map(b => ({ name: b.name, fn: b.fn }));
+const baseField = BUILT_IN_BOTS.filter(b => b.name !== 'BC' && !b.persona).map(b => ({
+  name: b.name,
+  fn: b.fn,
+}));
 if (!baseField.some(b => b.name === YARDSTICK)) throw new Error(`${YARDSTICK} missing from field`);
 
 const STRIDE = Math.max(1_000_000, gamesPerRun * 1000);

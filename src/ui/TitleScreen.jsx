@@ -9,7 +9,7 @@
 
 import { useState } from 'preact/hooks';
 import { DEFAULT_MAP_SIZE } from '../utils/config.js';
-import { getAllAIStrategies } from '../ai/aiConfig.js';
+import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
 import {
@@ -30,8 +30,12 @@ const MAP_SIZE_OPTIONS = [
   { value: 'large', label: 'Large' },
 ];
 
-/** Built-in AI strategies offered in the per-slot bot picker. */
-const AI_OPTIONS = getAllAIStrategies();
+/*
+ * Built-in AI strategies for the per-slot picker, split into two sections: the
+ * learned neural personas (Self-Play) shown above the hand-written heuristics
+ * (General). Community bots form a third section (below).
+ */
+const { selfPlay: SELF_PLAY_OPTIONS, general: GENERAL_OPTIONS } = getAIStrategiesByCategory();
 
 /*
  * Curated community bots offered alongside the built-ins. Their option values
@@ -332,8 +336,15 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
                     value={assignments[i] || 'ai_default'}
                     onChange={e => handleAssign(i, e.target.value)}
                   >
-                    <optgroup label="Built-in">
-                      {AI_OPTIONS.map(ai => (
+                    <optgroup label="Self-Play">
+                      {SELF_PLAY_OPTIONS.map(ai => (
+                        <option key={ai.id} value={ai.id}>
+                          {ai.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="General">
+                      {GENERAL_OPTIONS.map(ai => (
                         <option key={ai.id} value={ai.id}>
                           {ai.name}
                         </option>

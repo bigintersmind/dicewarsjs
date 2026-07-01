@@ -13,7 +13,7 @@
 
 import { getArg, getPositionalArg, resolveBot, colors } from './lib/cli-utils.mjs';
 import { runArena } from '../src/arena/arenaRunner.js';
-import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
+import { BUILT_IN_BOTS, PLAYER_VISIBLE_BOTS } from '../src/arena/builtInBots.js';
 
 const args = process.argv.slice(2);
 const identifier = getPositionalArg(args);
@@ -77,13 +77,17 @@ function timedBot(state) {
 
 /*
  * When benchmarking a built-in, replace it with the timed version
- * When benchmarking a file bot, add it alongside all built-ins (rename on collision)
+ * When benchmarking a file bot, add it alongside the player-visible roster (rename on collision).
+ * Opponents are drawn from PLAYER_VISIBLE_BOTS, not the full registry: that excludes the hidden
+ * BC/PPO nets — and since PPO's weights also ship as the Conqueror persona, the full list would
+ * otherwise seat the same policy twice and skew the comparison. (The target bot may still BE a
+ * hidden built-in resolved by name; only the opponent field is the visible roster.)
  */
 let targetName = targetBot.name;
 let opponents;
 
 if (targetBot.source === 'builtin') {
-  opponents = BUILT_IN_BOTS.filter(b => b.name !== targetBot.name).map(b => ({
+  opponents = PLAYER_VISIBLE_BOTS.filter(b => b.name !== targetBot.name).map(b => ({
     name: b.name,
     fn: b.fn,
   }));
@@ -91,7 +95,7 @@ if (targetBot.source === 'builtin') {
   if (BUILT_IN_BOTS.some(b => b.name === targetName)) {
     targetName = `${targetName} (custom)`;
   }
-  opponents = BUILT_IN_BOTS.map(b => ({ name: b.name, fn: b.fn }));
+  opponents = PLAYER_VISIBLE_BOTS.map(b => ({ name: b.name, fn: b.fn }));
 }
 
 const bots = [{ name: targetName, fn: timedBot }, ...opponents];

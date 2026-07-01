@@ -737,3 +737,115 @@ code change. Run commit `c0d1441`; Lookahead pin `596f781`; checkpoint on shodan
 runs/ppo-long/ppo.pt --out ../src/ai/ppoPolicyWeights.js --fixture
 ../tests/fixtures/bc/ppoForwardCases.json`; then on the Mac `npm run ppo:gate` (default weights =
 `ppoPolicyWeights.js`).
+
+---
+
+## Phase 3 — reward-PERSONA pilot: 3 flag-only personas (Conqueror / Blitz / Survivor) · 2026-06-30
+
+First batch of the reward-persona roster ([PERSONAS.md](./PERSONAS.md)): three PPO bots **warm-started
+from the 20M `ppo-long` actor** and fine-tuned **3M steps each** at a gentle `lr 1e-4` (`ent_coef 0.01`,
+R=3 PFSP league, `ENCODING_VERSION 2`), differing ONLY in the reward objective. Trained **concurrently**
+on `shodan` ([[infra_shodan_gpu_pc]], ~175 fps each, ~4.7 h wall, all clean `exit 0`, attempt #1) via the
+teardown-immune `dicewars-persona-pilot` schtasks job (deleted post-run). Run commit `71b9e82`; Lookahead
+pin `596f781`.
+
+- **Conqueror** = win reward, γ0.999 — the matched **control** (same objective as `ppo-long`).
+- **Blitz** = win reward, **γ0.99** (short horizon → finish fast).
+- **Survivor** = **placement** reward, γ0.999 (climb the FFA ranking).
+
+### Strength — `ppo:gate` (is it STRONGER?)
+
+9-bot seat-fair FFA (the 8-bot gate field **plus** a `PPO`=`ppo-long` seat), 20 runs × 17 seeds × 9 seat
+rotations = **3060 games**, paired Δwin% vs `ai_lookahead@596f781`, judged on **win%, not ELO**. Each
+export forward-parity-checked (≤ 2.1e-5).
+
+| Persona (gate)          | Reward           | Cand win% (95% CI) | Lookahead win% | Paired Δ (cand − bar)        | Verdict     |
+| ----------------------- | ---------------- | ------------------ | -------------- | ---------------------------- | ----------- |
+| **Conqueror** (control) | win γ0.999       | 21.0 ± 1.6         | 8.0 ± 1.2      | **+13.0 ± 2.0 [11.0, 15.0]** | ✅ **BEAT** |
+| **Blitz**               | win γ0.99        | 29.6 ± 1.8         | 9.3 ± 1.2      | **+20.3 ± 2.4 [17.8, 22.7]** | ✅ **BEAT** |
+| **Survivor**            | placement γ0.999 | 37.0 ± 1.4         | 7.2 ± 0.9      | **+29.7 ± 2.0 [27.7, 31.7]** | ✅ **BEAT** |
+
+**All three BEAT Lookahead** — the warm-start held; no collapse under 3M steps of reward-shaped
+fine-tuning. Within this common field the three rank **Survivor > Blitz > Conqueror**, and the **same
+ordering replicates** in the (different) behavior-profile field below — so it's a real ranking, not field
+noise. **NB:** these Δ are NOT comparable to the `ppo-long` headline +27.7 — that gate had no sibling-PPO
+seat; this 9-bot field adds one, depressing everyone's absolute win%. A clean persona-vs-`ppo-long`
+head-to-head is an open follow-up.
+
+**Surprise — the placement-reward bot is the STRONGEST and the win-reward control is the WEAKEST.**
+Survivor (optimizing finishing position, not wins) out-wins Conqueror (optimizing wins) by ~16 pp on win%
+in **both** fields. Likely the dense placement signal trains better than the sparse win/loss signal in only
+3M steps — "don't die early, climb the ranking" correlates strongly with eventually winning an 8-way FFA.
+Worth a follow-up: does a placement-shaped retrain beat the shipped `ppo-long` base head-to-head? If so
+it's a lever for the main `ai_ppo`, not just a persona.
+
+### Style — `behavior:profile` (is it DIFFERENT?)
+
+Blitz + Survivor profiled against the **Conqueror control** (the matched baseline), fixed-standard 6-bot
+field, 10 runs × 30 games × 6 rotations = **1800 matches/bot** (5400 total, 0 quarantined). The signature
+gate uses the placeholder `DEFAULT_MDE`s — this pilot **is** the MDE calibration.
+
+| Bot                     | winPct     | aggression  | avgDiceReserve | kills       | turnsToWin  | avgPlacement |
+| ----------------------- | ---------- | ----------- | -------------- | ----------- | ----------- | ------------ |
+| **Blitz**               | 48.6 ± 2.1 | 2.14 ± 0.03 | 63.1 ± 2.3     | 1.53 ± 0.06 | 126.3 ± 4.2 | 2.49 ± 0.10  |
+| **Survivor**            | 64.5 ± 2.5 | 1.60 ± 0.05 | 77.1 ± 2.4     | 1.88 ± 0.07 | 146.4 ± 3.8 | 1.69 ± 0.09  |
+| **Conqueror** (control) | 34.5 ± 2.6 | 1.72 ± 0.06 | 82.2 ± 3.1     | 1.41 ± 0.07 | 143.1 ± 6.7 | 2.51 ± 0.06  |
+
+- **Survivor signature (avgPlacement↓): PASS ✓** — Δ−0.82 [−0.92, −0.72] (MDE 0.4). Best placement in the
+  field (1.69) **and** the highest win% (64.5%): placement-optimization made it the best all-around, not a
+  passive turtle. Clean ship candidate.
+- **Blitz signature (aggression↑ AND turnsToWin↓): FAIL ✗ — on a technicality.** turnsToWin↓ **Δ−16.81**
+  [−24.1, −9.5] clears easily (finishes ~17 turns sooner); aggression↑ Δ+0.42 [0.37, 0.47] is _significant
+  in the right direction_ but below the **placeholder MDE of 1.0**, so the AND-gate fails. The style
+  unmistakably moved: dice reserve Δ−19.1 (attacks instead of banking), survivalTurn Δ−59.8 (flames out
+  fast when it loses). This is an **MDE-calibration miss, not a style miss** — the true persona effect on
+  `aggression` is ≈0.4, far below the guessed 1.0.
+
+**Cross-comparison: the reward knobs produced genuinely distinct styles.** Survivor = patient,
+high-placement, longest games (146 t); Blitz = fast, aggressive, low dice reserve, shortest games (126 t);
+Conqueror = balanced hoarder (highest dice reserve, 82). The pilot SUCCEEDS on the "are they different?"
+axis (Survivor formally; Blitz substantively, pending MDE recalibration).
+
+### Pilot verdict + MDE calibration (for batch 2)
+
+- **Strength gate: 3/3 PASS.** Style gate: Survivor PASS, Blitz substantive-but-MDE-blocked, Conqueror =
+  control (no signature).
+- **Calibrated MDEs from this pilot** (to replace the placeholders in `behavior-core.mjs` `DEFAULT_MDE`):
+  `aggression` 1.0 → **~0.3** (observed real effect 0.42), `turnsToWin` 5.0 ✓ (effect −16.8),
+  `avgPlacement` 0.4 ✓ (effect −0.82). Under an aggression-MDE of 0.3, **Blitz PASSES**.
+- **Ship call (D-27, still open) is Ivan's:** Survivor is the clear winner (strong + distinct + PASS);
+  Blitz is a real faster/aggressive style worth shipping once the MDE is recalibrated; Conqueror is the
+  control. Next: batch 2 (Expansionist + Predator, dense rewards, bite G) — and the placement-reward
+  strength finding earns a `ppo-long` head-to-head.
+
+**Repro:** export each — `cd ml && .venv/bin/python -m dicewars_bc.export_weights --ckpt
+runs/ppo-<p>/ppo.pt --out runs/ppo-<p>/<p>.weights.js --fixture runs/ppo-<p>/<p>.fixture.json`; gate —
+`npm run ppo:gate -- --weights ml/runs/ppo-<p>/<p>.weights.js --fixture ml/runs/ppo-<p>/<p>.fixture.json
+--name <Name>`; profile — `npm run behavior:profile -- --bots
+Blitz=ml/runs/ppo-blitz/blitz.weights.js,Survivor=ml/runs/ppo-survivor/survivor.weights.js --control
+Conqueror=ml/runs/ppo-conqueror/conqueror.weights.js`. Checkpoints on shodan
+`~/dicewarsjs/ml/runs/ppo-{conqueror,blitz,survivor}/ppo.pt`.
+
+### Head-to-head vs `ppo-long` — the ship decision ([D-27])
+
+Beating Lookahead is not the bar for replacing the shipped net; beating (or matching) `ppo-long` is. Same
+9-bot gate field, `--bar PPO` (the live `ai_ppo` = `ppo-long`, sha `f6be9b91…`), 3060 seat-fair games each,
+paired Δwin% (persona − ppo-long):
+
+| Persona vs `ppo-long`   | Cand win% (95% CI) | ppo-long win% | Paired Δ (cand − bar)        | Verdict     |
+| ----------------------- | ------------------ | ------------- | ---------------------------- | ----------- |
+| **Conqueror** (control) | 20.9 ± 1.5         | 28.5 ± 1.9    | **−7.6 ± 2.5 [−10.1, −5.1]** | ❌ BEHIND   |
+| **Blitz**               | 28.7 ± 1.7         | 29.1 ± 1.5    | **−0.4 ± 2.7 [−3.1, 2.3]**   | ~ TIE       |
+| **Survivor**            | 38.0 ± 1.5         | 29.6 ± 1.1    | **+8.4 ± 2.1 [6.3, 10.5]**   | ✅ **BEAT** |
+
+**Read:** 3M more steps of the SAME win objective off `ppo-long` _regressed_ the control (Conqueror −7.6) —
+sparse-reward continuation drifts the policy — while CHANGING the reward helped: placement-shaped Survivor
+is the strongest net the game ships (+8.4 over `ppo-long`), and short-horizon Blitz holds even (TIE).
+
+**Ship outcome ([D-27]).** Conqueror's fine-tune fails the "≥ `ppo-long`" bar, so the player-facing
+**Conqueror ships the `ppo-long` weights directly** (it _is_ the balanced win-objective net — no downgrade);
+**Blitz/Survivor ship their own checkpoints**. All three are the player-facing roster (in-game picker +
+arena/tournament); the internal `PPO`/`BC` nets are **hidden** (kept in `builtInBots.js` for the dev
+harness, `PPO` still the gate baseline). The weaker `ppo-conqueror` checkpoint is a training artifact, not
+shipped. **Repro:** `npm run ppo:gate -- --weights ml/runs/ppo-<p>/<p>.weights.js --fixture
+ml/runs/ppo-<p>/<p>.fixture.json --name <Name> --bar PPO`.

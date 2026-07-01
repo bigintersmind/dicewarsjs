@@ -11,12 +11,20 @@ import { useState, useCallback } from 'preact/hooks';
 import { runMatch } from '../arena/matchRunner.js';
 import { updateEloRatings, DEFAULT_RATING } from '../arena/elo.js';
 import { reportBotErrors } from '../arena/botErrorReport.js';
-import { BUILT_IN_BOTS } from '../arena/builtInBots.js';
+import { PLAYER_VISIBLE_BOTS } from '../arena/builtInBots.js';
 import { createReplay } from '../arena/replayFormat.js';
 import { Leaderboard } from './Leaderboard.jsx';
 import { AddBotViaGithub } from './AddBotViaGithub.jsx';
 
 const GAME_COUNT_OPTIONS = [5, 10, 25, 50, 100];
+
+/*
+ * The visible built-ins split into the two sections the Title Screen picker also
+ * shows: the learned neural personas (Self-Play) above the hand-written heuristics
+ * (General). `persona` is the same flag builtInBots.js tags them with.
+ */
+const SELF_PLAY_BOTS = PLAYER_VISIBLE_BOTS.filter(b => b.persona);
+const GENERAL_BOTS = PLAYER_VISIBLE_BOTS.filter(b => !b.persona);
 
 const STYLE = {
   container: {
@@ -49,6 +57,15 @@ const STYLE = {
     marginBottom: '0.5rem',
     display: 'block',
     letterSpacing: '0.05em',
+  },
+  groupLabel: {
+    fontFamily: 'Roboto, sans-serif',
+    fontSize: '0.75rem',
+    color: 'var(--ui-text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    display: 'block',
+    margin: '0.5rem 0 0.35rem',
   },
   botRow: {
     display: 'flex',
@@ -166,7 +183,7 @@ const STYLE = {
  * @param {(replay: Object) => void} [props.onViewReplay] - Navigate to replay viewer
  */
 export function ArenaScreen({ onBack, onViewReplay }) {
-  const [selectedBots, setSelectedBots] = useState(new Set(BUILT_IN_BOTS.map(b => b.id)));
+  const [selectedBots, setSelectedBots] = useState(new Set(PLAYER_VISIBLE_BOTS.map(b => b.id)));
   const [gameCount, setGameCount] = useState(25);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -197,7 +214,7 @@ export function ArenaScreen({ onBack, onViewReplay }) {
     setReplays([]);
     setError(null);
 
-    const bots = BUILT_IN_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
+    const bots = PLAYER_VISIBLE_BOTS.filter(b => selectedBots.has(b.id)).map(b => ({
       name: b.name,
       fn: b.fn,
     }));
@@ -338,6 +355,19 @@ export function ArenaScreen({ onBack, onViewReplay }) {
     setTimeout(() => runNextGame(0), 50);
   }, [canRun, selectedBots, gameCount]);
 
+  const renderBotButton = bot => (
+    <button
+      key={bot.id}
+      style={{
+        ...STYLE.botBtn,
+        ...(selectedBots.has(bot.id) ? STYLE.botBtnActive : {}),
+      }}
+      onClick={() => toggleBot(bot.id)}
+    >
+      {bot.name}
+    </button>
+  );
+
   return (
     <div style={STYLE.container}>
       <h1 style={STYLE.title}>ARENA</h1>
@@ -346,20 +376,10 @@ export function ArenaScreen({ onBack, onViewReplay }) {
 
       <div style={STYLE.section}>
         <span style={STYLE.label}>SELECT BOTS (min 2)</span>
-        <div style={STYLE.botRow}>
-          {BUILT_IN_BOTS.map(bot => (
-            <button
-              key={bot.id}
-              style={{
-                ...STYLE.botBtn,
-                ...(selectedBots.has(bot.id) ? STYLE.botBtnActive : {}),
-              }}
-              onClick={() => toggleBot(bot.id)}
-            >
-              {bot.name}
-            </button>
-          ))}
-        </div>
+        <span style={STYLE.groupLabel}>Self-Play</span>
+        <div style={STYLE.botRow}>{SELF_PLAY_BOTS.map(renderBotButton)}</div>
+        <span style={STYLE.groupLabel}>General</span>
+        <div style={STYLE.botRow}>{GENERAL_BOTS.map(renderBotButton)}</div>
       </div>
 
       <div style={STYLE.section}>

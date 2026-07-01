@@ -6,13 +6,14 @@
  * Runs bot matches headlessly and prints an ELO ranking table.
  *
  * Usage:
- *   npm run arena                          # 100 games with all built-in bots
+ *   npm run arena                          # 100 games with all player-visible bots
  *   npm run arena -- --games 50            # 50 games
  *   npm run arena -- --bots Default,Adaptive  # specific built-in bots only
+ *   npm run arena -- --bots PPO,BC,Conqueror  # hidden dev nets are still requestable by name
  */
 
 import { runArena } from '../src/arena/arenaRunner.js';
-import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
+import { BUILT_IN_BOTS, PLAYER_VISIBLE_BOTS } from '../src/arena/builtInBots.js';
 import { getArg } from './lib/cli-utils.mjs';
 
 // --- Parse CLI args ---
@@ -41,7 +42,12 @@ if (botFilter) {
     process.exit(1);
   }
 } else {
-  bots = [...BUILT_IN_BOTS];
+  /*
+   * Default field = the player-visible roster. Excludes the hidden dev nets
+   * (BC, and PPO — whose weights already ship as the Conqueror persona), so the
+   * ranking isn't diluted by a duplicate policy. Request them by name if needed.
+   */
+  bots = [...PLAYER_VISIBLE_BOTS];
 }
 
 if (bots.length < 2) {

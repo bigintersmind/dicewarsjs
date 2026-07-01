@@ -71,7 +71,10 @@ if (biases.length === 0 || biases.some(b => !Number.isFinite(b))) {
  * config re-adds its own BC variant. Every config sees identical seed blocks (baseSeed
  * is independent of bias), so the comparison across biases is paired on the same maps.
  */
-const baseField = BUILT_IN_BOTS.filter(b => b.name !== 'BC').map(b => ({ name: b.name, fn: b.fn }));
+const baseField = BUILT_IN_BOTS.filter(b => b.name !== 'BC' && !b.persona).map(b => ({
+  name: b.name,
+  fn: b.fn,
+}));
 const YARDSTICK = 'Lookahead';
 if (!baseField.some(b => b.name === YARDSTICK)) {
   console.error(`Reference bot "${YARDSTICK}" is not in BUILT_IN_BOTS — cannot anchor the sweep.`);

@@ -2,7 +2,16 @@
  * Built-in Bot Registry
  *
  * Shared list of built-in bots adapted from legacy AI strategies.
- * Used by ArenaScreen and TournamentScreen.
+ *
+ * Two audiences read this list, distinguished by per-entry flags:
+ *  - **Players** see {@link PLAYER_VISIBLE_BOTS} — everything except `hidden` bots.
+ *    ArenaScreen and TournamentScreen import that derived list. `ai_bc`/`ai_ppo` are
+ *    `hidden: true`: BC is an early imitation run and PPO is an internal training name,
+ *    so neither is shown in-game; the player-facing nets are the three personas.
+ *  - **The dev ML eval harness** (`ppo:gate`, `behavior:profile`, the PFSP league)
+ *    imports the full `BUILT_IN_BOTS`, so `PPO` stays available as the strength baseline.
+ *    The gate's reference field excludes `persona`-tagged bots (see `ppo-gate-core.js`)
+ *    so adding personas here does NOT change the canonical gate table.
  *
  * @module arena/builtInBots
  */
@@ -17,6 +26,9 @@ import { ai_lookahead } from '../ai/ai_lookahead.js';
 import { ai_expectimax } from '../ai/ai_expectimax.js';
 import { ai_bc } from '../ai/ai_bc.js';
 import { ai_ppo } from '../ai/ai_ppo.js';
+import { ai_conqueror } from '../ai/ai_conqueror.js';
+import { ai_blitz } from '../ai/ai_blitz.js';
+import { ai_survivor } from '../ai/ai_survivor.js';
 
 export const BUILT_IN_BOTS = [
   { id: 'ai_example', name: 'Example', fn: adaptLegacyBot(ai_example, 'Example') },
@@ -33,13 +45,32 @@ export const BUILT_IN_BOTS = [
    * — exactly ai_bc's contract. (adaptModernBot is for the in-game `runAI` loop, which
    * passes a GameState and does NOT use this list; wrapping here made BC throw every turn —
    * its wrapper dereferences `state.turnOrder`, a field a BotState lacks.)
+   * `hidden`: an early imitation run, kept for the eval harness but not shown to players.
    */
-  { id: 'ai_bc', name: 'BC', fn: ai_bc },
+  { id: 'ai_bc', name: 'BC', fn: ai_bc, hidden: true },
   /*
-   * PPO — the self-play RL net (Phase 3). Like BC, already a modern
-   * `(BotState) => move` bot, so it registers RAW (every BUILT_IN_BOTS consumer
-   * runs bots through runMatch/runBotDirect, which calls `fn(botState)`). Wrapping
-   * it with adaptModernBot here would make it throw every turn — see the BC note above.
+   * PPO — the self-play RL net (Phase 3), aka `ppo-long`. Like BC, already a modern
+   * `(BotState) => move` bot, so it registers RAW. `hidden`: "PPO" is an internal
+   * training name, so it's not shown in-game — but it stays in BUILT_IN_BOTS as the
+   * strength baseline the ML gate measures personas against. (The player-facing
+   * Conqueror persona ships the SAME weights under a friendlier name.)
    */
-  { id: 'ai_ppo', name: 'PPO', fn: ai_ppo },
+  { id: 'ai_ppo', name: 'PPO', fn: ai_ppo, hidden: true },
+  /*
+   * Personas (docs/ml-bot/PERSONAS.md) — the player-facing self-play roster, each a
+   * RAW modern bot. `persona: true` keeps them out of the canonical `ppo:gate` reference
+   * field (so the documented baselines stay fixed) while still appearing in the in-game
+   * arena/tournament and the online tournament. Conqueror reuses the ppo-long weights
+   * (the strongest balanced net); Blitz/Survivor have their own fine-tuned checkpoints.
+   */
+  { id: 'ai_conqueror', name: 'Conqueror', fn: ai_conqueror, persona: true },
+  { id: 'ai_blitz', name: 'Blitz', fn: ai_blitz, persona: true },
+  { id: 'ai_survivor', name: 'Survivor', fn: ai_survivor, persona: true },
 ];
+
+/**
+ * The player-facing roster: every built-in bot except those flagged `hidden`
+ * (the dev-only `BC`/`PPO` nets). The Arena and Tournament screens render this list;
+ * the ML eval harness keeps using the full {@link BUILT_IN_BOTS}.
+ */
+export const PLAYER_VISIBLE_BOTS = BUILT_IN_BOTS.filter(b => !b.hidden);

@@ -4,7 +4,7 @@
   "totalGamesPlayed": 3700,
   "bots": [
     {
-      "name": "PPO",
+      "name": "Conqueror",
       "author": "built-in",
       "elo": 1331,
       "previousElo": 1258,
@@ -48,7 +48,7 @@
       "attackWinRate": 0.838
     },
     {
-      "name": "Connector",
+      "name": "Connector (bigintersmind)",
       "author": "bigintersmind",
       "elo": 1221,
       "previousElo": 1177,
@@ -57,17 +57,6 @@
       "winRate": 0.02,
       "avgPlacement": 6.67,
       "attackWinRate": 0.897
-    },
-    {
-      "name": "BC",
-      "author": "built-in",
-      "elo": 1202,
-      "previousElo": 1222,
-      "wins": 8,
-      "gamesPlayed": 100,
-      "winRate": 0.08,
-      "avgPlacement": 5.65,
-      "attackWinRate": 0.793
     },
     {
       "name": "Example",
@@ -103,7 +92,7 @@
       "attackWinRate": 0.736
     },
     {
-      "name": "Blitz",
+      "name": "Berserker (bigintersmind)",
       "author": "bigintersmind",
       "elo": 1120,
       "previousElo": 1150,
@@ -114,7 +103,7 @@
       "attackWinRate": 0.761
     },
     {
-      "name": "Giant Slayer",
+      "name": "Giant Slayer (bigintersmind)",
       "author": "bigintersmind",
       "elo": 1115,
       "previousElo": 1181,

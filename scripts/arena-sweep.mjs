@@ -16,7 +16,7 @@
  */
 
 import { runArena } from '../src/arena/arenaRunner.js';
-import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
+import { BUILT_IN_BOTS, PLAYER_VISIBLE_BOTS } from '../src/arena/builtInBots.js';
 import { getArg } from './lib/cli-utils.mjs';
 import { meanCi } from './lib/stats.mjs';
 
@@ -59,7 +59,9 @@ if (botFilter) {
     process.exit(1);
   }
 } else {
-  bots = [...BUILT_IN_BOTS];
+  // Default field = the player-visible roster (see the note in scripts/arena.mjs):
+  // the hidden BC/PPO nets are excluded so a duplicate policy can't skew the CIs.
+  bots = [...PLAYER_VISIBLE_BOTS];
 }
 
 if (bots.length < 2) {

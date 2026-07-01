@@ -21,6 +21,88 @@ Entry template:
 
 ---
 
+## 2026-06-30 — Ship the personas: Conqueror/Blitz/Survivor in-game, PPO/BC hidden ([D-27])
+
+**Phase:** persona-roster · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Head-to-head vs `ppo-long`** (`ppo:gate --bar PPO`, 3060 games each) to decide the roster:
+  **Conqueror −7.6 BEHIND, Blitz −0.4 TIE, Survivor +8.4 BEAT.** Continuing the win objective off
+  `ppo-long` regressed the control; the placement reward (Survivor) produced the strongest net we ship.
+- **Wired the player-facing roster (one PR, branch `feat/ml-persona-roster`):** `ai_conqueror`/`ai_blitz`/
+  `ai_survivor` modules (the `makeBC({policy})` pattern); **Conqueror reuses `ppoPolicyWeights.js`** (= the
+  hidden PPO), Blitz/Survivor ship their own packed weights (re-exported `--repack-js` from the shodan
+  checkpoints, parity-verified). `builtInBots.js`: personas added; `PPO`/`BC` flagged `hidden`; personas
+  flagged `persona`; new derived `PLAYER_VISIBLE_BOTS`. UI (`ArenaScreen`/`TournamentScreen`) → visible
+  list; `aiConfig.js` picker swaps `ai_ppo` out for the three personas.
+- **Pinned the gate field:** `buildGateField` + the two duplicate sweep filters now drop `persona` bots, so
+  the canonical 8-seat `ppo:gate` table (with `PPO` baseline) is unchanged — RESULTS baselines stay valid.
+- **Recalibrated** `DEFAULT_MDE.aggression` 1.0→0.3 (the pilot's measured Blitz effect was 0.42), so Blitz's
+  behavioral signature passes. Tests + fixtures for all three personas; `ai_ppo` test's aiConfig assertion
+  moved to `ai_conqueror`. `npm run blitz:export`/`survivor:export` added.
+
+**Learned / decided ([D-27]):**
+
+- The "balanced" slot stays as strong as today because **Conqueror = `ppo-long`** — we ship the strongest
+  balanced net under a friendly name rather than the weaker fine-tune. `hidden` (player visibility) and
+  `persona` (gate exclusion) are orthogonal flags; PPO is hidden-but-in-gate, personas are visible-but-not.
+- 12-bot whole-field matches run fine (no engine player cap); Survivor is not a turtle (attacks plenty), so
+  the field-health invariant holds.
+
+**Next:**
+
+- Open PR; let CI/tournament pick up the personas. The **placement-reward strength finding** earns a look at
+  whether a placement-shaped retrain should replace the main `ai_ppo`. **Batch 2** (Expansionist + Predator)
+  still queued — this pilot calibrated its MDEs.
+
+---
+
+## 2026-06-30 — Reward-persona pilot: 3 flag-only personas trained + evaluated (Conqueror / Blitz / Survivor)
+
+**Phase:** persona-roster · **Who:** Ivan + Claude
+
+**Did:**
+
+- Launched + completed the **first persona batch** on `shodan`: Conqueror (win γ0.999, control),
+  Blitz (win γ0.99), Survivor (placement γ0.999) — each warm-started from `ppo-long/ppo.pt`, 3M steps,
+  `lr 1e-4`, **concurrently** (~175 fps each, ~4.7 h wall, all clean `exit 0`, attempt #1). shodan was
+  updated to master `71b9e82` first; launched via the teardown-immune `dicewars-persona-pilot` schtasks
+  job, deleted post-run.
+- Exported all three (forward parity ≤ 2.1e-5), ran `ppo:gate` (strength) + `behavior:profile` (style).
+  Full numbers + tables → RESULTS.md ("reward-PERSONA pilot" section).
+
+**Learned / decided:**
+
+- **Strength: 3/3 BEAT Lookahead** (paired Δ Conqueror +13.0, Blitz +20.3, Survivor +29.7; 9-bot field
+  incl. a `ppo-long` seat) — the warm-start held, no collapse under reward-shaped fine-tuning.
+- **Style: genuinely distinct.** Survivor signature PASS (avgPlacement↓ Δ−0.82); Blitz signature FAIL
+  **only** because the placeholder aggression MDE (1.0) exceeds the real effect (0.42) — turnsToWin↓
+  Δ−16.8 cleared easily, dice-reserve Δ−19.1, survivalTurn Δ−59.8. → recalibrate aggression MDE to ~0.3
+  (then Blitz passes). This pilot **is** the MDE calibration the harness placeholders were waiting on.
+- **Surprise: placement-reward (Survivor) is the STRONGEST and the win-reward control (Conqueror) the
+  WEAKEST** — replicated across two independent fields (gate + profile). Dense placement signal probably
+  trains better than sparse win/loss in 3M steps. Possible lever for the main `ai_ppo`, pending a clean
+  `ppo-long` head-to-head.
+
+**Dead ends / surprises:**
+
+- WSL teardown bit again pre-launch (tmux + `Start-Process` both reaped on SSH disconnect) — only the
+  Windows scheduled task survives. Already in the shodan memory card; re-confirmed the hard way.
+- Blitz's AND-signature failing despite an obvious style shift = the harness's placeholder MDEs were
+  guesses; the gate is only as good as its calibration.
+
+**Next:**
+
+- Ship call (D-27, Ivan's): Survivor = clear winner; Blitz = ship after MDE recalibration; Conqueror =
+  control. Wire winners as `ai_<persona>` (PR #74 pattern).
+- Batch 2: Expansionist + Predator (dense rewards, bite G) — calibrate `--territory-reward-coef` /
+  `--elim-bounty`, env-smoke `--reward-shaping`, launch the same schtasks way.
+- Optional: land calibrated `DEFAULT_MDE`s in `behavior-core.mjs`; run the placement-reward vs
+  `ppo-long` head-to-head.
+
+---
+
 ## 2026-06-30 — Shrink + lazy-load the in-browser net weights (issue #51)
 
 **Phase:** 3 · **Who:** Claude

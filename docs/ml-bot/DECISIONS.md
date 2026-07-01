@@ -1686,3 +1686,41 @@ shaped wire parity + the shaped/unshaped mismatch guard (`test_ppo_wire.py`), `s
 `PERSONA={expansionist,predator}` + flag-forward (`test_ppo_train_launcher.py`); 104 affected torch-free
 tests green. The argparse + `_validate` cases land in the sb3-gated `test_train_args.py` (CI/shodan tier).
 The framework-acceptance decision for the roster (D-27?) stays open until the first batch profiles out.
+
+## D-27 — Roster acceptance: ship Conqueror/Blitz/Survivor as the player-facing nets, hide PPO/BC; Conqueror = the ppo-long weights · Accepted (2026-06-30) · resolves the roster-acceptance bar reserved by [PERSONAS.md](./PERSONAS.md) §9 / [D-28](#d-28--bite-g-the-dense-reward-wire-is-an-opt-in-frame-header-variant-not-an-encoding_version-bump)
+
+**Context.** The pilot batch (Conqueror = win/γ0.999, Blitz = win/γ0.99, Survivor = placement/γ0.999; 3M
+steps each off `ppo-long`, matched on every axis but reward) trained, exported, gated, and profiled
+(2026-06-30 — see RESULTS.md). **Strength: all three BEAT Lookahead** (paired Δ +13.0 / +20.3 / +29.7 in
+the 9-bot field). **Style:** Survivor's signature PASSED (avgPlacement↓ −0.82); Blitz's AND-signature
+FAILED only because the placeholder aggression MDE (1.0) exceeded the real effect (0.42) — so the MDE was
+recalibrated to 0.3 (which this pilot's data justifies), under which Blitz PASSES.
+
+**The deciding measurement — a head-to-head vs `ppo-long` (same field, `--bar PPO`).** Beating Lookahead
+isn't the bar for replacing the shipped net; beating (or matching) the shipped net is. Result: **Conqueror
+−7.6 [−10.1, −5.1] BEHIND, Blitz −0.4 [−3.1, 2.3] TIE, Survivor +8.4 [6.3, 10.5] BEAT.** So 3M more steps
+of the SAME win objective off `ppo-long` _regressed_ the control (sparse-reward continuation drifted it),
+while changing the reward helped (placement Survivor is the strongest net the game ships).
+
+**Decisions.**
+
+1. **Player-facing roster = the three personas; `PPO`/`BC` are hidden.** "PPO" is an internal training
+   name and "BC" is an early imitation run, so neither belongs in the in-game picker or the arena/tournament
+   UI. They stay in `BUILT_IN_BOTS` flagged `hidden: true`; screens render the derived `PLAYER_VISIBLE_BOTS`.
+2. **Conqueror ships the `ppo-long` weights directly, NOT its fine-tuned checkpoint.** Conqueror's identity
+   (balanced, long-horizon, win-maximizing) _is_ `ppo-long`'s objective, and the fine-tune came out weaker —
+   so `ai_conqueror` imports `ppoPolicyWeights.js` (same weights as the hidden `PPO`, under a friendly name).
+   No downgrade vs. what players get today. The weaker `ppo-conqueror` checkpoint is kept as a training
+   artifact, not shipped. Blitz/Survivor ship their own checkpoints (`blitz`/`survivorPolicyWeights.js`).
+3. **The gate keeps `PPO` as its baseline; personas are excluded from the reference field.** Adding the
+   personas to `BUILT_IN_BOTS` would have ballooned the `ppo:gate` field 8→11 and invalidated every
+   documented baseline. The personas are tagged `persona: true` and dropped by `buildGateField` (and the two
+   duplicate filters in `bc-stopbias-sweep`/`_probe-capacity-arena`), so the canonical 8-seat table — `PPO`
+   baseline included — stays fixed. `hidden` (player visibility) and `persona` (gate exclusion) are
+   orthogonal flags.
+
+**Follow-ups (not blocking the ship).** The placement-reward strength finding (Survivor > `ppo-long`)
+earns a clean look at whether a placement-shaped retrain should become the MAIN `ai_ppo` — a lever for the
+flagship net, not just a persona. Batch 2 (Expansionist + Predator, dense rewards, [D-28]) remains queued;
+this pilot also calibrates the batch-2 MDEs (aggression 0.3; turnsToWin 5.0 and avgPlacement 0.4 confirmed
+adequate).

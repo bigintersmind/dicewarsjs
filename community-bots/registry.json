@@ -9,10 +9,10 @@
     "active": true
   },
   {
-    "id": "bigintersmind/blitz",
-    "name": "Blitz",
+    "id": "bigintersmind/berserker",
+    "name": "Berserker",
     "author": "bigintersmind",
-    "file": "bigintersmind/blitz.js",
+    "file": "bigintersmind/berserker.js",
     "description": "Hyper-aggressive expander that grabs every favorable capture and takes even odds for tempo.",
     "submittedAt": "2026-06-13T00:00:00Z",
     "active": true

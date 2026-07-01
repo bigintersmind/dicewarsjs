@@ -21,6 +21,56 @@ Entry template:
 
 ---
 
+## 2026-07-01 — Strength-curve Phase 1 design review ([D-29]) + `ppo:gate` default-name collision fix
+
+**Phase:** strength-curve harness · **Who:** Ivan + Claude
+
+**Did:**
+
+- **Reviewed the Phase-1 scorer design** (STRENGTH_CURVE.md) with a code-grounded multi-agent
+  workflow: 3 ground agents (docs / gate code / producer), 3 review lenses (statistics, ML
+  methodology, design-ops), every merged finding adversarially verified against the repo
+  (11 confirmed, 3 refuted). **Amendments applied to the doc; all five open questions resolved —
+  recorded as [D-29]** (in-field references only, per-run arrays + run-paired k=2 regression
+  detector, `--watch` mode, mandatory fresh-seed confirmation, failure/provenance/transport
+  policies, `runGateSweep` extraction as the prerequisite refactor).
+- **Found + fixed a live bug:** since PR #74 seated `PPO` in the gate field (an arrangement
+  [D-27] kept), the gate's default `--name PPO` hit the `buildGateField` collision guard —
+  **bare `npm run ppo:gate` threw at field construction**. Fix: `DEFAULT_CANDIDATE_NAME = 'Candidate'` exported from
+  `ppo-gate-core.mjs`, used by the CLI, pinned against the real registry by a new regression
+  test in `tests/scripts/ppoGateCore.test.js`; also fixed the stale "rounded down" comment
+  (`Math.round`, 17 seeds × 9 = 153 games/run). Smoke-verified: bare gate now runs (2×18-game
+  probe, field `…, PPO, Candidate` — the default run doubles as a same-weights calibration probe).
+
+**Learned / decided:**
+
+- The design's reuse table was right about the primitives but the **sweep orchestration is
+  inline in the CLI** (with `process.exit`) — Phase 1 must extract `runGateSweep` first.
+- The "CIs disjoint" regression rule is underpowered (~88% against the motivating −7.6);
+  run-paired k=2 t-tests on persisted per-run arrays get ~99% at ~5% family-wise FP for free
+  (constant seedBase already pairs the runs).
+- Constant seedBase ≠ noise-free attribution: 3 field bots are unseeded `Math.random`; shared
+  maps ≈ 10% of run variance (estimate — first curve should publish the observed test-retest
+  floor).
+- Fresh-seed confirmation must offset `seedBase` by **≥ the run count** (offset 1 reuses 19/20
+  seed blocks).
+
+**Dead ends / surprises:**
+
+- **The retroactive `ppo-conqueror` curve is feasible after all** — verified on shodan:
+  `ml/runs/ppo-conqueror/league/` retains 30 self-contained snapshots (~100k cadence, 0→3M) +
+  `manifest.json` (encodingVersion 2), plus the fixtured final export. Needs a manifest→index
+  adapter + fixture-waived retro mode. (Also on shodan: `ppo-scratch-long` run dir with task/boot
+  logs — launched pre-#97, so it has **no** `eval/` stream; this LOG had no entry for it.)
+- Trainer telemetry was never missing: `--log-dir` is always on, so KL/entropy/value-loss/LR sit
+  in `tb/` + `progress-*.csv` keyed by timestep — the scorer should point at them on a flagged
+  dip, not re-record them.
+
+**Next:**
+
+- Build the Phase-1 scorer per the amended design: `runGateSweep` extraction → tier-1 synthetic
+  acceptance test → `--watch` loop → (when shodan frees) the retroactive Conqueror curve.
+
 ## 2026-06-30 — Ship the personas: Conqueror/Blitz/Survivor in-game, PPO/BC hidden ([D-27])
 
 **Phase:** persona-roster · **Who:** Ivan + Claude

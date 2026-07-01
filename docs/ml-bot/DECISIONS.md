@@ -1724,3 +1724,60 @@ earns a clean look at whether a placement-shaped retrain should become the MAIN 
 flagship net, not just a persona. Batch 2 (Expansionist + Predator, dense rewards, [D-28]) remains queued;
 this pilot also calibrates the batch-2 MDEs (aggression 0.3; turnsToWin 5.0 and avgPlacement 0.4 confirmed
 adequate).
+
+## D-29 — Strength-curve Phase 1 design resolved: in-field references, run-paired k=2 detector, watch mode, mandatory fresh-seed confirmation · Accepted (2026-07-01) · resolves the five [STRENGTH_CURVE.md](./STRENGTH_CURVE.md) open questions
+
+**Context.** The Phase-1 scorer design (grade every PPO eval checkpoint on the seat-fair gate →
+strength-vs-steps curve) went through a code-grounded multi-agent review (3 lenses — statistics,
+ML methodology, design/ops — every finding adversarially verified against the repo; 11 findings
+survived, 3 of the doc's own assumptions were refuted). Amendments are applied in the doc; this
+entry records the decisions and the corrected claims so they don't regress.
+
+**Decisions.**
+
+1. **References come from IN the field — never as extra seats.** `ppo-long` already sits in the
+   gate field as `PPO` (hidden ≠ persona, so `buildGateField` keeps it), so the second reference
+   is a free per-run tally from the same games. Loading a reference as an additional seat would
+   grow the field 9→10 and invalidate every documented baseline (the field-sensitivity audit's
+   trap). No Survivor seat; re-grade interesting checkpoints against it on demand.
+2. **Persist per-run win%/placement arrays in every row**, and do all cross-checkpoint analysis
+   as run-paired tests (constant `seedBase` makes runs pairable): regression = one-sided paired
+   t-test vs the running best's lower CI bound, flagged at **k=2 consecutive** points (~99%
+   power on a sustained −7.6 at ~5% family-wise FP); plateau = no paired gain over `s*` for
+   **k=3** points. The naive "CIs disjoint" rule is retired to a cross-curve fallback (needs a
+   ~5.4 pp gap; only ~88% power against the motivating −7.6).
+3. **`--watch` mode is part of Phase 1**, with a loud regression alert — a batch-only walker
+   doesn't close the "found out after training" loop the harness exists for. Runs on the mini
+   via an rsync-pull of shodan's eval dir; "index row with missing files = not yet synced,
+   retry" restores the producer's atomicity under any sync order.
+4. **Argmax-best is a selection, not a measurement.** Winner's curse ≈ +2 pp over ~20 points.
+   Before any ship decision: re-grade at a fresh `seedBase` offset **≥ the run count** (seeds
+   are `(seedBase+run)·STRIDE+…`, so offset 1 reuses 19/20 blocks), ideally 2× runs, and
+   cross-check finalists with `arena:ml`. The fresh-seed number is the reported strength.
+5. **Failure policy:** `encodingVersion` mismatch aborts the whole scorer (run-global);
+   parity failures emit `status:'parity-failed'` rows and abort past a `shouldAbort`-style
+   threshold; gaps break k-consecutive windows. Rows/sidecar carry provenance (git SHA,
+   `ENCODING_VERSION`, field hash, knobs, weights sha256) — win% is field-relative.
+6. **Prerequisite refactor:** extract `runGateSweep(...)` (per-run arrays for arbitrary tallied
+   names, throws instead of `process.exit`) into `ppo-gate-core.mjs`; `ppo-gate.mjs` becomes a
+   thin CLI. The gate's default-name collision (bare `npm run ppo:gate` threw since PR #74
+   seated `PPO` — an arrangement [D-27] kept) is fixed: `DEFAULT_CANDIDATE_NAME='Candidate'`,
+   registry-pinned by test; the
+   bare default now doubles as a calibration probe (Candidate ≡ PPO weights in one field).
+
+**Corrected claims (were in the design doc).** Constant seedBase does NOT make differences
+"attributable to the policy" — 3 field bots are unseeded `Math.random` and shared maps are ~10%
+of run variance (it buys comparability + pairing, not attribution). The "~1 pp across 19M steps"
+bullet mis-cited the from-scratch **control** as a trajectory point — no within-trajectory
+adjacent-checkpoint data exists yet. Recorded gate CIs span ±1.7–3.1 pp (not "±2.5–3"); default
+budget is 3,060 games on the 9-seat field; the 267.7 s/440.5 s gate timings are **shodan's**, the
+mini is uncalibrated. Curve Δs (9-seat era) are comparable to the persona-gate rows, never to the
+8-seat +27.7 history.
+
+**Refuted review assumptions (good news).** (1) The retroactive `ppo-conqueror` acceptance test
+IS feasible: verified on shodan 2026-07-01 — `ml/runs/ppo-conqueror/league/` retains 30
+self-contained snapshots at ~100k cadence (0→3M) + `manifest.json`; needs a manifest→index
+adapter with a fixture-waived retro mode. (2) Trainer telemetry already exists (`tb/` +
+`progress-*.csv` via `--log-dir`, always on) — join it to diagnose dips; don't duplicate into
+the producer. (3) Trainer resume never re-emits a step id with different weights — step-keyed
+incremental scoring is safe (just drop rows whose steps vanish from the index).

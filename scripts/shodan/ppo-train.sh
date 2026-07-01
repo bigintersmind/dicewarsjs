@@ -73,6 +73,7 @@ SNAPSHOT_DIR="${SNAPSHOT_DIR:-$RUN_ROOT/league}"    # PFSP snapshot pool (weight
 LEAGUE_STATE_DIR="${LEAGUE_STATE_DIR:-$RUN_ROOT/league-state}"  # Node resume half + disk win-rate store
 LOG_DIR="${LOG_DIR:-$RUN_ROOT/tb}"                  # TensorBoard event files + per-session progress CSV
 OUT="${OUT:-$RUN_ROOT/ppo.pt}"                      # repacked BC-format actor (what ppo:export consumes)
+EVAL_DIR="${EVAL_DIR:-$RUN_ROOT/eval}"              # durable per-checkpoint eval stream (strength-curve harness, Phase 0)
 LAUNCH_LOG="$RUN_ROOT/launcher.log"
 
 # --- model + budget + production HPs --------------------------------------------------------------
@@ -105,6 +106,7 @@ fi
 RESERVE_BASELINES="${RESERVE_BASELINES:-3}"         # R=3 LOCKED ([D-24]/B5): turtle-equilibrium floor
 SNAPSHOT_EVERY="${SNAPSHOT_EVERY:-100000}"
 CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-100000}"      # resume cadence (independent of --snapshot-every)
+EVAL_EVERY="${EVAL_EVERY:-1000000}"                 # per-checkpoint eval cadence (strength curve; independent of the above)
 LEAGUE_DUMP_EVERY="${LEAGUE_DUMP_EVERY:-50}"        # Node league dump cadence in BOOKED episodes
 
 # --- auto-restart policy --------------------------------------------------------------------------
@@ -206,6 +208,7 @@ build_train_argv() {
     --reserve-baselines "$RESERVE_BASELINES"
     --league-state-dir "$LEAGUE_STATE_DIR" --league-dump-every "$LEAGUE_DUMP_EVERY"
     --state-dir "$STATE_DIR" --checkpoint-every "$CHECKPOINT_EVERY"
+    --eval-dir "$EVAL_DIR" --eval-every "$EVAL_EVERY"
     --log-dir "$LOG_DIR"
   )
   # `if` (not `[ … ] && …`): a trailing `&&` whose test is FALSE returns non-zero, which under

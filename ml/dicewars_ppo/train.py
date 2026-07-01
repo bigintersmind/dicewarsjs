@@ -70,6 +70,7 @@ from stable_baselines3.common.logger import (
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 
 from . import _train_common
+from .eval_checkpoint_callback import EvalCheckpointCallback
 from .policy import load_bc_checkpoint, repack_to_bc_checkpoint
 from .resume import (
     RESUME_ACTION_HALT,
@@ -142,6 +143,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Resume-checkpoint cadence in total env steps (only with --state-dir). Defaults to "
         "50000 (the same default as --snapshot-every, but NOT dynamically coupled to it — set this "
         "explicitly if you change --snapshot-every and want checkpoints to follow).",
+    )
+    # Durable per-checkpoint eval producer (Phase 0 — the strength-curve harness). INDEPENDENT of
+    # --snapshot-dir (GC'd to pool_cap, no parity fixture) and --state-dir (resume). With --eval-dir
+    # set, repack+export a gradeable, FIXTURED eval-<step>.weights.js every --eval-every steps into
+    # a NON-GC'd stream (+ .fixture.json + .pt + index.jsonl) that scripts/ppo-strength-curve.mjs
+    # walks to score each checkpoint out-of-band, building a strength-vs-steps curve. Sub-second
+    # work (a repack + a tiny fixture forward); the ~7-min arena scoring never touches the GPU.
+    p.add_argument(
+        "--eval-dir",
+        default=None,
+        help="Directory for the durable per-checkpoint eval stream (eval-<step>.weights.js + "
+        ".fixture.json + .pt + index.jsonl). Unset ⇒ no eval producer. Non-GC'd; independent of "
+        "--snapshot-dir and --state-dir.",
+    )
+    p.add_argument(
+        "--eval-every",
+        type=int,
+        default=1_000_000,
+        help="Eval-checkpoint cadence in total env steps (only with --eval-dir). Defaults to "
+        "1000000 (1M) — coarse enough that ~20 points over a 20M run cost negligible in-loop time, "
+        "fine enough to see a plateau/regression.",
     )
     # Reward shaping for the persona roster (bite D, docs/ml-bot/PERSONAS.md). All wire-free and
     # default to the [D-19] sparse terminal-win, so an omitted flag is byte-identical to today.
@@ -223,6 +245,12 @@ def _validate(args: argparse.Namespace) -> None:
     _train_common.validate_reward_args(args)
     if args.checkpoint_every <= 0:
         raise SystemExit(f"--checkpoint-every must be > 0 (got {args.checkpoint_every}).")
+    if args.eval_every <= 0:
+        raise SystemExit(f"--eval-every must be > 0 (got {args.eval_every}).")
+    if args.eval_dir is not None:
+        # Absolutize so the resume disk-scan hits the same dir regardless of cwd (the callback
+        # rebuilds its index from eval_dir on _on_training_start). Do NOT mkdir — the callback does.
+        args.eval_dir = str(Path(args.eval_dir).resolve())
     if args.freeze_trunk and args.state_dir is not None:
         # Reject EAGERLY (not only at resume time): MaskablePPO.load does not restore the build-time
         # requires_grad freeze, so a resumed --freeze-trunk run would train the trunk it should
@@ -405,6 +433,11 @@ def train(args: argparse.Namespace) -> Path:
         if args.state_dir:
             callbacks.append(ResumeCheckpointCallback(args.state_dir, args.checkpoint_every))
             print(f"resume checkpointer: every {args.checkpoint_every} steps → {args.state_dir}")
+        if args.eval_dir:
+            callbacks.append(
+                EvalCheckpointCallback(args.eval_dir, args.eval_every, teacher="ppo-eval")
+            )
+            print(f"eval-checkpoint producer: every {args.eval_every} steps → {args.eval_dir}")
         learn_callback = (
             CallbackList(callbacks) if len(callbacks) > 1 else (callbacks[0] if callbacks else None)
         )

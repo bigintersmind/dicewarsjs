@@ -239,33 +239,32 @@ def test_no_persona_is_byte_identical_to_the_beat_run(tmp_path):
     rc, out = _resolve(tmp_path)
     assert rc == 0
     argv = _argv_pairs(out)
-    assert (
-        set(argv)
-        == {
-            "--checkpoint",
-            "--out",
-            "--timesteps",
-            "--n-envs",
-            "--start-method",
-            "--lr",
-            "--ent-coef",
-            "--gamma",
-            "--reward-mode",
-            "--terminal-speed-bonus",
-            "--territory-reward-coef",
-            "--elim-bounty",
-            "--device",
-            "--snapshot-dir",
-            "--snapshot-every",
-            "--snapshot-store",
-            "--reserve-baselines",
-            "--league-state-dir",
-            "--league-dump-every",
-            "--state-dir",
-            "--checkpoint-every",
-            "--log-dir",
-        }
-    )  # no prod flag added/dropped; --speed-ref/--shaping-clip/--from-scratch are conditional
+    assert set(argv) == {
+        "--checkpoint",
+        "--out",
+        "--timesteps",
+        "--n-envs",
+        "--start-method",
+        "--lr",
+        "--ent-coef",
+        "--gamma",
+        "--reward-mode",
+        "--terminal-speed-bonus",
+        "--territory-reward-coef",
+        "--elim-bounty",
+        "--device",
+        "--snapshot-dir",
+        "--snapshot-every",
+        "--snapshot-store",
+        "--reserve-baselines",
+        "--league-state-dir",
+        "--league-dump-every",
+        "--state-dir",
+        "--checkpoint-every",
+        "--eval-dir",
+        "--eval-every",
+        "--log-dir",
+    }  # no prod flag added/dropped; --speed-ref/--shaping-clip/--from-scratch are conditional
     # The [D-19] sparse terminal-win objective the BEAT run trained on — and the UNSHAPED wire
     # (both dense coefs 0, so the env-server gets no --reward-shaping):
     assert argv["--reward-mode"] == "win"
@@ -279,6 +278,10 @@ def test_no_persona_is_byte_identical_to_the_beat_run(tmp_path):
     assert argv["--reserve-baselines"] == "3"  # R=3 turtle-equilibrium floor ([D-24])
     assert argv["--snapshot-every"] == "100000"
     assert argv["--checkpoint-every"] == "100000"
+    # Durable per-checkpoint eval stream (Phase 0 strength-curve harness): default-on like the
+    # snapshot producer, 1M cadence, into $RUN_ROOT/eval. Forwarded on EVERY run (incl. personas).
+    assert argv["--eval-every"] == "1000000"
+    assert argv["--eval-dir"].endswith("/eval")
     assert argv["--league-dump-every"] == "50"
     # The task-A BEAT production HPs (NOT train.py's own protective defaults):
     assert argv["--lr"] == "2.5e-4"

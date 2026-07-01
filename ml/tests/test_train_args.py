@@ -11,6 +11,7 @@ smoke is a shodan/PR-7 concern).
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -47,6 +48,9 @@ def test_parser_adds_from_scratch_and_sentinels(tmp_path):
     # resume off by default; cadence matches --snapshot-every (PR-5)
     assert a.state_dir is None
     assert a.checkpoint_every == 50_000
+    # per-checkpoint eval producer (Phase 0 strength-curve harness) off by default; 1M cadence
+    assert a.eval_dir is None
+    assert a.eval_every == 1_000_000
 
 
 def test_parser_reward_mode_defaults_and_parse(tmp_path):
@@ -558,6 +562,28 @@ def test_validate_rejects_nonpositive_checkpoint_every(tmp_path, bad):
     a = _args(tmp_path, extra=["--state-dir", str(tmp_path / "state"), "--checkpoint-every", bad])
     with pytest.raises(SystemExit, match="checkpoint-every"):
         tr._validate(a)
+
+
+@pytest.mark.parametrize("bad", ["0", "-1"])
+def test_validate_rejects_nonpositive_eval_every(tmp_path, bad):
+    # --eval-every is validated UNCONDITIONALLY (not gated on --eval-dir), like the int guard on
+    # --checkpoint-every — a 0/negative cadence can never fire and is a launch-time wiring bug.
+    a = _args(tmp_path, extra=["--eval-every", bad])
+    with pytest.raises(SystemExit, match="eval-every"):
+        tr._validate(a)
+
+
+def test_validate_absolutizes_eval_dir(tmp_path):
+    # eval_dir is resolved so the callback's resume disk-scan hits the same dir regardless of cwd
+    # (mirrors --state-dir). A relative path in ⇒ an absolute path out; unset stays None.
+    a = _args(tmp_path, extra=["--eval-dir", "runs/x/eval"])
+    tr._validate(a)
+    assert Path(a.eval_dir).is_absolute()
+    assert a.eval_dir.endswith("/eval")
+
+    b = _args(tmp_path)
+    tr._validate(b)
+    assert b.eval_dir is None
 
 
 @pytest.mark.parametrize(

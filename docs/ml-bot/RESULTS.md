@@ -849,3 +849,64 @@ arena/tournament); the internal `PPO`/`BC` nets are **hidden** (kept in `builtIn
 harness, `PPO` still the gate baseline). The weaker `ppo-conqueror` checkpoint is a training artifact, not
 shipped. **Repro:** `npm run ppo:gate -- --weights ml/runs/ppo-<p>/<p>.weights.js --fixture
 ml/runs/ppo-<p>/<p>.fixture.json --name <Name> --bar PPO`.
+
+## Persona field-sensitivity audit: seat-fair ML round-robin · 2026-06-30
+
+**Motivation.** Two field observations looked contradictory: Survivor scores best against the coded bots,
+but Conqueror looks best when the ML bots are played _against each other_ in-browser. Neither the fixed-seat
+`arena:sweep` (seat/territory advantage confounds a small field — `MapGenerator` allocates by seat index)
+nor `ppo:gate` (one candidate vs one bar) can rank the ML nets against each other cleanly. New harness
+`scripts/ml-roundrobin.mjs` (`npm run arena:ml`) generalizes the gate's method — every seed replayed through
+all N cyclic seat rotations, per-run paired stats — to a whole field: per-bot win% / avg-placement / top-2
+each with a 95% CI, plus a full **pairwise paired-Δ win%** matrix. Built-in soundness probe: `PPO` and
+`Conqueror` ship identical weights, so their paired Δ must span 0.
+
+**19,472 seat-fair games across four fields. Calibration PASSED in every multi-bot run** (PPO−Conqueror Δ
+spans 0: A +1.2±1.3, B +0.8±1.6, C −0.5±1.9) → the seat-fairness and harness are sound.
+
+**Win% by field (seat-fair, 95% CI; 🥇 = field leader):**
+
+| Bot           | Heads-up 1v1 (D)  | Pure-ML 5p (A)    | +Lookahead 6p (B) | Mixed-8 (C)       |
+| ------------- | ----------------- | ----------------- | ----------------- | ----------------- |
+| **Blitz**     | —                 | **28.6 ± 1.2** 🥇 | **26.1 ± 1.5** 🥇 | 21.8 ± 1.3        |
+| **PPO**       | —                 | 24.5 ± 1.0        | 23.3 ± 1.3        | 19.6 ± 1.1        |
+| **Conqueror** | **56.1 ± 0.9** 🥇 | 23.3 ± 0.9        | 22.5 ± 1.2        | 20.2 ± 1.1        |
+| **Survivor**  | 43.8 ± 0.9        | 20.1 ± 1.0        | 21.3 ± 1.1        | **23.3 ± 1.1** 🥇 |
+| **BC**        | —                 | 2.4 ± 0.4         | 1.1 ± 0.3         | 2.5 ± 0.5         |
+| _fair share_  | _50.0_            | _20.0_            | _16.7_            | _12.5_            |
+
+(D = Conqueror-vs-Survivor only. B also fields Lookahead 2.2; C also fields Strategist 3.6 / Lookahead 3.4 /
+Default 1.5 — the four self-play nets bury every heuristic + the search bot in FFA.)
+
+**Avg placement, lower = better (Survivor wins this everywhere):**
+
+| Bot       | A (5p)   | B (6p)   | C (8p)   |
+| --------- | -------- | -------- | -------- |
+| Survivor  | **2.75** | **3.00** | **3.56** |
+| PPO       | 2.79     | 3.27     | 3.94     |
+| Conqueror | 2.85     | 3.26     | 4.00     |
+| Blitz     | 3.02     | 3.45     | 4.23     |
+| BC        | 3.60     | 4.14     | 4.58     |
+
+**Read: the win-rate ranking is field-dependent; placement is not.** As the field weakens/crowds, Survivor
+climbs the win% table — heads-up it _loses_ to Conqueror by **−12.3 ± 1.7** (SIG), in pure-ML it is _last_
+of the four nets (Conqueror−Survivor +3.2, PPO−Survivor +4.4, both SIG), yet in the weak mixed-8 field it is
+_first_ (Survivor−Conqueror +3.1, Survivor−PPO +3.6, both SIG). This is the placement/survival reward
+behaving as designed: more weak bots to outlast ⇒ more games where it is the last strong net standing. The
+finishers invert it — **Blitz** wins the most outright in ML-heavy fields (+5.3 over Conqueror in pure-ML,
+SIG) but has the _worst_ placement of the nets (win-or-bust, high variance), and **Conqueror**(=`ppo-long`)
+is the strongest _pure head-to-head_ bot. **BC** is decisively the weakest ML net (~2% FFA), confirming its
+hidden/dev-only status.
+
+**Reconciliation.** Both field observations are correct and non-contradictory: Survivor best against coded
+bots = its dominance in the weak/mixed field (C, #1 on _every_ metric); "Conqueror best among the ML bots" =
+directionally right (Conqueror is top-tier, far above Survivor/BC in all-ML), with the refinement that
+**Blitz** is technically the strongest all-ML _winner_ and **PPO ties Conqueror** (same weights). Contextual
+note for the **+8.4 over `ppo-long`** BEAT above: that gate field is _weak-bot-heavy_ (8 heuristics/PPO +
+candidate), i.e. a mixed field like C — so it is a real, reproducible result _in that field_, and the
+"strongest net the game ships" claim holds for realistic play (which includes the coded bots) and on
+placement, but **not** for all-ML or heads-up win rate, where the finishers lead.
+
+**Repro:** `npm run arena:ml -- --bots BC,PPO,Conqueror,Blitz,Survivor --runs 30 --seeds 32` (Exp A); swap
+`--bots` for the other fields (B adds `,Lookahead`; C adds `,Lookahead,Strategist,Default`; D is
+`Survivor,Conqueror`). `--out <file>.json` dumps per-run vectors + the pairwise matrix.

@@ -1781,3 +1781,102 @@ adapter with a fixture-waived retro mode. (2) Trainer telemetry already exists (
 `progress-*.csv` via `--log-dir`, always on) — join it to diagnose dips; don't duplicate into
 the producer. (3) Trainer resume never re-emits a step id with different weights — step-keyed
 incremental scoring is safe (just drop rows whose steps vanish from the index).
+
+## D-30 — Batch-2B dense-persona re-pilot: corrected reward mechanics (the (1−γ) residual), γ-transformed Expansionist, placement-backbone Predator, one pre-registered flag-only wave · Accepted (2026-07-01) · resolves [BATCH2_REPILOT_FINDINGS.md](./BATCH2_REPILOT_FINDINGS.md) §6
+
+**Context.** The Batch-2 coef sweep was decisively negative (no shippable coef; see the findings
+doc). Its §6 open question — (a) redesign the reward vs (b) drop the dense personas — went through
+a code-grounded multi-agent review (4 ground surveys over docs + the shaping wire, 3 design lenses,
+each adversarially red-teamed) plus an independent algebraic check of the reward. Answer: **(a),
+but as ONE pre-registered, timeboxed wave of flag-only arms** — the correct fixes turn out to need
+**zero wire or trainer code** — with pre-committed kill criteria so a failure closes the track
+instead of spawning a third sweep. The findings doc's own §5 fix list is partly superseded (its
+Addendum records the corrections; the mechanism below is the load-bearing part).
+
+**The corrected mechanism (supersedes the findings' §4.1 "stock reward" framing).**
+
+1. **The reward was already a flow.** `step_reward` pays `coef × Δterritory` per decision frame
+   (`ml/dicewars_ppo/env.py:145`), and the env-server measures the delta NET
+   (`scripts/lib/ppo-reward-shaping.mjs`). The findings' "switch stock → flow" recommendation is a
+   no-op — it describes the code that already failed.
+2. **The cliff is structural, not a tuning miss.** Decompose the per-step delta reward:
+   `coef·ΔΦ = coef·[γΦ′ − Φ] + coef·(1−γ)·Φ′`. The first bracket is potential-based shaping
+   (Ng et al.) — policy-invariant, zero personality. The **only** style-relevant term is the
+   residual **stock** reward `coef·(1−γ)·territory-held` per step, whose optimum is turtling. So
+   raising the coef can only ever amplify the turtle; **no coef on this reward shape produces
+   land-grabbing**, and the findings' proposed 0.10–0.12 band is unsafe by construction.
+3. **Three amplifiers produced c15's collapse:** (i) discount-timing — the deltas telescope to
+   `T_end − T_start`, so postponing the inevitable negative deltas discounts them away: stalling is
+   directly profitable; (ii) the elimination wipe pays `coef × (−T)` ≈ −1.5…−2.25 at coef 0.15,
+   dwarfing the +1 win → extreme risk-aversion; (iii) truncation cash-out — dense reward accrued
+   before the `maxTurns` cap keeps while the terminal OUTCOME reward pays 0, so stalling to the
+   cap banks the stock with no death-cliff risk.
+4. **Predator's failure is the mirror image:** in `win` mode death pays exactly 0 (and the b04/b07
+   runs had `territory_coef=0`, so no wipe either) while the bounty pays immediately — the marginal
+   reckless attack trades **unpriced survival for priced kills**. Raising the bounty steepens that
+   trade, which is why kills fell monotonically. The fix is to price survival, not tune the bounty.
+
+**Decisions.**
+
+1. **One wave, four 1M-step arms, all existing launcher flags** (composition is legal —
+   `validate_reward_args` imposes no exclusivity between `--reward-mode` and the dense coefs):
+   **Exp-γ99-c04 / Exp-γ99-c08** = `win`, **γ=0.99**, `--territory-reward-coef {0.04|0.08}`,
+   `--shaping-clip 1.0`; **Pred-place-b15 / Pred-place-b25** = **`placement`**, γ=0.999,
+   `--elim-bounty {0.15|0.25}` (RUN_NAMEs: `ppo-exp-g99-c04`/`ppo-exp-g99-c08`/
+   `ppo-pred-place-b15`/`ppo-pred-place-b25` — RUNBOOK §8d is canonical). Rationale: at γ=0.99 the discounted delta return ≈ an
+   early-weighted **average**-territory objective — length-invariant, so stalling earns nothing
+   (and Blitz proved γ=0.99 fine-tunes from `ppo-long` without collapse); placement is the survival
+   price the bounty was missing, and the one objective proven to fine-tune stronger (Survivor,
+   +8.4). Coef brackets sit LOW (the dense signal dominates the discounted win early-game at
+   γ=0.99; one kill at bounty 0.3 ≈ 1.8 placement rank-steps, near the over-commit exchange rate).
+   Everything else = the Batch-2 shared HPs; warm-start `ppo-long`; **fresh `--state-dir` per arm**
+   (resume restores the OLD γ and would silently ignore the new one). Clip 1.0, not 0.5 — a tight
+   symmetric clip under-prices exactly the lumped opponent-round losses and the death wipe that
+   discipline overextension.
+2. **Fixtured mid-run probes via the [#97] eval producer**, `EVAL_EVERY=500000`. League snapshots
+   are fixture-less by design ([D-22]) and `behavior:profile` hard-exits without a sibling fixture,
+   so league snapshots CANNOT feed the probe — an earlier plan's silent failure. **Pre-flight the
+   probe path before launch** by profiling one existing eval checkpoint end-to-end.
+3. **Symmetric tripwires, both basins, tiered.** Probe = `behavior:profile` 3×10×6 vs control at
+   each eval checkpoint. Turtle side: ΔavgDiceReserve > +10, ΔzeroAttackTurnFrac > +0.05,
+   ΔturnsToWin > +20. Overextension side: ΔsurvivalTurn < −60 **with a co-signal** (winPct < 40 or
+   ΔavgPlacement > +0.3) — healthy c08 sat at −52, so a bare survivalTurn floor false-kills.
+   Absolute floor: winPct < 35. Tiering: **warn at 0.5M on any one axis; kill at 0.5M on 2+ axes or
+   one at 2×; kill at 1M on any axis.** Trainer-side zero-cost alarm: `ep_len_mean` drift **±15%**
+   (both directions — c15 lengthened games, b04/b07 shortened them).
+4. **Matched-backbone comparators, not just Conqueror.** Every arm changes TWO knobs vs Conqueror
+   (backbone + coef), so a "signature" could be pure backbone effect. Profile fields add **Blitz**
+   (γ=0.99, coef 0) for the E arms and **Survivor** (placement, bounty 0) for the P arms — both
+   already exported. Pre-registered signature rule: the target axis must move **beyond the matched
+   comparator** (E: territory beyond Blitz; P: kills beyond Survivor), with Conqueror kept for
+   cross-roster context.
+5. **Ship bars at 1M (all pre-registered):** gate BEAT Lookahead (CI > 0) **and** target axis CI
+   excluding 0 the right way (interim bars: avgTerritory Δ ≥ +1.5; kills Δ ≥ +0.25 — the latter is
+   also the **product floor**: below ~15% more kills, players can't feel it) **and** every tripwire
+   ceiling still respected **and** (E only) a pre-registered secondary early-game-territory readout
+   consulted — whole-game avgTerritory is structurally misaligned with the γ-transformed objective
+   (a working early-grab persona can leave it flat) and structurally inflated by turtling. Winner →
+   ONE 3M run at that coef → fresh-seedBase confirmation ([D-29], offset ≥ run count) → `--bar PPO`
+   head-to-head → `arena:ml` field row → only then the export/ship plumbing (which stays correctly
+   unbuilt until here).
+6. **Kill criteria, pre-committed.** Both E arms fail → **park Expansionist** (any revival is a
+   product call — the deliberately-weaker "map-painter" — not a third reward iteration). Both P
+   arms fail → **drop Predator** (strike three on the kills axis). Target roster is **four**
+   personas (Conqueror / Blitz / Survivor / Predator, with Expansionist a bonus); the shipped
+   three remain a complete product if the wave fails. MDE placeholders (avgTerritory 3.0 /
+   kills 0.5) stay pre-registered for the pilot; recalibrate per the Blitz precedent only from a
+   stable, non-degenerate signal.
+
+**Rejected designs (recorded so they don't come back).** (a) _Footprint-gated bounty_
+(`bounty × 1[Δterritory ≥ 0]`, the findings' §5 Predator rec 2): **falsified against the frame
+schedule** — kills fold at turn boundaries (`recordTurn`/`onTurn`), so a non-terminal kill only
+ever rides the first decision frame after the opponent round, whose Δterritory ≤ 0 by
+construction (the gate masks it); the sole payout that survives is the game-ending kill on the
+win terminal frame (Δ > 0), degenerating the bounty into a redundant win-only bonus. (b) _`max(0, Δ)` gross-flow reward_: loss-forgiveness → the lose–retake
+pump (violates PERSONAS §6 net-not-gross). (c) _Per-idle-turn additive penalty_ (the findings' §5
+Expansionist rec): the additive-suicide form [D-19]/PERSONAS §5 warn about — γ already applies the
+multiplicative-safe version of the same pressure. (d) _Death-clawback bounty_ (repay `bounty×kills`
+on elimination): terminal settlement reaches the kill decision at `(γλ)^80 ≈ 1.5%` — critic-mediated
+only, too weak at 1M to test cleanly; deferred, not refuted. (e) _Asymmetric loss-weight_
+(`coef·(max(0,Δ) + w·min(0,Δ))`): re-scales the reward (~gross magnitude) and opens a churn annuity
+via self-manufactured 1-die borders; deferred until gross-vs-net churn telemetry exists.

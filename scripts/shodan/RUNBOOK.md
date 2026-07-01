@@ -323,3 +323,78 @@ Personas are **not** gated on beating Lookahead — a Blitz that trades win% for
 deliverable (PERSONAS §9). Record each persona's win% **and** behavioral signature in
 `docs/ml-bot/RESULTS.md`. Ship the fun ones as in-game bots (a weights file + a thin `ai_<persona>.js`
 alias + an `aiConfig`/`builtInBots` entry — the `ai_ppo` wiring from PR #74 generalizes).
+
+### 8d. Batch-2B dense-persona re-pilot wave ([D-30])
+
+The Batch-2 coef sweep failed structurally (BATCH2_REPILOT_FINDINGS.md + its §7 Addendum); the
+[D-30] wave replaces the coef axis with a reward-**shape** change, still **flag-only**. Four 1M
+arms, warm-started from `ppo-long`, run from the kept persona worktree:
+
+| Arm (RUN_NAME)       | Overrides on top of the `PERSONA` preset                                      | Mechanism                                                       |
+| -------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `ppo-exp-g99-c04`    | `PERSONA=expansionist GAMMA=0.99 TERRITORY_REWARD_COEF=0.04 SHAPING_CLIP=1.0` | γ=0.99 → early-weighted avg-territory objective; stall earns ~0 |
+| `ppo-exp-g99-c08`    | same with `TERRITORY_REWARD_COEF=0.08`                                        | upper bracket (bracket LOW — see [D-30] dec. 1)                 |
+| `ppo-pred-place-b15` | `PERSONA=predator REWARD_MODE=placement ELIM_BOUNTY=0.15`                     | placement prices death; bounty rewards the kill                 |
+| `ppo-pred-place-b25` | same with `ELIM_BOUNTY=0.25`                                                  | upper bracket (0.3+ nears the over-commit exchange rate)        |
+
+**Pre-flight (BLOCKING, in this order):**
+
+1. **Fast-forward the worktree** (`~/dicewarsjs-personas`, kept @ `1c40853`) to current master —
+   the wave needs the **#97 eval producer** for fixtured mid-run probes. Safe: the launcher's
+   commit pin is per-`RUN_NAME` (`$RUN_ROOT/RUN_COMMIT`), so fresh-named arms pin the new SHA;
+   never fast-forward under a _resuming_ run name.
+2. `ml/runs/ppo-long/ppo.pt` present (the preset warm-start; preflight HALTs if missing).
+3. **Prove the probe path end-to-end** before burning GPU: league snapshots have NO parity
+   fixture ([D-22]) and `behavior:profile` hard-exits without one, so probes MUST come from the
+   eval stream. Take any existing `eval-*.weights.js` (+ sibling fixture) — or export one
+   directly: `cd ml && python -m dicewars_bc.export_weights --ckpt <ckpt.pt> --out x.weights.js
+--fixture x.fixture.json --no-packed` (sibling-named fixture; `--no-packed` because a packed
+   export outside `src/ai/` fails loud — do NOT use bare `npm run ppo:export`, whose hardcoded
+   args overwrite the shipped weights and put the fixture in `tests/fixtures/`) — and run a 1-run
+   `behavior:profile` against it. If this doesn't run, the wave's abort machinery doesn't exist;
+   fix that first.
+4. **Fresh `--state-dir` per arm** (automatic with fresh `RUN_NAME`s): resume restores the OLD γ
+   from the SB3 zip, silently ignoring `GAMMA=0.99`.
+
+**Launch (staggered like Batch-2 if the 20M scratch run is still training — ≤3 concurrent
+training processes; otherwise all four at once):**
+
+```bash
+cd ~/dicewarsjs-personas && source ml/.venv/bin/activate
+# Wave A (repeat with the -c08 / -b25 arms as Wave B when these finish, or run all 4 if scratch is done)
+PERSONA=expansionist RUN_NAME=ppo-exp-g99-c04 GAMMA=0.99 TERRITORY_REWARD_COEF=0.04 SHAPING_CLIP=1.0 \
+  TIMESTEPS=1000000 LR=1e-4 N_ENVS=4 EVAL_EVERY=500000 \
+  nohup bash scripts/shodan/ppo-train.sh > ml/runs/ppo-exp-g99-c04.boot.log 2>&1 &
+PERSONA=predator RUN_NAME=ppo-pred-place-b15 REWARD_MODE=placement ELIM_BOUNTY=0.15 \
+  TIMESTEPS=1000000 LR=1e-4 N_ENVS=4 EVAL_EVERY=500000 \
+  nohup bash scripts/shodan/ppo-train.sh > ml/runs/ppo-pred-place-b15.boot.log 2>&1 &
+```
+
+(`PERSONA` only sets _defaults_, so every explicit override above wins; `REWARD_MODE=placement` +
+`ELIM_BOUNTY` compose — `validate_reward_args` has no exclusivity. For a disconnect-surviving
+launch use the §8b Task Scheduler wrappers with these same vars.)
+
+**0.5M tripwire probe (per arm, ~minutes).** When the ~500k eval checkpoint lands (step is
+zero-padded to 9 digits — `eval-000500000.weights.js` on a clean run, but a crash-restart
+re-anchors the cadence grid, so glob `eval/eval-*.weights.js` or read `eval/index.jsonl` for the
+first ≥500k entry), profile it against the control AND the arm's **matched-backbone comparator**
+([D-30] dec. 4 — Blitz for E arms, Survivor for P arms; both exports already on this box):
+
+```bash
+node scripts/behavior-profile.mjs \
+  --bots "ExpC04=ml/runs/ppo-exp-g99-c04/eval/eval-000500000.weights.js,Blitz=ml/runs/ppo-blitz/blitz.weights.js" \
+  --control Conqueror --runs 3 --games 10
+```
+
+Abort per the [D-30] dec. 3 tiering — **warn at 0.5M on any ONE axis; kill at 0.5M on 2+ axes or
+one at 2×; kill at 1M on any axis** (turtle side: ΔavgDiceReserve > +10,
+ΔzeroAttackTurnFrac > +0.05, ΔturnsToWin > +20; overextension side: ΔsurvivalTurn < −60 **plus**
+a co-signal; absolute floor winPct < 35). Zero-cost proxy between probes: `ep_len_mean` in `tb/`
+drifting **±15%**.
+
+**1M full eval + the 3M decision.** Per surviving arm: export (§8c naming, plus `--no-packed` —
+run-dir exports have no sibling decoder, and a packed export outside `src/ai/` fails loud), then
+`behavior:profile --runs 6 --games 30` (control + matched comparator) and `ppo:gate` 8×80 vs
+Lookahead. Ship bars, kill criteria, and the 3M → fresh-seed → `--bar PPO` → `arena:ml` chain are
+pre-registered in **[D-30] decisions 5–6** — grade against those, not vibes. Export/ship plumbing
+(`ai_<persona>.js`, `builtInBots`) stays unbuilt until a 3M winner clears everything.

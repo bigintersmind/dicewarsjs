@@ -21,6 +21,61 @@ Entry template:
 
 ---
 
+## 2026-07-01 — Batch-2 re-pilot resolved: corrected reward mechanics → [D-30] Batch-2B wave (flag-only)
+
+**Phase:** persona-roster (Batch 2) · **Who:** Ivan + Claude
+
+**Did:**
+
+- Reviewed `BATCH2_REPILOT_FINDINGS.md` with a code-grounded multi-agent workflow (4 ground
+  surveys over docs + the shaping wire, 3 design lenses — RL theory / pipeline engineering /
+  product-roster — each adversarially red-teamed) plus an independent algebraic check of the
+  dense reward.
+- **Corrected the findings' diagnosis** (now its §7 Addendum): the reward was ALREADY a net flow
+  (`env.py:145`), so §5's "stock → flow" fix was a no-op. The real mechanism:
+  `coef·ΔΦ = PBRS-invariant + coef·(1−γ)·territory-held` — the residual stock term is the only
+  style-relevant signal, and its optimum is turtling, so the coef cliff is **structural**.
+  Amplifiers: stalling discounts the inevitable negative deltas; the elimination wipe
+  (−coef·T ≈ −1.5…−2.25) dwarfs the +1 win; truncation keeps accrued dense reward while paying 0
+  terminal. Predator mirror-image: `win` mode prices death at 0 while the bounty pays now.
+- **Recorded [D-30]** — the Batch-2B wave: four 1M flag-only arms off `ppo-long`
+  (Exp = γ0.99 + coef {0.04|0.08} + clip 1.0; Pred = placement backbone + bounty {0.15|0.25}),
+  fixtured 0.5M probes via the #97 eval producer (`EVAL_EVERY=500000`), symmetric two-basin
+  tripwires, matched-backbone comparators (Blitz/Survivor), pre-registered ship bars and
+  pre-committed kill criteria (park Expansionist / drop Predator; target roster = 4, shipped 3 is
+  complete). Launch mechanics: RUNBOOK §8d.
+
+**Learned / decided:**
+
+- Potential-based-shaping algebra is the right lens for dense-reward failures: any per-step delta
+  reward at γ≈1 is ~policy-invariant, so cranking its coef can only amplify the `(1−γ)` stock
+  residual — i.e. the turtle. Changing γ changes the OBJECTIVE the delta reward encodes
+  (early-weighted average), which is the actual persona lever.
+- Red-team catches that saved the wave: league snapshots are fixture-less ([D-22]) so
+  mid-run probes MUST come from the eval stream (pre-flight it); every arm changes two knobs vs
+  Conqueror, so signatures must be judged against matched-backbone comparators; the findings'
+  footprint-gated bounty is dead on arrival (kills only ride the post-opponent-round frame, where
+  Δterritory ≤ 0); tripwires need BOTH basins (c15 turtled, b04/b07 suicided — one-sided aborts
+  miss the failure the redesign moves you toward).
+- `--reward-mode placement` composes with `--elim-bounty` (no exclusivity in
+  `validate_reward_args`) — the survival-priced Predator needs zero new code.
+
+**Dead ends / surprises:**
+
+- The findings' own §5 fix list mostly didn't survive review: flow-reward (already implemented),
+  per-idle-turn penalty (the [D-19] additive-suicide form), footprint-gated bounty (frame-schedule
+  falsified), 0.10–0.12 coef band (structurally unsafe). Rejections recorded in [D-30] so they
+  don't come back.
+- **Belated LOG note:** the 20M `ppo-scratch-long` control run has been training on shodan
+  (pinned `c0d1441`, launched pre-#97 → NO `eval/` stream; boot/task logs in its run dir) without
+  a LOG entry — [D-29]'s review spotted the gap. It was verified undisturbed throughout Batch 2.
+
+**Next:**
+
+- Execute RUNBOOK §8d: fast-forward `~/dicewarsjs-personas` to master, pre-flight the probe path,
+  launch the wave (staggered 2+2 if the scratch run is still training), probe at 0.5M, grade at 1M
+  against the [D-30] bars, and distill Batch-2 + Batch-2B results into RESULTS.md.
+
 ## 2026-07-01 — Strength-curve Phase 1 design review ([D-29]) + `ppo:gate` default-name collision fix
 
 **Phase:** strength-curve harness · **Who:** Ivan + Claude

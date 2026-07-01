@@ -5,6 +5,7 @@
  */
 import {
   ABORT_MIN_ATTEMPTS,
+  DEFAULT_CANDIDATE_NAME,
   LOOKAHEAD_PIN,
   buildGateField,
   classifyGate,
@@ -87,6 +88,16 @@ describe('buildGateField', () => {
     expect(() => buildGateField(builtIns, cand, 'Strategist')).toThrow(/collides/);
   });
 
+  it('DEFAULT_CANDIDATE_NAME never collides with the real registry (bare `npm run ppo:gate` must not throw)', async () => {
+    /*
+     * Regression: the old default 'PPO' started colliding when PR #74 seated `ai_ppo`
+     * in the gate field, so the documented bare `npm run ppo:gate` crashed at field
+     * construction. Locks the CLI default against the REAL bot registry.
+     */
+    const { BUILT_IN_BOTS } = await import('../../src/arena/builtInBots.js');
+    expect(() => buildGateField(BUILT_IN_BOTS, cand, DEFAULT_CANDIDATE_NAME)).not.toThrow();
+  });
+
   it('pins the canonical 8-seat baseline against the REAL registry (drops BC + personas, keeps PPO)', async () => {
     /*
      * The mocks above have no `persona`-tagged entry, so they never exercise the
@@ -96,10 +107,10 @@ describe('buildGateField', () => {
      * without its flag (or a 4th persona) would silently re-inflate it — this locks it.
      */
     const { BUILT_IN_BOTS } = await import('../../src/arena/builtInBots.js');
-    const field = buildGateField(BUILT_IN_BOTS, cand, 'Candidate');
+    const field = buildGateField(BUILT_IN_BOTS, cand, DEFAULT_CANDIDATE_NAME);
     expect(field).toHaveLength(9); // 8 baseline + candidate
 
-    const base = field.map(b => b.name).filter(n => n !== 'Candidate');
+    const base = field.map(b => b.name).filter(n => n !== DEFAULT_CANDIDATE_NAME);
     expect(base).toHaveLength(8);
     expect(base).not.toContain('BC'); // the near-identical clone is dropped
     for (const persona of ['Conqueror', 'Blitz', 'Survivor']) {

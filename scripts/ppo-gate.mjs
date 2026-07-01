@@ -37,6 +37,7 @@ import { getArg } from './lib/cli-args.mjs';
 import { loadExportedPolicy, siblingFixturePath } from './lib/load-bc-policy.mjs';
 import { mean, meanCi } from './lib/stats.mjs';
 import {
+  DEFAULT_CANDIDATE_NAME,
   LOOKAHEAD_PIN,
   buildGateField,
   classifyGate,
@@ -61,7 +62,14 @@ const defaultFixture =
   weightsPath === DEFAULT_WEIGHTS ? DEFAULT_FIXTURE : siblingFixturePath(weightsPath);
 const fixturePath = getArg(args, 'fixture', defaultFixture);
 
-const candidateName = getArg(args, 'name', 'PPO');
+/*
+ * Since PR #74 the shipped PPO sits IN the gate field as the baseline seat ([D-27]
+ * kept it there), so the candidate needs a non-colliding name. A bare `npm run ppo:gate` (default weights =
+ * `ppoPolicyWeights.js`) therefore seats the shipped policy twice — as 'PPO' (baseline)
+ * and 'Candidate' — which doubles as a calibration probe: the two seats hold
+ * byte-identical policies, so their win% should agree within noise.
+ */
+const candidateName = getArg(args, 'name', DEFAULT_CANDIDATE_NAME);
 const barName = getArg(args, 'bar', 'Lookahead');
 const stopBias = Number(getArg(args, 'stop-bias', '0'));
 
@@ -110,7 +118,8 @@ const field = buildGateField(BUILT_IN_BOTS, candidateFn, candidateName, barName)
  * confound the candidate-vs-bar delta). Each run replays SEEDS_PER_RUN distinct maps,
  * and every map is played through all N seat rotations so each bot occupies every seat
  * exactly once — counterbalanced exactly like scripts/_baseline.mjs. `--games` is the
- * per-run game budget, rounded down to whole rotation sets (SEEDS_PER_RUN × N).
+ * per-run game budget, rounded to whole rotation sets (SEEDS_PER_RUN × N) — e.g. the
+ * default 150 on the 9-seat field gives 17 seeds × 9 = 153 games/run.
  */
 const N = field.length;
 const seedsPerRun = Math.max(1, Math.round(gamesPerRun / N));

@@ -18,7 +18,11 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildTournamentField, communityDisplayName } from '../../scripts/lib/tournament-field.mjs';
+import {
+  buildTournamentField,
+  communityDisplayName,
+  findRegistryCollisions,
+} from '../../scripts/lib/tournament-field.mjs';
 import { PLAYER_VISIBLE_BOTS } from '../../src/arena/builtInBots.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -29,6 +33,46 @@ describe('communityDisplayName', () => {
     expect(communityDisplayName({ name: 'Blitz', author: 'bigintersmind' })).toBe(
       'Blitz (bigintersmind)'
     );
+  });
+});
+
+describe('findRegistryCollisions — the review-time fail-loud gate', () => {
+  it('returns no collisions for a clean registry', () => {
+    const clean = [
+      { id: 'a/one', name: 'One', author: 'a' },
+      { id: 'a/two', name: 'Two', author: 'a' },
+      { id: 'b/one', name: 'One', author: 'b' }, // same bare name, different author → distinct
+    ];
+    expect(findRegistryCollisions(clean)).toEqual([]);
+  });
+
+  it('flags a duplicate registry id', () => {
+    const dupId = [
+      { id: 'a/raider', name: 'Raider', author: 'a' },
+      { id: 'a/raider', name: 'Renamed', author: 'a' },
+    ];
+    const msgs = findRegistryCollisions(dupId);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toContain('Duplicate registry id "a/raider"');
+  });
+
+  it('flags a duplicate author-namespaced tournament name (same name+author)', () => {
+    // The exact case buildTournamentField would silently "#n"-suffix in production.
+    const dupName = [
+      { id: 'a/raider', name: 'Raider', author: 'alice' },
+      { id: 'a/raider-2', name: 'Raider', author: 'alice' },
+    ];
+    const msgs = findRegistryCollisions(dupName);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toContain('Duplicate tournament name "Raider (alice)"');
+  });
+
+  it('does not flag entries missing id/author (the required-fields check owns those)', () => {
+    const partial = [
+      { name: 'NoId', author: 'a' }, // no id → id check skipped
+      { id: 'a/noauthor', name: 'NoAuthor' }, // no author → name check skipped
+    ];
+    expect(findRegistryCollisions(partial)).toEqual([]);
   });
 });
 

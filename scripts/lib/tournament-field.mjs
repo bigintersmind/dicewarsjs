@@ -43,6 +43,49 @@ export function communityDisplayName(entry) {
 }
 
 /**
+ * Registry-level uniqueness check for the community-bot validator (review/merge time).
+ *
+ * Two active entries with the same `id`, or the same author-namespaced tournament name
+ * (`communityDisplayName`), collide when {@link buildTournamentField} runs: `runArena`
+ * would throw "Bot names must be unique" and abort the unattended daily tournament. The
+ * builder defends the *runtime* by suffixing such a collision with " #n" so it can't
+ * crash — but a duplicate registry is still a mistake, so `validate-community-bots.mjs`
+ * uses this to FAIL LOUD at review time rather than silently renaming a contributor's
+ * bot in production. (Entries missing `id`/`author` are skipped here; the validator's
+ * required-fields check catches those independently.)
+ *
+ * @param {Array<{ id?: string, name?: string, author?: string }>} entries - active registry entries
+ * @returns {string[]} one human-readable message per collision (empty ⇒ registry is unique)
+ */
+export function findRegistryCollisions(entries) {
+  const collisions = [];
+  const seenIds = new Map();
+  const seenNames = new Map();
+  for (const entry of entries) {
+    if (entry.id) {
+      if (seenIds.has(entry.id)) {
+        collisions.push(
+          `Duplicate registry id "${entry.id}" (already used by "${seenIds.get(entry.id)}")`
+        );
+      } else {
+        seenIds.set(entry.id, entry.name || entry.id);
+      }
+    }
+    if (entry.name && entry.author) {
+      const display = communityDisplayName(entry);
+      if (seenNames.has(display)) {
+        collisions.push(
+          `Duplicate tournament name "${display}" (same name+author as "${seenNames.get(display)}")`
+        );
+      } else {
+        seenNames.set(display, entry.id || entry.name);
+      }
+    }
+  }
+  return collisions;
+}
+
+/**
  * Build the online-tournament field: the player-visible built-in roster plus
  * every active, safely-compilable community bot (each author-namespaced).
  *

@@ -16,8 +16,7 @@ import path from 'node:path';
 import { runArena } from '../src/arena/arenaRunner.js';
 import { DEFAULT_RATING } from '../src/arena/elo.js';
 import { createReplay } from '../src/arena/replayFormat.js';
-import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
-import { compileSandboxedBot } from './lib/bot-sandbox.mjs';
+import { buildTournamentField } from './lib/tournament-field.mjs';
 import { getArg, colors } from './lib/cli-utils.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -69,9 +68,14 @@ for (const bot of previousLeaderboard.bots) {
 
 // --- Load bots ---
 
-const bots = [...BUILT_IN_BOTS];
-
-// Load community bot registry (kept in scope for getAuthor)
+/*
+ * The field is the player-visible built-in roster (the hidden dev-harness nets
+ * BC/PPO are excluded, so they never surface on the public leaderboard and the
+ * PPO/Conqueror duplicate collapses to just Conqueror) plus every active
+ * community bot, author-namespaced so a community name can't collide with a
+ * first-party built-in (e.g. the "Blitz" persona vs. the community "Blitz").
+ * See scripts/lib/tournament-field.mjs.
+ */
 let registry = [];
 if (fs.existsSync(REGISTRY_PATH)) {
   try {
@@ -82,35 +86,14 @@ if (fs.existsSync(REGISTRY_PATH)) {
     );
     process.exit(1);
   }
-
-  const activeBots = Array.isArray(registry) ? registry.filter(e => e.active !== false) : [];
-
-  for (const entry of activeBots) {
-    const botPath = path.join(COMMUNITY_DIR, entry.file);
-    // Guard against path traversal (e.g. "../../.env")
-    if (!path.resolve(botPath).startsWith(COMMUNITY_DIR + path.sep)) {
-      console.warn(
-        `${colors.yellow}Skipping ${entry.name}: path traversal detected (${entry.file})${colors.reset}`
-      );
-      continue;
-    }
-    if (!fs.existsSync(botPath)) {
-      console.warn(
-        `${colors.yellow}Skipping ${entry.name}: file not found (${entry.file})${colors.reset}`
-      );
-      continue;
-    }
-
-    try {
-      const source = fs.readFileSync(botPath, 'utf-8');
-      const fn = compileSandboxedBot(source, entry.name);
-      bots.push({ name: entry.name, fn });
-      console.log(`  Loaded community bot: ${entry.name}`);
-    } catch (err) {
-      console.warn(`${colors.yellow}Skipping ${entry.name}: ${err.message}${colors.reset}`);
-    }
-  }
 }
+
+const { bots, authorByName } = buildTournamentField({
+  registry,
+  communityDir: COMMUNITY_DIR,
+  onWarn: msg => console.warn(`${colors.yellow}${msg}${colors.reset}`),
+  onLoad: name => console.log(`  Loaded community bot: ${name}`),
+});
 
 if (bots.length < 2) {
   console.error('Need at least 2 bots to run a tournament.');
@@ -197,7 +180,7 @@ const leaderboard = {
     const previousElo = prev ? prev.elo : DEFAULT_RATING;
     return {
       name: bot.name,
-      author: getAuthor(bot.name, registry),
+      author: authorByName.get(bot.name) ?? 'built-in',
       elo: Math.round(bot.elo),
       previousElo: Math.round(previousElo),
       wins: bot.wins,
@@ -251,15 +234,15 @@ fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2));
 
 console.log(`${colors.bold}Results:${colors.reset}\n`);
 console.log(
-  `${'Rank'.padEnd(6)}${'Bot'.padEnd(16)}${'ELO'.padEnd(8)}${'Wins'.padEnd(8)}${'Win%'.padEnd(8)}${'Avg Place'.padEnd(10)}${'Atk Win%'.padEnd(10)}`
+  `${'Rank'.padEnd(6)}${'Bot'.padEnd(26)}${'ELO'.padEnd(8)}${'Wins'.padEnd(8)}${'Win%'.padEnd(8)}${'Avg Place'.padEnd(10)}${'Atk Win%'.padEnd(10)}`
 );
-console.log('-'.repeat(66));
+console.log('-'.repeat(76));
 
 for (let i = 0; i < result.bots.length; i++) {
   const b = result.bots[i];
   const winPct = b.gamesPlayed > 0 ? ((b.wins / b.gamesPlayed) * 100).toFixed(1) : '0.0';
   console.log(
-    `${String(i + 1).padEnd(6)}${b.name.padEnd(16)}${String(Math.round(b.elo)).padEnd(8)}${String(b.wins).padEnd(8)}${`${winPct}%`.padEnd(8)}${String(b.avgPlacement).padEnd(10)}${`${(b.attackWinRate * 100).toFixed(1)}%`.padEnd(10)}`
+    `${String(i + 1).padEnd(6)}${b.name.padEnd(26)}${String(Math.round(b.elo)).padEnd(8)}${String(b.wins).padEnd(8)}${`${winPct}%`.padEnd(8)}${String(b.avgPlacement).padEnd(10)}${`${(b.attackWinRate * 100).toFixed(1)}%`.padEnd(10)}`
   );
 }
 
@@ -269,13 +252,3 @@ console.log(
 console.log(
   `${colors.green}${replayFiles.length} replay(s) saved to ${path.relative(ROOT, REPLAYS_DIR)}/${colors.reset}`
 );
-
-// --- Helpers ---
-
-function getAuthor(botName, reg) {
-  if (Array.isArray(reg)) {
-    const entry = reg.find(e => e.name === botName);
-    if (entry) return entry.author;
-  }
-  return 'built-in';
-}

@@ -2186,5 +2186,79 @@
         "wins": 0
       }
     ]
+  },
+  {
+    "date": "2026-07-01",
+    "gamesPlayed": 100,
+    "failedGames": 0,
+    "botCount": 13,
+    "champion": "Expectimax",
+    "standings": [
+      {
+        "name": "Expectimax",
+        "elo": 1384,
+        "wins": 8
+      },
+      {
+        "name": "Lookahead",
+        "elo": 1327,
+        "wins": 12
+      },
+      {
+        "name": "Conqueror",
+        "elo": 1277,
+        "wins": 19
+      },
+      {
+        "name": "Defensive",
+        "elo": 1234,
+        "wins": 12
+      },
+      {
+        "name": "Strategist",
+        "elo": 1224,
+        "wins": 4
+      },
+      {
+        "name": "Survivor",
+        "elo": 1217,
+        "wins": 17
+      },
+      {
+        "name": "Adaptive",
+        "elo": 1184,
+        "wins": 0
+      },
+      {
+        "name": "Connector (bigintersmind)",
+        "elo": 1180,
+        "wins": 1
+      },
+      {
+        "name": "Example",
+        "elo": 1175,
+        "wins": 0
+      },
+      {
+        "name": "Blitz",
+        "elo": 1133,
+        "wins": 18
+      },
+      {
+        "name": "Giant Slayer (bigintersmind)",
+        "elo": 1104,
+        "wins": 0
+      },
+      {
+        "name": "Default",
+        "elo": 1081,
+        "wins": 0
+      },
+      {
+        "name": "Berserker (bigintersmind)",
+        "elo": 1035,
+        "wins": 1
+      }
+    ]
   }
 ]

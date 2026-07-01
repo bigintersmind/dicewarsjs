@@ -54,6 +54,12 @@
 > own checkpoints**. The internal `PPO`/`BC` nets are **hidden from players** (kept in `builtInBots.js`
 > for the dev harness). The weaker `ppo-conqueror` checkpoint stays in the repo as a training artifact,
 > not shipped. **Batch 2 (Expansionist + Predator, dense rewards) is still queued.**
+>
+> **Field-sensitivity audit (2026-06-30, `arena:ml`).** A 19,472-game seat-fair round-robin among the ML
+> nets found the win-rate ranking is **field-dependent**: Survivor's `+8.4` BEAT above is a weak-bot-heavy
+> gate-field effect (it leads on placement everywhere and on win% in mixed fields), but **Blitz** wins the
+> most outright in all-ML play and **Conqueror**(=`ppo-long`) wins the pure heads-up (Conqueror beats
+> Survivor `56–44`). See RESULTS.md → "Persona field-sensitivity audit."
 
 ---
 

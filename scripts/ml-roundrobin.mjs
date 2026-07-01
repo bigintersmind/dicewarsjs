@@ -41,7 +41,8 @@ import { writeFileSync } from 'node:fs';
 
 import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
-import { rotatedField, pairedDelta } from './lib/ppo-gate-core.mjs';
+import { reportBotErrors } from '../src/arena/botErrorReport.js';
+import { rotatedField, pairedDelta, shouldAbort } from './lib/ppo-gate-core.mjs';
 import { meanCi } from './lib/stats.mjs';
 import { getArg } from './lib/cli-args.mjs';
 
@@ -63,12 +64,35 @@ if (!Number.isFinite(seedsPerRun) || seedsPerRun < 1) {
   console.error('Invalid --seeds. Must be a positive integer.');
   process.exit(1);
 }
+/*
+ * Validate --run-start and --max-turns too (they were being parseInt'd bare). A NaN here is
+ * self-camouflaging, not loud: NaN run-start → every seed NaN → createRng coerces NaN>>>0 to
+ * seed 0 → identical maps → zero-variance ±0.0 CIs that look authoritative; NaN max-turns →
+ * `turnCount < NaN` is always false → every game an instant 0-turn stalemate. Fail loud.
+ */
+if (!Number.isFinite(runStart) || runStart < 0) {
+  console.error('Invalid --run-start. Must be a non-negative integer.');
+  process.exit(1);
+}
+if (!Number.isFinite(maxTurns) || maxTurns < 1) {
+  console.error('Invalid --max-turns. Must be a positive integer.');
+  process.exit(1);
+}
 
 // --- Resolve the field (any BUILT_IN_BOTS name, incl. the hidden BC/PPO nets) ----
 const names = botsArg
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
+/*
+ * Reject duplicates up front: runMatch requires unique seat names, so `--bots PPO,PPO` would
+ * otherwise throw on every match and surface only as a generic ">50% failed" abort. Fail with
+ * the actual cause instead.
+ */
+if (new Set(names).size !== names.length) {
+  console.error(`Duplicate bot name(s) in --bots "${botsArg}". Each bot may appear once.`);
+  process.exit(1);
+}
 const field = names.map(n => {
   const b = BUILT_IN_BOTS.find(x => x.name === n);
   if (!b) {
@@ -89,6 +113,10 @@ if (N < 2) {
  * `seedsPerRun` consecutive seeds never collide with the next block. A run's seeds are
  * keyed off the GLOBAL run index (runStart + local) so shards with disjoint --run-start
  * ranges draw disjoint seeds and can be aggregated as if run in one process.
+ *
+ * Sharding precondition: STRIDE depends on N and seedsPerRun, so shards only draw
+ * provably-disjoint seeds if every shard is run with the SAME --bots (same N) and --seeds
+ * (which aggregation already requires). Vary only --run-start between shards.
  */
 const STRIDE = Math.max(1_000_000, seedsPerRun * N * 1000);
 const fairShare = 100 / N;
@@ -98,10 +126,21 @@ const winPct = Object.fromEntries(field.map(b => [b.name, []]));
 const avgPlace = Object.fromEntries(field.map(b => [b.name, []]));
 const top2Pct = Object.fromEntries(field.map(b => [b.name, []]));
 
+/*
+ * Whole-sweep per-bot forced-end totals. A bot that errors on EVERY turn never throws out of
+ * runMatch (runBotDirect swallows it into a counter), so it would otherwise land a clean 0%
+ * row indistinguishable from legitimate losing (#52/#53). Accumulate the botStats signals and
+ * hand them to reportBotErrors so a broken/mis-registered net can't masquerade as "weak".
+ */
+const botErr = Object.fromEntries(
+  field.map(b => [b.name, { errors: 0, attacks: 0, invalidMoves: 0, maxMovesHit: 0 }])
+);
+
 let attempts = 0; // every match tried (success or fail) — the abort denominator
 let failed = 0;
 let totalTurns = 0;
 let completedGames = 0;
+let stalemates = 0; // games that reached maxTurns with no winner (null winnerName)
 const startTime = Date.now();
 
 for (let run = 0; run < runCount; run++) {
@@ -122,7 +161,7 @@ for (let run = 0; run < runCount; run++) {
         failed++;
         // Count real attempts, not successes: a run where every match throws must still
         // trip the abort rather than pin a successes-only denominator (mirrors ppo:gate).
-        if (attempts >= 5 && failed / attempts > 0.5) {
+        if (shouldAbort(failed, attempts)) {
           console.error(`\n[${label}] aborted: ${failed}/${attempts} matches failed (>50%).`);
           process.exit(1);
         }
@@ -133,9 +172,15 @@ for (let run = 0; run < runCount; run++) {
       completedGames++;
       totalTurns += res.turnCount;
       if (res.winnerName) wins[res.winnerName]++;
+      else stalemates++;
       for (const st of res.botStats) {
         placeSum[st.name] += st.placement;
         if (st.placement <= 2) top2[st.name]++;
+        const e = botErr[st.name];
+        e.errors += st.errors;
+        e.attacks += st.attacksMade;
+        e.invalidMoves += st.invalidMoves;
+        e.maxMovesHit += st.maxMovesHit;
       }
     }
   }
@@ -184,9 +229,15 @@ console.log(
 );
 console.log(
   `${runCount} runs x ${seedsPerRun} seeds x ${N} rotations = ${runCount * seedsPerRun * N} games ` +
-    `(${completedGames} completed${failed ? `, ${failed} failed` : ''}) in ${elapsed}s, ` +
+    `(${completedGames} completed${failed ? `, ${failed} failed` : ''}` +
+    `${stalemates ? `, ${stalemates} stalemate` : ''}) in ${elapsed}s, ` +
     `avg ${(totalTurns / Math.max(1, completedGames)).toFixed(0)} turns/game`
 );
+/*
+ * Fair-share (100/N) is the neutral per-bot win% only when the stalemate rate is ~0 (a
+ * stalemate credits no one, so it shrinks every bot's share). At the normal ~0% stalemate
+ * rate this is exact; the count above flags the rare case where it isn't.
+ */
 console.log(`Fair-share win% = ${fairShare.toFixed(1)}%  ·  judging on WIN% first (seat-fair)\n`);
 
 const header = ['Rank', 'Bot', 'Win% (95% CI)', 'AvgPlace (95% CI)', 'Top2% (95% CI)'];
@@ -211,16 +262,33 @@ for (const p of pairs) {
   console.log(`  ${flag}  ${p.a} − ${p.b}: ${d}  [${p.lo.toFixed(1)}, ${p.hi.toFixed(1)}]`);
 }
 
-// Calibration: PPO and Conqueror are identical weights — their Δ should sit on ~0.
+/*
+ * Calibration: PPO and Conqueror ship identical weights, so their Δ should sit on ~0. Note
+ * cyclic rotation equalizes ABSOLUTE seat/turn-order (the dominant, territory-by-seat effect)
+ * but not the RELATIVE opponent permutation — each bot sits at a fixed field offset, so PPO and
+ * Conqueror face slightly different lineups per run. That residual averages toward 0 over many
+ * runs (so a spanning CI is the pass), but it means a marginal WARN can be benign residual +
+ * under-power, not necessarily a harness defect.
+ */
 if (field.some(b => b.name === 'PPO') && field.some(b => b.name === 'Conqueror')) {
   const cal = pairedDelta(winPct.PPO, winPct.Conqueror);
   const ok = cal.lo <= 0 && cal.hi >= 0;
   console.log(
     `\nCalibration (PPO ≡ Conqueror, same weights): Δ ${cal.mean >= 0 ? '+' : ''}` +
       `${cal.mean.toFixed(1)} ± ${cal.ci.toFixed(1)} pp [${cal.lo.toFixed(1)}, ${cal.hi.toFixed(1)}] ` +
-      `→ ${ok ? 'OK (CI spans 0, seat-fair holds)' : 'WARN (CI excludes 0 — under-powered or seat bias)'}`
+      `→ ${ok ? 'OK (CI spans 0, seat-fair holds)' : 'WARN (CI excludes 0 — add runs; residual seating/under-power)'}`
   );
 }
+
+/*
+ * Loud broken-bot check (#53): a net that errors/only-invalid-moves on most turns is broken,
+ * not weak, and its win%/placement is noise. Warns (to stderr) about any such bot so a 0% row
+ * can't be mistaken for a real strength measurement. Silent when every bot is healthy.
+ */
+reportBotErrors(
+  field.map(b => ({ name: b.name, ...botErr[b.name] })),
+  { label: `[${label}]` }
+);
 
 // --- Optional machine-readable dump ----------------------------------------------
 if (outPath) {
@@ -230,6 +298,8 @@ if (outPath) {
     config: { runCount, seedsPerRun, runStart, N, maxTurns, gamesPerRun: seedsPerRun * N },
     completedGames,
     failed,
+    stalemates,
+    botErrors: botErr,
     avgTurns: +(totalTurns / Math.max(1, completedGames)).toFixed(1),
     perRun: { winPct, avgPlace, top2Pct },
     summary: summary.map(r => ({
@@ -243,6 +313,16 @@ if (outPath) {
     })),
     pairs,
   };
-  writeFileSync(outPath, JSON.stringify(payload, null, 2));
-  console.log(`\nWrote ${outPath}`);
+  try {
+    writeFileSync(outPath, JSON.stringify(payload, null, 2));
+    console.log(`\nWrote ${outPath}`);
+  } catch (err) {
+    // Don't lose a long sweep to a bad path/permission at the finish line — say why, then
+    // dump the payload to stdout as a fallback so the run's data is still recoverable.
+    console.error(
+      `\nFailed to write --out "${outPath}": ${err.message}\nPayload follows on stdout:`
+    );
+    console.log(JSON.stringify(payload));
+    process.exit(1);
+  }
 }

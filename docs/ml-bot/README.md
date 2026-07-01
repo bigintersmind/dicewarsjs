@@ -109,6 +109,14 @@ a row in [`RESULTS.md`](./RESULTS.md).
   (PR #80, "bite E1"):** `npm run behavior:profile` can load a `Name=weights.js`
   export and emit its PASS/FAIL signature. The persona _weight files_ are the only
   thing still pending.
+- **[`STRENGTH_CURVE.md`](./STRENGTH_CURVE.md)** — the **checkpoint strength-curve
+  harness**: grade a PPO run's per-checkpoint stream (dropped every 1M steps) to build
+  a strength-vs-steps curve and catch regressions / plateaus that only-grading-the-final
+  checkpoint misses (motivated by the 20M→23M `ppo-conqueror` regression). **Phase 0
+  (producer) SHIPPED (PR #97); Phase 1 (the `ppo-strength-curve.mjs` scorer) design
+  REVIEWED 2026-07-01 ([D-29]) — amendments applied, all five open questions resolved
+  (watch mode, in-field references, run-paired k=2 regression detector, mandatory
+  fresh-seed confirmation before shipping); ready to build.**
 
 ---
 

@@ -22,6 +22,15 @@ import { meanCi } from './stats.mjs';
 export const LOOKAHEAD_PIN = '596f781';
 
 /**
+ * Default display name for the gate candidate. Must NOT collide with any
+ * `BUILT_IN_BOTS` name: since PR #74 seated `ai_ppo` ("PPO") in the gate field as
+ * the strength baseline (an arrangement [D-27] kept), the old default of 'PPO' made
+ * a bare `npm run ppo:gate` throw at field construction. Pinned against the real
+ * registry by `tests/scripts/ppoGateCore.test.js`.
+ */
+export const DEFAULT_CANDIDATE_NAME = 'Candidate';
+
+/**
  * Mean + 95% CI of the per-run paired difference `a[i] - b[i]`.
  *
  * @param {number[]} a - candidate per-run win% (one entry per seed block)
@@ -98,7 +107,8 @@ export function verdictLine(verdict, delta) {
  *
  * @param {Array<{ name: string, fn: Function }>} builtInBots - BUILT_IN_BOTS
  * @param {Function} candidateFn - the candidate move fn (makeBC result)
- * @param {string} candidateName - display name (e.g. 'PPO')
+ * @param {string} candidateName - display name (e.g. 'Candidate'; must not collide
+ *   with a built-in name — 'PPO' is taken by the seated baseline since [D-27])
  * @param {string} [barName='Lookahead'] - the bar's display name; asserted present
  * @returns {Array<{ name: string, fn: Function }>}
  */

@@ -86,6 +86,28 @@ describe('buildGateField', () => {
   it('throws on a candidate name colliding with a built-in', () => {
     expect(() => buildGateField(builtIns, cand, 'Strategist')).toThrow(/collides/);
   });
+
+  it('pins the canonical 8-seat baseline against the REAL registry (drops BC + personas, keeps PPO)', async () => {
+    /*
+     * The mocks above have no `persona`-tagged entry, so they never exercise the
+     * `!b.persona` filter that keeps personas out of the gate. Drive the real
+     * BUILT_IN_BOTS: the documented gate table is 8 baseline seats + the candidate,
+     * and every RESULTS.md verdict was measured on exactly that field. A new persona
+     * without its flag (or a 4th persona) would silently re-inflate it — this locks it.
+     */
+    const { BUILT_IN_BOTS } = await import('../../src/arena/builtInBots.js');
+    const field = buildGateField(BUILT_IN_BOTS, cand, 'Candidate');
+    expect(field).toHaveLength(9); // 8 baseline + candidate
+
+    const base = field.map(b => b.name).filter(n => n !== 'Candidate');
+    expect(base).toHaveLength(8);
+    expect(base).not.toContain('BC'); // the near-identical clone is dropped
+    for (const persona of ['Conqueror', 'Blitz', 'Survivor']) {
+      expect(base).not.toContain(persona); // challengers, not baselines
+    }
+    expect(base).toContain('PPO'); // hidden from players, but kept as the strength baseline
+    expect(base).toContain('Lookahead'); // the default bar survives
+  });
 });
 
 describe('rotatedField', () => {

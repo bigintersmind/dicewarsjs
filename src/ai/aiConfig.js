@@ -128,8 +128,9 @@ export const AI_STRATEGIES = {
   /*
    * Personas — the player-facing self-play roster (docs/ml-bot/PERSONAS.md). Each is a
    * single reactive forward pass (no search), so it plays on learned instinct. Conqueror
-   * is the balanced flagship (the strongest net the game ships); Blitz closes games fast;
-   * Survivor outlasts the field. The internal PPO/BC nets are hidden — see builtInBots.js.
+   * is the balanced flagship (the strongest balanced net the game ships); Blitz closes
+   * games fast; Survivor outlasts the field (and is the strongest net overall). The
+   * internal PPO/BC nets are hidden — see builtInBots.js.
    */
   ai_conqueror: {
     id: 'ai_conqueror',

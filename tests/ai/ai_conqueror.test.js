@@ -12,6 +12,7 @@ import { GAME_PHASES } from '../../src/engine/constants.js';
 import { runAI } from '../../src/engine/AIAdapter.js';
 import { ai_conqueror } from '../../src/ai/ai_conqueror.js';
 import { ai_bc } from '../../src/ai/ai_bc.js';
+import { ai_ppo } from '../../src/ai/ai_ppo.js';
 import { getAIImplementation } from '../../src/ai/aiConfig.js';
 import { createBotState } from '../../src/arena/botState.js';
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
@@ -69,6 +70,25 @@ describe('ai_conqueror bot', () => {
       if (choiceKey(ai_conqueror(botState)) !== choiceKey(ai_bc(botState))) diverged = true;
     }
     expect(diverged).toBe(true);
+  });
+
+  it('IS the ppo-long net — identical moves to ai_ppo on every board ([D-27])', () => {
+    /*
+     * The not-BC divergence test above only rules out a fat-finger to bcPolicyWeights;
+     * a slip to blitz/survivorPolicyWeights would produce a *different* net that still
+     * diverges from BC, silently shipping the wrong persona's weights under the flagship
+     * "Conqueror" name. Conqueror's identity is that it reuses the ppo-long weights (both
+     * import ppoPolicyWeights.js), so it must match ai_ppo move-for-move — the positive
+     * assertion that actually pins the intended weights.
+     */
+    const choiceKey = m => (m === null ? 'STOP' : moveKey(m));
+    for (let seed = 1; seed <= 60; seed++) {
+      const state = createGame({ seed, playerCount: 7 });
+      if (getValidMoves(state).length === 0) continue;
+      const me = state.turnOrder[state.currentPlayerIndex];
+      const botState = createBotState(state, me);
+      expect(choiceKey(ai_conqueror(botState))).toBe(choiceKey(ai_ppo(botState)));
+    }
   });
 
   it('drives a full game as a seat without throwing', () => {

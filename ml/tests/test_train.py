@@ -31,7 +31,7 @@ def test_train_one_epoch_writes_checkpoint(tmp_path):
     # weights_only=True doubles as a guard that the checkpoint stays safe-loadable
     # (only tensors + plain containers/scalars) — see export_onnx.py.
     ckpt = torch.load(ckpt_path, weights_only=True)
-    assert ckpt["encoding_version"] == 2
+    assert ckpt["encoding_version"] == 3
     assert ckpt["teacher"] == "Lookahead"
     assert ckpt["config"]["max_areas"] == 6
     assert ckpt["config"]["player_count"] == 2  # carried from the manifest for the ONNX export
@@ -225,10 +225,12 @@ def test_train_stop_cal_out_of_band_warns_and_records_false(tmp_path, capsys):
 
 
 def test_train_stop_cal_in_band_records_true(tmp_path):
-    """The calibration-met path records stop_cal_in_band=True. A wide band around a
-    near-zero target guarantees the realized STOP rate lands inside it, so the flag
-    takes its True value somewhere in the suite — the out-of-band and acc-path tests
-    only ever yield False/None, which would let a hardcoded-False regression slip by."""
+    """The calibration-met path records stop_cal_in_band=True. Target 0.5 with band
+    0.5 covers the whole [0, 1] rate range (in_band uses <=), so the flag takes its
+    True value deterministically — independent of what the tiny net happens to learn
+    from the synthetic corpus (encoding-width changes shifted that before). The
+    out-of-band and acc-path tests only ever yield False/None, which would let a
+    hardcoded-False regression slip by."""
     corpus = default_corpus(tmp_path / "c", max_areas=6, player_count=2)
     out = tmp_path / "ckpt"
     args = build_parser().parse_args(
@@ -240,7 +242,7 @@ def test_train_stop_cal_in_band_records_true(tmp_path):
             "--val-frac", "0.34",
             "--device", "cpu",
             "--select-by", "stop-cal",
-            "--target-stop-rate", "0.01",
+            "--target-stop-rate", "0.5",
             "--stop-band", "0.5",
             "--node-hidden", "8",
             "--player-hidden", "8",

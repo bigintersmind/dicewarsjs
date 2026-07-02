@@ -13,9 +13,10 @@ and exposes the legal/pad split via :meth:`action_masks` (sb3-contrib
 chosen index is sent verbatim to the server, which decodes it against its own
 ``moves[]`` (index ``num_edges - 1`` == STOP == ``END_TURN``).
 
-**Observation** — a ``Dict`` of the v2 encoding tensors, edges padded to
-``MAX_EDGES``: ``nodes`` ``[max_areas, 8]``, ``players`` ``[player_count, 6]``,
-``board`` ``[5]``, ``edge_feat`` ``[MAX_EDGES, 7]``, ``edge_from``/``edge_to``
+**Observation** — a ``Dict`` of the encoding tensors (widths from
+``constants``; v3 = 13/7/7/10), edges padded to ``MAX_EDGES``: ``nodes``
+``[max_areas, NODE_W]``, ``players`` ``[player_count, PLAYER_W]``, ``board``
+``[BOARD_W]``, ``edge_feat`` ``[MAX_EDGES, EDGE_W]``, ``edge_from``/``edge_to``
 ``[MAX_EDGES]`` (territory ids, pad → 0), ``edge_mask`` ``[MAX_EDGES]`` (1 legal).
 
 **Reward** — sparse terminal-win by default ([D-19] decision 3): ``+1`` if the

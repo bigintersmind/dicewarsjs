@@ -24,9 +24,14 @@ from pathlib import Path
 # Must match `ENCODING_VERSION` in src/arena/encodeObservation.js. Bump in
 # lockstep when the feature layout changes incompatibly.
 # v2 (ml-bot Phase-3, D-18): +3 node neighbourhood feats (5→8), +3 edge
-# attack-consequence feats (4→7). Model/dataset read widths from the manifest dims,
-# so no code dims change — only this guard + the corpus must agree.
-EXPECTED_ENCODING_VERSION = 2
+# attack-consequence feats (4→7). v3 (D-31, append-only): owner-attribute /
+# income-consequence node feats (8→13), turn-order player feat (6→7), stock/clock
+# board feats (5→7), elimination/income edge feats (7→10). Model/dataset read
+# widths from the manifest dims, so no code dims change — only this guard + the
+# corpus must agree. NB: bumping this orphans older corpora for TRAINING (re-encode
+# from the lean JSONL if needed); the JS inference side keeps running v2-stamped
+# WEIGHTS via its SUPPORTED_ENCODING_VERSIONS slice-compat.
+EXPECTED_ENCODING_VERSION = 3
 
 # The packed blobs the trainer consumes, with their expected dtype string.
 # (Matches manifest.files written by scripts/encode-corpus.mjs.)

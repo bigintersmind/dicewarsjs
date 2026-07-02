@@ -21,6 +21,51 @@ Entry template:
 
 ---
 
+## 2026-07-02 — Observability audit → encoding v3 ([D-31]): owner identity / income / turn order / clock, append-only with v2 slice-compat
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Full audit of what the nets can see vs what a player sees. Found four REPRESENTATIONAL gaps
+  (untrainable — the information never reaches the net): owner identity (binary isMine/isEnemy +
+  mean-pooled player rows → can't link territories to players, can't see eliminations), income
+  economics (largestGroup scalar only — no group membership, bridges, or capture deltas), turn
+  order (mean-pool destroys seat order; BotState never carried it), the clock (turnNumber never
+  encoded). Retro-explains Batch-2B's 0/4 style bars — Predator was unrepresentable.
+- Spec'd + decided [D-31] (5 parts: append-only superset w/ slice-compat, "Standard" feature set,
+  scratch-20M training w/ warm-start fallback, layered pre-registered bars,
+  ship-flagship-defer-personas). PR #101 landed the inert primitives (`groupIncome.js`
+  fuzz-checked vs `findLargestConnectedGroup`, `BotPlayer.turnsUntilActs`, shared
+  `DEFAULT_MAX_TURNS`).
+- Landed the contract flip: encoder v3 (nodes 8→13, players 6→7, board 5→7, edges 7→10),
+  `ENCODING_VERSION = 3`, `SUPPORTED_ENCODING_VERSIONS = [2, 3]` + `assertPolicyEncodingCompatible`
+  (guards relaxed at ai_bc/makeBC, league refresh/restore, probe-core), Python mirror in the same
+  commit (constants/manifest/policy wording), goldens + wire fixtures regenerated (v3 filenames),
+  slice-down proof test (v2 weights bit-identical on padded v3 tensors).
+
+**Learned / decided:**
+
+- The slice-down adapter costs ZERO code in the forward: `linear()` iterates the weight's input
+  dim and every concat keeps the variable-width tensor last — v2 nets structurally ignore appended
+  columns. The append-only rule is what buys this (and a function-preserving zero-init warm start).
+- Income features are node properties gathered onto edges: cutValue/myGain depend only on `to`,
+  computed once per node in the shared context — the edge = gathered-node-value identity holds by
+  construction.
+- test_train's stop-cal in-band test was implicitly coupled to encoding widths (tiny net + random
+  fixture corpus); made it deterministic (target 0.5 ± band 0.5 covers [0,1]).
+
+**Dead ends / surprises:**
+
+- Pre-existing, unrelated: `ml/tests/test_export_onnx.py` fails on this Mac's Python 3.9
+  (`zip(strict=True)` is 3.10+) — fails identically on master; fine on shodan.
+
+**Next:**
+
+- `ppo:throughput-probe` (groupIncome is on the hot path), then launch `ppo-v3-scratch`
+  (FROM_SCRATCH=1, 20M) on shodan; tripwires at 0.5M/1M; primary bar vs the v2 scratch control,
+  ship bar vs Survivor ([D-31] §4).
+
 ## 2026-07-02 — Batch-2B 1M verdict: all four arms BEAT, no style bar cleared → Expansionist PARKED, Predator DROPPED ([D-30] dec. 6 executed)
 
 **Phase:** persona-roster (Batch 2B, wave close-out) · **Who:** Ivan + Claude

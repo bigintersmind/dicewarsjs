@@ -14,10 +14,10 @@ def test_loads_valid_corpus(tmp_path):
     assert m.encoding_version == EXPECTED_ENCODING_VERSION
     assert m.max_areas == 6
     assert m.player_count == 2
-    assert m.node_features == 8  # v2: +3 neighbourhood feats
-    assert m.player_features == 6
-    assert m.board_features == 5
-    assert m.edge_features == 7  # v2: +3 attack-consequence feats
+    assert m.node_features == 13  # v3: owner attributes + income consequences
+    assert m.player_features == 7  # v3: +turnsUntilActsNorm
+    assert m.board_features == 7  # v3: +myStockNorm, +turnNumberNorm
+    assert m.edge_features == 10  # v3: +elimination/income deltas
     assert m.steps == 7
     assert m.shape("edge_offsets.i32") == (m.steps + 1,)
 

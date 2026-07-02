@@ -43,12 +43,14 @@ from dicewars_bc.model import EdgePolicyNet, ModelConfig
 from .constants import BOARD_W, EDGE_W, ENCODING_VERSION, NODE_W, PLAYER_W
 
 
-def _assert_v2_config(cfg: ModelConfig) -> None:
-    """Fail loud if a checkpoint's feature widths don't match the v2 wire contract.
+def _assert_wire_config(cfg: ModelConfig) -> None:
+    """Fail loud if a checkpoint's feature widths don't match the live wire contract.
 
-    The env emits the v2 encoding (``constants.{NODE,PLAYER,BOARD,EDGE}_W``); a
-    policy built around a stale-version ``ModelConfig`` (e.g. encoding-v1's node5/
-    edge4) would silently shape-mismatch the live observation. Check up front.
+    The env emits the current encoding (``constants.{NODE,PLAYER,BOARD,EDGE}_W``); a
+    policy built around a stale-version ``ModelConfig`` (e.g. encoding-v2's node8/
+    edge7) would silently shape-mismatch the live observation. Check up front.
+    Unlike the JS inference side (which slice-accepts older stamps, [D-31]), the
+    TRAINER is strict: it must never mix widths within a run.
     """
     mismatches = [
         f"{name}: config={got} != wire={want}"
@@ -62,9 +64,10 @@ def _assert_v2_config(cfg: ModelConfig) -> None:
     ]
     if mismatches:
         raise ValueError(
-            "ModelConfig feature widths are not the v2 wire contract "
+            "ModelConfig feature widths are not the live wire contract "
             f"(dicewars_ppo.constants): {'; '.join(mismatches)}. Warm-start from a "
-            "v2 BC checkpoint (encoding_version == 2)."
+            f"checkpoint with encoding_version == {ENCODING_VERSION} (migrate an older "
+            "checkpoint by zero-widening its first-layer input columns first)."
         )
 
 
@@ -78,7 +81,7 @@ class MaskableEdgePolicy(MaskableActorCriticPolicy):
     """
 
     def __init__(self, *args: Any, bc_config: ModelConfig, **kwargs: Any) -> None:
-        _assert_v2_config(bc_config)
+        _assert_wire_config(bc_config)
         # Stash before super().__init__ — the base calls self._build() at the end,
         # and our override reads self._bc_config. (nn.Module.__setattr__ tolerates a
         # plain-object attribute set before Module.__init__.)
@@ -205,10 +208,10 @@ def build_policy(
 
 
 def load_bc_checkpoint(ckpt_path: str | Path) -> tuple[ModelConfig, dict]:
-    """Load a v2 BC checkpoint, asserting ``encoding_version == 2``.
+    """Load a BC-format checkpoint, asserting the live ``encoding_version``.
 
     Returns ``(config, checkpoint_dict)``. Raises if the checkpoint is a stale
-    encoding version (a v1 net would shape-mismatch the live v2 observation).
+    encoding version (an old-width net would shape-mismatch the live observation).
     """
     # weights_only=True: our BC checkpoints are tensors + a plain dict/str/num config
     # (same as dicewars_bc.export_onnx), so this avoids the arbitrary-code-execution
@@ -218,17 +221,18 @@ def load_bc_checkpoint(ckpt_path: str | Path) -> tuple[ModelConfig, dict]:
     if ev != ENCODING_VERSION:
         raise ValueError(
             f"checkpoint encoding_version={ev!r} != {ENCODING_VERSION} ({ckpt_path}); "
-            "PPO warm-start must use the v2 BC checkpoint (the deployed ai_bc)."
+            "PPO warm-start needs a live-encoding checkpoint (migrate an older one by "
+            "zero-widening its first-layer input columns)."
         )
     cfg = ModelConfig(**ckpt["config"])
-    _assert_v2_config(cfg)
+    _assert_wire_config(cfg)
     return cfg, ckpt
 
 
 def warm_start_from_bc(policy: MaskableEdgePolicy, ckpt: dict) -> None:
     """Load BC trunk + ``edge_head`` (+ ``value_head``) into the policy's actor.
 
-    Validates the checkpoint up front — ``encoding_version == 2``, v2 feature widths,
+    Validates the checkpoint up front — the live ``encoding_version``, wire feature widths,
     and that its ``ModelConfig`` matches the one the policy was built from — so a
     stale/mismatched checkpoint fails with an actionable message rather than a raw
     ``load_state_dict`` size-mismatch dump, and a same-shape/different-encoding
@@ -245,10 +249,10 @@ def warm_start_from_bc(policy: MaskableEdgePolicy, ckpt: dict) -> None:
     if ev != ENCODING_VERSION:
         raise ValueError(
             f"warm-start checkpoint encoding_version={ev!r} != {ENCODING_VERSION}; "
-            "must be the v2 BC checkpoint (the deployed ai_bc)."
+            "must be a live-encoding checkpoint (migrate an older one first)."
         )
     ckpt_cfg = ModelConfig(**ckpt["config"])
-    _assert_v2_config(ckpt_cfg)
+    _assert_wire_config(ckpt_cfg)
     if ckpt_cfg != policy.bc_net.config:
         raise ValueError(
             f"warm-start checkpoint config {ckpt_cfg} != policy config "

@@ -22,7 +22,7 @@ from dicewars_ppo.env import DiceWarsEnv  # noqa: E402
 from dicewars_ppo.wire import parse_frame  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
-GOLDEN_BIN = FIXTURES / "obs_frame_v2.bin"
+GOLDEN_BIN = FIXTURES / "obs_frame_v3.bin"
 
 
 @pytest.fixture(scope="module")
@@ -82,7 +82,7 @@ def test_frame_to_obs_pads_and_masks(golden_frame):
     obs = env._frame_to_obs(golden_frame)
     n = golden_frame.num_edges  # 2
 
-    assert obs["edge_feat"].shape == (env.max_edges, 7)
+    assert obs["edge_feat"].shape == (env.max_edges, 10)
     np.testing.assert_array_equal(obs["edge_feat"][:n], golden_frame.edges)
     assert not obs["edge_feat"][n:].any()  # pad rows zeroed
     np.testing.assert_array_equal(obs["edge_from"][:n], golden_frame.edge_index[:, 0])

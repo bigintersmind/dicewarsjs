@@ -33,6 +33,8 @@ const exampleBot = adaptLegacyBot(ai_example);
  *
  * Board: ids 1,3 are mine (p0); 2,4 are enemies (p1,p2); ids 0 and 5 are absent.
  * Present-area count = 4 (the territory denominator); total dice in play = 11.
+ * Groups (v3): p0 {1,3} (size 2), p1 {2}, p2 {4} — so cutting any node costs its
+ * owner 1, and capturing id 2 (adjacent to my group) gains me 1.
  */
 function syntheticStep({ chosenMove } = {}) {
   const allAreas = [
@@ -49,6 +51,7 @@ function syntheticStep({ chosenMove } = {}) {
       connectedTerritories: 2,
       reinforcements: 6,
       eliminated: false,
+      turnsUntilActs: 0,
     },
     {
       id: 1,
@@ -57,6 +60,7 @@ function syntheticStep({ chosenMove } = {}) {
       connectedTerritories: 1,
       reinforcements: 0,
       eliminated: false,
+      turnsUntilActs: 1,
     },
     {
       id: 2,
@@ -65,6 +69,7 @@ function syntheticStep({ chosenMove } = {}) {
       connectedTerritories: 1,
       reinforcements: 64,
       eliminated: false,
+      turnsUntilActs: 2,
     },
   ];
   const observation = {
@@ -92,7 +97,8 @@ const SYNTH_CTX = { maxAreas: 6, playerCount: 3, winner: 0, placements: [0, 1, 2
 
 describe('encodeObservation — feature-name contract', () => {
   it('declares stable column orders and an encoding version', () => {
-    expect(ENCODING_VERSION).toBe(2);
+    expect(ENCODING_VERSION).toBe(3);
+    // v2 slice-compat rests on the v2 names staying an exact PREFIX of these arrays.
     expect(NODE_FEATURES).toEqual([
       'present',
       'diceNorm',
@@ -102,6 +108,11 @@ describe('encodeObservation — feature-name contract', () => {
       'enemyNbrDiceMaxNorm',
       'enemyNbrFrac',
       'degreeNorm',
+      'ownerTerrFrac',
+      'ownerIncomeFrac',
+      'ownerDiceFrac',
+      'cutValueNorm',
+      'myGainIfCapturedNorm',
     ]);
     expect(PLAYER_FEATURES).toEqual([
       'isMe',
@@ -110,6 +121,7 @@ describe('encodeObservation — feature-name contract', () => {
       'diceFrac',
       'connectedFrac',
       'stockNorm',
+      'turnsUntilActsNorm',
     ]);
     expect(BOARD_FEATURES).toEqual([
       'myDiceShare',
@@ -117,6 +129,8 @@ describe('encodeObservation — feature-name contract', () => {
       'phaseEarly',
       'phaseMid',
       'phaseLate',
+      'myStockNorm',
+      'turnNumberNorm',
     ]);
     expect(EDGE_FEATURES).toEqual([
       'winProb',
@@ -126,6 +140,9 @@ describe('encodeObservation — feature-name contract', () => {
       'tgtRetakeThreatNorm',
       'srcVacateThreatNorm',
       'tgtEnemyNbrFrac',
+      'eliminatesDefender',
+      'defIncomeDeltaNorm',
+      'myIncomeDeltaNorm',
     ]);
   });
 
@@ -142,8 +159,8 @@ describe('encodeObservation — feature-name contract', () => {
       .digest('hex')
       .slice(0, 16);
     expect({ version: ENCODING_VERSION, fingerprint }).toEqual({
-      version: 2,
-      fingerprint: 'c7637fa6b24540ef',
+      version: 3,
+      fingerprint: 'b38aef36145403c9',
     });
   });
 });
@@ -157,8 +174,8 @@ describe('encodeStep — node tensor', () => {
   });
 
   it('zeroes the sentinel (id 0) and absent ids', () => {
-    expect(enc.nodes[0]).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
-    expect(enc.nodes[5]).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(enc.nodes[0]).toEqual(new Array(NODE_FEATURES.length).fill(0));
+    expect(enc.nodes[5]).toEqual(new Array(NODE_FEATURES.length).fill(0));
   });
 
   it('encodes mine/enemy/border relationally with dice/MAX_DICE', () => {
@@ -168,11 +185,60 @@ describe('encodeStep — node tensor', () => {
      * id 2 (enemy, nbr 1[mine]): no enemy-of-p0 neighbour → 0, 0; degree 1/8.
      * id 3 (mine, nbr 1[mine]): 0, 0; degree 1/8.
      * id 4 (enemy, nbr 2[enemy,2 dice]): enemyDiceMax 2/8, enemyFrac 1; degree 1/8.
+     *
+     * v3 appends [ownerTerrFrac, ownerIncomeFrac, ownerDiceFrac, cutValueNorm,
+     * myGainIfCapturedNorm] (terrDen 4, diceDen 11; groups p0{1,3}, p1{2}, p2{4}):
+     * id 1: owner p0 → 2/4, 2/4, 4/11; cut 1/4 (2→1 splitless shrink); gain 0 (mine).
+     * id 2: owner p1 → 1/4, 1/4, 2/11; cut 1/4; gain 1/4 (extends my {1,3} to 3).
+     * id 3: owner p0 → 2/4, 2/4, 4/11; cut 1/4; gain 0 (mine).
+     * id 4: owner p2 → 1/4, 1/4, 5/11; cut 1/4; gain 0 (not adjacent to me: 1 < 2).
      */
-    expect(enc.nodes[1]).toEqual([1, 3 / 8, 1, 0, 1, 2 / 8, 1 / 2, 2 / 8]);
-    expect(enc.nodes[2]).toEqual([1, 2 / 8, 0, 1, 1, 0, 0, 1 / 8]);
-    expect(enc.nodes[3]).toEqual([1, 1 / 8, 1, 0, 0, 0, 0, 1 / 8]);
-    expect(enc.nodes[4]).toEqual([1, 5 / 8, 0, 1, 1, 2 / 8, 1, 1 / 8]);
+    expect(enc.nodes[1]).toEqual([
+      1,
+      3 / 8,
+      1,
+      0,
+      1,
+      2 / 8,
+      1 / 2,
+      2 / 8,
+      2 / 4,
+      2 / 4,
+      4 / 11,
+      1 / 4,
+      0,
+    ]);
+    expect(enc.nodes[2]).toEqual([
+      1,
+      2 / 8,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1 / 8,
+      1 / 4,
+      1 / 4,
+      2 / 11,
+      1 / 4,
+      1 / 4,
+    ]);
+    expect(enc.nodes[3]).toEqual([1, 1 / 8, 1, 0, 0, 0, 0, 1 / 8, 2 / 4, 2 / 4, 4 / 11, 1 / 4, 0]);
+    expect(enc.nodes[4]).toEqual([
+      1,
+      5 / 8,
+      0,
+      1,
+      1,
+      2 / 8,
+      1,
+      1 / 8,
+      1 / 4,
+      1 / 4,
+      5 / 11,
+      1 / 4,
+      0,
+    ]);
   });
 
   it('throws when an area id falls outside the node range [0, maxAreas)', () => {
@@ -196,24 +262,54 @@ describe('encodeStep — per-player globals and board scalars', () => {
 
   it('normalizes per-seat features by board totals, with is_me set only for the actor', () => {
     expect(enc.players).toHaveLength(3);
-    // p0 (me): terr 2/4, dice 4/11, group 2/4, stock 6/64
+    // p0 (me): terr 2/4, dice 4/11, group 2/4, stock 6/64, acts now (0)
     expect(enc.players[0][0]).toBe(1); // isMe
     expect(enc.players[0][1]).toBe(0); // eliminated
     expect(enc.players[0][2]).toBeCloseTo(2 / 4, 12);
     expect(enc.players[0][3]).toBeCloseTo(4 / 11, 12);
     expect(enc.players[0][4]).toBeCloseTo(2 / 4, 12);
     expect(enc.players[0][5]).toBeCloseTo(6 / 64, 12);
-    // p2: isMe 0, dice 5/11, stock fully capped (64/64 = 1)
+    expect(enc.players[0][6]).toBe(0); // turnsUntilActsNorm — the actor
+    // p2: isMe 0, dice 5/11, stock fully capped (64/64 = 1), last to act (2/2 = 1)
     expect(enc.players[2][0]).toBe(0);
     expect(enc.players[2][3]).toBeCloseTo(5 / 11, 12);
     expect(enc.players[2][5]).toBe(1);
+    expect(enc.players[2][6]).toBe(1);
+    // p1 acts next: rank 1 / (activePlayers-1 = 2)
+    expect(enc.players[1][6]).toBeCloseTo(1 / 2, 12);
   });
 
   it('encodes board scalars with a one-hot game phase', () => {
     expect(enc.board).toHaveLength(BOARD_FEATURES.length);
     expect(enc.board[0]).toBeCloseTo(4 / 11, 12); // my dice share
     expect(enc.board[1]).toBeCloseTo(3 / 3, 12); // active fraction
-    expect(enc.board.slice(2)).toEqual([0, 1, 0]); // phase = mid
+    expect(enc.board.slice(2, 5)).toEqual([0, 1, 0]); // phase = mid
+    expect(enc.board[5]).toBeCloseTo(6 / 64, 12); // myStockNorm — my player-row stock, past the mean-pool
+    expect(enc.board[6]).toBeCloseTo(7 / 500, 12); // turnNumberNorm — turn 7 of the 500-turn cap
+  });
+
+  it('zeroes turnsUntilActsNorm for eliminated seats and clamps the turn clock at 1', () => {
+    const step = syntheticStep();
+    step.observation.players = step.observation.players.map(p =>
+      p.id === 2 ? { ...p, eliminated: true, turnsUntilActs: 0 } : p
+    );
+    step.observation.activePlayers = 2;
+    step.observation.turnNumber = 9999; // far past the stalemate cap
+    const enc2 = encodeStep(step, SYNTH_CTX);
+    expect(enc2.players[2][1]).toBe(1); // eliminated flag
+    expect(enc2.players[2][6]).toBe(0); // no upcoming turn
+    expect(enc2.players[1][6]).toBe(1); // sole other active seat: rank 1 / max(2-1, 1)
+    expect(enc2.board[6]).toBe(1); // turnNumberNorm clamped
+  });
+
+  it('throws when a player row predates the v3 sanitizer (no turnsUntilActs)', () => {
+    const step = syntheticStep();
+    step.observation.players = step.observation.players.map(p => {
+      const stale = { ...p };
+      delete stale.turnsUntilActs;
+      return stale;
+    });
+    expect(() => encodeStep(step, SYNTH_CTX)).toThrow(/has no turnsUntilActs/);
   });
 
   it('throws when the acting seat is absent from the players list', () => {
@@ -239,11 +335,33 @@ describe('encodeStep — action head, label, and value', () => {
     expect(enc.edges[0][0]).toBeLessThan(1);
     expect(enc.edges[0][1]).toBe(3 / 8);
     expect(enc.edges[0][2]).toBe(2 / 8);
-    expect(enc.edges[0][3]).toBe(0); // isStop (still column 3 in v2)
+    expect(enc.edges[0][3]).toBe(0); // isStop (still column 3 across versions)
     expect(enc.edgeIndex[0]).toEqual([1, 2]);
     // STOP edge: zero features, isStop flag (col 3), sentinel gather index
-    expect(enc.edges[1]).toEqual([0, 0, 0, 1, 0, 0, 0]);
+    expect(enc.edges[1]).toEqual([0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
     expect(enc.edgeIndex[1]).toEqual([0, 0]);
+  });
+
+  it('encodes the v3 move consequences: elimination and both income deltas', () => {
+    const enc = encodeStep(syntheticStep(), SYNTH_CTX);
+    const attack = enc.edges[0]; // 1 → 2, defender p1 owns exactly 1 territory
+    expect(attack[7]).toBe(1); // eliminatesDefender
+    expect(attack[8]).toBeCloseTo(1 / 4, 12); // defIncomeDeltaNorm — p1 loses its whole group
+    expect(attack[9]).toBeCloseTo(1 / 4, 12); // myIncomeDeltaNorm — my {1,3} extends to 3
+
+    // The income deltas ARE the target node's v3 columns, gathered onto the edge.
+    expect(attack[8]).toBe(enc.nodes[2][11]); // cutValueNorm of `to`
+    expect(attack[9]).toBe(enc.nodes[2][12]); // myGainIfCapturedNorm of `to`
+  });
+
+  it('leaves eliminatesDefender 0 when the defender owner holds other territories', () => {
+    const step = syntheticStep();
+    // Give p1 a second (disconnected) territory: capturing id 2 no longer kills them.
+    step.observation.players = step.observation.players.map(p =>
+      p.id === 1 ? { ...p, territories: 2 } : p
+    );
+    const enc = encodeStep(step, SYNTH_CTX);
+    expect(enc.edges[0][7]).toBe(0);
   });
 
   it('labels the chosen attack edge', () => {
@@ -304,6 +422,7 @@ describe('encodeStep — v2 attack-consequence edge features', () => {
       connectedTerritories: 1,
       reinforcements: 0,
       eliminated: false,
+      turnsUntilActs: id,
     }));
     return {
       playerId: 0,
@@ -369,6 +488,7 @@ describe('encodeStep ↔ encodeObservationForInference — cross-path feature pa
       connectedTerritories: 1,
       reinforcements: 0,
       eliminated: false,
+      turnsUntilActs: id,
     }));
     const observation = {
       myPlayer: 0,

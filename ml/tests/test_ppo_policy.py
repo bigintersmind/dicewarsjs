@@ -56,7 +56,7 @@ def _v2_config(**overrides) -> ModelConfig:
     return ModelConfig(**base)
 
 
-def _make_bc_checkpoint(cfg: ModelConfig, *, encoding_version: int = 2, seed: int = 0) -> dict:
+def _make_bc_checkpoint(cfg: ModelConfig, *, encoding_version: int = 3, seed: int = 0) -> dict:
     """A BC-format checkpoint dict (state_dict + config) from a fresh EdgePolicyNet."""
     torch.manual_seed(seed)
     net = EdgePolicyNet(cfg)
@@ -257,7 +257,7 @@ def test_repack_roundtrips_to_bare_edgepolicynet():
     policy = _build_warm_started(cfg, ckpt)
 
     repacked = repack_to_bc_checkpoint(policy, extra={"teacher": "PPO"})
-    assert repacked["encoding_version"] == 2
+    assert repacked["encoding_version"] == 3
     assert repacked["teacher"] == "PPO"
     assert repacked["config"] == cfg.to_dict()
 
@@ -272,7 +272,7 @@ def test_repack_roundtrips_to_bare_edgepolicynet():
 
 
 def test_load_bc_checkpoint_rejects_non_v2(tmp_path):
-    cfg = _v2_config(node_features=5, edge_features=4)  # encoding-v1 shapes
+    cfg = _v2_config(node_features=5, edge_features=4)  # stale encoding-v1 shapes
     ckpt = _make_bc_checkpoint(cfg, encoding_version=1)
     path = tmp_path / "v1.pt"
     torch.save(ckpt, path)
@@ -281,7 +281,7 @@ def test_load_bc_checkpoint_rejects_non_v2(tmp_path):
 
 
 def test_build_policy_rejects_non_v2_config():
-    cfg = _v2_config(node_features=5)  # wrong width for the v2 wire
+    cfg = _v2_config(node_features=5)  # wrong width for the live wire
     obs_space, act_space = _spaces(_v2_config())
-    with pytest.raises(ValueError, match="v2 wire contract"):
+    with pytest.raises(ValueError, match="live wire contract"):
         build_policy(obs_space, act_space, cfg)

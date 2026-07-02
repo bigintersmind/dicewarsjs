@@ -12,7 +12,13 @@ import { GAME_PHASES } from '../../src/engine/constants.js';
 import { ai_bc, makeBC } from '../../src/ai/ai_bc.js';
 import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
 import { createBotState } from '../../src/arena/botState.js';
-import { encodeObservationForInference } from '../../src/arena/encodeObservation.js';
+import {
+  BOARD_FEATURES,
+  EDGE_FEATURES,
+  NODE_FEATURES,
+  PLAYER_FEATURES,
+  encodeObservationForInference,
+} from '../../src/arena/encodeObservation.js';
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
 import { runMatch } from '../../src/arena/matchRunner.js';
 
@@ -33,20 +39,28 @@ describe('encodeObservationForInference', () => {
   const botState = createBotState(state, me);
   const enc = encodeObservationForInference(botState, { maxAreas: BC_POLICY.config.maxAreas });
 
-  it('produces tensors matching the model contract shapes', () => {
+  it('produces tensors matching the live encoder widths, coverable by the policy', () => {
+    // The encoder emits the LIVE (v3) widths ...
     expect(enc.nodes.length).toBe(BC_POLICY.config.maxAreas);
-    expect(enc.nodes[0].length).toBe(BC_POLICY.config.nodeFeatures);
+    expect(enc.nodes[0].length).toBe(NODE_FEATURES.length);
     expect(enc.players.length).toBe(botState.players.length);
-    expect(enc.board.length).toBe(BC_POLICY.config.boardFeatures);
-    expect(enc.edges[0].length).toBe(BC_POLICY.config.edgeFeatures);
+    expect(enc.players[0].length).toBe(PLAYER_FEATURES.length);
+    expect(enc.board.length).toBe(BOARD_FEATURES.length);
+    expect(enc.edges[0].length).toBe(EDGE_FEATURES.length);
     expect(enc.edges.length).toBe(enc.edgeIndex.length);
     expect(enc.edges.length).toBe(enc.moves.length);
+    // ... and the shipped (v2) policy must be at most that wide — the slice-compat
+    // contract: forward()'s linear() reads only the first config.* columns of each row.
+    expect(BC_POLICY.config.nodeFeatures).toBeLessThanOrEqual(NODE_FEATURES.length);
+    expect(BC_POLICY.config.playerFeatures).toBeLessThanOrEqual(PLAYER_FEATURES.length);
+    expect(BC_POLICY.config.boardFeatures).toBeLessThanOrEqual(BOARD_FEATURES.length);
+    expect(BC_POLICY.config.edgeFeatures).toBeLessThanOrEqual(EDGE_FEATURES.length);
   });
 
   it('reconstructs exactly getValidMoves + a trailing STOP', () => {
     expect(enc.moves[enc.moves.length - 1]).toBeNull(); // STOP
-    // v2 STOP edge: all features 0 except isStop (column 3); width tracks EDGE_FEATURES.
-    const stopEdge = new Array(BC_POLICY.config.edgeFeatures).fill(0);
+    // STOP edge: all features 0 except isStop (column 3); width tracks EDGE_FEATURES.
+    const stopEdge = new Array(EDGE_FEATURES.length).fill(0);
     stopEdge[3] = 1;
     expect(enc.edges[enc.edges.length - 1]).toEqual(stopEdge);
     expect(enc.edgeIndex[enc.edgeIndex.length - 1]).toEqual([0, 0]);
@@ -94,6 +108,7 @@ describe('ai_bc bot', () => {
           connectedTerritories: 1,
           reinforcements: 0,
           eliminated: false,
+          turnsUntilActs: 0,
         },
         {
           id: 1,
@@ -102,6 +117,7 @@ describe('ai_bc bot', () => {
           connectedTerritories: 1,
           reinforcements: 0,
           eliminated: false,
+          turnsUntilActs: 1,
         },
       ],
     };
@@ -225,9 +241,23 @@ describe('makeBC policy override', () => {
     expect(makeBC({ policy: BC_POLICY })(botState)).toEqual(ai_bc(botState));
   });
 
-  it('throws if the candidate policy disagrees with the encoder ENCODING_VERSION', () => {
-    // A version-skewed candidate would feed mis-columned tensors — fail loud at factory time.
-    const skewed = { ...BC_POLICY, encodingVersion: BC_POLICY.encodingVersion + 1 };
+  it('throws if the candidate policy is stamped with an unsupported encoding version', () => {
+    /*
+     * An unknown-version candidate would feed mis-columned tensors — fail loud at
+     * factory time. NB: +1 skew is no longer a valid sentinel — v2 AND v3 are both
+     * accepted since [D-31] (v2 is a column-prefix of v3; the policy-override test
+     * above passing with the v2-stamped BC_POLICY *is* the acceptance proof).
+     */
+    const skewed = { ...BC_POLICY, encodingVersion: 99 };
     expect(() => makeBC({ policy: skewed })).toThrow(/encodingVersion/);
+  });
+
+  it('throws if the candidate policy declares a width the encoder cannot fill', () => {
+    // A wider-than-encoder net would multiply against missing columns and read NaN.
+    const wide = {
+      ...BC_POLICY,
+      config: { ...BC_POLICY.config, edgeFeatures: BC_POLICY.config.edgeFeatures + 99 },
+    };
+    expect(() => makeBC({ policy: wide })).toThrow(/exceeds the live encoder width/);
   });
 });

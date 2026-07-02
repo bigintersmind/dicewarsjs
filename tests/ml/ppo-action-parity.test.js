@@ -25,6 +25,7 @@ import { createBotState } from '../../src/arena/botState.js';
 import {
   encodeObservationForInference,
   ENCODING_VERSION,
+  SUPPORTED_ENCODING_VERSIONS,
 } from '../../src/arena/encodeObservation.js';
 import { argmax, forward } from '../../src/ai/bcForward.js';
 import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
@@ -39,7 +40,7 @@ import {
 } from '../../scripts/lib/obs-frame.mjs';
 
 const PLAYER_COUNT = 7;
-const STOP_EDGE_ROW = [0, 0, 0, 1, 0, 0, 0]; // EDGE_FEATURES with isStop (col 3) = 1
+const STOP_EDGE_ROW = [0, 0, 0, 1, 0, 0, 0, 0, 0, 0]; // EDGE_FEATURES with isStop (col 3) = 1
 const f32 = x => Math.fround(x);
 
 /** First seed whose acting seat has at least `minAttacks` legal attacks. */
@@ -81,6 +82,7 @@ function makeBotState({ myPlayer, areas, players, gamePhase = 'mid', turnNumber 
       connectedTerritories: p.connectedTerritories ?? 0,
       reinforcements: p.reinforcements ?? 0,
       eliminated: p.eliminated ?? false,
+      turnsUntilActs: p.turnsUntilActs ?? 0,
     })
   );
   return Object.freeze({
@@ -239,7 +241,7 @@ describe('PPO bridge decode == BC bot decode (cross-path)', () => {
     const { state, botState } = findRealState(4);
     // The policy was trained on this board; its node space must cover it.
     expect(state.areas.length).toBeLessThanOrEqual(maxAreas);
-    expect(BC_POLICY.encodingVersion).toBe(ENCODING_VERSION);
+    expect(SUPPORTED_ENCODING_VERSIONS).toContain(BC_POLICY.encodingVersion);
 
     const enc = encodeObservationForInference(botState, { maxAreas });
     const { logits } = forward(BC_POLICY, enc);

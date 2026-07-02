@@ -590,6 +590,23 @@ ppo:gate` over **3040 seat-fair games**: PPO **11.5 ± 1.3%** vs Lookahead **15.
   signal** (exactly what the Risk thesis hit). Don't pour unbounded compute in.
   Record in `DECISIONS.md`; fall back to shipping the best of Track A / Phase 2.
 
+**Encoding-v3 push (2026-07-02, [D-31]) — the next strength/persona enabler.** The
+observability audit found representational gaps (owner identity, income economics,
+turn order, the clock — see [D-31]); v3 closes them append-only, with v2 nets kept
+runnable via slice-compat (`SUPPORTED_ENCODING_VERSIONS`). Work plan:
+
+1. ✅ Primitives (#101): `groupIncome.js` (BotState-native cut/gain deltas),
+   `BotPlayer.turnsUntilActs`, shared `DEFAULT_MAX_TURNS`.
+2. ✅ Contract flip (this change): encoder v3 columns (nodes 8→13, players 6→7,
+   board 5→7, edges 7→10) + `ENCODING_VERSION = 3` + guard relaxation, Python
+   mirror in the same commit; goldens/fixtures regenerated.
+3. ⬜ `ppo-v3-scratch` on shodan: the `ppo-scratch-long` recipe, only the
+   observation changed. Tripwires 0.5M/1M → primary bar: beat the v2 scratch
+   control head-to-head (95% CI excl. 0) → ship bar: beat Survivor. On ship-bar
+   pass, the v3 net ships as Conqueror ([D-27] pattern); persona re-batch
+   (Predator revival now representable via `eliminatesDefender`) is a separate
+   follow-up wave. Primary fail → one zero-init warm-start arm, then close.
+
 ---
 
 ## Phase 4 — Ship the strongest bot · 🟨 In progress (2026-06-29) · ~2–4 days on top of the winner

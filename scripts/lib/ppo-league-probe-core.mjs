@@ -30,7 +30,10 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ENCODING_VERSION } from '../../src/arena/encodeObservation.js';
+import {
+  ENCODING_VERSION,
+  assertPolicyEncodingCompatible,
+} from '../../src/arena/encodeObservation.js';
 import { argmax, forward } from '../../src/ai/bcForward.js';
 import { BC_POLICY as PPO_POLICY } from '../../src/ai/ppoPolicyWeights.js';
 import { BC_POLICY as BC_POLICY_WEIGHTS } from '../../src/ai/bcPolicyWeights.js';
@@ -77,12 +80,7 @@ const POLICY_URLS = {
  * @returns {(encoded:{moves:unknown[]}) => number}
  */
 export function makePolicyChooseAction(policy) {
-  if (policy.encodingVersion !== ENCODING_VERSION) {
-    throw new Error(
-      `makePolicyChooseAction: policy encodingVersion ${policy.encodingVersion} != encoder ` +
-        `ENCODING_VERSION ${ENCODING_VERSION} — re-export against the current encoding.`
-    );
-  }
+  assertPolicyEncodingCompatible(policy, 'makePolicyChooseAction');
   return encoded => argmax(forward(policy, encoded).logits);
 }
 

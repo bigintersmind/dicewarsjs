@@ -17,7 +17,10 @@ import { join } from 'node:path';
 import { createGame } from '../../src/engine/GameRunner.js';
 import { getValidMoves } from '../../src/engine/StateManager.js';
 import { createBotState } from '../../src/arena/botState.js';
-import { encodeObservationForInference } from '../../src/arena/encodeObservation.js';
+import {
+  ENCODING_VERSION,
+  encodeObservationForInference,
+} from '../../src/arena/encodeObservation.js';
 import { argmax, forward } from '../../src/ai/bcForward.js';
 import { BC_POLICY as PPO_POLICY } from '../../src/ai/ppoPolicyWeights.js';
 import { BC_POLICY as BC_WEIGHTS } from '../../src/ai/bcPolicyWeights.js';
@@ -119,7 +122,7 @@ describe('buildSnapshotManifest → real makeLeague.refresh()', () => {
     expect(existsSync(manifestPath)).toBe(true);
 
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    expect(manifest.encodingVersion).toBe(PPO_POLICY.encodingVersion);
+    expect(manifest.encodingVersion).toBe(ENCODING_VERSION);
     expect(manifest.snapshots).toHaveLength(4);
     // Each entry references an on-disk shim file...
     for (const s of manifest.snapshots) expect(existsSync(join(dir, s.weights))).toBe(true);

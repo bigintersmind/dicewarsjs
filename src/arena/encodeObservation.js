@@ -2,26 +2,40 @@
  * Observation Encoder — the Phase-2 tensor-expansion pass (docs/ml-bot/).
  *
  * Turns one re-derived fat trajectory step (a {@link import('./trajectoryExport.js').TrajectoryStep})
- * into the fixed-shape numeric tensors the behavioral-cloning net consumes, exactly per the
- * **D-Encoding** contract in `docs/ml-bot/DECISIONS.md`:
+ * into the fixed-shape numeric tensors the policy nets consume, per the
+ * **D-Encoding** contract in `docs/ml-bot/DECISIONS.md` (v3 additions: [D-31]):
  *
  *   - **Nodes** — a graph over the fixed territory-id node space `0 .. maxAreas-1` (id 0 is
  *     the unused sentinel). One row per id; absent ids are zero with `present = 0`. Features
  *     are **relational** (`isMine`/`isEnemy`), never an absolute seat one-hot, so the policy
  *     is seat-symmetric. v2 ([D-18]) adds three local-neighbourhood features (enemy-threat
- *     magnitude, enemy fraction, degree) so the per-node MLP sees board structure.
+ *     magnitude, enemy fraction, degree) so the per-node MLP sees board structure. v3
+ *     ([D-31]) paints the OWNER's strength onto each node (territory/income/dice share —
+ *     identity carried as attributes, still no seat index) plus the two income-consequence
+ *     values (cut value if the node flips, my gain if I capture it).
  *   - **Per-player globals** — one row per seat (`isMe` marks self), the quantities the
- *     teacher's posture/leader terms key off.
- *   - **Board scalars** — my dice-share, active fraction, game-phase one-hot.
+ *     teacher's posture/leader terms key off. v3 adds `turnsUntilActsNorm` (turn-order
+ *     distance from the acting seat).
+ *   - **Board scalars** — my dice-share, active fraction, game-phase one-hot. v3 adds my
+ *     stock and the turn clock (turnNumber / stalemate cap).
  *   - **Action head** — one row per legal move from `getValidMoves` plus an explicit STOP,
  *     each carrying the engineered edge features (`winProb`, `atk/8`, `def/8`; v2 [D-18] adds
  *     three attack-consequence features — post-capture retaliation, vacated-source exposure,
- *     target enemy-surround) so the net never has to learn dice math or look ahead one ply.
+ *     target enemy-surround; v3 [D-31] adds elimination and the income deltas gathered from
+ *     the target node) so the net never has to learn dice math or look ahead one ply.
  *     The mask is all-ones over exactly this set (the legal set IS `getValidMoves` + STOP —
  *     see {@link import('./trajectoryExport.js').trajectoryFromReplay}).
  *   - **BC label** — the index of the teacher's `chosenMove` within that action list.
  *   - **Aux value head** — terminal `won` + normalized `placement` (1 = first … 0 = last),
  *     a recommended multi-task target that warm-starts Phase-3 PPO.
+ *
+ * **v2 compatibility ([D-31] append-only rule):** every v3 column is appended AFTER the v2
+ * columns, which are byte-identical to what a v2 encoder produced. A v2-stamped policy run
+ * through `bcForward` therefore ignores the appended tail (its first-layer weights are
+ * narrower and every concat keeps the variable-width tensor last) — numerically exact v2
+ * behavior with no adapter allocation. {@link assertPolicyEncodingCompatible} is the loud
+ * gate: it accepts any {@link SUPPORTED_ENCODING_VERSIONS} policy whose widths are ≤ the
+ * live arrays, and rejects everything else (a wider-than-encoder policy would read NaN).
  *
  * The encoder is **pure** and stateless: feed it a step + the per-game context
  * (`maxAreas`, `playerCount`, terminal `winner`/`placements`) and it returns plain arrays.
@@ -33,6 +47,8 @@
 
 import { MAX_DICE, winProbability } from '../ai/diceOdds.js';
 import { STOCK_MAX } from '../engine/constants.js';
+import { computeGroups, cutValueFor, myGainIfCaptured } from './groupIncome.js';
+import { DEFAULT_MAX_TURNS } from './matchRunner.js';
 import { isStopMove } from './trajectoryExport.js';
 
 /**
@@ -40,7 +56,17 @@ import { isStopMove } from './trajectoryExport.js';
  * incompatibly (separate from OBSERVATION_SCHEMA_VERSION, which stamps the
  * on-disk lean record; this stamps the *expanded tensor* layout).
  */
-export const ENCODING_VERSION = 2;
+export const ENCODING_VERSION = 3;
+
+/**
+ * Encoding versions a policy may be stamped with and still run against this
+ * encoder. v2 is the strict column-prefix of v3 (the [D-31] append-only rule),
+ * so v2 nets consume v3 tensors by ignoring the appended tail columns — see
+ * {@link assertPolicyEncodingCompatible}. Remove a version from this list only
+ * when a change breaks the prefix property.
+ * @type {readonly number[]}
+ */
+export const SUPPORTED_ENCODING_VERSIONS = Object.freeze([2, 3]);
 
 /**
  * Per-node feature names, in tensor-column order. One row per territory id
@@ -50,6 +76,12 @@ export const ENCODING_VERSION = 2;
  * features so the per-node MLP sees the board structure the v1 encoding withheld
  * (the v1 corpus carried no adjacency at all). All are **relational to the acting
  * seat** (`enemy` = owner ≠ me), preserving seat-symmetry.
+ *
+ * v3 ([D-31]) appends the **owner-attribute + income-consequence** features: the
+ * node's owner carried as strength/income attributes (never a seat one-hot — the
+ * net learns "belongs to a 40%-income player", not "belongs to seat 3") and the
+ * two capture-consequence deltas from `groupIncome.js`. Placing owner stats on
+ * nodes also routes them around the player-pool mean-pooling bottleneck.
  * @type {readonly string[]}
  */
 export const NODE_FEATURES = Object.freeze([
@@ -61,6 +93,11 @@ export const NODE_FEATURES = Object.freeze([
   'enemyNbrDiceMaxNorm', // v2: max dice among enemy neighbours / MAX_DICE (biggest incoming threat); 0 if none
   'enemyNbrFrac', // v2: enemy neighbours / total neighbours; 0 if isolated
   'degreeNorm', // v2: neighbour count / NEIGHBOR_DEGREE_NORM (connectivity / exposure)
+  'ownerTerrFrac', // v3: owner's territories / board territories (how big the owner is)
+  'ownerIncomeFrac', // v3: owner's largest connected group / board territories (their income)
+  'ownerDiceFrac', // v3: owner's total dice / dice in play (their strength)
+  'cutValueNorm', // v3: owner income lost if this node flips / board (my bridge to defend; their chain to cut)
+  'myGainIfCapturedNorm', // v3: my income delta if I take this node / board (0 for my own nodes)
 ]);
 
 /**
@@ -76,6 +113,7 @@ export const PLAYER_FEATURES = Object.freeze([
   'diceFrac', // totalDice / total dice in play
   'connectedFrac', // largestGroup / total board territories
   'stockNorm', // reinforcements / STOCK_MAX
+  'turnsUntilActsNorm', // v3: turn-advances until this seat acts / (activePlayers-1); self & eliminated = 0
 ]);
 
 /**
@@ -89,12 +127,21 @@ export const BOARD_FEATURES = Object.freeze([
   'phaseEarly',
   'phaseMid',
   'phaseLate',
+  'myStockNorm', // v3: my reinforcement stock / STOCK_MAX (duplicates my player-row stock past the mean-pool, like myDiceShare)
+  'turnNumberNorm', // v3: turnNumber / DEFAULT_MAX_TURNS, clamped to 1 (the stalemate/truncation clock)
 ]);
 
 /**
  * Per-edge feature names, in tensor-column order. One row per entry in the
  * action head (`legalMoves` = `getValidMoves` output + a trailing STOP). The
  * from/to node representations are gathered separately via `edgeIndex`.
+ *
+ * v3 ([D-31]) appends the move consequences a human reads off the board: does
+ * this capture eliminate its owner, and what does it do to each side's income.
+ * The income deltas are the target node's `cutValueNorm`/`myGainIfCapturedNorm`
+ * gathered onto the edge row (same numbers by construction — one computation in
+ * the shared context), following the v2 precedent of handing the edge head
+ * direct consequence features rather than relying on the node embeddings.
  * @type {readonly string[]}
  */
 export const EDGE_FEATURES = Object.freeze([
@@ -105,6 +152,9 @@ export const EDGE_FEATURES = Object.freeze([
   'tgtRetakeThreatNorm', // v2: max enemy dice adjacent to `to` (excl. `from`) / MAX_DICE — current-board proxy for post-capture retaliation risk
   'srcVacateThreatNorm', // v2: max enemy dice among `from`'s OTHER neighbours (excl. `to`) / MAX_DICE — exposure left behind when the attacker empties to 1 die
   'tgtEnemyNbrFrac', // v2: enemy neighbours of `to` (excl. `from`) / its neighbour count — how surrounded the prize is
+  'eliminatesDefender', // v3: 1 if capturing `to` removes its owner's last territory
+  'defIncomeDeltaNorm', // v3: = to.cutValueNorm — income the defender's owner loses to this capture
+  'myIncomeDeltaNorm', // v3: = to.myGainIfCapturedNorm — income I gain from this capture
 ]);
 
 const PHASE_INDEX = Object.freeze({ early: 0, mid: 1, late: 2 });
@@ -121,6 +171,47 @@ const NEIGHBOR_DEGREE_NORM = 8;
  * @type {number[]}
  */
 const STOP_EDGE = EDGE_FEATURES.map(name => (name === 'isStop' ? 1 : 0));
+
+/**
+ * Throw unless `policy` can run against the live encoder: its stamped
+ * `encodingVersion` must be in {@link SUPPORTED_ENCODING_VERSIONS}, and any
+ * config feature widths it declares must not exceed the live arrays. The width
+ * check is what makes accepting old versions safe: a supported-but-narrower
+ * policy simply ignores the appended tail columns inside `bcForward`'s
+ * `linear()` (weights drive the loop bounds), while a *wider* policy would
+ * multiply against missing columns and emit NaN — so it is rejected loudly.
+ * Width fields are belt-and-braces over the version stamp (real exports always
+ * carry them; `export_weights.py` stamps the full config): a policy that omits
+ * one is judged by its version alone, since a missing width cannot be wider.
+ *
+ * @param {{encodingVersion: number, config: Object}} policy - exported weights module payload
+ * @param {string} label - caller tag for the error message (e.g. 'makeBC', 'league snapshot')
+ * @throws {Error} On an unsupported version or a declared config width wider than the encoder
+ */
+export function assertPolicyEncodingCompatible(policy, label) {
+  if (!SUPPORTED_ENCODING_VERSIONS.includes(policy.encodingVersion)) {
+    throw new Error(
+      `${label}: policy encodingVersion ${policy.encodingVersion} not in supported set ` +
+        `[${SUPPORTED_ENCODING_VERSIONS.join(', ')}] (encoder ENCODING_VERSION ${ENCODING_VERSION}) ` +
+        `— retrain/re-export against a supported encoding.`
+    );
+  }
+  const widths = [
+    ['nodeFeatures', NODE_FEATURES.length],
+    ['playerFeatures', PLAYER_FEATURES.length],
+    ['boardFeatures', BOARD_FEATURES.length],
+    ['edgeFeatures', EDGE_FEATURES.length],
+  ];
+  for (const [key, live] of widths) {
+    const got = policy.config?.[key];
+    if (typeof got === 'number' && got > live) {
+      throw new Error(
+        `${label}: policy config.${key} = ${got} exceeds the live encoder width ${live} — a ` +
+          `wider-than-encoder net would read NaN. Re-export the policy or widen the encoder first.`
+      );
+    }
+  }
+}
 
 /**
  * Relational (acting-seat `me`) summary of one area's neighbourhood: how many
@@ -154,20 +245,90 @@ function neighborStats(area, areaById, me, exceptId = -1) {
 }
 
 /**
+ * @typedef {Object} SharedEncodeContext
+ * @property {number} me - acting seat
+ * @property {Map<number, import('./types.js').BotArea>} areaById - present areas by id
+ * @property {Map<number, import('./types.js').BotPlayer>} playerById - seats by id
+ * @property {Map<number, {cut: number, gain: number}>} nodeIncome - per-node income
+ *   consequences (cutValueFor / myGainIfCaptured), computed once and read by BOTH the
+ *   node builder and the edge builder — the "edge = gathered node value" identity holds
+ *   by construction
+ * @property {number} terrDen - board territory count (≥ 1)
+ * @property {number} diceDen - total dice in play (≥ 1)
+ */
+
+/**
+ * Build the per-step shared context every tensor builder reads: id lookups,
+ * normalization denominators, and the group/income analysis of the board.
+ * One `computeGroups` pass + one cut/gain evaluation per node per decision.
+ *
+ * @param {import('./types.js').BotState} obs - the step's sanitized observation
+ * @param {number} me - the acting seat
+ * @returns {SharedEncodeContext}
+ */
+function buildSharedContext(obs, me) {
+  const areaById = new Map(obs.allAreas.map(a => [a.id, a]));
+  const playerById = new Map(obs.players.map(p => [p.id, p]));
+  const groups = computeGroups(obs.allAreas);
+  const nodeIncome = new Map();
+  for (const area of obs.allAreas) {
+    nodeIncome.set(area.id, {
+      cut: cutValueFor(area, groups),
+      gain: myGainIfCaptured(area, groups, me),
+    });
+  }
+  const totalDice = obs.players.reduce((sum, p) => sum + p.totalDice, 0);
+  /*
+   * Guard the denominators: a 0-territory / 0-dice board can't arise mid-decision
+   * (the acting player has a move), but division must stay finite regardless.
+   */
+  return {
+    me,
+    areaById,
+    playerById,
+    nodeIncome,
+    terrDen: obs.allAreas.length || 1,
+    diceDen: totalDice || 1,
+  };
+}
+
+/**
+ * The owner row for an area, or a loud throw: every present area's owner must
+ * appear among the step's players, else the observation is corrupt and the v3
+ * owner-attribute columns would silently encode zeros.
+ *
+ * @param {SharedEncodeContext} ctx
+ * @param {import('./types.js').BotArea} area
+ * @returns {import('./types.js').BotPlayer}
+ */
+function ownerOf(ctx, area) {
+  const owner = ctx.playerById.get(area.owner);
+  if (!owner) {
+    throw new Error(
+      `encodeObservation: area ${area.id} owner ${area.owner} is not among the step's ` +
+        `${ctx.playerById.size} players.`
+    );
+  }
+  return owner;
+}
+
+/**
  * The full edge-feature row for one attack `from → to`, shared by the train and
- * inference encoders. The first three (winProb, atk/8, def/8) and `isStop = 0`
- * are the v1 features; the last three are the v2 attack-consequence features
- * ([D-18]), each a deterministic function of the *current* board (no leakage).
+ * inference encoders. Columns 0-3 (winProb, atk/8, def/8, isStop=0) are v1;
+ * columns 4-6 are the v2 attack-consequence features ([D-18]); columns 7-9 are
+ * the v3 elimination/income consequences ([D-31]) — each a deterministic
+ * function of the *current* board (no leakage).
  *
  * @param {import('./types.js').BotArea} fromArea
  * @param {import('./types.js').BotArea} toArea
- * @param {Map<number, import('./types.js').BotArea>} areaById
- * @param {number} me
+ * @param {SharedEncodeContext} ctx
  * @returns {number[]} EDGE_FEATURES-wide row
  */
-function attackEdgeFeatures(fromArea, toArea, areaById, me) {
+function attackEdgeFeatures(fromArea, toArea, ctx) {
+  const { areaById, me, terrDen } = ctx;
   const tgt = neighborStats(toArea, areaById, me, fromArea.id); // `to`'s other neighbours
   const src = neighborStats(fromArea, areaById, me, toArea.id); // `from`'s other neighbours
+  const income = ctx.nodeIncome.get(toArea.id);
   return [
     winProbability(fromArea.dice, toArea.dice),
     fromArea.dice / MAX_DICE,
@@ -176,6 +337,9 @@ function attackEdgeFeatures(fromArea, toArea, areaById, me) {
     tgt.enemyDiceMax / MAX_DICE,
     src.enemyDiceMax / MAX_DICE,
     tgt.degree ? tgt.enemyCount / tgt.degree : 0,
+    ownerOf(ctx, toArea).territories === 1 ? 1 : 0, // eliminatesDefender
+    income.cut / terrDen, // defIncomeDeltaNorm (= to.cutValueNorm)
+    income.gain / terrDen, // myIncomeDeltaNorm (= to.myGainIfCapturedNorm)
   ];
 }
 
@@ -203,15 +367,15 @@ function attackEdgeFeatures(fromArea, toArea, areaById, me) {
 
 /**
  * Build the per-node feature matrix: one row per territory id `0 .. maxAreas-1`.
- * Row 0 (the sentinel) and any absent id are all-zero with `present = 0`.
+ * Row 0 (the sentinel) and any absent id are all-zero (`present = 0`).
  *
  * @param {import('./types.js').BotState} obs - The step's sanitized observation
- * @param {number} me - The acting seat
  * @param {number} maxAreas
- * @param {Map<number, import('./types.js').BotArea>} areaById - present areas by id (for v2 neighbour features)
+ * @param {SharedEncodeContext} ctx
  * @returns {number[][]}
  */
-function encodeNodes(obs, me, maxAreas, areaById) {
+function encodeNodes(obs, maxAreas, ctx) {
+  const { me, areaById, terrDen, diceDen } = ctx;
   const nodes = Array.from({ length: maxAreas }, () => new Array(NODE_FEATURES.length).fill(0));
   for (const area of obs.allAreas) {
     if (area.id < 0 || area.id >= maxAreas) {
@@ -222,6 +386,8 @@ function encodeNodes(obs, me, maxAreas, areaById) {
     }
     const isMine = area.owner === me ? 1 : 0;
     const s = neighborStats(area, areaById, me); // all present neighbours
+    const owner = ownerOf(ctx, area);
+    const income = ctx.nodeIncome.get(area.id);
     nodes[area.id] = [
       1, // present
       area.dice / MAX_DICE,
@@ -231,6 +397,11 @@ function encodeNodes(obs, me, maxAreas, areaById) {
       s.enemyDiceMax / MAX_DICE, // enemyNbrDiceMaxNorm
       s.degree ? s.enemyCount / s.degree : 0, // enemyNbrFrac
       s.degree / NEIGHBOR_DEGREE_NORM, // degreeNorm
+      owner.territories / terrDen, // ownerTerrFrac
+      owner.connectedTerritories / terrDen, // ownerIncomeFrac
+      owner.totalDice / diceDen, // ownerDiceFrac
+      income.cut / terrDen, // cutValueNorm
+      income.gain / terrDen, // myGainIfCapturedNorm
     ];
   }
   return nodes;
@@ -241,27 +412,41 @@ function encodeNodes(obs, me, maxAreas, areaById) {
  * (they share the same denominators).
  *
  * @param {import('./types.js').BotState} obs
- * @param {number} me
- * @param {number} totalTerritories - Present-area count (board territory total)
+ * @param {SharedEncodeContext} ctx
  * @returns {{ players: number[][], board: number[] }}
  */
-function encodeGlobals(obs, me, totalTerritories) {
-  const totalDice = obs.players.reduce((sum, p) => sum + p.totalDice, 0);
-  /*
-   * Guard the denominators: a 0-territory / 0-dice board can't arise mid-decision
-   * (the acting player has a move), but division must stay finite regardless.
-   */
-  const terrDen = totalTerritories || 1;
-  const diceDen = totalDice || 1;
+function encodeGlobals(obs, ctx) {
+  const { me, terrDen, diceDen } = ctx;
 
-  const players = obs.players.map(p => [
-    p.id === me ? 1 : 0,
-    p.eliminated ? 1 : 0,
-    p.territories / terrDen,
-    p.totalDice / diceDen,
-    p.connectedTerritories / terrDen,
-    p.reinforcements / STOCK_MAX,
-  ]);
+  /*
+   * v3 turn-order normalizer: ranks run 0 .. activePlayers-1 (self = 0), so the
+   * last seat to act before me maps to 1. The max(…, 1) keeps a heads-up or
+   * terminal (1 active player) frame finite.
+   */
+  const turnDen = Math.max(obs.activePlayers - 1, 1);
+
+  const players = obs.players.map(p => {
+    if (typeof p.turnsUntilActs !== 'number') {
+      /*
+       * The v3 player row needs the sanitizer's turn-order field. A missing field
+       * means a hand-rolled/stale BotState — encode nothing rather than a silent 0
+       * that would poison the column for a whole game.
+       */
+      throw new Error(
+        `encodeObservation: player ${p.id} has no turnsUntilActs — BotState predates the ` +
+          `v3 sanitizer (createBotState) or was built by hand without it.`
+      );
+    }
+    return [
+      p.id === me ? 1 : 0,
+      p.eliminated ? 1 : 0,
+      p.territories / terrDen,
+      p.totalDice / diceDen,
+      p.connectedTerritories / terrDen,
+      p.reinforcements / STOCK_MAX,
+      p.eliminated ? 0 : p.turnsUntilActs / turnDen, // turnsUntilActsNorm
+    ];
+  });
 
   /*
    * Surface a corrupt step loudly rather than defaulting silently: the acting seat
@@ -289,6 +474,8 @@ function encodeGlobals(obs, me, totalTerritories) {
     phase === PHASE_INDEX.early ? 1 : 0,
     phase === PHASE_INDEX.mid ? 1 : 0,
     phase === PHASE_INDEX.late ? 1 : 0,
+    self.reinforcements / STOCK_MAX, // myStockNorm
+    Math.min(obs.turnNumber / DEFAULT_MAX_TURNS, 1), // turnNumberNorm
   ];
 
   return { players, board };
@@ -301,11 +488,10 @@ function encodeGlobals(obs, me, totalTerritories) {
  *
  * @param {Array<Object>} legalMoves - getValidMoves output + a trailing STOP
  * @param {{from:number,to:number}|{type:string}} chosenMove
- * @param {Map<number, import('./types.js').BotArea>} areaById - present areas by id (for v2 edge features)
- * @param {number} me - acting seat (for relational v2 edge features)
+ * @param {SharedEncodeContext} ctx
  * @returns {{ edges: number[][], edgeIndex: number[][], mask: number[], label: number }}
  */
-function encodeActions(legalMoves, chosenMove, areaById, me) {
+function encodeActions(legalMoves, chosenMove, ctx) {
   const edges = [];
   const edgeIndex = [];
   let label = -1;
@@ -318,15 +504,15 @@ function encodeActions(legalMoves, chosenMove, areaById, me) {
       edgeIndex.push([0, 0]);
       if (chosenIsStop) label = i;
     } else {
-      const fromArea = areaById.get(move.from);
-      const toArea = areaById.get(move.to);
+      const fromArea = ctx.areaById.get(move.from);
+      const toArea = ctx.areaById.get(move.to);
       if (!fromArea || !toArea) {
         throw new Error(
           `encodeObservation: legal move ${move.from}->${move.to} references an area absent from ` +
             `allAreas — cannot build its edge features.`
         );
       }
-      edges.push(attackEdgeFeatures(fromArea, toArea, areaById, me));
+      edges.push(attackEdgeFeatures(fromArea, toArea, ctx));
       edgeIndex.push([move.from, move.to]);
       if (!chosenIsStop && move.from === chosenMove.from && move.to === chosenMove.to) {
         label = i;
@@ -413,15 +599,10 @@ export function encodeStep(step, ctx) {
     );
   }
 
-  const areaById = new Map(obs.allAreas.map(a => [a.id, a]));
-  const nodes = encodeNodes(obs, me, maxAreas, areaById);
-  const { players, board } = encodeGlobals(obs, me, obs.allAreas.length);
-  const { edges, edgeIndex, mask, label } = encodeActions(
-    step.legalMoves,
-    step.chosenMove,
-    areaById,
-    me
-  );
+  const shared = buildSharedContext(obs, me);
+  const nodes = encodeNodes(obs, maxAreas, shared);
+  const { players, board } = encodeGlobals(obs, shared);
+  const { edges, edgeIndex, mask, label } = encodeActions(step.legalMoves, step.chosenMove, shared);
 
   /*
    * Aux value head: terminal outcome relative to the acting seat. `placements`
@@ -470,9 +651,9 @@ export function encodeStep(step, ctx) {
  */
 export function encodeObservationForInference(botState, ctx) {
   const me = botState.myPlayer;
-  const areaById = new Map(botState.allAreas.map(a => [a.id, a]));
-  const nodes = encodeNodes(botState, me, ctx.maxAreas, areaById);
-  const { players, board } = encodeGlobals(botState, me, botState.allAreas.length);
+  const shared = buildSharedContext(botState, me);
+  const nodes = encodeNodes(botState, ctx.maxAreas, shared);
+  const { players, board } = encodeGlobals(botState, shared);
 
   const edges = [];
   const edgeIndex = [];
@@ -480,9 +661,9 @@ export function encodeObservationForInference(botState, ctx) {
   for (const area of botState.allAreas) {
     if (area.owner !== me || area.dice <= 1) continue;
     for (const adjId of area.neighbors) {
-      const adj = areaById.get(adjId); // present (in allAreas) ...
+      const adj = shared.areaById.get(adjId); // present (in allAreas) ...
       if (!adj || adj.owner === me) continue; // ... and enemy-owned
-      edges.push(attackEdgeFeatures(area, adj, areaById, me));
+      edges.push(attackEdgeFeatures(area, adj, shared));
       edgeIndex.push([area.id, adj.id]);
       moves.push({ from: area.id, to: adj.id });
     }

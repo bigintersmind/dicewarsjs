@@ -83,7 +83,7 @@ def test_write_manifest_atomic_schema(tmp_path):
     cb._write_manifest_atomic(cb._snapshots)
 
     manifest = json.loads((tmp_path / "manifest.json").read_text())
-    assert manifest["encodingVersion"] == EXPECTED_ENCODING_VERSION == 2
+    assert manifest["encodingVersion"] == EXPECTED_ENCODING_VERSION == 3
     assert manifest["latestStep"] == 20
     assert [s["id"] for s in manifest["snapshots"]] == ["snap-000000010", "snap-000000020"]
     assert set(manifest["snapshots"][0]) == {"id", "step", "weights", "createdAt"}

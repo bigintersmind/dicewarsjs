@@ -1890,3 +1890,67 @@ three-persona roster stands.** Full numbers + analysis: RESULTS.md → "dense-re
 Batch-2B". Notable for any revival: the placement backbone moved avgTerritory (+1.83) more than
 the territory coef ever did, and the dec. 5 early-game-territory readout doesn't exist in the
 profiler yet (build it first).
+
+## D-31 — Observation encoding v3: owner identity, income economics, turn order, clock — append-only with v2 slice-compat · Accepted (2026-07-02) · extends D-Encoding and [D-18]
+
+**Context.** A full observability audit (2026-07-02, this session) found the v2 encoding withholds
+information a human player uses constantly, and that the gaps are **representational** — no amount
+of training can recover them: (1) per-territory `owner` is collapsed to `isMine`/`isEnemy`, so the
+net cannot link any territory to a player row (which the mean-pool over seats erases anyway) — it
+cannot tell whether a target belongs to the leader or a one-territory player, and cannot see that a
+capture **eliminates** someone; (2) income economics: reinforcements = largest connected group, but
+the net sees only the per-player scalar — not which nodes form the group, where the bridges are, or
+how a capture changes either side's income (the connectivity economics that make `ai_strategist`
+strong); (3) turn order: mean-pooling destroys seat order and `BotState` never carried it; (4) the
+clock: `turnNumber` was never encoded, so speed bonuses and the stalemate cap are invisible to the
+policy. The audit retro-explains Batch-2B's 0/4 style bars ([D-30]): Predator's `--elim-bounty` was
+correctly attributed at training time, but the policy class had **no observable feature** that
+distinguishes a killing blow from any weak-neighbor attack — the persona was unrepresentable.
+
+**Decision (spec settled with Ivan, 5 parts).**
+
+1. **Append-only superset + slice-down compat.** v3 = the v2 columns byte-identical as a PREFIX,
+   new columns appended. `ENCODING_VERSION = 3`; new exported `SUPPORTED_ENCODING_VERSIONS = [2, 3]`.
+   The encoder always emits v3; a v2-stamped policy runs unchanged because `bcForward.linear()`
+   iterates the WEIGHT's input dim and every concat keeps the variable-width tensor last — the
+   appended tail is structurally ignored (bit-identical logits, proven by a padding test).
+   `assertPolicyEncodingCompatible` (encodeObservation.js) is the loud gate: version ∈ supported
+   set, declared config widths ≤ live widths (a wider-than-encoder net would read NaN). All shipped
+   v2 nets (Conqueror/Blitz/Survivor, hidden PPO/BC, the ppo-long gate baseline) keep working; the
+   Python TRAINER stays strict-current-version (never mix widths in a run).
+2. **Feature set ("Standard").** Nodes 8→13: `ownerTerrFrac`, `ownerIncomeFrac`, `ownerDiceFrac`
+   (owner identity as ATTRIBUTES — never a seat one-hot, preserving seat symmetry; also routes
+   owner stats around the player-pool mean-pool bottleneck), `cutValueNorm` (owner income lost if
+   the node flips — my bridge to defend / their chain to cut), `myGainIfCapturedNorm` (my income
+   delta if I take it — group-merge detection). Edges 7→10: `eliminatesDefender`,
+   `defIncomeDeltaNorm`, `myIncomeDeltaNorm` (the target node's income values gathered onto the
+   edge, per the v2 engineered-consequence precedent). Players 6→7: `turnsUntilActsNorm` (from the
+   new `BotPlayer.turnsUntilActs` sanitizer field — turn order is public information). Board 5→7:
+   `myStockNorm` (self stock past the mean-pool, like `myDiceShare`), `turnNumberNorm`
+   (`min(turnNumber / DEFAULT_MAX_TURNS, 1)` — the stalemate/truncation clock). All computed in the
+   shared train/inference builders from `BotState` alone via the new `src/arena/groupIncome.js`
+   (BotState-native union-find + capture deltas, fuzz cross-checked against
+   `findLargestConnectedGroup` by simulating ownership flips).
+3. **Training: from-scratch 20M PPO on shodan** (the proven `ppo-scratch-long` Δ+36.3 recipe,
+   `FROM_SCRATCH=1 TIMESTEPS=20000000`), so the only changed variable is the observation. The
+   zero-init warm start from ppo-long is the pre-registered FALLBACK arm only (append-only makes it
+   function-preserving: exactly 4 first-layer tensors widen, appended features sit at each concat
+   tail, zero-init = no-op at t=0); fired once if the primary bar fails, then the track closes.
+4. **Pre-registered bars.** Tripwires at 0.5M/1M (probe vs Lookahead shows learning, no collapse) →
+   **primary** at 20M: beat the v2 scratch control (`ppo-scratch-long`) head-to-head, seat-fair,
+   95% CI excluding 0 — the clean encoding A/B → **ship bar**: also beat Survivor head-to-head.
+   Primary pass + ship fail → keep as training base, no reship. Primary fail → warm-start fallback
+   once, then close.
+5. **Rollout: ship flagship, defer personas.** On ship-bar pass the v3 net replaces **Conqueror's**
+   weights ([D-27] pattern; hidden `ai_ppo` keeps the v2 ppo-long weights as the gate baseline).
+   The persona re-batch on the v3 base — including the now-representable **Predator revival**
+   (`eliminatesDefender` makes the bounty creditable) and Expansionist un-parking — is its own
+   follow-up decision with its own pre-registered wave.
+
+**Consequences.** (a) `EXPECTED_ENCODING_VERSION = 3` orphans the v2 BC corpus for TRAINING
+(re-encode from the lean JSONL if a v3 BC baseline is ever wanted — out of scope; `ai_bc` keeps
+running its v2 weights via slice-compat). (b) The obs-frame HEADER is untouched (no widths on the
+wire — dims only), so this is orthogonal to [D-28]'s shaped-header variant. (c) The encoder is on
+the self-play hot path; `computeGroups` is one pass per decision and cut/gain are computed once per
+node then gathered onto edges — throughput-probe before the 20M launch. (d) The `isStop`-at-col-3
+and `present`-at-col-0 invariants hold across versions (v1→v2 precedent).

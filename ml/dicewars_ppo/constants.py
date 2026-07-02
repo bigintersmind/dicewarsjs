@@ -22,8 +22,11 @@ import struct
 # --- encoding version (lockstep with src/arena/encodeObservation.js) ---------
 
 # v2 (ml-bot Phase-3, [D-18]): node 5→8 (+3 neighbourhood feats), edge 4→7
-# (+3 attack-consequence feats). Bump here AND in encodeObservation.js together.
-ENCODING_VERSION = 2
+# (+3 attack-consequence feats). v3 ([D-31], append-only): node 8→13 (owner
+# attributes + income consequences), player 6→7 (+turn order), board 5→7
+# (+stock/clock), edge 7→10 (+elimination/income deltas). The v2 columns are an
+# exact PREFIX of v3. Bump here AND in encodeObservation.js together.
+ENCODING_VERSION = 3
 
 # --- feature columns, in tensor-column order (mirror encodeObservation.js) ----
 
@@ -36,6 +39,11 @@ NODE_FEATURES: tuple[str, ...] = (
     "enemyNbrDiceMaxNorm",  # v2
     "enemyNbrFrac",  # v2
     "degreeNorm",  # v2
+    "ownerTerrFrac",  # v3
+    "ownerIncomeFrac",  # v3
+    "ownerDiceFrac",  # v3
+    "cutValueNorm",  # v3
+    "myGainIfCapturedNorm",  # v3
 )
 PLAYER_FEATURES: tuple[str, ...] = (
     "isMe",
@@ -44,6 +52,7 @@ PLAYER_FEATURES: tuple[str, ...] = (
     "diceFrac",
     "connectedFrac",
     "stockNorm",
+    "turnsUntilActsNorm",  # v3
 )
 BOARD_FEATURES: tuple[str, ...] = (
     "myDiceShare",
@@ -51,6 +60,8 @@ BOARD_FEATURES: tuple[str, ...] = (
     "phaseEarly",
     "phaseMid",
     "phaseLate",
+    "myStockNorm",  # v3
+    "turnNumberNorm",  # v3
 )
 EDGE_FEATURES: tuple[str, ...] = (
     "winProb",
@@ -60,12 +71,15 @@ EDGE_FEATURES: tuple[str, ...] = (
     "tgtRetakeThreatNorm",  # v2
     "srcVacateThreatNorm",  # v2
     "tgtEnemyNbrFrac",  # v2
+    "eliminatesDefender",  # v3
+    "defIncomeDeltaNorm",  # v3
+    "myIncomeDeltaNorm",  # v3
 )
 
-NODE_W = len(NODE_FEATURES)  # 8
-PLAYER_W = len(PLAYER_FEATURES)  # 6
-BOARD_W = len(BOARD_FEATURES)  # 5
-EDGE_W = len(EDGE_FEATURES)  # 7
+NODE_W = len(NODE_FEATURES)  # 13
+PLAYER_W = len(PLAYER_FEATURES)  # 7
+BOARD_W = len(BOARD_FEATURES)  # 7
+EDGE_W = len(EDGE_FEATURES)  # 10
 
 # --- action space -------------------------------------------------------------
 

@@ -34,7 +34,10 @@ import { pathToFileURL } from 'node:url';
 
 import { makeBC } from '../../src/ai/ai_bc.js';
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
-import { ENCODING_VERSION } from '../../src/arena/encodeObservation.js';
+import {
+  ENCODING_VERSION,
+  SUPPORTED_ENCODING_VERSIONS,
+} from '../../src/arena/encodeObservation.js';
 import { mulberry32 } from './mulberry32.mjs';
 import { makeInMemoryStore } from './ppo-league-store.mjs';
 
@@ -558,11 +561,11 @@ export function makeLeague({
       if (stat.mtimeMs === manifestMtimeMs) return { added: 0, poolSize: pool.length };
 
       const manifest = JSON.parse(readFileSync(snapshotManifest, 'utf8'));
-      if (manifest.encodingVersion !== ENCODING_VERSION) {
+      if (!SUPPORTED_ENCODING_VERSIONS.includes(manifest.encodingVersion)) {
         throw new Error(
-          `ppo-league.refresh: snapshot manifest encodingVersion ${manifest.encodingVersion} != ` +
-            `encoder ENCODING_VERSION ${ENCODING_VERSION} (${snapshotManifest}). The run must freeze ` +
-            `ENCODING_VERSION — re-export the snapshots against the current encoding.`
+          `ppo-league.refresh: snapshot manifest encodingVersion ${manifest.encodingVersion} not in ` +
+            `supported set [${SUPPORTED_ENCODING_VERSIONS.join(', ')}] (${snapshotManifest}). The run ` +
+            `must freeze its encoding — re-export the snapshots against a supported encoding.`
         );
       }
 
@@ -711,7 +714,7 @@ export function makeLeague({
      * league's `let` counters and the captured `manifestMtimeMs`. Idempotent: re-restoring the same
      * state clears + reassigns, never accumulates.
      *
-     * Gates, in order: (1) known `version`; (2) `encodingVersion === ENCODING_VERSION` — fail loud on
+     * Gates, in order: (1) known `version`; (2) `encodingVersion` ∈ SUPPORTED_ENCODING_VERSIONS — fail loud on
      * skew before importing anything (a mid-run encoding bump makes pooled snapshots unloadable, [D-23]);
      * (3) `fingerprint` matches this league's config (drifted sampler/pool-cap args ⇒ divergent draws);
      * (4) `storeKind` matches this league's store — a checkpoint written by a `disk` store carries
@@ -738,11 +741,11 @@ export function makeLeague({
           `ppo-league.restore: unknown checkpoint version ${state?.version} (expected ${STATE_SCHEMA_VERSION}).`
         );
       }
-      if (state.encodingVersion !== ENCODING_VERSION) {
+      if (!SUPPORTED_ENCODING_VERSIONS.includes(state.encodingVersion)) {
         throw new Error(
-          `ppo-league.restore: checkpoint encodingVersion ${state.encodingVersion} != encoder ` +
-            `ENCODING_VERSION ${ENCODING_VERSION}. The run must freeze ENCODING_VERSION — re-export ` +
-            `the snapshots / start a fresh run against the current encoding.`
+          `ppo-league.restore: checkpoint encodingVersion ${state.encodingVersion} not in supported ` +
+            `set [${SUPPORTED_ENCODING_VERSIONS.join(', ')}]. The run must freeze its encoding — ` +
+            `re-export the snapshots / start a fresh run against a supported encoding.`
         );
       }
       const fp = state.fingerprint;

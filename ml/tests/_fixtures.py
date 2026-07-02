@@ -16,18 +16,26 @@ import numpy as np
 # Feature widths are part of the encoding contract — keep these at the real
 # widths so the model code paths are identical to production; only A and P shrink.
 # v2 (ml-bot Phase-3, D-18): node 5→8 (+neighbourhood feats), edge 4→7 (+consequence
-# feats); isStop stays column 3. Mirror src/arena/encodeObservation.js.
+# feats); isStop stays column 3. v3 (D-31, append-only): node 8→13, player 6→7,
+# board 5→7, edge 7→10. Mirror src/arena/encodeObservation.js.
 NODE_FEATURES = [
     "present", "diceNorm", "isMine", "isEnemy", "isBorder",
     "enemyNbrDiceMaxNorm", "enemyNbrFrac", "degreeNorm",
+    "ownerTerrFrac", "ownerIncomeFrac", "ownerDiceFrac",
+    "cutValueNorm", "myGainIfCapturedNorm",
 ]
 PLAYER_FEATURES = [
     "isMe", "eliminated", "territoriesFrac", "diceFrac", "connectedFrac", "stockNorm",
+    "turnsUntilActsNorm",
 ]
-BOARD_FEATURES = ["myDiceShare", "activeFrac", "phaseEarly", "phaseMid", "phaseLate"]
+BOARD_FEATURES = [
+    "myDiceShare", "activeFrac", "phaseEarly", "phaseMid", "phaseLate",
+    "myStockNorm", "turnNumberNorm",
+]
 EDGE_FEATURES = [
     "winProb", "atkNorm", "defNorm", "isStop",
     "tgtRetakeThreatNorm", "srcVacateThreatNorm", "tgtEnemyNbrFrac",
+    "eliminatesDefender", "defIncomeDeltaNorm", "myIncomeDeltaNorm",
 ]
 
 
@@ -74,7 +82,7 @@ def make_step(
 
 
 def write_corpus(
-    out_dir: str | Path, steps: list[dict], *, teacher: str = "Lookahead", encoding_version: int = 2
+    out_dir: str | Path, steps: list[dict], *, teacher: str = "Lookahead", encoding_version: int = 3
 ) -> Path:
     """Pack ``steps`` into the on-disk blob/manifest layout. Returns the dir."""
     out = Path(out_dir)

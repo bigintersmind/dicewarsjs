@@ -37,8 +37,8 @@ torch = _require("torch")
 from dicewars_bc.export_weights import _read_js_payload, export, repack_js  # noqa: E402
 from dicewars_bc.model import EdgePolicyNet, ModelConfig  # noqa: E402
 
-# v2 wire widths (mirror dicewars_ppo.constants / encodeObservation.js).
-_V2 = dict(node_features=8, player_features=6, board_features=5, edge_features=7)
+# v3 wire widths (mirror dicewars_ppo.constants / encodeObservation.js).
+_V3 = dict(node_features=13, player_features=7, board_features=7, edge_features=10)
 
 # The packed format imports a sibling ./unpackPolicyWeights.js; a stub satisfies the
 # export-time existence check (the Python tests decode the blob directly, never via JS).
@@ -51,12 +51,12 @@ def _with_decoder(dir_path):
 
 def _repacked_checkpoint() -> dict:
     """A checkpoint shaped exactly like ``repack_to_bc_checkpoint`` output."""
-    config = ModelConfig(max_areas=8, player_count=7, **_V2)
+    config = ModelConfig(max_areas=8, player_count=7, **_V3)
     model = EdgePolicyNet(config)
     return {
         "state_dict": model.state_dict(),
         "config": config.to_dict(),
-        "encoding_version": 2,
+        "encoding_version": 3,
         # Provenance `extra` the repack stamps — must be ignored by export, not break it.
         "teacher": "ppo-tracer",
         "ppo_timesteps": 2048,
@@ -73,14 +73,14 @@ def _save_repacked(tmp_path):
 
 def _assert_payload_well_formed(payload: dict):
     # The version + provenance the gate's makeBC / header rely on.
-    assert payload["encodingVersion"] == 2
+    assert payload["encodingVersion"] == 3
     assert payload["teacher"] == "ppo-tracer"
 
     # Config dims the JS encoder/forward need.
     cfg = payload["config"]
     assert cfg["maxAreas"] == 8
-    assert cfg["nodeFeatures"] == _V2["node_features"]
-    assert cfg["edgeFeatures"] == _V2["edge_features"]
+    assert cfg["nodeFeatures"] == _V3["node_features"]
+    assert cfg["edgeFeatures"] == _V3["edge_features"]
     assert cfg["presentCol"] == EdgePolicyNet.PRESENT_COL
 
     # All five MLP heads present, each a list of {w,b,relu} layers.
@@ -208,4 +208,4 @@ def test_export_without_fixture_is_optional(tmp_path):
 
     assert out_path.exists()
     assert not (tmp_path / "ppoForwardCases.json").exists()
-    assert _read_js_payload(out_path.read_text())["encodingVersion"] == 2
+    assert _read_js_payload(out_path.read_text())["encodingVersion"] == 3

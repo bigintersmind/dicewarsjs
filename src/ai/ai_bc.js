@@ -17,22 +17,23 @@
  * @module ai/ai_bc
  */
 
-import { ENCODING_VERSION, encodeObservationForInference } from '../arena/encodeObservation.js';
+import {
+  assertPolicyEncodingCompatible,
+  encodeObservationForInference,
+} from '../arena/encodeObservation.js';
 
 import { argmax, forward } from './bcForward.js';
 import { BC_POLICY } from './bcPolicyWeights.js';
 
 /*
- * Fail fast if the exported model and the live encoder disagree on the feature
- * layout: a version skew would feed the net mis-columned tensors and silently
- * corrupt every move. ENCODING_VERSION bumps in lockstep with the encoder.
+ * Fail fast if the exported model cannot run against the live encoder: an
+ * incompatible layout would feed the net mis-columned tensors and silently
+ * corrupt every move. Since encoding-v3 ([D-31], append-only) this is a
+ * SUPPORTED-set check, not strict equality — a v2-stamped policy is valid
+ * because the v2 columns are an exact prefix of v3 and `forward`'s linear()
+ * ignores the appended tail (weights drive the loop bounds).
  */
-if (BC_POLICY.encodingVersion !== ENCODING_VERSION) {
-  throw new Error(
-    `ai_bc: model encodingVersion ${BC_POLICY.encodingVersion} != encoder ENCODING_VERSION ` +
-      `${ENCODING_VERSION} — retrain/re-export the BC model against the current encoding.`
-  );
-}
+assertPolicyEncodingCompatible(BC_POLICY, 'ai_bc');
 
 const CTX = { maxAreas: BC_POLICY.config.maxAreas };
 
@@ -61,20 +62,16 @@ const CTX = { maxAreas: BC_POLICY.config.maxAreas };
  * @param {import('./bcPolicyWeights.js').BC_POLICY} [opts.policy=BC_POLICY] - Override the
  *   deployed weights with an alternate exported policy. Used by the ml-bot capacity probe to
  *   arena-evaluate candidate checkpoints (e.g. wider nets) without overwriting the shipped
- *   `bcPolicyWeights.js`. Must share the live encoder's `ENCODING_VERSION`.
+ *   `bcPolicyWeights.js`. Must be stamped with a SUPPORTED_ENCODING_VERSIONS entry.
  * @returns {(botState: import('../arena/types.js').BotState) => ({ from: number, to: number } | null)}
  */
 export function makeBC({ stopBias = 0, onDecision, policy = BC_POLICY } = {}) {
   /*
-   * A candidate policy must match the live encoder's feature layout, exactly like the
-   * deployed default checked at import — a skew would silently feed mis-columned tensors.
+   * A candidate policy must be runnable against the live encoder's feature layout,
+   * exactly like the deployed default checked at import — an incompatible policy
+   * would silently read mis-columned (or missing → NaN) tensors.
    */
-  if (policy.encodingVersion !== ENCODING_VERSION) {
-    throw new Error(
-      `makeBC: policy encodingVersion ${policy.encodingVersion} != encoder ENCODING_VERSION ` +
-        `${ENCODING_VERSION} — retrain/re-export against the current encoding.`
-    );
-  }
+  assertPolicyEncodingCompatible(policy, 'makeBC');
   const ctx = policy === BC_POLICY ? CTX : { maxAreas: policy.config.maxAreas };
   return function bc(botState) {
     const encoded = encodeObservationForInference(botState, ctx);

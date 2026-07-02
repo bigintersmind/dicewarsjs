@@ -1,6 +1,6 @@
 """Cross-language parity for the observation-frame codec (``dicewars_ppo.wire``).
 
-Hermetic — no live Node process. The golden ``obs_frame_v2.bin`` is produced by
+Hermetic — no live Node process. The golden ``obs_frame_v3.bin`` is produced by
 ``fixtures/gen_obs_frame_fixture.mjs`` through the real JS ``serializeObsFrame``;
 here we assert the Python parser reproduces every field (byte-for-byte) and that
 ``serialize_frame`` round-trips back to identical bytes. If the JS frame layout
@@ -20,10 +20,10 @@ from dicewars_ppo.constants import ENCODING_VERSION, OBS_FRAME_MAGIC
 from dicewars_ppo.wire import parse_frame, serialize_frame
 
 FIXTURES = Path(__file__).parent / "fixtures"
-GOLDEN_BIN = FIXTURES / "obs_frame_v2.bin"
-GOLDEN_JSON = FIXTURES / "obs_frame_v2.json"
-SHAPED_BIN = FIXTURES / "obs_frame_v2_shaped.bin"  # "bite G": dense-reward header tail
-SHAPED_JSON = FIXTURES / "obs_frame_v2_shaped.json"
+GOLDEN_BIN = FIXTURES / "obs_frame_v3.bin"
+GOLDEN_JSON = FIXTURES / "obs_frame_v3.json"
+SHAPED_BIN = FIXTURES / "obs_frame_v3_shaped.bin"  # "bite G": dense-reward header tail
+SHAPED_JSON = FIXTURES / "obs_frame_v3_shaped.json"
 
 
 @pytest.fixture(scope="module")
@@ -61,11 +61,11 @@ def test_parse_matches_golden_json(golden_bytes: bytes, golden_json: dict) -> No
         frame.edge_index, np.array(golden_json["edgeIndex"], dtype=np.int32)
     )
 
-    # Tensor shapes/dtypes match the v2 contract.
-    assert frame.nodes.shape == (frame.max_areas, 8) and frame.nodes.dtype == np.float32
-    assert frame.players.shape == (frame.player_count, 6)
-    assert frame.board.shape == (5,)
-    assert frame.edges.shape == (frame.num_edges, 7)
+    # Tensor shapes/dtypes match the v3 contract.
+    assert frame.nodes.shape == (frame.max_areas, 13) and frame.nodes.dtype == np.float32
+    assert frame.players.shape == (frame.player_count, 7)
+    assert frame.board.shape == (7,)
+    assert frame.edges.shape == (frame.num_edges, 10)
     assert frame.edge_index.shape == (frame.num_edges, 2) and frame.edge_index.dtype == np.int32
 
     # STOP is the last edge row (isStop == col 3 == 1).
@@ -128,7 +128,7 @@ def test_shaped_parse_matches_golden_json(shaped_bytes: bytes, shaped_json: dict
     assert frame.elims_by_learner == shaped_json["elimsByLearner"] == 3
     # The base fields and tensors are unchanged by the tail (same payload as the base golden).
     assert frame.placement == pytest.approx(shaped_json["placement"])
-    assert frame.edges.shape == (frame.num_edges, 7)
+    assert frame.edges.shape == (frame.num_edges, 10)
     assert frame.edges[-1, 3] == 1.0  # STOP row intact after the header grew
 
 

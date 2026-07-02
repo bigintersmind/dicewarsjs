@@ -18,7 +18,7 @@ import pytest
 from dicewars_ppo.wire import recv_all, recv_frame, send_action, serialize_frame
 
 FIXTURES = Path(__file__).parent / "fixtures"
-GOLDEN_BIN = FIXTURES / "obs_frame_v2.bin"
+GOLDEN_BIN = FIXTURES / "obs_frame_v3.bin"
 
 
 @pytest.fixture

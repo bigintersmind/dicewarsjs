@@ -16,6 +16,12 @@ import { fileURLToPath } from 'node:url';
 
 import { argmax, forward } from '../../src/ai/bcForward.js';
 import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
+import {
+  BOARD_FEATURES,
+  EDGE_FEATURES,
+  NODE_FEATURES,
+  PLAYER_FEATURES,
+} from '../../src/arena/encodeObservation.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(readFileSync(resolve(here, '../fixtures/bc/forwardCases.json'), 'utf8'));
@@ -46,6 +52,40 @@ describe('bcForward — JS↔Python parity', () => {
 
       // The practical invariant: the JS net picks the same action as PyTorch.
       expect(argmax(logits)).toBe(argmax(c.logits));
+    });
+  });
+});
+
+describe('bcForward — v2 slice-down compat (the [D-31] append-only contract)', () => {
+  /*
+   * The live encoder emits v3-width rows; the shipped v2 policy must read them as
+   * if the appended tail columns did not exist. This is structural in forward():
+   * linear() iterates the WEIGHT's input dim, and every concat keeps the
+   * variable-width tensor last — so padding each row out to the v3 widths with
+   * garbage must leave logits and value BIT-IDENTICAL. If someone reorders a
+   * concat or inserts (rather than appends) a column, this test screams.
+   */
+  const padRow = (row, width, fill) => [...row, ...new Array(width - row.length).fill(fill)];
+
+  fixture.cases.forEach((c, idx) => {
+    it(`v2 policy ignores appended v3 columns (case ${idx})`, () => {
+      const base = forward(BC_POLICY, {
+        nodes: c.nodes,
+        players: c.players,
+        board: c.board,
+        edges: c.edges,
+        edgeIndex: c.edgeIndex,
+      });
+      // 0.7 (not 0) so a tail column that IS read would visibly change the result.
+      const padded = forward(BC_POLICY, {
+        nodes: c.nodes.map(r => padRow(r, NODE_FEATURES.length, 0.7)),
+        players: c.players.map(r => padRow(r, PLAYER_FEATURES.length, 0.7)),
+        board: padRow(c.board, BOARD_FEATURES.length, 0.7),
+        edges: c.edges.map(r => padRow(r, EDGE_FEATURES.length, 0.7)),
+        edgeIndex: c.edgeIndex,
+      });
+      expect(padded.logits).toEqual(base.logits);
+      expect(padded.value).toEqual(base.value);
     });
   });
 });

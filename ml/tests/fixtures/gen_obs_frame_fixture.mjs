@@ -1,9 +1,9 @@
 /**
  * Generate the cross-language golden frame fixture for `dicewars_ppo.wire`.
  *
- * Writes `obs_frame_v2.bin` (the exact bytes `serializeObsFrame` produces) and
- * `obs_frame_v2.json` (the same values as plain JSON) next to this file, PLUS the
- * shaped-frame pair `obs_frame_v2_shaped.bin`/`.json` ("bite G": the dense-reward
+ * Writes `obs_frame_v<ENCODING_VERSION>.bin` (the exact bytes `serializeObsFrame`
+ * produces) and `.json` (the same values as plain JSON) next to this file, PLUS
+ * the shaped-frame pair `_shaped.bin`/`.json` ("bite G": the dense-reward
  * header tail). The Python test (`ml/tests/test_ppo_wire.py`) parses each `.bin` and
  * asserts every field equals the `.json` — a hermetic, byte-exact check that the
  * Python parser matches the JS serializer, with NO live Node process at test time.
@@ -21,7 +21,13 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import { ENCODING_VERSION } from '../../../src/arena/encodeObservation.js';
+import {
+  BOARD_FEATURES,
+  EDGE_FEATURES,
+  ENCODING_VERSION,
+  NODE_FEATURES,
+  PLAYER_FEATURES,
+} from '../../../src/arena/encodeObservation.js';
 import { OBS_FRAME_MAGIC, serializeObsFrame } from '../../../scripts/lib/obs-frame.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -50,12 +56,16 @@ const frame = {
   won: 0,
   truncated: 0,
   placement: 0,
-  nodes: rows(maxAreas, 8, 0), // NODE_FEATURES.length === 8 at v2
-  players: rows(playerCount, 6, 100), // PLAYER_FEATURES.length === 6
-  board: [200, 201, 202, 203, 204], // BOARD_FEATURES.length === 5
+  // Widths derive from the live FEATURE arrays so the generator tracks a v-bump;
+  // the emitted filenames carry the version, so stale goldens can't be mistaken.
+  nodes: rows(maxAreas, NODE_FEATURES.length, 0),
+  players: rows(playerCount, PLAYER_FEATURES.length, 100),
+  board: Array.from({ length: BOARD_FEATURES.length }, (_, c) => 200 + c),
   edges: [
-    [0.5, 0.25, 0.75, 0, 0.125, 0.375, 0.625], // an attack (isStop=0), EDGE_FEATURES.length === 7
-    [0, 0, 0, 1, 0, 0, 0], // STOP (isStop=1)
+    // an attack (isStop=0): f32-exact dyadic fractions, one per column
+    Array.from({ length: EDGE_FEATURES.length }, (_, c) => (c === 3 ? 0 : (c + 1) / 16)),
+    // STOP (isStop=1, col 3)
+    Array.from({ length: EDGE_FEATURES.length }, (_, c) => (c === 3 ? 1 : 0)),
   ],
   edgeIndex: [
     [1, 2], // attack from id 1 → id 2
@@ -63,9 +73,10 @@ const frame = {
   ],
 };
 
+const stem = `obs_frame_v${ENCODING_VERSION}`;
 const bytes = serializeObsFrame(frame);
-writeFileSync(path.join(HERE, 'obs_frame_v2.bin'), bytes);
-writeFileSync(path.join(HERE, 'obs_frame_v2.json'), `${JSON.stringify(frame, null, 2)}\n`);
+writeFileSync(path.join(HERE, `${stem}.bin`), bytes);
+writeFileSync(path.join(HERE, `${stem}.json`), `${JSON.stringify(frame, null, 2)}\n`);
 
 /*
  * Shaped variant ("bite G"): the SAME base frame plus the dense-reward header tail. An exactly-
@@ -79,13 +90,10 @@ const shapedFrame = {
   elimsByLearner: 3, // players the learner eliminated since the prior frame
 };
 const shapedBytes = serializeObsFrame(shapedFrame);
-writeFileSync(path.join(HERE, 'obs_frame_v2_shaped.bin'), shapedBytes);
-writeFileSync(
-  path.join(HERE, 'obs_frame_v2_shaped.json'),
-  `${JSON.stringify(shapedFrame, null, 2)}\n`
-);
+writeFileSync(path.join(HERE, `${stem}_shaped.bin`), shapedBytes);
+writeFileSync(path.join(HERE, `${stem}_shaped.json`), `${JSON.stringify(shapedFrame, null, 2)}\n`);
 
 process.stdout.write(
-  `wrote obs_frame_v2.bin (${bytes.byteLength} bytes) + obs_frame_v2.json + ` +
-    `obs_frame_v2_shaped.bin (${shapedBytes.byteLength} bytes) + obs_frame_v2_shaped.json\n`
+  `wrote ${stem}.bin (${bytes.byteLength} bytes) + ${stem}.json + ` +
+    `${stem}_shaped.bin (${shapedBytes.byteLength} bytes) + ${stem}_shaped.json\n`
 );

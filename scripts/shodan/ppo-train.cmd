@@ -30,7 +30,7 @@ REM Windows); an UNSET Windows var simply doesn't appear in WSL (the launcher th
 REM default), so this stays byte-identical to the BEAT run when none are set. The list covers every
 REM per-run knob the RUNBOOK "persona" batch describes as shared (incl. N_ENVS / RESERVE_BASELINES).
 REM Append to any existing WSLENV rather than clobbering it.
-if "%WSLENV%"=="" (set "WSLENV=PERSONA/u:CHECKPOINT/u:TIMESTEPS/u:LR/u:ENT_COEF/u:GAMMA/u:RUN_NAME/u:REWARD_MODE/u:TERMINAL_SPEED_BONUS/u:SPEED_REF/u:TERRITORY_REWARD_COEF/u:ELIM_BOUNTY/u:SHAPING_CLIP/u:N_ENVS/u:RESERVE_BASELINES/u") else (set "WSLENV=%WSLENV%:PERSONA/u:CHECKPOINT/u:TIMESTEPS/u:LR/u:ENT_COEF/u:GAMMA/u:RUN_NAME/u:REWARD_MODE/u:TERMINAL_SPEED_BONUS/u:SPEED_REF/u:TERRITORY_REWARD_COEF/u:ELIM_BOUNTY/u:SHAPING_CLIP/u:N_ENVS/u:RESERVE_BASELINES/u")
+if "%WSLENV%"=="" (set "WSLENV=PERSONA/u:CHECKPOINT/u:TIMESTEPS/u:LR/u:ENT_COEF/u:GAMMA/u:RUN_NAME/u:REWARD_MODE/u:TERMINAL_SPEED_BONUS/u:SPEED_REF/u:TERRITORY_REWARD_COEF/u:ELIM_BOUNTY/u:SHAPING_CLIP/u:N_ENVS/u:RESERVE_BASELINES/u:FROM_SCRATCH/u") else (set "WSLENV=%WSLENV%:PERSONA/u:CHECKPOINT/u:TIMESTEPS/u:LR/u:ENT_COEF/u:GAMMA/u:RUN_NAME/u:REWARD_MODE/u:TERMINAL_SPEED_BONUS/u:SPEED_REF/u:TERRITORY_REWARD_COEF/u:ELIM_BOUNTY/u:SHAPING_CLIP/u:N_ENVS/u:RESERVE_BASELINES/u:FROM_SCRATCH/u")
 
 REM -l = login shell so a conda/venv init in the user's profile is honored; then activate the [rl]
 REM venv explicitly (the launcher's preflight HALTS loudly if torch/sb3 are still missing).

@@ -60,11 +60,34 @@ Entry template:
 - Pre-existing, unrelated: `ml/tests/test_export_onnx.py` fails on this Mac's Python 3.9
   (`zip(strict=True)` is 3.10+) — fails identically on master; fine on shodan.
 
+**Ops (same day, after the merge):**
+
+- Throughput probe: worst-case 1,072→1,053 steps/s (noise), realistic 577→521-551 (~5-9% —
+  the 4×BC seats now compute groupIncome per move) → GREEN, huge margin (12h ≈ 15-24M steps).
+- Launch needed two unblocks, both landed: `dicewars_bc.migrate_encoding` (#103/#104 —
+  `--from-scratch` still loads `--checkpoint` for the ARCHITECTURE and v2 ckpts are now
+  rejected; zero-widen the four first-layer inputs, function-preserving, self-checked; also
+  the [D-31] §4 warm-start-fallback tool) and the launcher's `EXPECTED_ENCODING_VERSION`
+  default 2→3. `checkpoints/v3-base/bc_model.pt` created on shodan (self-check passed on the
+  real ckpt; the first attempt exposed an fp32 accumulation-order tolerance bug, fixed #104).
+- **Launch attempt died to the documented [D-26] bare-ssh trap**: nohup inside WSL does NOT
+  survive the ssh session — Windows idles the WSL VM out ~1min after the last session closes
+  (attempt #1 EOFError, attempt #2 killed mid-startup, launcher gone with the VM). The
+  RUNBOOK §4b Task-Scheduler bridge is the designed fix; registering a scheduled task on the
+  box is deliberately left to Ivan (one-time `schtasks /create` + `/run`, see the session
+  handoff). Found + fixed while there: the committed bridge didn't forward `FROM_SCRATCH`
+  through WSLENV (a scheduled from-scratch campaign was impossible), and note login shells on
+  shodan resolve `/usr/bin/node` v12 (nvm lives in interactive rc) — any bridge/wrapper must
+  pin the nvm node on PATH.
+- Cosmetic: train.py's banner prints a hardcoded "encoding_version==2" string (the guard
+  itself is version-correct) — fix opportunistically.
+
 **Next:**
 
-- `ppo:throughput-probe` (groupIncome is on the hot path), then launch `ppo-v3-scratch`
-  (FROM_SCRATCH=1, 20M) on shodan; tripwires at 0.5M/1M; primary bar vs the v2 scratch control,
-  ship bar vs Survivor ([D-31] §4).
+- Ivan: register + start the `dicewars-ppo-train` scheduled task (RUNBOOK §4b) for
+  `ppo-v3-scratch` (FROM_SCRATCH=1, 20M, CHECKPOINT=checkpoints/v3-base/bc_model.pt).
+- Then tripwires at 0.5M/1M; primary bar vs the v2 scratch control, ship bar vs Survivor
+  ([D-31] §4).
 
 ## 2026-07-02 — Batch-2B 1M verdict: all four arms BEAT, no style bar cleared → Expansionist PARKED, Predator DROPPED ([D-30] dec. 6 executed)
 

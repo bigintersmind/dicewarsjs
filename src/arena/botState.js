@@ -23,6 +23,34 @@ function computeGamePhase(activePlayers, totalPlayers, turnNumber) {
 }
 
 /**
+ * Turn distance from the acting player to every seat: how many turn-advances
+ * from `playerId` until each player acts, counting only non-eliminated seats
+ * (the engine's `nextTurn` skips eliminated players — see engine/TurnManager).
+ * The acting player is 0; the next actor is 1; eliminated seats have no
+ * upcoming turn and map to 0 (the `eliminated` flag disambiguates).
+ *
+ * Turn order is public information — a player watches the sequence of turns —
+ * so exposing it keeps BotState "what you could observe by looking at the board".
+ *
+ * @param {import('../engine/types.js').Player[]} players
+ * @param {number[]} turnOrder - The game's (shuffled) seat order
+ * @param {number} playerId - The acting player
+ * @returns {Map<number, number>} player id → turns until they act
+ */
+function computeTurnsUntilActs(players, turnOrder, playerId) {
+  const myPos = turnOrder.indexOf(playerId);
+  const distances = new Map();
+  let rank = 0;
+  for (let step = 0; step < turnOrder.length; step++) {
+    const pid = turnOrder[(myPos + step) % turnOrder.length];
+    if (players[pid].eliminated) continue;
+    distances.set(pid, rank);
+    rank += 1;
+  }
+  return distances;
+}
+
+/**
  * Transform engine GameState into a sanitized, frozen BotState.
  *
  * Strips internal fields (grid geometry, RNG state, history) that bots
@@ -33,7 +61,7 @@ function computeGamePhase(activePlayers, totalPlayers, turnNumber) {
  * @returns {import('./types.js').BotState}
  */
 export function createBotState(state, playerId) {
-  const { areas, players, turnNumber } = state;
+  const { areas, players, turnNumber, turnOrder } = state;
 
   const activePlayers = players.filter(p => !p.eliminated).length;
   const totalPlayers = players.length;
@@ -65,6 +93,7 @@ export function createBotState(state, playerId) {
   const myAreas = Object.freeze(allAreas.filter(a => a.owner === playerId));
 
   // Build BotPlayer[] from players
+  const turnsUntil = computeTurnsUntilActs(players, turnOrder, playerId);
   const botPlayers = Object.freeze(
     players.map(p =>
       Object.freeze({
@@ -74,6 +103,7 @@ export function createBotState(state, playerId) {
         connectedTerritories: p.largestGroup,
         reinforcements: p.stock,
         eliminated: p.eliminated,
+        turnsUntilActs: turnsUntil.get(p.id) ?? 0,
       })
     )
   );

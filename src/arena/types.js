@@ -40,6 +40,9 @@
  * @property {number}  connectedTerritories - Size of largest connected group
  * @property {number}  reinforcements       - Dice in reserve stock
  * @property {boolean} eliminated           - Whether this player has been eliminated
+ * @property {number}  turnsUntilActs       - Turn-advances until this player acts, skipping
+ *   eliminated seats (0 = the acting player; eliminated players are 0, disambiguated by
+ *   `eliminated`)
  */
 
 /**

@@ -46,6 +46,7 @@ import { pathToFileURL } from 'node:url';
 
 import { createBotState } from '../src/arena/botState.js';
 import { encodeObservationForInference } from '../src/arena/encodeObservation.js';
+import { DEFAULT_MAX_TURNS } from '../src/arena/matchRunner.js';
 import { BC_POLICY } from '../src/ai/bcPolicyWeights.js';
 
 import { runSelfPlayEpisode } from './lib/ppo-env.mjs';
@@ -384,7 +385,7 @@ async function main() {
   const playerCount = numArg(opts, 'players', 7);
   const learnerSeat = numArg(opts, 'learner-seat', 0);
   const maxAreas = numArg(opts, 'max-areas', BC_POLICY.config.maxAreas);
-  const maxTurns = numArg(opts, 'max-turns', 500);
+  const maxTurns = numArg(opts, 'max-turns', DEFAULT_MAX_TURNS);
   const episodes = numArg(opts, 'episodes', 0);
   const seedBase = numArg(opts, 'seed-base', 1);
   // Per-decision watchdog deadline (ms). Generous — inference is sub-second; 0 disables it.

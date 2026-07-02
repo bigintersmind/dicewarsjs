@@ -119,7 +119,7 @@ EXIT_CRASH_LOOP=4                                    # this launcher's OWN inten
 MAX_CONSECUTIVE_FAILS="${MAX_CONSECUTIVE_FAILS:-5}"  # bound a no-progress crash-loop
 BACKOFF_BASE_S="${BACKOFF_BASE_S:-15}"               # backoff = min(BACKOFF_BASE_S * fails, BACKOFF_MAX_S)
 BACKOFF_MAX_S="${BACKOFF_MAX_S:-120}"
-EXPECTED_ENCODING_VERSION="${EXPECTED_ENCODING_VERSION:-2}"
+EXPECTED_ENCODING_VERSION="${EXPECTED_ENCODING_VERSION:-3}"
 
 mkdir -p "$RUN_ROOT"
 

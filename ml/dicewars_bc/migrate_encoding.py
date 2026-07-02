@@ -111,8 +111,10 @@ def _assert_function_preserved(old_ckpt: dict, new_ckpt: dict) -> None:
     """Self-check: the migrated net on tail-padded inputs must equal the source
     net on the original inputs. Zero weights multiply arbitrary pad values to
     exact zeros, but a wider GEMM may accumulate the surviving products in a
-    different order, so compare with a tight tolerance rather than bit-equality.
-    Cheap (one tiny forward pair)."""
+    different order — measured ~1e-7 RELATIVE on the real trained checkpoint
+    (|dlogit| ≈ 7.6e-6 at logit magnitude ~55) — so compare with a scale-aware
+    tolerance, not bit-equality. A genuine layout bug shows O(activation) diffs,
+    orders of magnitude above this bound. Cheap (one tiny forward pair)."""
     old_cfg = ModelConfig(**old_ckpt["config"])
     new_cfg = ModelConfig(**new_ckpt["config"])
     old_net = EdgePolicyNet(old_cfg)
@@ -150,13 +152,15 @@ def _assert_function_preserved(old_ckpt: dict, new_ckpt: dict) -> None:
             edge_to,
             edge_batch,
         )
-    ok = torch.allclose(old_logits, new_logits, atol=1e-6, rtol=0) and torch.allclose(
-        old_value, new_value, atol=1e-6, rtol=0
+    ok = torch.allclose(old_logits, new_logits, atol=1e-4, rtol=1e-5) and torch.allclose(
+        old_value, new_value, atol=1e-4, rtol=1e-5
     )
     if not ok:
         raise AssertionError(
             "migrate_encoding: migrated net is NOT function-preserving — a concat layout "
-            "assumption is wrong (appended features must sit at each input's tail)."
+            "assumption is wrong (appended features must sit at each input's tail). "
+            f"max |dlogit| = {(old_logits - new_logits).abs().max().item():.3e}, "
+            f"max |dvalue| = {(old_value - new_value).abs().max().item():.3e}."
         )
 
 

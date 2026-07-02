@@ -1880,3 +1880,13 @@ on elimination): terminal settlement reaches the kill decision at `(γλ)^80 ≈
 only, too weak at 1M to test cleanly; deferred, not refuted. (e) _Asymmetric loss-weight_
 (`coef·(max(0,Δ) + w·min(0,Δ))`): re-scales the reward (~gross magnitude) and opens a churn annuity
 via self-manufactured 1-die borders; deferred until gross-vs-net churn telemetry exists.
+
+**Outcome (2026-07-02).** The wave ran exactly as registered (4×1M clean, attempt #1; Wave A 0.5M
+tripwire probes passed; 1M full eval off the fixtured eval-stream checkpoints). All four arms BEAT
+the gate — the basin fixes worked, both failure modes gone — but **no arm cleared its style bar**
+(Exp: avgTerritory −0.68 / ns, never beyond Blitz; Pred: kills Δ+0.07/+0.04 ns, both below
+Survivor's own kill count). **Dec. 6 executed: Expansionist parked, Predator dropped; the shipped
+three-persona roster stands.** Full numbers + analysis: RESULTS.md → "dense-reward personas
+Batch-2B". Notable for any revival: the placement backbone moved avgTerritory (+1.83) more than
+the territory coef ever did, and the dec. 5 early-game-territory readout doesn't exist in the
+profiler yet (build it first).

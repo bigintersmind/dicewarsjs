@@ -21,6 +21,44 @@ Entry template:
 
 ---
 
+## 2026-07-02 — Batch-2B 1M verdict: all four arms BEAT, no style bar cleared → Expansionist PARKED, Predator DROPPED ([D-30] dec. 6 executed)
+
+**Phase:** persona-roster (Batch 2B, wave close-out) · **Who:** Ivan + Claude
+
+**Did:**
+
+- Both waves finished clean overnight (Wave A 21:52, Wave B 02:02 CDT; all four arms `exit 0`,
+  attempt #1, zero restarts). Ran the 1M full eval per RUNBOOK §8d off each arm's **fixtured
+  final eval-stream checkpoint** (`eval-001001472.*` — no manual export needed): 4×
+  `behavior:profile` 6×30 (control + matched comparator) + 4× `ppo:gate` 8×80, all 8 jobs in
+  parallel on the idle box (~12 min wall). Full numbers: RESULTS.md → "dense-reward personas
+  Batch-2B"; raw logs `ml/runs/_b2c_eval/` on shodan.
+
+**Learned / decided:**
+
+- **Strength: 4/4 BEAT** (c04 +7.7 / c08 +21.3 / b15 +17.3 / b25 +18.2). The [D-30] basin fixes
+  worked — no turtle (γ0.99 arms), no bounty-suicide (placement arms). Diagnosis confirmed.
+- **Style: 0/4 cleared the pre-registered bar.** Exp: avgTerritory Δ−0.68 (c04, wrong way!) / ns
+  (c08), never beyond Blitz — the γ-transformed coef buys tempo, not territory (c08 = a healthy
+  Blitz-lite; c04 = strictly worse than Blitz). Pred: kills Δ+0.07/+0.04 ns — bounty has now
+  failed at {0.1, 0.15, 0.25, 0.4, 0.7} across two backbones, while bounty-0 Survivor out-kills
+  every bounty arm (1.86–1.92). The bounty is a dead lever on this wire.
+- **[D-30] dec. 6 executed as pre-committed: Expansionist PARKED, Predator DROPPED.** Roster =
+  the shipped three (+ hidden PPO/BC), a complete product. No 3M, no ship plumbing built.
+- Surprise worth keeping: PredB15's avgTerritory (+1.83) beat the _Expansionist_ bar — placement
+  backbone > territory coef as a hold-territory lever. Any map-painter revival starts there. Also:
+  the dec. 5 early-game-territory readout doesn't exist in the profiler (build before any revival).
+
+**Next:**
+
+- Cleanup done: schtasks `dicewars-persona-b2c` + `dicewars-b2c-eval` deleted. Worktree
+  `~/dicewarsjs-personas` KEPT (holds all Batch-2/2B checkpoints); shodan main tree still pinned
+  `c0d1441` (holds untracked persona exports — un-pinning is Ivan's call).
+- Persona track closes at three shipped personas. Active candidates for next effort: strength-curve
+  scorer build ([D-29], thread 4) or a second from-scratch seed (the +36.3 replication).
+
+---
+
 ## 2026-07-02 — From-scratch 20M run completes & gates: +36.3 (BEATS the +27.7 warm-start headline)
 
 **Phase:** 3 (science follow-up) · **Who:** Ivan + Claude

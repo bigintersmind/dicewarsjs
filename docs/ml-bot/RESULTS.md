@@ -933,3 +933,65 @@ placement, but **not** for all-ML or heads-up win rate, where the finishers lead
 **Repro:** `npm run arena:ml -- --bots BC,PPO,Conqueror,Blitz,Survivor --runs 30 --seeds 32` (Exp A); swap
 `--bots` for the other fields (B adds `,Lookahead`; C adds `,Lookahead,Strategist,Default`; D is
 `Survivor,Conqueror`). `--out <file>.json` dumps per-run vectors + the pairwise matrix.
+
+---
+
+## Phase 3 — dense-reward personas Batch-2B ([D-30]): strength held everywhere, no style bar cleared → Expansionist PARKED, Predator DROPPED · 2026-07-02
+
+The [D-30] wave: four 1M flag-only arms warm-started from `ppo-long` (commit `20e5be5`, persona
+worktree, staggered 2+2 around the 20M scratch run; supervisor `persona_b2c_launch.sh`, all four
+clean `exit 0`, attempt #1, zero restarts). Wave A's 0.5M tripwire probes passed (LOG 2026-07-01
+evening); Wave B ran overnight. 1M full eval per RUNBOOK §8d, off each arm's **fixtured final
+eval-stream checkpoint** (`eval-001001472.*` — the #97 producer made the manual export step
+unnecessary): `behavior:profile` 6×30×6 (3240 matches/arm; control Conqueror **+ the [D-30] dec. 4
+matched-backbone comparator**) and `ppo:gate` 8×80 (640 games) vs Lookahead@`596f781`.
+
+| Arm (1M)         | Gate Δ vs Lookahead         | Field win% | Target axis (pre-registered bar)  | vs matched comparator        | Verdict |
+| ---------------- | --------------------------- | ---------- | --------------------------------- | ---------------------------- | ------- |
+| Exp γ0.99 c0.04  | **+7.7** [3.2, 12.2] BEAT   | 43.4       | avgTerritory **Δ−0.68** (≥+1.5) ✗ | strictly worse than Blitz    | ✗ FAIL  |
+| Exp γ0.99 c0.08  | **+21.3** [15.0, 27.6] BEAT | 53.7       | avgTerritory **ns** (≥+1.5) ✗     | ≈ Blitz-lite (aggr +0.32)    | ✗ FAIL  |
+| Pred place b0.15 | **+17.3** [10.6, 23.9] BEAT | 48.7       | kills **Δ+0.07 ns** (≥+0.25) ✗    | kills 1.65 < Survivor's 1.92 | ✗ FAIL  |
+| Pred place b0.25 | **+18.2** [13.1, 23.3] BEAT | 57.7       | kills **Δ+0.04 ns** (≥+0.25) ✗    | kills 1.73 < Survivor's 1.86 | ✗ FAIL  |
+
+**The [D-30] mechanism fixes worked — both failure basins are gone.** The γ=0.99 Expansionist arms
+show zero turtling (dice reserve, zero-attack fraction, and turnsToWin all moved DOWN vs control —
+the Batch-2 c15 turtle collapsed exactly these axes upward), and the placement-backbone Predator
+arms show zero bounty-suicide (b15 survivalTurn **+35** vs control, where Batch-2's b04/b07 died
+~80 turns EARLY). The §7-Addendum diagnosis — the `(1−γ)` residual turtle optimum, and `win`-mode
+pricing death at 0 — is confirmed by construction: change the shape, the basin disappears.
+
+**But the style levers still don't move their target axes.** That's the real, twice-replicated
+negative result of Batch 2:
+
+- **Territory coef → tempo, not territory.** Under γ=0.99 the coef converts into aggression/speed
+  (c04 aggr +0.60, c08 +0.32 vs control), landing in Blitz's corner of style space instead of the
+  map-painter's. c04 is strictly worse than Blitz (field win 43.4 vs 50.9, fewer kills, worse
+  placement) with the wave's weakest gate (+7.7). c08 is a genuinely healthy bot (gate +21.3,
+  field 53.7) but stylistically a Blitz-lite — no roster slot it fills that Blitz doesn't.
+- **The elim bounty does not buy kills — at any tested price.** The kills axis has now failed at
+  bounty {0.1, 0.15, 0.25, 0.4, 0.7} across three waves and two backbones. Meanwhile plain
+  placement (Survivor, bounty **0**) posts MORE kills (1.86–1.92) than every bounty arm — kill
+  volume comes from being alive and ahead, not from pricing the kill. With credit for a
+  non-terminal kill landing diluted on a turn-boundary frame ([D-30] rejected-designs analysis),
+  the per-kill bounty is a dead lever on this wire.
+- **Ironic capstone:** PredB15's avgTerritory Δ**+1.83** exceeds the _Expansionist_ bar (+1.5) —
+  the placement backbone is a stronger hold-territory lever than the territory reward itself. Any
+  future map-painter revival should start from the placement family, not territory deltas.
+
+**Tripwire postscript (ship bar 3):** at 1M, c04 trips the overextension wire (survivalTurn −67.8
+< −60 with the avgPlacement +0.61 co-signal) and b15 trips turtle-side dice-reserve (+16.7 > +10)
+— both already dead on the target-axis bar, recorded for completeness. The dec. 5 E-only
+early-game-territory readout turned out **not to exist in the profiler** (no turn-sliced territory
+metric); immaterial here since the primary bars fail decisively, but it's a build-first item if
+the map-painter is ever revived.
+
+**Verdict — [D-30] dec. 6 executes as pre-committed: Expansionist PARKED** (revival is a product
+call for a deliberately-weaker map-painter, not a fourth reward iteration), **Predator DROPPED**
+(strike three on the kills axis). The shipped three-persona roster (Conqueror / Blitz / Survivor,
+plus hidden PPO/BC) stands as the complete product. No 3M run, no fresh-seed confirmation, no
+export/ship plumbing — correctly never built.
+
+**Artifacts (shodan):** `~/dicewarsjs-personas/ml/runs/ppo-{exp-g99-c04,exp-g99-c08,pred-place-b15,pred-place-b25}/`
+(checkpoints + fixtured eval streams), eval logs in `ml/runs/_b2c_eval/*.{profile,gate}.log`,
+supervisor log `ml/runs/persona-b2c.supervisor.log`. Both schtasks tasks
+(`dicewars-persona-b2c`, `dicewars-b2c-eval`) deleted post-run.

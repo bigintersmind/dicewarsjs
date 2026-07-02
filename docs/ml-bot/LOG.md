@@ -21,6 +21,47 @@ Entry template:
 
 ---
 
+## 2026-07-01 (evening) — Batch-2B Wave A launched; 0.5M tripwire probes PASS (both arms continue)
+
+**Phase:** persona-roster (Batch 2B) · **Who:** Ivan + Claude
+
+**Did:**
+
+- Launched Wave A on shodan at 17:42 CDT off commit `20e5be5` (worktree `~/dicewarsjs-personas`,
+  supervisor `/home/ilay/persona_b2c_launch.sh` via one-shot schtasks task
+  `dicewars-persona-b2c` — delete after the run): `ppo-exp-g99-c04` (γ0.99, coef 0.04, clip 1.0)
+  - `ppo-pred-place-b15` (placement backbone, bounty 0.15), each 1M @ 4 envs, staggered around
+    the still-running 20M scratch run. Wave B (`-c08`/`-b25`) auto-chains after Wave A's `wait`.
+- Both arms' fixtured `eval-000500000.*` checkpoints landed at 19:46 CDT (the #97 producer works
+  mid-run, first live use); ran the [D-30] 0.5M tripwire probes (3×10, 540 matches/arm, control
+  Conqueror + matched comparator).
+
+**Learned / decided:**
+
+- **ExpC04 @0.5M — CONTINUE.** All turtle axes clean and pointing the RIGHT way:
+  ΔavgDiceReserve −4.2, ΔzeroAttackTurnFrac −0.23, ΔturnsToWin +3.9; winPct 47.8 ≈ control 48.3.
+  ΔsurvivalTurn −74.7 nominally crosses the −60 line, but the matched comparator Blitz posts
+  −73.1 vs the same control in the same field — a γ=0.99 **backbone** effect, not
+  overextension, and there is no co-signal (winPct healthy). Exactly the false-kill the
+  matched-comparator rule was added to prevent. Note: at 0.5M ExpC04 profiles ≈ Blitz
+  (aggression +0.60 vs Blitz's +0.58); whether the coef adds land-grab **on top** is the 1M
+  question (avgTerritory/kills bars, [D-30] dec. 5).
+- **PredB15 @0.5M — CONTINUE.** No axis tripped: winPct 56.1 (> control 53.9),
+  ΔavgDiceReserve −4.9, ΔturnsToWin +11.5, ΔsurvivalTurn −16.3. Kills 1.60 ≈ control 1.63 — the
+  bounty signal isn't visible yet (Survivor itself posts 1.86, so the placement backbone leaves
+  headroom); kills Δ≥+0.25 is a 1M/3M bar, not a 0.5M one.
+- RUNBOOK §8d probe command fixed: reference comparators by bare built-in name — the
+  `ml/runs/ppo-blitz/` export path only resolves from the main tree, not the persona worktree.
+
+**Next:**
+
+- Wave A finishes ~21:50 CDT → Wave B auto-starts; its 0.5M probes are optional overnight
+  (abort would only save ~2h of idle-night GPU) — grade everything at the 1M full eval
+  (RUNBOOK §8d: export `--no-packed`, behavior:profile 6×30, ppo:gate 8×80, [D-30] bars).
+- Delete schtasks task `dicewars-persona-b2c` after the wave completes.
+
+---
+
 ## 2026-07-01 — Batch-2 re-pilot resolved: corrected reward mechanics → [D-30] Batch-2B wave (flag-only)
 
 **Phase:** persona-roster (Batch 2) · **Who:** Ivan + Claude

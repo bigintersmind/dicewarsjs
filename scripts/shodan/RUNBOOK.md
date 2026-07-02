@@ -378,11 +378,14 @@ launch use the §8b Task Scheduler wrappers with these same vars.)
 zero-padded to 9 digits — `eval-000500000.weights.js` on a clean run, but a crash-restart
 re-anchors the cadence grid, so glob `eval/eval-*.weights.js` or read `eval/index.jsonl` for the
 first ≥500k entry), profile it against the control AND the arm's **matched-backbone comparator**
-([D-30] dec. 4 — Blitz for E arms, Survivor for P arms; both exports already on this box):
+([D-30] dec. 4 — Blitz for E arms, Survivor for P arms). Reference the comparator by its **bare
+built-in name** — the persona weights ship in-tree, so `Blitz`/`Survivor` resolve from any
+checkout; the `ml/runs/ppo-blitz/` exports live in the MAIN tree and are NOT visible from the
+persona worktree's cwd:
 
 ```bash
 node scripts/behavior-profile.mjs \
-  --bots "ExpC04=ml/runs/ppo-exp-g99-c04/eval/eval-000500000.weights.js,Blitz=ml/runs/ppo-blitz/blitz.weights.js" \
+  --bots "ExpC04=ml/runs/ppo-exp-g99-c04/eval/eval-000500000.weights.js,Blitz" \
   --control Conqueror --runs 3 --games 10
 ```
 

@@ -710,6 +710,7 @@ paired Δ vs `ai_lookahead@596f781`).
 | -------------------------------------------------- | ------------------ | -------------- | ---------------------------- | ----------- |
 | **PPO from-scratch control** (1M, NO warm-start)   | 40.0               | 13.1           | **+26.9 ± 3.1 [23.8, 30.0]** | ✅ **BEAT** |
 | **PPO long run** (20M, BC warm-start) — _headline_ | 40.4 ± 1.6         | 12.7 ± 1.4     | **+27.7 ± 2.7 [25.0, 30.4]** | ✅ **BEAT** |
+| **PPO from-scratch LONG** (20M, NO warm-start)     | 46.7 ± 2.0         | 10.4 ± 1.2     | **+36.3 ± 2.6 [33.8, 38.9]** | ✅ **BEAT** |
 
 **Control (1M, from scratch) — resolves the exploitation caveat.** A fresh-init run (`FROM_SCRATCH=1`,
 no BC warm-start, 1M steps, ~85 min, clean `exit 0`, attempt #1) gated **+26.9 [23.8, 30.0] → BEAT**.
@@ -737,6 +738,28 @@ code change. Run commit `c0d1441`; Lookahead pin `596f781`; checkpoint on shodan
 runs/ppo-long/ppo.pt --out ../src/ai/ppoPolicyWeights.js --fixture
 ../tests/fixtures/bc/ppoForwardCases.json`; then on the Mac `npm run ppo:gate` (default weights =
 `ppoPolicyWeights.js`).
+
+**Follow-up (2026-07-02) — from-scratch AT FULL BUDGET: the BC warm-start bought wall-clock, not
+ceiling.** The 1M control above answered "is the BEAT real?" (yes). This run answers Ivan's next
+question — _"could a bot with no BC/PPO warm-start actually compete at full budget, and how would it
+turn out?"_ — by rerunning the 20M campaign with the **only** variable flipped: `FROM_SCRATCH=1`
+(random init), everything else identical to the headline (same commit `c0d1441`, same R=3 PFSP
+league, same `lr 2.5e-4 / ent_coef 0.01`, same 20.00M budget, same 8-bot gate, same Lookahead pin
+`596f781`). It ran **clean `exit 0`, attempt #1, ZERO auto-restarts**, ~30 h wall at ~183 env-steps/s;
+export parity **2.5e-5**; gated 460.0 s over the same 3040 seat-fair games. Result: **46.7 ± 2.0%** vs
+Lookahead **10.4 ± 1.2%**, **paired Δ +36.3 ± 2.6 [33.8, 38.9] → ✅ BEAT**. The from-scratch net is
+**+8.6 pp stronger than the BC-warm-started headline (+27.7)**, and the two runs' 95% CIs are
+**disjoint** ([33.8, 38.9] vs [25.0, 30.4]) — a clean, significant separation, not noise. It also
+plays **more aggressively**: STOP 42.3% (vs 46.6%) and attack-win 71.4% (vs 69.4%) — a distinct style
+emerged from random weights. **Takeaway:** at this budget the BC warm-start is a _convergence-speed_
+convenience (faster early learning), **not** a strength prior — pure self-play from nothing found the
+better policy. **Caveat:** this is a single from-scratch seed vs a single warm-start seed; the gate CIs
+are within-run (across seeds/rotations), so run-to-run variance between the two 20M campaigns is not
+fully separable from the warm-start variable — but the direction is unambiguous and the gap is large
+(and it rhymes with the 1M control already reaching +26.9 with no warm-start). Not shipped: `ai_ppo` /
+Conqueror keep the headline `ppo-long` weights; these weights live on shodan at
+`~/dicewarsjs/ml/runs/ppo-scratch-long/{ppo.pt,scratch.weights.js,scratch.fixture.json}` and
+`gate.log`. Run commit `c0d1441`; Lookahead pin `596f781`.
 
 ---
 

@@ -21,6 +21,55 @@ Entry template:
 
 ---
 
+## 2026-07-02 — From-scratch 20M run completes & gates: +36.3 (BEATS the +27.7 warm-start headline)
+
+**Phase:** 3 (science follow-up) · **Who:** Ivan + Claude
+
+**Did:**
+
+- The 20M `FROM_SCRATCH=1` run (`ppo-scratch-long`, launched 2026-06-30 via schtasks
+  `dicewars-ppo-scratch`, main tree pinned `c0d1441`) finished **clean `exit 0`, attempt #1, ZERO
+  restarts**, ~30 h wall at ~183 env-steps/s. Launcher auto-repacked → `ppo.pt`, self-verified reload
+  into a bare `EdgePolicyNet`.
+- Exported run-local (`export_weights --ckpt runs/ppo-scratch-long/ppo.pt --out
+runs/ppo-scratch-long/scratch.weights.js --fixture …/scratch.fixture.json`; NB the `--no-packed`
+  flag in the RUNBOOK doesn't exist at `c0d1441` — the export there is already self-contained
+  JSON-in-JS, so it drops in with no sibling decoder). Parity **2.5e-5**, 102,787 params.
+- Gated with the headline config (`ppo:gate --runs 20 --games 150`, 3040 seat-fair games, 8-bot FFA,
+  Lookahead pin `596f781`), overriding `--weights/--fixture` to the run-local export so the shipped
+  `src/ai/ppoPolicyWeights.js` (Conqueror = `ppo-long`) was never touched.
+
+**Learned / decided:**
+
+- **Result: 46.7 ± 2.0% vs Lookahead 10.4 ± 1.2%, paired Δ +36.3 ± 2.6 [33.8, 38.9] → ✅ BEAT.**
+  That is **+8.6 pp above the BC-warm-started headline (+27.7 [25.0, 30.4])**, and the two 95% CIs are
+  **disjoint** — a clean, significant separation.
+- **The BC warm-start bought convergence speed, not final ceiling.** With the only variable flipped
+  (random init) and everything else identical to the headline, pure self-play from nothing found the
+  _stronger_ policy at full budget. Rhymes with the 1M control (+26.9 with no warm-start) already
+  matching the 20M warm-start level.
+- A distinct **style emerged from random weights**: more aggressive — STOP 42.3% (vs 46.6% warm-start),
+  attack-win 71.4% (vs 69.4%).
+- **Caveat:** single scratch seed vs single warm-start seed; gate CIs are within-run, so cross-campaign
+  run-to-run variance isn't fully separable from the warm-start variable. Direction is unambiguous; gap
+  is large.
+
+**Dead ends / surprises:**
+
+- Expected from-scratch to _compete_ (match/approach warm-start); it **exceeded** it. The intuition
+  "warm-start = strength prior" was wrong at this budget — it's a speed prior.
+
+**Next:**
+
+- Not shipping: `ai_ppo`/Conqueror keep the `ppo-long` weights. Weights + `gate.log` retained on shodan
+  at `~/dicewarsjs/ml/runs/ppo-scratch-long/`. Cleanup: delete schtasks `dicewars-ppo-scratch`, un-pin
+  main tree `git checkout master` — **without disturbing the concurrent Batch-2B persona runs**
+  (separate worktree `~/dicewarsjs-personas` @ `20e5be5`, task `dicewars-persona-b2c`).
+- Open question if revisited: is the +8.6 pp real or seed variance? Would need ≥1 more seed per arm to
+  separate — deferred (not blocking anything; personas are the active track).
+
+---
+
 ## 2026-07-01 (evening) — Batch-2B Wave A launched; 0.5M tripwire probes PASS (both arms continue)
 
 **Phase:** persona-roster (Batch 2B) · **Who:** Ivan + Claude

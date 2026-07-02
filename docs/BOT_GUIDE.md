@@ -74,14 +74,15 @@ Each territory in `myAreas` and `allAreas`:
 
 Each player in `players`:
 
-| Field                  | Type      | Description                       |
-| ---------------------- | --------- | --------------------------------- |
-| `id`                   | `number`  | Player ID (0-based)               |
-| `territories`          | `number`  | Number of territories owned       |
-| `totalDice`            | `number`  | Total dice across all territories |
-| `connectedTerritories` | `number`  | Size of largest connected group   |
-| `reinforcements`       | `number`  | Dice in reserve stock             |
-| `eliminated`           | `boolean` | Whether this player is eliminated |
+| Field                  | Type      | Description                                                                               |
+| ---------------------- | --------- | ----------------------------------------------------------------------------------------- |
+| `id`                   | `number`  | Player ID (0-based)                                                                       |
+| `territories`          | `number`  | Number of territories owned                                                               |
+| `totalDice`            | `number`  | Total dice across all territories                                                         |
+| `connectedTerritories` | `number`  | Size of largest connected group                                                           |
+| `reinforcements`       | `number`  | Dice in reserve stock                                                                     |
+| `eliminated`           | `boolean` | Whether this player is eliminated                                                         |
+| `turnsUntilActs`       | `number`  | Turn-advances until this player acts (0 = you; eliminated players are 0 — check the flag) |
 
 ## Rules Your Bot Must Follow
 

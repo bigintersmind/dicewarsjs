@@ -101,12 +101,57 @@ describe('createBotState', () => {
       expect(typeof p.connectedTerritories).toBe('number');
       expect(typeof p.reinforcements).toBe('number');
       expect(typeof p.eliminated).toBe('boolean');
+      expect(typeof p.turnsUntilActs).toBe('number');
       // Should NOT have internal engine field names
       expect(p.territoryCount).toBeUndefined();
       expect(p.diceCount).toBeUndefined();
       expect(p.largestGroup).toBeUndefined();
       expect(p.stock).toBeUndefined();
     }
+  });
+
+  it('turnsUntilActs is 0 for the acting player and ranks the rest by turn order', () => {
+    const state = createTestState();
+    const playerId = state.turnOrder[state.currentPlayerIndex];
+    const botState = createBotState(state, playerId);
+
+    expect(botState.players[playerId].turnsUntilActs).toBe(0);
+
+    // No eliminations at game start: walking turnOrder from the acting player's
+    // position must yield ranks 0, 1, 2, ... in order.
+    const myPos = state.turnOrder.indexOf(playerId);
+    for (let step = 0; step < state.turnOrder.length; step++) {
+      const pid = state.turnOrder[(myPos + step) % state.turnOrder.length];
+      expect(botState.players[pid].turnsUntilActs).toBe(step);
+    }
+  });
+
+  it('turnsUntilActs skips eliminated seats and is 0 for them', () => {
+    const state = createTestState();
+    const playerId = state.turnOrder[state.currentPlayerIndex];
+
+    // Eliminate the seat that would act right after the acting player.
+    const myPos = state.turnOrder.indexOf(playerId);
+    const nextPid = state.turnOrder[(myPos + 1) % state.turnOrder.length];
+    const withElim = {
+      ...state,
+      players: state.players.map(p => (p.id === nextPid ? { ...p, eliminated: true } : p)),
+    };
+    const botState = createBotState(withElim, playerId);
+
+    expect(botState.players[nextPid].turnsUntilActs).toBe(0);
+    expect(botState.players[nextPid].eliminated).toBe(true);
+
+    // Active ranks are 0..activePlayers-1, each exactly once.
+    const activeRanks = botState.players
+      .filter(p => !p.eliminated)
+      .map(p => p.turnsUntilActs)
+      .sort((a, b) => a - b);
+    expect(activeRanks).toEqual([0, 1, 2]);
+
+    // The seat two steps down the order is now the next actor.
+    const afterNext = state.turnOrder[(myPos + 2) % state.turnOrder.length];
+    expect(botState.players[afterNext].turnsUntilActs).toBe(1);
   });
 
   it('player stats match engine state', () => {

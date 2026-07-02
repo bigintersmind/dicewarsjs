@@ -26,8 +26,12 @@ export const MAX_MOVES_PER_TURN = 100;
 /** Maximum consecutive invalid moves before ending a bot's turn */
 export const MAX_CONSECUTIVE_INVALID = 3;
 
-/** Maximum turns before declaring a stalemate */
-const DEFAULT_MAX_TURNS = 500;
+/**
+ * Maximum turns before declaring a stalemate. Exported so consumers that need
+ * the cap (the PPO env-server's `--max-turns` default, the v3 encoder's
+ * turn-clock normalizer) share one constant instead of hard-coding 500.
+ */
+export const DEFAULT_MAX_TURNS = 500;
 
 /**
  * @typedef {Object} MatchBotConfig

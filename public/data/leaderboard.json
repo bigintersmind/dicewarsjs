@@ -1,150 +1,150 @@
 {
-  "updatedAt": "2026-07-02T07:19:33.749Z",
-  "tournamentCount": 40,
-  "totalGamesPlayed": 4000,
+  "updatedAt": "2026-07-02T21:15:07.624Z",
+  "tournamentCount": 41,
+  "totalGamesPlayed": 4100,
   "bots": [
     {
       "name": "Expectimax",
       "author": "built-in",
-      "elo": 1389,
-      "previousElo": 1362,
-      "wins": 9,
+      "elo": 1385,
+      "previousElo": 1389,
+      "wins": 5,
       "gamesPlayed": 100,
-      "winRate": 0.09,
+      "winRate": 0.05,
       "avgPlacement": 4.05,
-      "attackWinRate": 0.897
+      "attackWinRate": 0.903
     },
     {
       "name": "Lookahead",
       "author": "built-in",
-      "elo": 1343,
-      "previousElo": 1285,
-      "wins": 7,
+      "elo": 1364,
+      "previousElo": 1343,
+      "wins": 11,
       "gamesPlayed": 100,
-      "winRate": 0.07,
-      "avgPlacement": 4.72,
-      "attackWinRate": 0.786
+      "winRate": 0.11,
+      "avgPlacement": 4.49,
+      "attackWinRate": 0.788
     },
     {
       "name": "Conqueror",
       "author": "built-in",
       "elo": 1283,
-      "previousElo": 1285,
-      "wins": 21,
+      "previousElo": 1283,
+      "wins": 26,
       "gamesPlayed": 100,
-      "winRate": 0.21,
-      "avgPlacement": 5.92,
-      "attackWinRate": 0.688
-    },
-    {
-      "name": "Defensive",
-      "author": "built-in",
-      "elo": 1280,
-      "previousElo": 1232,
-      "wins": 13,
-      "gamesPlayed": 100,
-      "winRate": 0.13,
-      "avgPlacement": 6.09,
-      "attackWinRate": 0.741
-    },
-    {
-      "name": "Strategist",
-      "author": "built-in",
-      "elo": 1231,
-      "previousElo": 1279,
-      "wins": 4,
-      "gamesPlayed": 100,
-      "winRate": 0.04,
-      "avgPlacement": 6.6,
-      "attackWinRate": 0.834
+      "winRate": 0.26,
+      "avgPlacement": 5.32,
+      "attackWinRate": 0.691
     },
     {
       "name": "Connector (bigintersmind)",
       "author": "bigintersmind",
-      "elo": 1201,
-      "previousElo": 1211,
+      "elo": 1228,
+      "previousElo": 1201,
       "wins": 0,
       "gamesPlayed": 100,
       "winRate": 0,
-      "avgPlacement": 7.54,
-      "attackWinRate": 0.892
+      "avgPlacement": 7.55,
+      "attackWinRate": 0.884
+    },
+    {
+      "name": "Strategist",
+      "author": "built-in",
+      "elo": 1225,
+      "previousElo": 1231,
+      "wins": 2,
+      "gamesPlayed": 100,
+      "winRate": 0.02,
+      "avgPlacement": 6.53,
+      "attackWinRate": 0.829
+    },
+    {
+      "name": "Defensive",
+      "author": "built-in",
+      "elo": 1196,
+      "previousElo": 1280,
+      "wins": 9,
+      "gamesPlayed": 100,
+      "winRate": 0.09,
+      "avgPlacement": 6.97,
+      "attackWinRate": 0.739
     },
     {
       "name": "Example",
       "author": "built-in",
-      "elo": 1189,
-      "previousElo": 1195,
+      "elo": 1185,
+      "previousElo": 1189,
       "wins": 0,
       "gamesPlayed": 100,
       "winRate": 0,
-      "avgPlacement": 7.27,
-      "attackWinRate": 0.864
-    },
-    {
-      "name": "Survivor",
-      "author": "built-in",
-      "elo": 1182,
-      "previousElo": 1213,
-      "wins": 23,
-      "gamesPlayed": 100,
-      "winRate": 0.23,
-      "avgPlacement": 6.03,
-      "attackWinRate": 0.701
+      "avgPlacement": 7.31,
+      "attackWinRate": 0.871
     },
     {
       "name": "Adaptive",
       "author": "built-in",
-      "elo": 1154,
-      "previousElo": 1183,
-      "wins": 0,
+      "elo": 1184,
+      "previousElo": 1154,
+      "wins": 3,
       "gamesPlayed": 100,
-      "winRate": 0,
-      "avgPlacement": 7.84,
-      "attackWinRate": 0.893
+      "winRate": 0.03,
+      "avgPlacement": 7.78,
+      "attackWinRate": 0.825
     },
     {
-      "name": "Blitz",
+      "name": "Survivor",
       "author": "built-in",
-      "elo": 1095,
-      "previousElo": 1097,
+      "elo": 1148,
+      "previousElo": 1182,
       "wins": 15,
       "gamesPlayed": 100,
       "winRate": 0.15,
-      "avgPlacement": 7.66,
-      "attackWinRate": 0.69
-    },
-    {
-      "name": "Default",
-      "author": "built-in",
-      "elo": 1083,
-      "previousElo": 1085,
-      "wins": 0,
-      "gamesPlayed": 100,
-      "winRate": 0,
-      "avgPlacement": 9.22,
-      "attackWinRate": 0.665
+      "avgPlacement": 6.75,
+      "attackWinRate": 0.711
     },
     {
       "name": "Giant Slayer (bigintersmind)",
       "author": "bigintersmind",
-      "elo": 1077,
-      "previousElo": 1078,
+      "elo": 1108,
+      "previousElo": 1077,
       "wins": 0,
       "gamesPlayed": 100,
       "winRate": 0,
-      "avgPlacement": 8.5,
-      "attackWinRate": 0.865
+      "avgPlacement": 8.29,
+      "attackWinRate": 0.889
+    },
+    {
+      "name": "Default",
+      "author": "built-in",
+      "elo": 1103,
+      "previousElo": 1083,
+      "wins": 1,
+      "gamesPlayed": 100,
+      "winRate": 0.01,
+      "avgPlacement": 8.67,
+      "attackWinRate": 0.708
+    },
+    {
+      "name": "Blitz",
+      "author": "built-in",
+      "elo": 1088,
+      "previousElo": 1095,
+      "wins": 13,
+      "gamesPlayed": 100,
+      "winRate": 0.13,
+      "avgPlacement": 7.73,
+      "attackWinRate": 0.679
     },
     {
       "name": "Berserker (bigintersmind)",
       "author": "bigintersmind",
-      "elo": 1045,
-      "previousElo": 1060,
-      "wins": 0,
+      "elo": 1059,
+      "previousElo": 1045,
+      "wins": 1,
       "gamesPlayed": 100,
-      "winRate": 0,
+      "winRate": 0.01,
       "avgPlacement": 9.56,
-      "attackWinRate": 0.741
+      "attackWinRate": 0.725
     }
   ],
   "replays": [
@@ -165,8 +165,8 @@
         "Berserker (bigintersmind)",
         "Giant Slayer (bigintersmind)"
       ],
-      "winner": "Survivor",
-      "turns": 417
+      "winner": "Lookahead",
+      "turns": 364
     },
     {
       "file": "replay-2.json",
@@ -185,8 +185,8 @@
         "Berserker (bigintersmind)",
         "Giant Slayer (bigintersmind)"
       ],
-      "winner": "Defensive",
-      "turns": 304
+      "winner": "Conqueror",
+      "turns": 259
     },
     {
       "file": "replay-3.json",
@@ -205,8 +205,8 @@
         "Berserker (bigintersmind)",
         "Giant Slayer (bigintersmind)"
       ],
-      "winner": "Lookahead",
-      "turns": 289
+      "winner": "Conqueror",
+      "turns": 249
     },
     {
       "file": "replay-4.json",
@@ -225,8 +225,8 @@
         "Berserker (bigintersmind)",
         "Giant Slayer (bigintersmind)"
       ],
-      "winner": "Survivor",
-      "turns": 274
+      "winner": "Conqueror",
+      "turns": 242
     },
     {
       "file": "replay-5.json",
@@ -246,7 +246,7 @@
         "Giant Slayer (bigintersmind)"
       ],
       "winner": "Survivor",
-      "turns": 274
+      "turns": 239
     },
     {
       "file": "replay-6.json",
@@ -265,8 +265,8 @@
         "Berserker (bigintersmind)",
         "Giant Slayer (bigintersmind)"
       ],
-      "winner": "Blitz",
-      "turns": 273
+      "winner": "Defensive",
+      "turns": 237
     },
     {
       "file": "replay-7.json",
@@ -285,8 +285,8 @@
         "Berserker (bigintersmind)",
         "Giant Slayer (bigintersmind)"
       ],
-      "winner": "Survivor",
-      "turns": 267
+      "winner": "Blitz",
+      "turns": 232
     },
     {
       "file": "replay-8.json",
@@ -306,7 +306,7 @@
         "Giant Slayer (bigintersmind)"
       ],
       "winner": "Blitz",
-      "turns": 246
+      "turns": 221
     },
     {
       "file": "replay-9.json",
@@ -325,8 +325,8 @@
         "Berserker (bigintersmind)",
         "Giant Slayer (bigintersmind)"
       ],
-      "winner": "Defensive",
-      "turns": 246
+      "winner": "Conqueror",
+      "turns": 221
     },
     {
       "file": "replay-10.json",
@@ -345,8 +345,8 @@
         "Berserker (bigintersmind)",
         "Giant Slayer (bigintersmind)"
       ],
-      "winner": "Conqueror",
-      "turns": 240
+      "winner": "Survivor",
+      "turns": 220
     }
   ]
 }

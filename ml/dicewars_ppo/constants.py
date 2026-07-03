@@ -61,7 +61,7 @@ BOARD_FEATURES: tuple[str, ...] = (
     "phaseMid",
     "phaseLate",
     "myStockNorm",  # v3
-    "turnNumberNorm",  # v3
+    "turnClockNorm",  # v3 (turnsTaken / DEFAULT_MAX_TURNS — completed player-turns)
 )
 EDGE_FEATURES: tuple[str, ...] = (
     "winProb",

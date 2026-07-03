@@ -20,10 +20,13 @@ import {
   PLAYER_FEATURES,
   BOARD_FEATURES,
   EDGE_FEATURES,
+  assertPolicyEncodingCompatible,
   encodeStep,
   encodeObservationForInference,
   teacherSeatsOf,
 } from '../../src/arena/encodeObservation.js';
+import { BC_POLICY } from '../../src/ai/bcPolicyWeights.js';
+import { BC_POLICY as PPO_POLICY } from '../../src/ai/ppoPolicyWeights.js';
 
 const exampleBot = adaptLegacyBot(ai_example);
 
@@ -75,6 +78,9 @@ function syntheticStep({ chosenMove } = {}) {
   const observation = {
     myPlayer: 0,
     turnNumber: 7,
+    // Deliberately ≠ turnNumber: proves the clock reads the completed-player-turn
+    // counter, not the round counter it used to (the [D-31] clock-defect fix).
+    turnsTaken: 12,
     totalPlayers: 3,
     activePlayers: 3,
     gamePhase: 'mid',
@@ -130,7 +136,7 @@ describe('encodeObservation — feature-name contract', () => {
       'phaseMid',
       'phaseLate',
       'myStockNorm',
-      'turnNumberNorm',
+      'turnClockNorm',
     ]);
     expect(EDGE_FEATURES).toEqual([
       'winProb',
@@ -160,8 +166,74 @@ describe('encodeObservation — feature-name contract', () => {
       .slice(0, 16);
     expect({ version: ENCODING_VERSION, fingerprint }).toEqual({
       version: 3,
-      fingerprint: 'b38aef36145403c9',
+      fingerprint: 'dc18deebac9dd34a',
     });
+  });
+});
+
+describe('assertPolicyEncodingCompatible', () => {
+  /*
+   * Minimal layers whose first-layer weight rows consume exactly the live widths
+   * (1-unit hidden dims keep the mixed context/edgeHead inputs easy to size):
+   * context input = [nodePool(1), playerPool(1), board], edgeHead input =
+   * [ctx(1), fromEmb(1), toEmb(1), edgeFeatures] — mirroring bcForward's concats.
+   */
+  function honestLayers() {
+    const layer = inDim => ({ w: [new Array(inDim).fill(0)], b: [0], relu: false });
+    return {
+      nodeEncoder: [layer(NODE_FEATURES.length)],
+      playerEncoder: [layer(PLAYER_FEATURES.length)],
+      context: [layer(1 + 1 + BOARD_FEATURES.length)],
+      edgeHead: [layer(1 + 2 * 1 + EDGE_FEATURES.length)],
+    };
+  }
+
+  it('accepts the shipped weight modules (BC v2 + PPO v2, real layers)', () => {
+    expect(() => assertPolicyEncodingCompatible(BC_POLICY, 'test')).not.toThrow();
+    expect(() => assertPolicyEncodingCompatible(PPO_POLICY, 'test')).not.toThrow();
+  });
+
+  it('passes on version alone when config widths are genuinely absent', () => {
+    expect(() =>
+      assertPolicyEncodingCompatible({ encodingVersion: 2, config: {} }, 'test')
+    ).not.toThrow();
+  });
+
+  it('rejects a declared width that is present but not a finite number (corrupt export)', () => {
+    for (const bad of ['13', NaN, null]) {
+      expect(() =>
+        assertPolicyEncodingCompatible(
+          { encodingVersion: 3, config: { nodeFeatures: bad } },
+          'test'
+        )
+      ).toThrow(/not a finite number/);
+    }
+  });
+
+  it('rejects layers that consume more columns than the encoder emits, even if config lies', () => {
+    // config under-declares (or omits) its widths, but the first-layer weight rows
+    // are wider than the live encoder — the net would read NaN. Must not pass on paperwork.
+    const layers = honestLayers();
+    layers.nodeEncoder[0].w[0] = new Array(NODE_FEATURES.length + 5).fill(0);
+    expect(() =>
+      assertPolicyEncodingCompatible({ encodingVersion: 3, config: {}, layers }, 'test')
+    ).toThrow(/layers consume/);
+
+    // Same for the edge head (the mixed-input derivation subtracts the hidden dims).
+    const layers2 = honestLayers();
+    layers2.edgeHead[0].w[0] = new Array(1 + 2 * 1 + EDGE_FEATURES.length + 3).fill(0);
+    expect(() =>
+      assertPolicyEncodingCompatible({ encodingVersion: 3, config: {}, layers: layers2 }, 'test')
+    ).toThrow(/layers consume/);
+  });
+
+  it('accepts layers that consume exactly the live widths', () => {
+    expect(() =>
+      assertPolicyEncodingCompatible(
+        { encodingVersion: 3, config: {}, layers: honestLayers() },
+        'test'
+      )
+    ).not.toThrow();
   });
 });
 
@@ -285,7 +357,8 @@ describe('encodeStep — per-player globals and board scalars', () => {
     expect(enc.board[1]).toBeCloseTo(3 / 3, 12); // active fraction
     expect(enc.board.slice(2, 5)).toEqual([0, 1, 0]); // phase = mid
     expect(enc.board[5]).toBeCloseTo(6 / 64, 12); // myStockNorm — my player-row stock, past the mean-pool
-    expect(enc.board[6]).toBeCloseTo(7 / 500, 12); // turnNumberNorm — turn 7 of the 500-turn cap
+    // turnClockNorm — 12 COMPLETED player-turns of the 500-turn cap, NOT turnNumber (7 rounds)
+    expect(enc.board[6]).toBeCloseTo(12 / 500, 12);
   });
 
   it('zeroes turnsUntilActsNorm for eliminated seats and clamps the turn clock at 1', () => {
@@ -294,12 +367,34 @@ describe('encodeStep — per-player globals and board scalars', () => {
       p.id === 2 ? { ...p, eliminated: true, turnsUntilActs: 0 } : p
     );
     step.observation.activePlayers = 2;
-    step.observation.turnNumber = 9999; // far past the stalemate cap
+    step.observation.turnsTaken = 600; // past the 500-turn truncation cap
     const enc2 = encodeStep(step, SYNTH_CTX);
     expect(enc2.players[2][1]).toBe(1); // eliminated flag
     expect(enc2.players[2][6]).toBe(0); // no upcoming turn
     expect(enc2.players[1][6]).toBe(1); // sole other active seat: rank 1 / max(2-1, 1)
-    expect(enc2.board[6]).toBe(1); // turnNumberNorm clamped
+    expect(enc2.board[6]).toBe(1); // turnClockNorm clamped (600/500 → 1)
+  });
+
+  it('saturates the turn clock exactly at the truncation boundary', () => {
+    const step = syntheticStep();
+    step.observation.turnsTaken = 500;
+    expect(encodeStep(step, SYNTH_CTX).board[6]).toBe(1);
+  });
+
+  it('throws when the BotState predates the turnsTaken counter (missing field)', () => {
+    const step = syntheticStep();
+    delete step.observation.turnsTaken;
+    expect(() => encodeStep(step, SYNTH_CTX)).toThrow(/has no turnsTaken/);
+  });
+
+  it('throws when activePlayers/totalPlayers are missing (hand-rolled BotState)', () => {
+    const step = syntheticStep();
+    delete step.observation.activePlayers;
+    expect(() => encodeStep(step, SYNTH_CTX)).toThrow(/activePlayers\/totalPlayers/);
+
+    const step2 = syntheticStep();
+    delete step2.observation.totalPlayers;
+    expect(() => encodeStep(step2, SYNTH_CTX)).toThrow(/activePlayers\/totalPlayers/);
   });
 
   it('throws when a player row predates the v3 sanitizer (no turnsUntilActs)', () => {
@@ -430,6 +525,7 @@ describe('encodeStep — v2 attack-consequence edge features', () => {
       observation: {
         myPlayer: 0,
         turnNumber: 3,
+        turnsTaken: 8,
         totalPlayers: 3,
         activePlayers: 3,
         gamePhase: 'mid',
@@ -493,6 +589,7 @@ describe('encodeStep ↔ encodeObservationForInference — cross-path feature pa
     const observation = {
       myPlayer: 0,
       turnNumber: 3,
+      turnsTaken: 8,
       totalPlayers: 3,
       activePlayers: 3,
       gamePhase: 'mid',

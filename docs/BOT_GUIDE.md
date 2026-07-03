@@ -47,16 +47,17 @@ Your function receives a `state` object with these fields:
 
 ### Top-level Fields
 
-| Field           | Type                         | Description                          |
-| --------------- | ---------------------------- | ------------------------------------ |
-| `myPlayer`      | `number`                     | Your player ID                       |
-| `turnNumber`    | `number`                     | Current turn number                  |
-| `totalPlayers`  | `number`                     | Total players (including eliminated) |
-| `activePlayers` | `number`                     | Non-eliminated player count          |
-| `gamePhase`     | `'early' \| 'mid' \| 'late'` | Estimated game phase                 |
-| `myAreas`       | `BotArea[]`                  | Territories you own                  |
-| `allAreas`      | `BotArea[]`                  | All territories on the board         |
-| `players`       | `BotPlayer[]`                | All player stats                     |
+| Field           | Type                         | Description                                                                       |
+| --------------- | ---------------------------- | --------------------------------------------------------------------------------- |
+| `myPlayer`      | `number`                     | Your player ID                                                                    |
+| `turnNumber`    | `number`                     | Current turn number                                                               |
+| `turnsTaken`    | `number`                     | Completed player-turns so far (one per turn end; `turnNumber` counts full rounds) |
+| `totalPlayers`  | `number`                     | Total players (including eliminated)                                              |
+| `activePlayers` | `number`                     | Non-eliminated player count                                                       |
+| `gamePhase`     | `'early' \| 'mid' \| 'late'` | Estimated game phase                                                              |
+| `myAreas`       | `BotArea[]`                  | Territories you own                                                               |
+| `allAreas`      | `BotArea[]`                  | All territories on the board                                                      |
+| `players`       | `BotPlayer[]`                | All player stats                                                                  |
 
 ### BotArea
 

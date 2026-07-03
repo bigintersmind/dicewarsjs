@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { runArena } from '../src/arena/arenaRunner.js';
+import { DEFAULT_MAX_TURNS } from '../src/arena/matchRunner.js';
 import { DEFAULT_RATING } from '../src/arena/elo.js';
 import { createReplay } from '../src/arena/replayFormat.js';
 import { buildTournamentField } from './lib/tournament-field.mjs';
@@ -114,7 +115,7 @@ const result = runArena({
   bots,
   gameCount,
   baseSeed: dateSeed,
-  maxTurns: 500,
+  maxTurns: DEFAULT_MAX_TURNS,
   initialRatings,
   onGameComplete: i => {
     if ((i + 1) % 10 === 0 || i + 1 === gameCount) {

@@ -30,7 +30,7 @@ PLAYER_FEATURES = [
 ]
 BOARD_FEATURES = [
     "myDiceShare", "activeFrac", "phaseEarly", "phaseMid", "phaseLate",
-    "myStockNorm", "turnNumberNorm",
+    "myStockNorm", "turnClockNorm",
 ]
 EDGE_FEATURES = [
     "winProb", "atkNorm", "defNorm", "isStop",

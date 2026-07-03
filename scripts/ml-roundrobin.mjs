@@ -39,7 +39,7 @@
 
 import { writeFileSync } from 'node:fs';
 
-import { runMatch } from '../src/arena/matchRunner.js';
+import { DEFAULT_MAX_TURNS, runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
 import { reportBotErrors } from '../src/arena/botErrorReport.js';
 import { rotatedField, pairedDelta, shouldAbort } from './lib/ppo-gate-core.mjs';
@@ -52,7 +52,7 @@ const botsArg = getArg(args, 'bots', 'BC,PPO,Conqueror,Blitz,Survivor');
 const runCount = parseInt(getArg(args, 'runs', '25'), 10);
 const seedsPerRun = parseInt(getArg(args, 'seeds', '24'), 10);
 const runStart = parseInt(getArg(args, 'run-start', '0'), 10);
-const maxTurns = parseInt(getArg(args, 'max-turns', '500'), 10);
+const maxTurns = parseInt(getArg(args, 'max-turns', String(DEFAULT_MAX_TURNS)), 10);
 const outPath = getArg(args, 'out', null);
 const label = getArg(args, 'label', 'ml-rr');
 

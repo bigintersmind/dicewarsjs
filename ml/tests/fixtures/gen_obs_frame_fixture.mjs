@@ -10,6 +10,8 @@
  *
  * Re-run after any change to `scripts/lib/obs-frame.mjs` or the v-bump:
  *   node ml/tests/fixtures/gen_obs_frame_fixture.mjs
+ * On an ENCODING_VERSION bump, also update the GOLDEN_* and SHAPED_* fixture paths
+ * in ml/tests/test_ppo_wire.py and delete the old-version fixture files.
  *
  * The frame is SYNTHETIC (small, hand-built, deterministic) — it bypasses the
  * engine/encoder so the fixture is engine-independent and uses values that are

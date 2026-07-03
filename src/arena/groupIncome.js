@@ -78,6 +78,27 @@ export function computeGroups(allAreas) {
 }
 
 /**
+ * Throw unless `area` was part of the board `groups` analyzed. Both consequence
+ * helpers key their component lookups by `area.id`; an area from a DIFFERENT
+ * board (cross-board misuse — easy for a community bot caching a GroupAnalysis
+ * across turns) would silently read a stale/absent component and return a
+ * plausible-looking 0 or NaN. Fail loudly instead.
+ *
+ * @param {import('./types.js').BotArea} area
+ * @param {GroupAnalysis} groups
+ * @param {string} fn - calling function name for the error message
+ */
+function assertAnalyzedArea(area, groups, fn) {
+  if (!groups.compIndexById.has(area?.id)) {
+    throw new Error(
+      `groupIncome.${fn}: area ${area?.id} is not part of the analyzed board — pass an area ` +
+        `from the same allAreas that produced this computeGroups result (a stale/cross-board ` +
+        `GroupAnalysis would silently yield a wrong consequence value).`
+    );
+  }
+}
+
+/**
  * Income the current owner loses if `area` flips to another player: their
  * largest-group size now minus their largest-group size with `area` removed.
  *
@@ -90,8 +111,10 @@ export function computeGroups(allAreas) {
  * @param {import('./types.js').BotArea} area - a present area from the analyzed board
  * @param {GroupAnalysis} groups - result of {@link computeGroups} for that board
  * @returns {number} income loss in territories (≥ 0)
+ * @throws {Error} If `area` was not part of the board `groups` analyzed
  */
 export function cutValueFor(area, groups) {
+  assertAnalyzedArea(area, groups, 'cutValueFor');
   const { areaById, compIndexById, compSizes, largestByOwner } = groups;
   const { owner } = area;
   const before = largestByOwner.get(owner) ?? 0;
@@ -135,8 +158,10 @@ export function cutValueFor(area, groups) {
  * @param {GroupAnalysis} groups - result of {@link computeGroups} for that board
  * @param {number} me - the capturing player
  * @returns {number} income gain in territories (≥ 0)
+ * @throws {Error} If `area` was not part of the board `groups` analyzed
  */
 export function myGainIfCaptured(area, groups, me) {
+  assertAnalyzedArea(area, groups, 'myGainIfCaptured');
   if (area.owner === me) return 0;
   const { areaById, compIndexById, compSizes, largestByOwner } = groups;
   const seen = new Set();

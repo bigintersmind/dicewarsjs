@@ -126,6 +126,30 @@ export function forward(policy, obs) {
   }
 
   const value = applyMlp(layers.valueHead, ctx);
+
+  /*
+   * Loud non-finite gate: a weights/observation width mismatch (a weight row wider
+   * than its input reads undefined → NaN) or a corrupt export would otherwise flow
+   * NaN logits into argmax, which returns index 0 for an all-NaN array — a silent
+   * "zombie bot" that plays the first edge every turn. One O(edges) pass; trivial
+   * next to the matmuls above.
+   */
+  for (let e = 0; e < logits.length; e++) {
+    if (!Number.isFinite(logits[e])) {
+      throw new Error(
+        `bcForward: non-finite logit ${logits[e]} at edge ${e} — the policy weights do not ` +
+          `match the encoded observation widths (or the export is corrupt).`
+      );
+    }
+  }
+  for (let i = 0; i < value.length; i++) {
+    if (!Number.isFinite(value[i])) {
+      throw new Error(
+        `bcForward: non-finite value-head output ${value[i]} at index ${i} — the policy ` +
+          `weights do not match the encoded observation widths (or the export is corrupt).`
+      );
+    }
+  }
   return { logits, value };
 }
 

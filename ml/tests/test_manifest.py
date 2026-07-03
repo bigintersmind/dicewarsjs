@@ -16,7 +16,7 @@ def test_loads_valid_corpus(tmp_path):
     assert m.player_count == 2
     assert m.node_features == 13  # v3: owner attributes + income consequences
     assert m.player_features == 7  # v3: +turnsUntilActsNorm
-    assert m.board_features == 7  # v3: +myStockNorm, +turnNumberNorm
+    assert m.board_features == 7  # v3: +myStockNorm, +turnClockNorm
     assert m.edge_features == 10  # v3: +elimination/income deltas
     assert m.steps == 7
     assert m.shape("edge_offsets.i32") == (m.steps + 1,)

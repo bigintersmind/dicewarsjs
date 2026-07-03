@@ -19,7 +19,7 @@
  * Flags: --opponents (a `selfplay` field string, e.g. `7xLookahead` or
  * `Lookahead,Strategist,Expectimax,4xBC`; omit to run both named leagues), --learner=random|stop,
  * --episodes (TOTAL, sharded across workers), --workers (default 1), --seed-base (default 1),
- * --learner-seat (default 0), --max-turns (default 500), --max-areas (default BC maxAreas),
+ * --learner-seat (default 0), --max-turns (default DEFAULT_MAX_TURNS), --max-areas (default BC maxAreas),
  * --json.
  *
  * @module scripts/ppo-throughput-probe
@@ -37,6 +37,7 @@ import {
   recommendMaxEdges,
 } from './lib/ppo-probe-core.mjs';
 import { BC_POLICY } from '../src/ai/bcPolicyWeights.js';
+import { DEFAULT_MAX_TURNS } from '../src/arena/matchRunner.js';
 
 const WORKER_URL = new URL('./lib/ppo-probe-worker.mjs', import.meta.url);
 const MAX_EDGES_CAP = 1500; // covers the ~992 all-pairs max + sb3-contrib #247's ~1400 zone
@@ -265,7 +266,7 @@ async function main() {
     workers: numArg(opts, 'workers', 1),
     seedBase: numArg(opts, 'seed-base', 1),
     learnerSeat: numArg(opts, 'learner-seat', 0),
-    maxTurns: numArg(opts, 'max-turns', 500),
+    maxTurns: numArg(opts, 'max-turns', DEFAULT_MAX_TURNS),
     maxAreas: numArg(opts, 'max-areas', BC_POLICY.config.maxAreas),
   };
   if (cfg.learner !== 'random' && cfg.learner !== 'stop') {

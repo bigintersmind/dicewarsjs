@@ -17,7 +17,7 @@
  *     teacher's posture/leader terms key off. v3 adds `turnsUntilActsNorm` (turn-order
  *     distance from the acting seat).
  *   - **Board scalars** — my dice-share, active fraction, game-phase one-hot. v3 adds my
- *     stock and the turn clock (turnNumber / stalemate cap).
+ *     stock and the turn clock (completed player-turns / stalemate cap).
  *   - **Action head** — one row per legal move from `getValidMoves` plus an explicit STOP,
  *     each carrying the engineered edge features (`winProb`, `atk/8`, `def/8`; v2 [D-18] adds
  *     three attack-consequence features — post-capture retaliation, vacated-source exposure,
@@ -128,7 +128,16 @@ export const BOARD_FEATURES = Object.freeze([
   'phaseMid',
   'phaseLate',
   'myStockNorm', // v3: my reinforcement stock / STOCK_MAX (duplicates my player-row stock past the mean-pool, like myDiceShare)
-  'turnNumberNorm', // v3: turnNumber / DEFAULT_MAX_TURNS, clamped to 1 (the stalemate/truncation clock)
+  /*
+   * turnClockNorm (v3): turnsTaken / DEFAULT_MAX_TURNS, clamped to 1 — the stalemate/truncation
+   * clock. turnsTaken counts COMPLETED player-turns (the same unit as matchRunner's turnCount),
+   * so at a decision during player-turn N the column reads (N-1)/500 and hits 1 exactly at the
+   * truncation boundary. Deliberately normalized by the frozen constant, NOT a per-run maxTurns
+   * (cap-tracking would make the column's semantics config-dependent and force a version bump);
+   * harnesses with a non-default cap — and browser/live games, which have no cap — get a nominal
+   * clock. Constant across all decisions within one player-turn, by design.
+   */
+  'turnClockNorm',
 ]);
 
 /**
@@ -182,11 +191,19 @@ const STOP_EDGE = EDGE_FEATURES.map(name => (name === 'isStop' ? 1 : 0));
  * multiply against missing columns and emit NaN — so it is rejected loudly.
  * Width fields are belt-and-braces over the version stamp (real exports always
  * carry them; `export_weights.py` stamps the full config): a policy that omits
- * one is judged by its version alone, since a missing width cannot be wider.
+ * one is judged by its version alone, since a missing width cannot be wider —
+ * but a width that is *present yet not a finite number* (a corrupt or
+ * hand-edited export) is rejected rather than silently skipped. And because a
+ * config can lie, when `policy.layers` is present the widths the net actually
+ * consumes are re-derived from its first-layer weight rows (see
+ * `bcForward.forward`: nodeEncoder/playerEncoder take the raw feature row;
+ * context takes [nodePool, playerPool, board]; edgeHead takes
+ * [ctx, fromEmb, toEmb, edgeFeatures]) and held to the same ≤-live bound.
  *
- * @param {{encodingVersion: number, config: Object}} policy - exported weights module payload
+ * @param {{encodingVersion: number, config: Object, layers?: Object}} policy - exported weights module payload
  * @param {string} label - caller tag for the error message (e.g. 'makeBC', 'league snapshot')
- * @throws {Error} On an unsupported version or a declared config width wider than the encoder
+ * @throws {Error} On an unsupported version, a non-finite declared width, or a declared/actual
+ *   width wider than the encoder
  */
 export function assertPolicyEncodingCompatible(policy, label) {
   if (!SUPPORTED_ENCODING_VERSIONS.includes(policy.encodingVersion)) {
@@ -204,11 +221,52 @@ export function assertPolicyEncodingCompatible(policy, label) {
   ];
   for (const [key, live] of widths) {
     const got = policy.config?.[key];
-    if (typeof got === 'number' && got > live) {
+    if (got === undefined) continue; // genuinely absent → judged by version alone
+    if (typeof got !== 'number' || !Number.isFinite(got)) {
+      throw new Error(
+        `${label}: policy config.${key} = ${got} is not a finite number — the export is ` +
+          `corrupt (or hand-edited); refusing to guess its width.`
+      );
+    }
+    if (got > live) {
       throw new Error(
         `${label}: policy config.${key} = ${got} exceeds the live encoder width ${live} — a ` +
           `wider-than-encoder net would read NaN. Re-export the policy or widen the encoder first.`
       );
+    }
+  }
+
+  /*
+   * Belt over the belt: the config widths are metadata, but the first-layer weight
+   * rows are what linear() actually multiplies against the encoded rows. Derive the
+   * per-tensor input widths the net truly consumes and enforce the same bound — a
+   * policy whose config under-declares its widths must not slip past on paperwork.
+   * Hidden dims come from the encoders' own output layers, mirroring forward()'s
+   * concat layout, so the feature share of each mixed input is exact.
+   */
+  const { layers } = policy;
+  if (layers) {
+    const firstIn = head => layers[head]?.[0]?.w?.[0]?.length;
+    const lastOut = head => layers[head]?.[layers[head].length - 1]?.b?.length;
+    const nodeHidden = lastOut('nodeEncoder');
+    const playerHidden = lastOut('playerEncoder');
+    const ctxHidden = lastOut('context');
+    const actuals = [
+      ['nodeFeatures', firstIn('nodeEncoder'), NODE_FEATURES.length],
+      ['playerFeatures', firstIn('playerEncoder'), PLAYER_FEATURES.length],
+      // context input = [nodePool, playerPool, board] — board is the variable tail
+      ['boardFeatures', firstIn('context') - nodeHidden - playerHidden, BOARD_FEATURES.length],
+      // edgeHead input = [ctx, fromEmb, toEmb, edgeFeatures] — edge row is the tail
+      ['edgeFeatures', firstIn('edgeHead') - ctxHidden - 2 * nodeHidden, EDGE_FEATURES.length],
+    ];
+    for (const [key, actual, live] of actuals) {
+      if (Number.isFinite(actual) && actual > live) {
+        throw new Error(
+          `${label}: policy layers consume ${actual} ${key} columns (derived from the ` +
+            `first-layer weight rows) but the live encoder emits only ${live} — the net would ` +
+            `read NaN regardless of what config.${key} declares. Re-export against this encoder.`
+        );
+      }
     }
   }
 }
@@ -419,6 +477,31 @@ function encodeGlobals(obs, ctx) {
   const { me, terrDen, diceDen } = ctx;
 
   /*
+   * activePlayers/totalPlayers feed denominators (turnDen, activeFrac) below; a
+   * missing field on a hand-rolled BotState would silently emit NaN into the
+   * tensor for a whole game. Same loud-throw treatment as turnsUntilActs.
+   */
+  if (typeof obs.activePlayers !== 'number' || typeof obs.totalPlayers !== 'number') {
+    throw new Error(
+      `encodeObservation: activePlayers/totalPlayers must be numbers (got ` +
+        `${obs.activePlayers}/${obs.totalPlayers}) — BotState was built by hand without the ` +
+        `sanitizer (createBotState).`
+    );
+  }
+  if (typeof obs.turnsTaken !== 'number') {
+    /*
+     * The v3 turn clock needs the engine's completed-player-turn counter. A missing
+     * field means a hand-rolled/stale BotState — encode nothing rather than a silent
+     * NaN that would poison the column for a whole game.
+     */
+    throw new Error(
+      `encodeObservation: BotState has no turnsTaken — it predates the engine's ` +
+        `completed-player-turn counter (StateManager) or was built by hand without ` +
+        `the sanitizer (createBotState).`
+    );
+  }
+
+  /*
    * v3 turn-order normalizer: ranks run 0 .. activePlayers-1 (self = 0), so the
    * last seat to act before me maps to 1. The max(…, 1) keeps a heads-up or
    * terminal (1 active player) frame finite.
@@ -475,7 +558,7 @@ function encodeGlobals(obs, ctx) {
     phase === PHASE_INDEX.mid ? 1 : 0,
     phase === PHASE_INDEX.late ? 1 : 0,
     self.reinforcements / STOCK_MAX, // myStockNorm
-    Math.min(obs.turnNumber / DEFAULT_MAX_TURNS, 1), // turnNumberNorm
+    Math.min(obs.turnsTaken / DEFAULT_MAX_TURNS, 1), // turnClockNorm (see BOARD_FEATURES)
   ];
 
   return { players, board };

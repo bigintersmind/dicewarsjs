@@ -10,7 +10,9 @@
  *
  * @typedef {Object} BotState
  * @property {number}      myPlayer       - Current player ID
- * @property {number}      turnNumber     - Current turn number
+ * @property {number}      turnNumber     - Current turn number (full-roster rounds)
+ * @property {number}      turnsTaken     - Completed player-turns so far — the unit the match
+ *   runner's turn count and its truncation cap use (turnNumber counts rounds, a different unit)
  * @property {number}      totalPlayers   - Total player count (including eliminated)
  * @property {number}      activePlayers  - Non-eliminated player count
  * @property {'early'|'mid'|'late'} gamePhase - Estimated game phase

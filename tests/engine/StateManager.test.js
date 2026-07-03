@@ -36,6 +36,7 @@ describe('createInitialState', () => {
     expect(state.phase).toBe('playing');
     expect(state.winner).toBeNull();
     expect(state.turnNumber).toBe(0);
+    expect(state.turnsTaken).toBe(0);
     expect(state.currentPlayerIndex).toBe(0);
     expect(state.history).toEqual([]);
     expect(state.players.length).toBe(7);
@@ -317,6 +318,28 @@ describe('applyAction — END_TURN', () => {
     expect(newState.history[0].type).toBe('END_TURN');
   });
 
+  it('increments turnsTaken by exactly 1 per END_TURN (and ATTACK leaves it alone)', () => {
+    /*
+     * turnsTaken counts COMPLETED player-turns — the unit matchRunner's turnCount and
+     * the 500-turn truncation cap use — unlike turnNumber, which counts full-roster
+     * rounds (incrementing only on turn-order wrap). This is the engine counter the
+     * v3 turnClockNorm encoding normalizes.
+     */
+    let state = createTestState();
+    expect(state.turnsTaken).toBe(0);
+
+    const move = getValidMoves(state)[0];
+    state = applyAction(state, { type: 'ATTACK', from: move.from, to: move.to });
+    expect(state.turnsTaken).toBe(0); // attacks are within-turn: no completed turn yet
+
+    for (let i = 1; i <= 3; i++) {
+      state = applyAction(state, { type: 'END_TURN' });
+      expect(state.turnsTaken).toBe(i);
+    }
+    // 3 player-turns into a 7-player game, the round counter has not wrapped.
+    expect(state.turnNumber).toBe(0);
+  });
+
   it('does not mutate original state', () => {
     const state = createTestState();
     const origIdx = state.currentPlayerIndex;
@@ -449,6 +472,7 @@ describe('serializeState / deserializeState', () => {
 
     expect(restored.phase).toBe(state.phase);
     expect(restored.turnNumber).toBe(state.turnNumber);
+    expect(restored.turnsTaken).toBe(state.turnsTaken);
     expect(restored.currentPlayerIndex).toBe(state.currentPlayerIndex);
     expect(restored.rngState).toBe(state.rngState);
     expect(restored.turnOrder).toEqual(state.turnOrder);
@@ -489,6 +513,10 @@ describe('serializeState / deserializeState', () => {
     const serialized = serializeState(state);
     const restored = deserializeState(serialized);
 
+    // The END_TURN above makes this a non-zero turnsTaken round-trip.
+    expect(state.turnsTaken).toBeGreaterThan(0);
+    expect(restored.turnsTaken).toBe(state.turnsTaken);
+
     expect(restored.history.length).toBe(state.history.length);
     // Verify attack history entries preserve result data
     for (let i = 0; i < state.history.length; i++) {
@@ -527,6 +555,18 @@ describe('deserializeState validation', () => {
         rngState: 42,
       })
     ).toThrow(/missing required field.*config/);
+  });
+
+  it('defaults turnsTaken to 0 for a legacy payload without the field (not required)', () => {
+    /*
+     * turnsTaken postdates the serialized format — deliberately NOT in the
+     * required-field validation, so an old saved game still loads (with the
+     * completed-turn counter restarted at 0).
+     */
+    const legacy = serializeState(createTestState());
+    delete legacy.turnsTaken;
+    const restored = deserializeState(legacy);
+    expect(restored.turnsTaken).toBe(0);
   });
 
   it('throws TypeError for invalid grid shape', () => {

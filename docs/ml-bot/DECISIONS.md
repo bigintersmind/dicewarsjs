@@ -1927,10 +1927,12 @@ distinguishes a killing blow from any weak-neighbor attack — the persona was u
    edge, per the v2 engineered-consequence precedent). Players 6→7: `turnsUntilActsNorm` (from the
    new `BotPlayer.turnsUntilActs` sanitizer field — turn order is public information). Board 5→7:
    `myStockNorm` (self stock past the mean-pool, like `myDiceShare`), `turnNumberNorm`
-   (`min(turnNumber / DEFAULT_MAX_TURNS, 1)` — the stalemate/truncation clock). All computed in the
+   (`min(turnNumber / DEFAULT_MAX_TURNS, 1)` — the stalemate/truncation clock; **superseded by the
+   2026-07-03 amendment below**: the column is now `turnClockNorm` over the engine's new
+   `turnsTaken` counter — `turnNumber` counted rounds, the wrong unit). All computed in the
    shared train/inference builders from `BotState` alone via the new `src/arena/groupIncome.js`
-   (BotState-native union-find + capture deltas, fuzz cross-checked against
-   `findLargestConnectedGroup` by simulating ownership flips).
+   (BotState-native stack-based connected-component labeling + capture deltas, fuzz cross-checked
+   against `findLargestConnectedGroup` by simulating ownership flips).
 3. **Training: from-scratch 20M PPO on shodan** (the proven `ppo-scratch-long` Δ+36.3 recipe,
    `FROM_SCRATCH=1 TIMESTEPS=20000000`), so the only changed variable is the observation. The
    zero-init warm start from ppo-long is the pre-registered FALLBACK arm only (append-only makes it
@@ -1954,3 +1956,46 @@ wire — dims only), so this is orthogonal to [D-28]'s shaped-header variant. (c
 the self-play hot path; `computeGroups` is one pass per decision and cut/gain are computed once per
 node then gathered onto edges — throughput-probe before the 20M launch. (d) The `isStop`-at-col-3
 and `present`-at-col-0 invariants hold across versions (v1→v2 precedent).
+
+**Amendment (2026-07-03) — clock defect: `turnNumberNorm` redefined in place as `turnClockNorm`.**
+The five-agent review of the v3 harness PRs (#101–#105) found the board clock broken as spec'd
+above: it encoded `min(turnNumber / DEFAULT_MAX_TURNS, 1)`, but the engine's `turnNumber` counts
+full-roster ROUNDS (`TurnManager.nextTurn` increments it only on seat-index wrap) while
+`DEFAULT_MAX_TURNS = 500` caps the match runner's per-PLAYER-TURN `turnCount`. The two units differ
+by a factor of ~playerCount, so the clock read only ~0.13–0.5 at real truncation depending on
+player count — it never approached 1 where the cap actually fires. **Fix:** the engine `GameState`
+gains a `turnsTaken` counter (0 at creation, +1 in `applyEndTurn`, serialized with a legacy default
+of 0) — the count of COMPLETED player-turns, the same unit as `turnCount` and the cap. The
+sanitizer copies it onto `BotState`; the encoder column becomes
+`min(turnsTaken / DEFAULT_MAX_TURNS, 1)` and is **renamed** `turnClockNorm` (same position, board
+column 6). The rename is deliberate: the feature-name fingerprint test and the Python mirrors are
+name-keyed, so redefining the semantics under the old name would slide past every drift tripwire —
+the rename forces every downstream consumer to update consciously (JS fingerprint
+`b38aef36145403c9` → `dc18deebac9dd34a`; mirrors in `dicewars_ppo/constants.py`,
+`ml/tests/_fixtures.py`).
+
+Why an in-place v3 redefinition (no v4 bump) is sound: **no v3-trained weights exist** — the
+shipped v2 nets slice the column off entirely (their first-layer widths predate it), the migrated
+`v3-base` checkpoint is zero-tail and therefore semantics-agnostic about the appended columns, and
+the one in-flight run on the broken clock (`ppo-v3-scratch`, ~6.8M/20M steps at review time) is
+slated to be killed and archived rather than salvaged — the kill is still pending on shodan as of
+this writing. No weights trained on the old definition will ever be exported, gated, or shipped.
+
+Caveats, recorded with the decision:
+
+- **The denominator is the frozen constant `DEFAULT_MAX_TURNS = 500`, deliberately NOT the per-run
+  configurable `maxTurns`.** A cap-tracking clock would make the column's meaning
+  semantics-per-config (the same tensor value meaning different things across runs) and would
+  itself require a version bump. Harnesses running a non-default cap get a nominal clock (correct
+  unit, wrong saturation point).
+- **Browser/live games have no turn cap at all**, so there the clock is a nominal "how long has
+  this game run" anchor, not a truncation predictor.
+- **Terminal off-by-one:** the winning turn ends via GAME_OVER without an END_TURN, so `turnsTaken`
+  is never incremented for it. One post-terminal observation IS encoded — the PPO env-server's
+  terminal frame (`createBotState(result.finalState)` → encode) — but the off-by-one is harmless
+  there too: on a decisive terminal `done=1`, so the value head never bootstraps from that frame
+  (its clock merely reads ≤1/500 low); on a maxTurns truncation — the only case the terminal obs
+  IS bootstrapped — all 500 counted player-turns ended via END_TURN, so the clock reads exactly 1.
+- **The value is constant across all decisions within one player-turn, by design** (it counts
+  completed turns; at a decision during player-turn N the column reads (N−1)/500 and saturates
+  exactly at the truncation boundary).

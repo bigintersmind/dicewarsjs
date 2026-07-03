@@ -59,6 +59,7 @@ import {
   rangeToSeeds,
 } from './lib/selfplay-core.mjs';
 import { getArg, hasFlag, colors } from './lib/cli-utils.mjs';
+import { DEFAULT_MAX_TURNS } from '../src/arena/matchRunner.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const DEFAULT_OUT_DIR = path.join(ROOT, 'data', 'selfplay');
@@ -84,7 +85,7 @@ if (!Number.isInteger(seedCount) || seedCount < 1) {
   fail('--seed-count (a.k.a. --games) must be a positive integer.');
 }
 
-const maxTurns = parseInt(getArg(args, 'max-turns', '500'), 10);
+const maxTurns = parseInt(getArg(args, 'max-turns', String(DEFAULT_MAX_TURNS)), 10);
 if (!Number.isInteger(maxTurns) || maxTurns < 1) {
   fail('--max-turns must be a positive integer.');
 }
@@ -472,7 +473,7 @@ Options:
   --seed-start <n>      First seed in the range (default: 1)
   --seed-count <n>      Number of games/seeds to run (default: 1000; alias: --games)
   --workers <n>         Worker threads (default: ~50% of cores = ${Math.max(1, Math.floor(os.cpus().length / 2))})
-  --max-turns <n>       Stalemate cap per game (default: 500)
+  --max-turns <n>       Stalemate cap per game (default: ${DEFAULT_MAX_TURNS})
   --out <path>          Output JSONL (default: data/selfplay/selfplay-seed-<start>-<end>.jsonl)
   --no-write            Run games for throughput only; write no JSONL
   --help                Show this help

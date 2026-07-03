@@ -21,6 +21,47 @@ Entry template:
 
 ---
 
+## 2026-07-03 — Five-agent review of the v3 harness PRs → clock defect found; `turnClockNorm` redefinition + JS hardening PR; `ppo-v3-scratch` relaunch pending
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Ran a five-agent adversarial review over the merged v3 harness PRs (#101–#105). Headline find:
+  the [D-31] board clock was **broken as spec'd** — `turnNumberNorm` divided the engine's round
+  counter (`turnNumber`, +1 per full-roster wrap) by `DEFAULT_MAX_TURNS = 500`, which caps
+  per-PLAYER-TURN `turnCount`. Wrong unit by a factor of ~playerCount: the clock read ~0.13–0.5 at
+  real truncation and never saturated where the cap fires.
+- Convened a design panel on the fix; decision recorded as the 2026-07-03 amendment inside [D-31]:
+  new engine `GameState.turnsTaken` counter (completed player-turns — the cap's unit), copied onto
+  `BotState`, encoded as `min(turnsTaken / DEFAULT_MAX_TURNS, 1)`, and **renamed** `turnClockNorm`
+  (same column position) so the name-keyed fingerprint test + Python mirrors force conscious
+  downstream updates. In-place v3 redefinition (no v4): no v3-trained weights exist.
+- Landed the fix in this PR alongside the review's JS hardening items: `bcForward` non-finite
+  output gate (kills the silent NaN→argmax-0 zombie-bot mode), `assertPolicyEncodingCompatible`
+  strengthened (rejects non-finite declared widths; re-derives the ACTUAL first-layer input widths
+  from the weight rows so a lying config can't pass), `computeTurnsUntilActs` + `groupIncome`
+  misuse guards, `DEFAULT_MAX_TURNS` propagated to the five scripts that hardcoded 500, and ml-ci
+  now triggers on `encodeObservation.js`/`obs-frame.mjs` (the JS side of the wire contract).
+- A concurrent sibling PR carries the Python-side hygiene from the same review (train.py / tracer /
+  snapshot / migration files — kept file-disjoint from this one).
+
+**Learned / decided:**
+
+- Unit mismatches between counters are invisible to every shape/fingerprint tripwire — the
+  fingerprint is name-keyed, so a semantics change MUST rename the column to trip it. That is now
+  the precedent ([D-31] amendment).
+- The obs_frame_v3 binary goldens are width-only (no names on the wire): regenerating after the
+  rename produced byte-identical fixtures, as expected.
+
+**Next:**
+
+- **Pending on shodan:** kill the in-flight `ppo-v3-scratch` run (~6.8M/20M steps on the broken
+  clock — to be discarded/archived, not salvaged; still running as of this entry) and relaunch
+  from scratch on the fixed encoder once this PR + the Python-hygiene PR merge.
+
+---
+
 ## 2026-07-02 — Observability audit → encoding v3 ([D-31]): owner identity / income / turn order / clock, append-only with v2 slice-compat
 
 **Phase:** 3 · **Who:** Ivan + Claude

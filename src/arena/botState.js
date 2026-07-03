@@ -38,7 +38,19 @@ function computeGamePhase(activePlayers, totalPlayers, turnNumber) {
  * @returns {Map<number, number>} player id → turns until they act
  */
 function computeTurnsUntilActs(players, turnOrder, playerId) {
+  if (!Array.isArray(turnOrder)) {
+    throw new TypeError(
+      `computeTurnsUntilActs: state.turnOrder must be an array, got ${typeof turnOrder} — ` +
+        `a hand-built state is missing the engine's shuffled seat order.`
+    );
+  }
   const myPos = turnOrder.indexOf(playerId);
+  if (myPos === -1) {
+    throw new Error(
+      `computeTurnsUntilActs: playerId ${playerId} is not in turnOrder [${turnOrder.join(', ')}] ` +
+        `— cannot rank seats relative to a player with no seat.`
+    );
+  }
   const distances = new Map();
   let rank = 0;
   for (let step = 0; step < turnOrder.length; step++) {
@@ -61,7 +73,7 @@ function computeTurnsUntilActs(players, turnOrder, playerId) {
  * @returns {import('./types.js').BotState}
  */
 export function createBotState(state, playerId) {
-  const { areas, players, turnNumber, turnOrder } = state;
+  const { areas, players, turnNumber, turnsTaken, turnOrder } = state;
 
   const activePlayers = players.filter(p => !p.eliminated).length;
   const totalPlayers = players.length;
@@ -113,6 +125,7 @@ export function createBotState(state, playerId) {
   return Object.freeze({
     myPlayer: playerId,
     turnNumber,
+    turnsTaken,
     totalPlayers,
     activePlayers,
     gamePhase,

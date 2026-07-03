@@ -213,7 +213,7 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
  * @param {Object} config
  * @param {MatchBotConfig[]} config.bots - Bot configurations (length = player count)
  * @param {number}  [config.seed]        - RNG seed (random if omitted)
- * @param {number}  [config.maxTurns=500] - Max turns before stalemate
+ * @param {number}  [config.maxTurns=DEFAULT_MAX_TURNS] - Max turns before stalemate
  * @param {(turnNumber:number, state:import('../engine/types.js').GameState, actingPlayerId:number)=>void} [config.onTurn] -
  *   Callback after each player-turn: the turn count, the post-turn state, and the player
  *   whose turn just completed (the acting player). The third arg lets a consumer attribute
@@ -291,7 +291,11 @@ export function runMatch(config) {
      * trajectory capture active it would advance the engine by an END_TURN that is
      * absent from the recorded action list — silently desyncing re-derivation from
      * live capture. Fail loudly in that case rather than corrupt training data; keep
-     * the harmless defensive skip for the no-recorder path. (See D-14.)
+     * the harmless defensive skip for the no-recorder path. (See D-14.) NB: the skip
+     * applies an END_TURN without a turnCount++ below, so in that hypothetical
+     * no-recorder path the engine's turnsTaken counter (one per END_TURN) would run 1
+     * ahead of turnCount from here on — don't make either side count this skip
+     * without the other, or the turnClockNorm ↔ truncation-cap alignment drifts.
      */
     if (state.players[currentPlayerId].eliminated) {
       if (stepHandler) {

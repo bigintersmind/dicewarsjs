@@ -62,7 +62,14 @@ function findRealState(minAttacks, { seedStart = 1, seedEnd = 600 } = {}) {
  * Build a field-accurate synthetic BotState (the exact shape `createBotState` emits)
  * for the edge cases that are awkward to reach from a fresh game.
  */
-function makeBotState({ myPlayer, areas, players, gamePhase = 'mid', turnNumber = 5 }) {
+function makeBotState({
+  myPlayer,
+  areas,
+  players,
+  gamePhase = 'mid',
+  turnNumber = 5,
+  turnsTaken = 12,
+}) {
   const byId = new Map(areas.map(a => [a.id, a]));
   const allAreas = areas.map(a =>
     Object.freeze({
@@ -88,6 +95,7 @@ function makeBotState({ myPlayer, areas, players, gamePhase = 'mid', turnNumber 
   return Object.freeze({
     myPlayer,
     turnNumber,
+    turnsTaken,
     totalPlayers: botPlayers.length,
     activePlayers: botPlayers.filter(p => !p.eliminated).length,
     gamePhase,

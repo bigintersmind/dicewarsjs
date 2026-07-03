@@ -66,6 +66,7 @@ export function createInitialState(config, mapData, turnOrder, rngState) {
     turnOrder,
     currentPlayerIndex: 0,
     turnNumber: 0,
+    turnsTaken: 0,
     phase: GAME_PHASES.PLAYING,
     history: [],
     rngState,
@@ -307,6 +308,13 @@ function applyEndTurn(state) {
     players,
     currentPlayerIndex,
     turnNumber,
+    /*
+     * turnsTaken counts COMPLETED player-turns — the same unit as matchRunner's
+     * turnCount and its 500-turn truncation cap (turnNumber counts full-roster
+     * ROUNDS, a different unit). Every player-turn ends through exactly one
+     * END_TURN, so incrementing here keeps the two counters in lockstep.
+     */
+    turnsTaken: state.turnsTaken + 1,
     rngState: newRngState,
     history: appendHistory(state, { type: ACTION_TYPES.END_TURN }),
   });
@@ -363,6 +371,7 @@ export function serializeState(state) {
       turnOrder: state.turnOrder,
       currentPlayerIndex: state.currentPlayerIndex,
       turnNumber: state.turnNumber,
+      turnsTaken: state.turnsTaken,
       phase: state.phase,
       history: state.history,
       rngState: state.rngState,
@@ -406,6 +415,12 @@ export function deserializeState(data) {
 
   return Object.freeze({
     ...data,
+    /*
+     * turnsTaken postdates the serialized format (deliberately NOT in
+     * requiredFields above): a legacy payload without it deserializes with the
+     * counter restarted at 0 rather than being rejected.
+     */
+    turnsTaken: data.turnsTaken ?? 0,
     grid,
   });
 }

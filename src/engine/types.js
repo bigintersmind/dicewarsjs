@@ -58,6 +58,8 @@
  * @property {number[]}   turnOrder          - Shuffled player indices
  * @property {number}     currentPlayerIndex - Index into turnOrder for current player
  * @property {number}     turnNumber         - Increments each full round
+ * @property {number}     turnsTaken         - Completed player-turns (one per END_TURN — the unit
+ *                                             matchRunner's turnCount/truncation cap uses)
  * @property {GamePhase}  phase              - Current game phase
  * @property {HistoryEntry[]} history         - All actions applied so far
  * @property {number}     rngState           - Current RNG state (uint32)

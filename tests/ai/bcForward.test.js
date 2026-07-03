@@ -89,3 +89,49 @@ describe('bcForward — v2 slice-down compat (the [D-31] append-only contract)',
     });
   });
 });
+
+describe('bcForward — non-finite output gate', () => {
+  /*
+   * A weight row WIDER than its input reads undefined past the row's end →
+   * 0.1 * undefined = NaN, which used to flow silently into argmax (all-NaN
+   * logits → index 0: a zombie bot playing the first edge every turn). forward()
+   * must now throw instead.
+   */
+  const layer = (out, inn) => ({
+    w: Array.from({ length: out }, () => new Array(inn).fill(0.1)),
+    b: new Array(out).fill(0),
+    relu: false,
+  });
+  // Tiny but structurally complete net: node width 4, player 3, board 2, edge 3.
+  const tinyPolicy = (nodeIn = 4) => ({
+    config: { presentCol: 0 },
+    layers: {
+      nodeEncoder: [layer(2, nodeIn)],
+      playerEncoder: [layer(2, 3)],
+      context: [layer(2, 2 + 2 + 2)], // [nodePool, playerPool, board]
+      edgeHead: [layer(1, 2 + 2 + 2 + 3)], // [ctx, fromEmb, toEmb, edge]
+      valueHead: [layer(2, 2)],
+    },
+  });
+  const tinyObs = {
+    nodes: [
+      [1, 0.5, 0, 0],
+      [1, 0.25, 1, 0],
+    ],
+    players: [[1, 0.5, 0.5]],
+    board: [0.5, 0.5],
+    edges: [[0.5, 0.25, 0.125]],
+    edgeIndex: [[0, 1]],
+  };
+
+  it('a matching-width policy produces finite outputs (control)', () => {
+    const { logits, value } = forward(tinyPolicy(), tinyObs);
+    expect(logits.every(Number.isFinite)).toBe(true);
+    expect(value.every(Number.isFinite)).toBe(true);
+  });
+
+  it('throws on a wider-than-input weight row instead of silently returning edge 0', () => {
+    // nodeEncoder expects 6 columns but the rows carry 4 → NaN in every embedding.
+    expect(() => forward(tinyPolicy(6), tinyObs)).toThrow(/non-finite/);
+  });
+});

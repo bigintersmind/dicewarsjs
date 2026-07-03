@@ -1,5 +1,6 @@
 import { createBotState } from '../../src/arena/botState.js';
 import { createGame } from '../../src/engine/GameRunner.js';
+import { applyAction } from '../../src/engine/StateManager.js';
 
 function createTestState(seed = 42) {
   return createGame({ seed, playerCount: 4 });
@@ -31,9 +32,20 @@ describe('createBotState', () => {
     const botState = createBotState(state, playerId);
 
     expect(botState.turnNumber).toBe(state.turnNumber);
+    expect(botState.turnsTaken).toBe(state.turnsTaken);
     expect(botState.totalPlayers).toBe(state.players.length);
     expect(botState.activePlayers).toBe(state.players.filter(p => !p.eliminated).length);
     expect(['early', 'mid', 'late']).toContain(botState.gamePhase);
+  });
+
+  it('carries the engine turnsTaken counter verbatim (the v3 turn-clock source)', () => {
+    let state = createTestState();
+    state = applyAction(state, { type: 'END_TURN' });
+    state = applyAction(state, { type: 'END_TURN' });
+    expect(state.turnsTaken).toBe(2);
+
+    const playerId = state.turnOrder[state.currentPlayerIndex];
+    expect(createBotState(state, playerId).turnsTaken).toBe(2);
   });
 
   it('excludes zero-size areas from allAreas', () => {
@@ -152,6 +164,34 @@ describe('createBotState', () => {
     // The seat two steps down the order is now the next actor.
     const afterNext = state.turnOrder[(myPos + 2) % state.turnOrder.length];
     expect(botState.players[afterNext].turnsUntilActs).toBe(1);
+  });
+
+  it('turnsUntilActs wraps around turnOrder when the actor sits late in the order', () => {
+    /*
+     * Both tests above rank from an actor at turn-order position 0, so the modulo
+     * walk never wraps. Rank from position 2 of a 4-player order: the two seats
+     * BEFORE the actor must come back as the wrapped ranks 2 and 3.
+     */
+    const state = createTestState();
+    const actor = state.turnOrder[2];
+    const botState = createBotState(state, actor);
+
+    expect(botState.players[actor].turnsUntilActs).toBe(0);
+    expect(botState.players[state.turnOrder[3]].turnsUntilActs).toBe(1);
+    expect(botState.players[state.turnOrder[0]].turnsUntilActs).toBe(2); // wrapped
+    expect(botState.players[state.turnOrder[1]].turnsUntilActs).toBe(3); // wrapped
+  });
+
+  it('throws when turnOrder is missing or the player has no seat in it', () => {
+    const state = createTestState();
+    const playerId = state.turnOrder[state.currentPlayerIndex];
+
+    // Hand-built state without the engine's shuffled seat order.
+    const noOrder = { ...state, turnOrder: undefined };
+    expect(() => createBotState(noOrder, playerId)).toThrow(/turnOrder must be an array/);
+
+    // A playerId with no seat: indexOf -1 must fail loud, not TypeError on players[undefined].
+    expect(() => createBotState(state, 99)).toThrow(/not in turnOrder/);
   });
 
   it('player stats match engine state', () => {

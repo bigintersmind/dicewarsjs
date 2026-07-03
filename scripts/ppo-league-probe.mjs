@@ -36,6 +36,7 @@ import { Worker } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 
 import { BC_POLICY as PPO_POLICY } from '../src/ai/ppoPolicyWeights.js';
+import { DEFAULT_MAX_TURNS } from '../src/arena/matchRunner.js';
 
 import {
   buildProxySpecs,
@@ -383,7 +384,7 @@ async function main() {
     learnerPolicySource,
     learnerSeat: numArg(opts, 'learner-seat', 0),
     maxAreas: numArg(opts, 'max-areas', PPO_POLICY.config.maxAreas),
-    maxTurns: numArg(opts, 'max-turns', 500),
+    maxTurns: numArg(opts, 'max-turns', DEFAULT_MAX_TURNS),
     poolCap: numArg(opts, 'pool-cap', 40),
     pfspEpsilon: numArg(opts, 'pfsp-epsilon', 0.05),
     pfspK: numArg(opts, 'pfsp-k', 2),

@@ -92,6 +92,7 @@ describe('ai_bc bot', () => {
     const botState = {
       myPlayer: 0,
       turnNumber: 1,
+      turnsTaken: 2,
       totalPlayers: 2,
       activePlayers: 2,
       gamePhase: 'early',

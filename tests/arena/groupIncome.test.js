@@ -155,6 +155,32 @@ describe('myGainIfCaptured', () => {
   });
 });
 
+describe('cross-board misuse guard', () => {
+  /*
+   * Passing an area that was NOT part of the analyzed board (e.g. a GroupAnalysis
+   * cached across turns) used to yield a silent 0/NaN — a plausible-looking wrong
+   * answer. Both consequence helpers must fail loud instead.
+   */
+  it('cutValueFor throws for an area outside the analyzed board', () => {
+    const groups = computeGroups(board({ 1: 0, 2: 0 }, [[1, 2]]));
+    const foreign = board({ 7: 1 }, [])[0]; // id 7 never analyzed
+    expect(() => cutValueFor(foreign, groups)).toThrow(/not part of the analyzed board/);
+  });
+
+  it('myGainIfCaptured throws for an area outside the analyzed board (even my own)', () => {
+    const groups = computeGroups(board({ 1: 0, 2: 1 }, [[1, 2]]));
+    const foreignEnemy = board({ 7: 1 }, [])[0];
+    expect(() => myGainIfCaptured(foreignEnemy, groups, 0)).toThrow(
+      /not part of the analyzed board/
+    );
+    // The guard precedes the own-area early return — misuse is loud either way.
+    const foreignMine = board({ 8: 0 }, [])[0];
+    expect(() => myGainIfCaptured(foreignMine, groups, 0)).toThrow(
+      /not part of the analyzed board/
+    );
+  });
+});
+
 describe('fuzz cross-check vs engine findLargestConnectedGroup', () => {
   /**
    * Random engine-format board: `size > 0` areas with symmetric

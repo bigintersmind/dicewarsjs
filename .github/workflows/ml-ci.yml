@@ -7,11 +7,19 @@ on:
     branches: [master]
     paths:
       - 'ml/**'
+      # JS side of the Node<->Python contract: encoder columns + wire frame. A
+      # change here must re-run the Python wire/manifest tests, not just JS CI.
+      - 'src/arena/encodeObservation.js'
+      - 'scripts/lib/obs-frame.mjs'
       - '.github/workflows/ml-ci.yml'
   pull_request:
     branches: [master]
     paths:
       - 'ml/**'
+      # JS side of the Node<->Python contract: encoder columns + wire frame. A
+      # change here must re-run the Python wire/manifest tests, not just JS CI.
+      - 'src/arena/encodeObservation.js'
+      - 'scripts/lib/obs-frame.mjs'
       - '.github/workflows/ml-ci.yml'
 
 jobs:

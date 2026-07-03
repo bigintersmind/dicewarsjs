@@ -1978,8 +1978,11 @@ Why an in-place v3 redefinition (no v4 bump) is sound: **no v3-trained weights e
 shipped v2 nets slice the column off entirely (their first-layer widths predate it), the migrated
 `v3-base` checkpoint is zero-tail and therefore semantics-agnostic about the appended columns, and
 the one in-flight run on the broken clock (`ppo-v3-scratch`, ~6.8M/20M steps at review time) is
-slated to be killed and archived rather than salvaged — the kill is still pending on shodan as of
-this writing. No weights trained on the old definition will ever be exported, gated, or shipped.
+slated to be killed and archived rather than salvaged — executed 2026-07-03: stopped at ~6.6M
+steps, archived to `ml/runs/ppo-v3-scratch-stale-attempt2-brokenclock-20260703`, and relaunched
+from scratch on the fixed encoder (master `464a2ee`; first 100k checkpoint stamped
+`encodingVersion: 3`). No weights trained on the old definition will ever be exported, gated, or
+shipped.
 
 Caveats, recorded with the decision:
 

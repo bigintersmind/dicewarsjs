@@ -21,7 +21,7 @@ Entry template:
 
 ---
 
-## 2026-07-03 — Five-agent review of the v3 harness PRs → clock defect found; `turnClockNorm` redefinition + JS hardening PR; `ppo-v3-scratch` relaunch pending
+## 2026-07-03 — Five-agent review of the v3 harness PRs → clock defect found; `turnClockNorm` redefinition + JS hardening PR; `ppo-v3-scratch` killed + relaunched on the fixed encoder
 
 **Phase:** 3 · **Who:** Ivan + Claude
 
@@ -54,11 +54,23 @@ Entry template:
 - The obs_frame_v3 binary goldens are width-only (no names on the wire): regenerating after the
   rename produced byte-identical fixtures, as expected.
 
+**Ops (same day, after the merges):**
+
+- PRs merged Ivan-reviewed: #106 → `11fc455`, #107 → `fd3a869`. (Self-merge and remote `schtasks`
+  are auto-mode-classifier-blocked by design — Ivan ran the merges and both `schtasks` commands;
+  everything in between was automated.)
+- `ppo-v3-scratch` stopped at ~6.6M/20M (`schtasks /end`; WSL processes verified dead), run dir
+  archived → `ml/runs/ppo-v3-scratch-stale-attempt2-brokenclock-20260703` (attempt-1 naming
+  convention), shodan checkout pulled to `464a2ee`, task re-run. Relaunch verified healthy
+  end-to-end: attempt #1 from step 0 (no accidental resume — the state dir went with the archive),
+  `--from-scratch` on the live argv, `RUN_COMMIT` = `464a2ee`, the launch log prints the RESOLVED
+  `from_scratch=1` (#106's helper doing its job), 12 env-servers + GPU active, first 100k
+  checkpoint landed stamped `encodingVersion: 3` (`ckpt-000100008.zip`, ~190 fps holding).
+
 **Next:**
 
-- **Pending on shodan:** kill the in-flight `ppo-v3-scratch` run (~6.8M/20M steps on the broken
-  clock — to be discarded/archived, not salvaged; still running as of this entry) and relaunch
-  from scratch on the fixed encoder once this PR + the Python-hygiene PR merge.
+- Tripwires at 0.5M/1M vs Lookahead; primary bar vs the v2 scratch control (`ppo-scratch-long`,
+  +36.3); ship bar vs Survivor ([D-31] §4). Bars unchanged by the clock fix.
 
 ---
 

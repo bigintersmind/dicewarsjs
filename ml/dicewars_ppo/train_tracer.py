@@ -41,6 +41,7 @@ from dicewars_bc.model import EdgePolicyNet, ModelConfig
 
 from . import _train_common
 from ._train_common import _make_env_thunk, _validate_args
+from .constants import ENCODING_VERSION
 from .policy import (
     MaskableEdgePolicy,
     load_bc_checkpoint,
@@ -118,9 +119,10 @@ def _verify_repack_exportable(out_path: Path, cfg: ModelConfig) -> None:
     will be the trained policy (the [D-19] gate-breaking gap, checked against reality).
     """
     saved = torch.load(out_path, map_location="cpu", weights_only=True)
-    if saved.get("encoding_version") != 2:
+    if saved.get("encoding_version") != ENCODING_VERSION:
         raise AssertionError(
-            f"repacked checkpoint encoding_version={saved.get('encoding_version')!r} != 2"
+            f"repacked checkpoint encoding_version={saved.get('encoding_version')!r} "
+            f"!= {ENCODING_VERSION}"
         )
     reloaded = EdgePolicyNet(ModelConfig(**saved["config"]))
     reloaded.load_state_dict(saved["state_dict"], strict=True)  # strict ⇒ exact key/shape match
@@ -132,7 +134,7 @@ def _verify_repack_exportable(out_path: Path, cfg: ModelConfig) -> None:
 def train(args: argparse.Namespace) -> Path:
     cfg, ckpt = load_bc_checkpoint(args.checkpoint)
     print(
-        f"loaded BC checkpoint {args.checkpoint}: encoding_version==2, "
+        f"loaded BC checkpoint {args.checkpoint}: encoding_version=={ENCODING_VERSION}, "
         f"max_areas={cfg.max_areas} player_count={cfg.player_count} "
         f"context_hidden={cfg.context_hidden}"
     )

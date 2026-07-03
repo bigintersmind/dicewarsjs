@@ -402,6 +402,15 @@ def test_from_scratch_still_appends_flag_after_refactor(tmp_path):
     assert "--from-scratch" in _argv_pairs(out)
 
 
+def test_preflight_rejects_ambiguous_from_scratch(tmp_path):
+    # FROM_SCRATCH is honored only as the literal '1', so any other non-empty value (e.g. 'true')
+    # used to SILENTLY select the warm-started mode. preflight must refuse to guess. The guard is
+    # the first preflight check, so this stays hermetic (no node/torch/checkpoint needed).
+    rc, out = _resolve(tmp_path, {"FROM_SCRATCH": "true"}, build_argv=False, snippet="preflight")
+    assert rc != 0
+    assert "refusing to guess" in out.lower()
+
+
 @pytest.mark.skipif(not CMD.is_file(), reason="needs ppo-train.cmd")
 def test_cmd_forwards_persona_into_wsl():
     """The Windows→WSL bridge must export PERSONA AND every per-run knob into WSL via WSLENV so a

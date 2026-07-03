@@ -129,6 +129,12 @@ mkdir -p "$RUN_ROOT"
 log() { printf '%s [ppo-train] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" | tee -a "$LAUNCH_LOG" || true; }
 alert() { log "ALERT: $*"; }  # a hook point: redirect/extend to email/push if desired (RUNBOOK.md)
 
+# The RESOLVED 0-or-1 from-scratch decision — the SAME test build_train_argv applies to append
+# --from-scratch, so the launch log and the argv can never disagree. preflight has already rejected
+# any value other than empty/0/1, so this never guesses. (An `if`, not `[ … ] && …`, for the same
+# set -e reason as build_train_argv's conditional appends.)
+from_scratch_resolved() { if [ "${FROM_SCRATCH:-0}" = "1" ]; then echo 1; else echo 0; fi; }
+
 # Read the integer "step" out of latest.json without a jq dependency (WSL Ubuntu may not ship it).
 latest_step() {
   local f="$STATE_DIR/latest.json"
@@ -138,6 +144,17 @@ latest_step() {
 
 # --- preflight: fail FAST and LOUD before committing a multi-day job ------------------------------
 preflight() {
+  # FROM_SCRATCH is honored only as the literal '1' (see build_train_argv), so any other non-empty
+  # value (e.g. 'true', 'yes') would SILENTLY run the warm-started mode — the wrong training regime
+  # for a multi-day control run. Refuse to guess: accept only unset/empty/0/1.
+  case "${FROM_SCRATCH:-}" in
+    ""|0|1) ;;
+    *)
+      alert "FROM_SCRATCH='${FROM_SCRATCH}' is not a recognized value (use 1 for the from-scratch"
+      alert "control, or unset/0 for the warm-started run). Refusing to guess the training mode."
+      exit 1
+      ;;
+  esac
   command -v node >/dev/null 2>&1 || { alert "node not on PATH (the env-servers need it)"; exit 1; }
   [ -f "$ENCODE_JS" ] || { alert "missing $ENCODE_JS"; exit 1; }
   local enc
@@ -215,7 +232,7 @@ build_train_argv() {
   # `set -e` would make this function exit 1 and abort the launcher. `if` always returns 0 here.
   if [ -n "$SPEED_REF" ]; then TRAIN_ARGV+=(--speed-ref "$SPEED_REF"); fi
   if [ -n "$SHAPING_CLIP" ]; then TRAIN_ARGV+=(--shaping-clip "$SHAPING_CLIP"); fi
-  if [ "${FROM_SCRATCH:-0}" = "1" ]; then TRAIN_ARGV+=(--from-scratch); fi
+  if [ "$(from_scratch_resolved)" = "1" ]; then TRAIN_ARGV+=(--from-scratch); fi
 }
 
 run_once() {
@@ -228,7 +245,7 @@ main() {
   log "run=$RUN_NAME root=$RUN_ROOT persona=${PERSONA:-none} reward_mode=$REWARD_MODE gamma=$GAMMA \
 speed_bonus=$TERMINAL_SPEED_BONUS speed_ref=${SPEED_REF:-none} checkpoint=$CHECKPOINT \
 timesteps=$TIMESTEPS n_envs=$N_ENVS device=$DEVICE lr=$LR ent_coef=$ENT_COEF \
-R=$RESERVE_BASELINES from_scratch=${FROM_SCRATCH:-0}"
+R=$RESERVE_BASELINES from_scratch=$(from_scratch_resolved)"
 
   local fails=0 prev_step=-1 attempt=0
   while true; do

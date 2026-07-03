@@ -70,6 +70,7 @@ from stable_baselines3.common.logger import (
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 
 from . import _train_common
+from .constants import ENCODING_VERSION
 from .eval_checkpoint_callback import EvalCheckpointCallback
 from .policy import load_bc_checkpoint, repack_to_bc_checkpoint
 from .resume import (
@@ -321,7 +322,7 @@ def _make_logger(args: argparse.Namespace, resumed_step: int = 0):
 def train(args: argparse.Namespace) -> Path:
     cfg, ckpt = load_bc_checkpoint(args.checkpoint)
     print(
-        f"loaded BC checkpoint {args.checkpoint}: encoding_version==2, "
+        f"loaded BC checkpoint {args.checkpoint}: encoding_version=={ENCODING_VERSION}, "
         f"max_areas={cfg.max_areas} player_count={cfg.player_count} "
         f"context_hidden={cfg.context_hidden}"
     )

@@ -10,7 +10,7 @@ These constants MUST agree with the JS encoder. The single sources of truth are:
 A socket frame is self-describing for its *dims* (``maxAreas``/``playerCount``/
 ``numEdges`` ride in the header) but NOT for its *feature widths* — those are
 implicit, exactly as the offline corpus relies on ``manifest.featureNames``. So
-this module pins the v2 widths and the parser guards ``encodingVersion`` against
+this module pins the current-encoding widths and the parser guards ``encodingVersion`` against
 ``ENCODING_VERSION`` on every frame. Bump both sides in lockstep on a v-change
 (the same lockstep ``dicewars_bc.manifest.EXPECTED_ENCODING_VERSION`` documents).
 """

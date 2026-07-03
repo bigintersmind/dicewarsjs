@@ -35,7 +35,7 @@ Atomic publish ordering (so a poller never sees a torn or dangling reference):
 2. write ``manifest.json`` to a temp file, ``fsync``, then ``os.replace`` it into place —
    atomic on POSIX, and the now-referenced weights file is already on disk.
 
-Frozen invariant: the manifest stamps ``encodingVersion = EXPECTED_ENCODING_VERSION`` (2).
+Frozen invariant: the manifest stamps ``encodingVersion = EXPECTED_ENCODING_VERSION``.
 The whole run must hold it — ``makeBC`` hard-throws on skew, so a mid-run bump makes pooled
 snapshots unloadable (the Node ``refresh()`` rejects a skewed manifest loudly rather than
 training on a broken pool).

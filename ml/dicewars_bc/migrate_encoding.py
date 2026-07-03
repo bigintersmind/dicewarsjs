@@ -22,8 +22,8 @@ exactly 0 to every pre-activation, so the migrated net computes the identical
 function of the old columns (asserted by a self-check below). Biases and every
 other layer are untouched. Uses:
 
-* the architecture source for a ``--from-scratch`` v3 run (``train.py`` still
-  loads ``--checkpoint`` for its ``ModelConfig`` even when it re-initializes);
+* the architecture source for a ``--from-scratch`` v3 run (``dicewars_ppo.train``
+  still loads ``--checkpoint`` for its ``ModelConfig`` even when it re-initializes);
 * the [D-31] §4 warm-start FALLBACK arm (start v3 training from the migrated
   v2 policy — a true no-op at t=0).
 
@@ -71,6 +71,7 @@ def migrate_checkpoint(ckpt: dict) -> dict:
 
     :raises ValueError: if the checkpoint is not v2-stamped or a width field
         does not match the v2 wire.
+    :raises AssertionError: if the function-preservation self-check fails.
     """
     ev = ckpt.get("encoding_version")
     if ev != _SOURCE_VERSION:

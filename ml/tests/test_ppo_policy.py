@@ -1,6 +1,6 @@
 """Tests for the Phase-3 PPO policy (warm-start + repack parity, masked forward).
 
-Hermetic: builds a tiny synthetic v2 BC checkpoint (no real corpus/data) and
+Hermetic: builds a tiny synthetic current-encoding BC checkpoint (no real corpus/data) and
 exercises the policy purely in-process. Needs the `[rl]` stack (sb3-contrib +
 gymnasium) and torch, so it runs on shodan and skips in the BC CI — same split as
 the live env smoke (`test_ppo_env.py`).
@@ -37,8 +37,8 @@ from dicewars_ppo.policy import (  # noqa: E402
 )
 
 
-def _v2_config(**overrides) -> ModelConfig:
-    """A small but v2-shaped ModelConfig (feature widths must match the wire)."""
+def _wire_config(**overrides) -> ModelConfig:
+    """A small ModelConfig at the live wire widths (feature widths must match)."""
     base = dict(
         max_areas=32,
         node_features=NODE_W,
@@ -123,7 +123,7 @@ def _state_dicts_equal(a: dict, b: dict) -> bool:
 
 
 def test_warm_start_loads_actor_from_checkpoint():
-    cfg = _v2_config()
+    cfg = _wire_config()
     ckpt = _make_bc_checkpoint(cfg)
     policy = _build_warm_started(cfg, ckpt)
 
@@ -132,7 +132,7 @@ def test_warm_start_loads_actor_from_checkpoint():
 
 
 def test_fresh_scalar_critic_is_separate_from_bc_value_head():
-    cfg = _v2_config()
+    cfg = _wire_config()
     policy = _build_warm_started(cfg, _make_bc_checkpoint(cfg))
 
     # The PPO critic is a fresh scalar head (context_hidden -> 1), NOT BC's
@@ -150,7 +150,7 @@ def test_fresh_scalar_critic_is_separate_from_bc_value_head():
 
 
 def test_forward_shapes_and_masking():
-    cfg = _v2_config()
+    cfg = _wire_config()
     policy = _build_warm_started(cfg, _make_bc_checkpoint(cfg))
     obs, masks, n_edges = _fake_obs_batch(cfg)
 
@@ -166,7 +166,7 @@ def test_forward_shapes_and_masking():
 
 
 def test_distribution_zeros_the_pad_tail():
-    cfg = _v2_config()
+    cfg = _wire_config()
     policy = _build_warm_started(cfg, _make_bc_checkpoint(cfg))
     obs, masks, n_edges = _fake_obs_batch(cfg)
 
@@ -195,7 +195,7 @@ def test_policy_forward_matches_bare_edgepolicynet():
     a perfectly valid masked distribution while silently breaking the warm-start;
     this is the regression pin for that class of bug.
     """
-    cfg = _v2_config()
+    cfg = _wire_config()
     ckpt = _make_bc_checkpoint(cfg, seed=5)
     policy = _build_warm_started(cfg, ckpt)
     obs, _masks, n_edges = _fake_obs_batch(cfg)
@@ -236,7 +236,7 @@ def test_policy_forward_matches_bare_edgepolicynet():
 
 
 def test_evaluate_actions_and_predict_values_are_finite():
-    cfg = _v2_config()
+    cfg = _wire_config()
     policy = _build_warm_started(cfg, _make_bc_checkpoint(cfg))
     obs, masks, _ = _fake_obs_batch(cfg)
 
@@ -252,7 +252,7 @@ def test_evaluate_actions_and_predict_values_are_finite():
 
 
 def test_repack_roundtrips_to_bare_edgepolicynet():
-    cfg = _v2_config()
+    cfg = _wire_config()
     ckpt = _make_bc_checkpoint(cfg, seed=3)
     policy = _build_warm_started(cfg, ckpt)
 
@@ -271,8 +271,8 @@ def test_repack_roundtrips_to_bare_edgepolicynet():
 # --- guards ----------------------------------------------------------------------
 
 
-def test_load_bc_checkpoint_rejects_non_v2(tmp_path):
-    cfg = _v2_config(node_features=5, edge_features=4)  # stale encoding-v1 shapes
+def test_load_bc_checkpoint_rejects_stale_encoding_version(tmp_path):
+    cfg = _wire_config(node_features=5, edge_features=4)  # stale encoding-v1 shapes
     ckpt = _make_bc_checkpoint(cfg, encoding_version=1)
     path = tmp_path / "v1.pt"
     torch.save(ckpt, path)
@@ -280,8 +280,8 @@ def test_load_bc_checkpoint_rejects_non_v2(tmp_path):
         load_bc_checkpoint(path)
 
 
-def test_build_policy_rejects_non_v2_config():
-    cfg = _v2_config(node_features=5)  # wrong width for the live wire
-    obs_space, act_space = _spaces(_v2_config())
+def test_build_policy_rejects_non_wire_config():
+    cfg = _wire_config(node_features=5)  # wrong width for the live wire
+    obs_space, act_space = _spaces(_wire_config())
     with pytest.raises(ValueError, match="live wire contract"):
         build_policy(obs_space, act_space, cfg)

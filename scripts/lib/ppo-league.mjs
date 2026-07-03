@@ -741,6 +741,10 @@ export function makeLeague({
           `ppo-league.restore: unknown checkpoint version ${state?.version} (expected ${STATE_SCHEMA_VERSION}).`
         );
       }
+      // Deliberately LENIENT (any stamp in the SUPPORTED set): the JS side follows the [D-31]
+      // inference rule that older, narrower nets stay loadable. The STRICT per-run invariant —
+      // the encoding is frozen for the whole campaign — is owned by ml/dicewars_ppo/resume_state.py
+      // on the Python side; a refactor must not remove both halves.
       if (!SUPPORTED_ENCODING_VERSIONS.includes(state.encodingVersion)) {
         throw new Error(
           `ppo-league.restore: checkpoint encodingVersion ${state.encodingVersion} not in supported ` +

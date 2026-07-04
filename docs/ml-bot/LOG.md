@@ -21,6 +21,50 @@ Entry template:
 
 ---
 
+## 2026-07-04 — `ppo-v3-scratch` mid-run check: healthy at 12.2M/20M; belated tripwire at 12M = BEAT vs Lookahead (Δ +26.0 pp)
+
+**Phase:** 3 · **Who:** Ivan + Claude
+
+**Did:**
+
+- Live health check on shodan: 12.2M/20M steps (61%), still **attempt #1 — zero restarts** in ~19.5h
+  since the 2026-07-03 relaunch. Config verified on the running state: `from_scratch=1`,
+  `encodingVersion: 3`, `RUN_COMMIT=464a2ee`, checkpoints landing on cadence. Throughput steady at
+  174 fps (194 at launch, settled as the league pool filled with net snapshots) → ETA ~9 PM CDT
+  2026-07-04. PPO internals sane: explained_variance 0.87–0.90, entropy −0.80 to −0.96 (no
+  collapse), approx_kl 0.01–0.02.
+- Found the [D-31] §4 **0.5M/1M tripwires were never run** — the run sailed past both marks with no
+  eval logged since Jun 30. Ran a belated tripwire instead, at full gate strength, **locally on the
+  Mac** (zero cost to the training box): pulled the eval producer's `eval-012000096.weights.js` +
+  fixture (the per-1M export, #97 producer) and ran `npm run ppo:gate` on them (20×153, 3060 games,
+  parity 6.1e-5).
+- **Verdict: ✅ BEAT.** V3at12M win% **34.1 ± 1.6** vs Lookahead **8.1 ± 1.1**; paired Δ
+  **+26.0 ± 1.9 pp** [24.1, 27.9]. STOP% 38.5, attack-win% 68.6. Gate log archived to
+  `ml/runs/_eval_logs/v3-scratch.12M.tripwire.log` on shodan.
+
+**Learned / decided:**
+
+- The v3 net at 12M is already at ~parity with the shipped v2 `ppo-long`'s FINAL edge over
+  Lookahead (+27.7 pp at 20M) with 8M steps still to train — the fixed encoder is at minimum not
+  hurting, and the "shows learning, no collapse" tripwire intent is cleared emphatically. (The real
+  encoding A/B is still the [D-31] §4 primary bar: head-to-head vs `ppo-scratch-long` at 20M.)
+- League `ep_rew_mean` plateauing ~0.15–0.25 says nothing about absolute strength — the PFSP pool
+  is a rolling window of the learner's own recent snapshots (7.3M–12.2M at check time), so flat
+  reward vs the pool is the expected signature of steady improvement, not stagnation.
+- The per-1M eval exports make missed tripwires recoverable after the fact, and a local Mac gate
+  run (~7 min) is a free way to probe a live run without touching shodan's CPU.
+
+**Next:**
+
+- Let the run finish (~tonight). Then the [D-31] §4 bars, in order: **primary** — beat the v2
+  scratch control `ppo-scratch-long` head-to-head (seat-fair, 95% CI excluding 0); **ship** — also
+  beat Survivor head-to-head. Primary pass + ship fail → keep as training base, no reship; primary
+  fail → warm-start fallback once ([D-31] §3), then the track closes.
+- Optional while waiting: gate a couple of earlier eval exports (2M/6M) to sketch the [D-29]
+  strength curve for free from the same producer artifacts.
+
+---
+
 ## 2026-07-03 — Five-agent review of the v3 harness PRs → clock defect found; `turnClockNorm` redefinition + JS hardening PR; `ppo-v3-scratch` killed + relaunched on the fixed encoder
 
 **Phase:** 3 · **Who:** Ivan + Claude

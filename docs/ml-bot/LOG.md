@@ -21,6 +21,65 @@ Entry template:
 
 ---
 
+## 2026-07-04 — v3 persona slate designed + pre-registered (PERSONAS.md §10); Predator closure scoped "under the current wire"
+
+**Phase:** post-3 (persona re-batch planning) · **Who:** Ivan + Claude
+
+**Did:**
+
+- Designed the v3 persona wave ahead of `ppo-v3-scratch` finishing, via a 12-agent workflow: six
+  extractors over docs/ml-bot/ + the `ml/dicewars_ppo` trainer knobs, three independent slate
+  designs (player-experience / training-feasibility / evaluation-rigor lenses), each adversarially
+  red-teamed. The three designs **converged on the same core slate**; red-team defects folded in.
+- Wrote the full pre-registration draft to **PERSONAS.md §10** — the durable record (slate,
+  parameters, signatures, bars, kill-gates, Wave-0 build list, sequencing). Future sessions should
+  pick up from there, not re-derive.
+
+**Learned / decided:**
+
+- **Slate:** Conqueror ships the v3 base weights as-is (the −7.6 lesson); Blitz-v3 (win/γ0.99,
+  no speed bonus in the primary arm) and Survivor-v3 (placement/γ0.999) retrain at 3M; **Predator
+  revives** (placement backbone + low bounty {0.15, 0.25}, 2×1M pilots → 3M winner) riding v3's
+  per-edge `eliminatesDefender`; one internal Conqueror-control arm (never ships). **Expansionist
+  stays parked** (reward-shape defect — no observation column fixes the [D-30] §7 stock residual);
+  a "Berserker" γ0.97 entry-rung wildcard was considered and deferred.
+- **Predator finality scoped (Ivan):** a failure closes Predator **"under the current wire"** —
+  it falsifies the [D-31] representability hypothesis, not the persona under a fixed
+  credit-assignment wire. Rationale: the red-team caught that kill-credit **dilution onto
+  turn-boundary frames** is a second live root cause the encoder doesn't touch, so "dead under any
+  encoding" would overclaim.
+- Key red-team catches now pre-registered: the **clock-hack basin points the other way** for
+  placement arms (suicide-before-cap, not stalling — new truncation-rate/late-aggression
+  tripwire); the **vulture/scavenging hack** on a newly-legible kill signal (scavenge co-read as a
+  ship-blocking sanity check); strength bars must anchor to the **v3 base**, not the v2 `PPO` seat
+  (CI-lower-bound > −8 pp vs own warm-start); signatures need **dual controls** (trained control
+  arm AND raw base); kills bar restored to ≥15% of the realized comparator (the +0.25 number was
+  [D-30]'s interim bar, not the MDE).
+- Fine-tune-vs-scratch stance: fine-tune the batch; the one registered scratch trigger is the
+  [D-27] follow-up (if Survivor-v3 beats the base again → 20M placement scratch as a v4 question).
+- Plumbing gaps found (now Wave-0 items): `arena:ml --bots` takes built-in names only and
+  `buildGateField` throws on non-field bar names → head-to-head bars need a `Name=weights.js`
+  loader; terminal `turn_number` is logged nowhere (Blitz `--speed-ref` calibration needs a hook,
+  and it's in engine-turn units, not the clock column's player-turns); Wave-1 N_ENVS needs a
+  3-arm throughput probe first.
+
+**Dead ends / surprises:**
+
+- All three independent designs proposed essentially the same slate — the v2 record (batch-1,
+  batch-2/2B, [D-30]) constrains the design space that tightly. The main disagreements were
+  eval-side (melee vs profile-pairing for distinctiveness; bar anchoring), all resolved toward the
+  rigor lens.
+
+**Next:**
+
+- **Wave 0 (zero GPU, can start now):** [D-29] scorer Phase 1 (hard Wave-1 precondition), Holm in
+  `behavior-core.mjs`, the profile-pairing separation script, the weights-loader for head-to-head
+  bars, probe-path pre-flight, A/A + test-retest negative controls, throughput probe.
+- When `ppo-v3-scratch` finishes (~tonight): run the [D-31] §4 bars (primary vs
+  `ppo-scratch-long`, ship vs Survivor); on primary pass, Wave 1 launches per §10.7.
+
+---
+
 ## 2026-07-04 — `ppo-v3-scratch` mid-run check: healthy at 12.2M/20M; belated tripwire at 12M = BEAT vs Lookahead (Δ +26.0 pp)
 
 **Phase:** 3 · **Who:** Ivan + Claude

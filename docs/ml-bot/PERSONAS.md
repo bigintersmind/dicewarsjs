@@ -60,6 +60,13 @@
 > gate-field effect (it leads on placement everywhere and on win% in mixed fields), but **Blitz** wins the
 > most outright in all-ML play and **Conqueror**(=`ppo-long`) wins the pure heads-up (Conqueror beats
 > Survivor `56–44`). See RESULTS.md → "Persona field-sensitivity audit."
+>
+> **v3 slate pre-registered (2026-07-04) — see §10.** The full v3 persona wave (retrains of
+> Blitz/Survivor on the v3 base, a scoped **Predator revival**, Expansionist still parked, plus the
+> Wave-0 eval builds it depends on) is designed and pre-registered in §10 below, conditional on
+> `ppo-v3-scratch` passing its [D-31] §4 bars. Predator's kill-gate finality is scoped **"closed
+> under the current wire"** (Ivan, 2026-07-04) — a fail falsifies the representability hypothesis,
+> not the persona under a fixed credit-assignment wire.
 
 ---
 
@@ -349,3 +356,225 @@ fun. The roster makes that filter _possible_; it doesn't automate it.
   `gamma` floor and the speed-bonus weight.)
 - **Do personas need to clear any bar at all**, or is "plays legally + is fun + has a measurable
   distinct profile" the only requirement for a _personality_ bot (vs. the gate bot)?
+
+---
+
+## 10. v3 persona slate — pre-registration draft (2026-07-04)
+
+> **Provenance:** designed 2026-07-04 via a 12-agent workflow — six extractors over this folder +
+> the trainer code, three independent slate designs (player-experience / training-feasibility /
+> evaluation-rigor lenses), each adversarially red-teamed. The three designs converged on the same
+> core slate; the red-team catches are folded in below and flagged inline. **Predator closure
+> scoping resolved by Ivan (2026-07-04): "closed under the current wire," not "closed
+> permanently."** This section is the durable record — future sessions should pick up from here,
+> not re-derive.
+
+### 10.1 Premise and conditionality
+
+Conditional on `ppo-v3-scratch` (20M, fixed `turnClockNorm`, `ENCODING_VERSION=3`, pinned
+`464a2ee`) passing the [D-31] §4 bars: **primary** = beat `ppo-scratch-long` head-to-head;
+**ship** = beat Survivor head-to-head (then its weights ship as Conqueror per the [D-27] pattern).
+If primary passes but ship fails, the slate survives intact with one change: the shipped Conqueror
+keeps the v2 `ppo-long` weights while the v3 net serves as **training base only** — every retrain
+below still warm-starts from it (strongest base), and every retrain already has a keep-v2 fallback.
+The 9-seat gate field keeps the v2 `ppo-long` as its `PPO` seat either way (era comparability — no
+row boundary).
+
+### 10.2 The slate
+
+Four player-facing personas + one internal control arm. **Expansionist stays PARKED** — the
+[D-30] §7 algebra is a _reward-shape_ defect (`coef·(1−γ)·territory-held` stock residual whose
+optimum is turtling); no observation column fixes a reward shape, and Batch-2B showed the
+placement family already paints maps better (Pred-b15 avgTerritory +1.83 > the Expansionist bar
++1.5). A "Berserker" γ0.97 entry-rung wildcard was considered (product lens) and **deferred**: its
+bar package was incoherent as drafted (an "entry-rung" persona floored at Expectimax ≈ Lookahead
+parity), and two rush fantasies separated by 0.3 aggression risk being one rush bot.
+
+**Shared recipe (every arm):** warm-start `CHECKPOINT=ml/runs/ppo-v3-scratch/ppo.pt` — the v2
+`runs/ppo-long/ppo.pt` is rejected as-is (`load_bc_checkpoint` hard-rejects non-v3 checkpoints;
+the sanctioned workaround if the [D-31] fallback ever fires is `migrate_encoding` zero-widening,
+and a migrated `v3-base` checkpoint already exists); `EXPECTED_ENCODING_VERSION=3`; `LR=1e-4`,
+`ENT_COEF=0.01`; R=3 reserve baselines (LOCKED, [D-24]); PFSP league on with each run breeding
+**only its own snapshots** (siblings never join a pool — §3's reward-XOR-field rule); fresh
+`RUN_NAME` = fresh `--state-dir` per arm (MANDATORY — SB3 resume silently restores old γ);
+`EVAL_EVERY=500000` **set explicitly at launch** (the launcher default is 1000000) so every arm
+feeds the [D-29] strength-curve scorer. Critic is a fresh scalar `value_net` for every warm-start
+(§4); placement arms get a noisier first ~0.5M — acceptable as-is (v2 Survivor converged fine).
+
+| Arm               | RUN_NAME               | Reward flags                                                           |     γ | Steps   | Notes                                                                                                                     |
+| ----------------- | ---------------------- | ---------------------------------------------------------------------- | ----: | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Conqueror (ships) | — (no run)             | v3 base weights as-is                                                  |     — | 0       | The −7.6 lesson ([D-27]): never ship a same-objective fine-tune of the flagship                                           |
+| Conqueror-control | `ppo-v3-conq-ctl`      | `--reward-mode win`                                                    | 0.999 | 3M      | Never ships; matched control for signatures + re-measures continuation drift on the v3 base                               |
+| Blitz-v3          | `ppo-v3-blitz`         | `--reward-mode win` (**no** speed bonus in the primary arm)            |  0.99 | 3M      | Plain γ0.99 is the proven one-knob recipe; speed bonus = pre-registered escalation only (see below)                       |
+| Survivor-v3       | `ppo-v3-survivor`      | `--reward-mode placement`                                              | 0.999 | 3M      | Truncation pays 0 (unchanged, every mode)                                                                                 |
+| Predator pilot ×2 | `ppo-v3-pred-b{15,25}` | `--reward-mode placement --elim-bounty {0.15,0.25} --shaping-clip 1.0` | 0.999 | 1M each | Bracket stays LOW — kills fell monotonically as bounty rose in v2; better input argues for less reward pressure, not more |
+| Predator winner   | `ppo-v3-predator`      | winning coef                                                           | 0.999 | 3M      | Only on pilot pass; the confirmatory kills signature must **re-pass at 3M**                                               |
+
+**Why v3 enables each:** Blitz — `turnClockNorm` is the first trainable _time input_ the policy
+has ever had (v2 Blitz felt time only through the discount); `turnsUntilActsNorm` lets it time
+strikes. Survivor — `ownerTerrFrac`/`ownerDiceFrac` (who is actually the threat),
+`turnsUntilActsNorm`, cap awareness via the clock. Predator — see 10.3.
+
+**Blitz escalation (pre-registered now, fired at most once):** if the 1M probe shows aggression
+Δ < +0.3, relaunch with `--terminal-speed-bonus 0.5 --speed-ref <T>` where T = the control's
+median terminal `turn_number`. Three caveats: (a) terminal `turn_number` is logged nowhere today —
+but it already crosses the wire into Python (`env.py` `_info()` emits it per step), so the hook is
+nearly free (e.g. `VecMonitor(venv, info_keywords=("turn_number",))`); (b) **unit mismatch** —
+header `turn_number` is the ENGINE turn counter (≈ player-turns ÷ playerCount);
+`turnClockNorm`/truncation count completed player-turns. Calibrate from the header distribution,
+never from the clock column; (c) **`train.py`'s own `--speed-ref` help text says "player-turns" —
+that is WRONG** (the formula consumes header `turn_number` = engine rounds; following the help
+would set T ~7× too high, pinning the bonus at max). Fix the help string before the escalation
+ever fires.
+
+**Checkpoint selection (all arms):** the final fixtured eval-stream checkpoint ships _unless_ the
+[D-29] k=2 regression detector fires on the tail — in which case the arm is **killed, not
+argmax-rescued** (winner's-curse guard). Every ship verdict is confirmed at fresh `--seedbase`
+(offset ≥ run count, 2× runs); the fresh-seed number is the reported strength.
+
+### 10.3 Predator revival — scoped honestly
+
+The revival case is [D-31]'s retro-diagnosis: v2 Predator was **unrepresentable** — the bounty was
+correctly attributed at training time, but no input distinguished a killing blow from any
+weak-neighbor attack. v3's per-edge **`eliminatesDefender`** puts the bountied event directly in
+the action features; `ownerTerrFrac` exposes players on their last holdings. The two v2 fixes that
+worked carry over unchanged: placement backbone (prices death; killed the bounty-suicide basin)
+and low bounty + clip.
+
+**Two live hypotheses, not one (red-team catch, all three critics independently).** The LOG
+records a second root cause the encoder does not touch: **kill credit for non-terminal kills lands
+diluted on turn-boundary frames** — a wire/credit-assignment property of `elimsByLearner`. This
+wave therefore tests _representability given diluted credit_. **Per Ivan (2026-07-04): a failure
+closes Predator "under the current wire"** — the representability hypothesis is falsified, but the
+persona may be revisited if the frame-level kill attribution is ever fixed (a [D-28]-pattern
+header/timing change). No coef re-sweeps under the current wire in either case. Optional
+attribution aid: a small advantage-mass-near-kill-frames diagnostic on the pilot rollouts would
+tell us which hypothesis actually bound.
+
+**The vulture hack (new for v3, pre-registered guard).** With killing blows now legible, the
+reward maximizer is last-hit _scavenging_: play Survivor, never soften anyone, snipe 1-territory
+players others doomed — passes "kills higher" while being Survivor-with-kill-steals. Guard: a
+descriptive **scavenge co-read** (victim's territory count / time-at-one-territory before the
+killing blow) as a ship-blocking sanity check. Also noted: the aggregate bounty ceiling (6 kills ×
+0.25 = 1.5) exceeds the placement range [0,1] — accepted explicitly rather than hidden.
+
+**Threshold provenance (red-team catch).** The +0.25 kills bar was [D-30]'s _interim_ bar; the
+pre-registered MDE was 0.5. On a closure-grade gate, don't silently keep the lower number:
+**confirmatory bar = kills ≥ 15% of the realized comparator's kills** (≈ +0.28 vs Survivor-v3's
+1.86–1.92), with +0.25 explicitly labeled the pilot bar. Comparator = whichever Survivor ships
+(pre-registered fallback if Survivor-v3 fails its keep-v2 gate).
+
+### 10.4 New v3 hazard class — the clock cuts both ways (pre-register before Wave 1)
+
+With `turnClockNorm` visible, truncation paying 0, and a decisive end paying rank, the
+reward-optimal near-cap policy for **placement arms is not stalling — it is forcing _any_ decisive
+end, including dying at rank 2–4 to bank ~0.5–0.83 (7-player scaling) rather than truncating to 0.** The existing
+tripwires only watch the stall basin. New tripwire on Survivor-v3 and both Predator arms:
+**truncation-rate + late-game-aggression-spike / learner-death-within-N-turns-of-cap monitor.**
+(Magnitude is bounded by how rarely the 500-turn cap binds, but Survivor-style play lengthens
+games toward the cap — exactly where the gradient lives.)
+
+### 10.5 Evaluation methodology
+
+- **Dual-control signatures (red-team catch).** The control arm is _expected_ to drift (the −7.6
+  precedent), so a signature measured only against it conflates persona effect with control decay
+  — and the contrast players feel is vs the shipped Conqueror (the untouched base). Profile every
+  persona against **both** the control (training-recipe attribution) and the raw v3 base (product
+  claim); a signature that passes against only one is flagged, not shipped.
+- **Signatures** (Holm-adjusted; family registered as **4, becoming 5 if the Blitz escalation
+  fires** — registered now, not post-hoc): Blitz = aggression ≥ +0.3 AND turnsToWin ≤ −5;
+  Survivor = avgPlacement ≥ 0.4 better; Predator = the 10.3 kills bar vs the matched Survivor
+  comparator. All at `behavior:profile` ship-grade 10×30×6; pilots 6×30×6 (budgets provisional
+  pending a first-arm SD check per EVAL_HARNESS §11.4).
+- **Strength bars.** Hard floor for every shipped persona: BEAT Lookahead (paired Δ CI > 0,
+  20×17×9). **Plus a bar vs the v3 base** (red-team catch — the v2 `PPO` seat is now far too weak
+  an anchor; "not BEHIND `--bar PPO`" would tolerate a double-digit regression from warm-start):
+  not BEHIND own warm-start by more than **8 pp** (paired Δ CI lower bound > −8; provenance: the
+  −7.6 control-drift precedent defines the "pure drift, zero style gain" magnitude — a persona may
+  not pay more than drift for its style). Measured via the sibling-candidate run-paired method at
+  the same seedbase (the v3 base is graded as a Candidate, never seated in the field — [D-29]).
+- **Retrain non-regression.** Blitz-v3/Survivor-v3 must not be BEHIND their v2 siblings,
+  **re-gated fresh in the same session** (not compared to the archival 2026-06-30 arrays — three
+  field bots are unseeded, cross-time "pairing" is not pairing). Fallback: keep shipping the v2
+  checkpoints (slice-compat keeps them legal forever) — the roster is never worse than today; the
+  whole wave is upside.
+- **Distinctiveness without waiting for `--melee`:** all arms + control + base are profiled with
+  identical field/seeds, so a small profile-pairing script yields the pairwise separation matrix
+  directly. Requirement: **every shipped pair separates on ≥1 pre-registered axis at MDE**
+  (pairwise MDEs = the calibrated per-axis values: aggression 0.3, turnsToWin 5.0, avgPlacement
+  0.4, kills per 10.3). **If Predator cannot separate from Survivor, it has no roster slot
+  regardless of its bars** (kill condition, pre-committed). `--melee` co-seating stays a Phase-2b
+  deferral (answers a different question — behavior against each other).
+- **Negative controls (run before grading any persona):** (1) an **A/A profile** of the v3 base
+  against itself — signature axes must return |Δ| < MDE/3 (numeric tolerance registered now;
+  restrict the halt rule to signature axes so unseeded-field noise on descriptive axes can't halt
+  the batch); (2) test-retest one checkpoint twice for the gate's empirical noise floor; (3) the
+  control arm run through all four signatures **vs the base** (defined explicitly as control-vs-base)
+  — if matched-objective fine-tuning alone passes any signature, that signature measures drift,
+  not personality: fix before claiming anything.
+- **Ladder honesty.** The v2 audit proved win-rate rank flips with field composition, and the
+  premise itself says the base beat Survivor-v2 head-to-head — so no pre-written ladder. Label
+  picker rungs from **fresh-seed measured placement in the mixed field** (the one field-stable
+  statistic), and write picker copy _after_ Wave 1 from the v3-era `arena:ml` matrix.
+- **Tripwire panel** (unchanged [D-30] thresholds + the 10.4 addition), probed at 0.5M/1M from
+  fixtured eval checkpoints: turtle basin ΔavgDiceReserve > +10, ΔzeroAttackTurnFrac > +0.05,
+  ΔturnsToWin > +20; overextension basin ΔsurvivalTurn < −60 with co-signal (winPct < 40 or
+  ΔavgPlacement > +0.3); tiering warn-at-0.5M-on-1 / kill-on-2+-or-2× / kill-at-1M-on-any.
+  **Caveat (red-team catch):** the absolute winPct < 35 floor was calibrated on arms running
+  43–58%, but the v2 control itself profiled 34.5 ± 2.6 — recalibrate the floor from the Wave-1
+  control's own 0.5M/1M probes before enforcing it on Wave 2. Wave-1 probes diff against the raw
+  v3 base weights (the control is still training concurrently — comparator pinned now).
+
+### 10.6 Fine-tune vs. more scratch runs
+
+Fine-tune the batch; don't scratch-train personas. 3M @ lr 1e-4 produced full style
+differentiation _and_ a strength gain in v2 at ~1/6th the cost of a base run, while a style reward
+from step one on a scratch net has no competence prior and a real turtle-equilibrium risk. The one
+registered scratch trigger: **if Survivor-v3 beats the v3 base head-to-head again, the parked
+[D-27] follow-up ("placement as the flagship objective") becomes its own pre-registered question —
+a 20M placement scratch run as a v4 candidate.** No automatic reship this wave.
+
+### 10.7 Sequencing
+
+- **Wave 0 (now, zero GPU, Mac/mini — can start before `ppo-v3-scratch` finishes):**
+  1. [D-29] strength-curve scorer Phase 1 (+ `runGateSweep` extraction) — **hard Wave-1 launch
+     precondition: one real checkpoint scored end-to-end on the mini** (it is the substitute for
+     the missing KL/anneal drift control);
+  2. Holm adjustment in `behavior-core.mjs`;
+  3. the profile-pairing separation script (10.5);
+  4. a **weights-loader for head-to-head bars** — `arena:ml --bots` accepts built-in names only
+     and `buildGateField` throws on non-field bar names (verified), so the "beat v2 sibling" and
+     "vs v3 base" bars are unrunnable without a `Name=weights.js` spec port;
+  5. pre-flight the #97 probe path; run negative controls 1–2;
+  6. a **3-arm throughput probe** before committing Wave 1's N_ENVS — batch-1's ~175 fps figure
+     and the ≤20-env-server proven footprint don't obviously support 3×12 envs, and the v3
+     encoder costs ~5–9%.
+- **Wave 1:** Conqueror-control + Blitz-v3 + Survivor-v3, 3 concurrent × 3M, ~5 h wall (v2
+  precedent 4.7 h). Survivor first-wave because it is the strongest lever, answers the flagship
+  question, and is Predator's mandatory comparator.
+- **Wave 2:** both Predator pilots (needs Survivor-v3), 2 × 1M, ~4 h; 0.5M tripwire probes.
+- **Wave 3 (contingent):** Predator winner at 3M (~5 h), plus the Blitz escalation arm if
+  triggered (+3M).
+- **Envelope:** ~14M steps / ~13–16 h GPU core, ~17M / ~18–20 h with contingencies fired; 2–3
+  calendar days end-to-end given Ivan-gated schtasks launches.
+- **Ship plumbing per winner:** packed export into `src/ai/` (never bare `npm run ppo:export`
+  from a run dir), export-parity check, thin `ai_<persona>.js`, `builtInBots.js` entry tagged
+  `persona: true` (stays out of the gate field), picker copy per 10.5.
+
+### 10.8 Kill-gates (pre-committed)
+
+- **Conqueror-control:** cannot be killed (instrumentation). If it _beats_ the base head-to-head,
+  halt slate ship decisions and investigate (contradicts the drift lore).
+- **Blitz-v3:** killed by the tripwire panel; or BEHIND v2 Blitz at 3M (fresh re-gate); or
+  Holm-adjusted signature fail including the one escalation. Consequence: ship v2 Blitz unchanged.
+- **Survivor-v3:** killed by the tripwire panel; or BEHIND v2 Survivor; or signature fail; or the
+  10.4 clock-hack monitor firing (a Survivor that games the now-visible clock is a reward hack —
+  keep v2, and log the finding as a v3-encoding hazard note).
+- **Predator:** killed by the tripwire panel; or failing the Lookahead floor; or neither pilot
+  clearing the 10.3 confirmatory bar; or passing kills but failing to separate from Survivor on
+  the matrix; or the scavenge co-read showing vulture behavior. Consequence per Ivan's ruling:
+  **closed under the current wire** (revisitable only with a frame-level kill-attribution fix;
+  no coef re-sweeps under this wire).
+- **Slate-level:** the shipped trio (Conqueror + Blitz + Survivor, v3 or retained v2 checkpoints)
+  is a complete product regardless — every conditional arm is upside, not gap-fill. If a negative
+  control fails, grading halts for the whole batch until the harness issue is fixed.

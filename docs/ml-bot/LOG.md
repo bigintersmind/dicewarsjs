@@ -63,6 +63,19 @@ Entry template:
 - Optional while waiting: gate a couple of earlier eval exports (2M/6M) to sketch the [D-29]
   strength curve for free from the same producer artifacts.
 
+**Curve-sketch postscript (same day):** gated `eval-002000016` and `eval-006000048` the same way
+(local Mac, 3060 games each; logs archived `_eval_logs/v3-scratch.{2M,6M}.curve.log`). Curve vs
+Lookahead: **2M Δ +32.4 ± 1.9** [30.5, 34.3] (37.5% vs 5.1) → **6M +27.2 ± 2.2** [25.0, 29.4]
+(34.8 vs 7.6) → **12M +26.0 ± 1.9** (34.1 vs 8.1). Readings: (1) the Lookahead bar **saturates by
+2M** — it cannot resolve improvement past that point, reinforcing that only the [D-31] §4 primary
+bar (vs `ppo-scratch-long`) is a real 20M readout; (2) the mild 2M→6M **decline** (CIs disjoint)
+is the classic PFSP signature — early policy max-exploits the weak heuristic-adjacent field, then
+the objective shifts toward beating its own ever-stronger snapshots (STOP% 44.8→37.6/38.5 shows it
+trading patience for pressure); do NOT read the dip as regression. (3) Cross-campaign caveat: these
+are 9-seat fields (personas excluded, PPO seated); the v2 `ppo-scratch-long` +36.3 was an 8-seat
+field at `c0d1441` — Δs across field sizes aren't directly comparable, so the +26 vs +36.3 spread
+says nothing yet; the head-to-head decides.
+
 ---
 
 ## 2026-07-03 — Five-agent review of the v3 harness PRs → clock defect found; `turnClockNorm` redefinition + JS hardening PR; `ppo-v3-scratch` killed + relaunched on the fixed encoder

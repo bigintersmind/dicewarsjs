@@ -98,6 +98,23 @@ describe('buildGateField', () => {
     expect(() => buildGateField(BUILT_IN_BOTS, cand, DEFAULT_CANDIDATE_NAME)).not.toThrow();
   });
 
+  it('seats a loaded bar (Name=weights.js port) as an extra seat, before the candidate', () => {
+    const barFn = () => null;
+    const field = buildGateField(builtIns, cand, 'Cand', 'ScratchLong', barFn);
+    expect(field.map(b => b.name)).toEqual(['Lookahead', 'Strategist', 'ScratchLong', 'Cand']);
+    expect(field[field.length - 2]).toEqual({ name: 'ScratchLong', fn: barFn });
+  });
+
+  it('throws if a loaded bar name collides with a built-in', () => {
+    expect(() => buildGateField(builtIns, cand, 'Cand', 'Strategist', () => null)).toThrow(
+      /collides with a built-in/
+    );
+  });
+
+  it('throws if the candidate name collides with a loaded bar', () => {
+    expect(() => buildGateField(builtIns, cand, 'Same', 'Same', () => null)).toThrow(/collides/);
+  });
+
   it('pins the canonical 8-seat baseline against the REAL registry (drops BC + personas, keeps PPO)', async () => {
     /*
      * The mocks above have no `persona`-tagged entry, so they never exercise the

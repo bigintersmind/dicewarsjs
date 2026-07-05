@@ -105,22 +105,44 @@ export function verdictLine(verdict, delta) {
  * are challengers measured AGAINST the field, not part of it) keeps the field at 8 seats
  * (one full FFA table), so the documented gate baselines stay fixed as personas are added.
  *
+ * When `barFn` is given (the PERSONAS §10.7 Wave-0 `Name=weights.js` bar loader), the
+ * bar is an EXTRA seat appended to the base field — the head-to-head bars that are not
+ * built-ins (the [D-31] §4 primary bar vs `ppo-scratch-long`, the ship bar vs a persona)
+ * become runnable. Note the extra seat makes it a 9-baseline field: absolute win% is not
+ * comparable to 8-baseline rows, only the paired candidate−bar Δ is the judged statistic.
+ *
  * @param {Array<{ name: string, fn: Function }>} builtInBots - BUILT_IN_BOTS
  * @param {Function} candidateFn - the candidate move fn (makeBC result)
  * @param {string} candidateName - display name (e.g. 'Candidate'; must not collide
  *   with a built-in name — 'PPO' is taken by the seated baseline since [D-27])
  * @param {string} [barName='Lookahead'] - the bar's display name; asserted present
+ *   in the built-in field unless `barFn` seats it explicitly
+ * @param {Function} [barFn] - a loaded bar policy's move fn; seats `barName` as an
+ *   extra field seat instead of requiring a built-in
  * @returns {Array<{ name: string, fn: Function }>}
  */
-export function buildGateField(builtInBots, candidateFn, candidateName, barName = 'Lookahead') {
+export function buildGateField(
+  builtInBots,
+  candidateFn,
+  candidateName,
+  barName = 'Lookahead',
+  barFn = undefined
+) {
   const base = builtInBots
     .filter(b => b.name !== 'BC' && !b.persona)
     .map(b => ({ name: b.name, fn: b.fn }));
-  if (!base.some(b => b.name === barName)) {
+  if (barFn) {
+    if (base.some(b => b.name === barName)) {
+      throw new Error(
+        `loaded bar name "${barName}" collides with a built-in bot — pick a distinct name`
+      );
+    }
+    base.push({ name: barName, fn: barFn });
+  } else if (!base.some(b => b.name === barName)) {
     throw new Error(`gate bar "${barName}" missing from the built-in field`);
   }
   if (base.some(b => b.name === candidateName)) {
-    throw new Error(`candidate name "${candidateName}" collides with a built-in bot`);
+    throw new Error(`candidate name "${candidateName}" collides with a field bot`);
   }
   return [...base, { name: candidateName, fn: candidateFn }];
 }

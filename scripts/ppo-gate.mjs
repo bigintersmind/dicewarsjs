@@ -26,6 +26,10 @@
  *   npm run ppo:gate -- --weights src/ai/bcPolicyWeights.js \
  *                       --fixture tests/fixtures/bc/forwardCases.json --name BCanchor
  *                       # ^ validates the whole harness against the known BC anchor
+ *   npm run ppo:gate -- --weights <cand>.weights.js --name Cand \
+ *                       --bar ScratchLong=ml/runs/ppo-scratch-long/scratch.weights.js
+ *                       # ^ head-to-head vs a non-built-in bar seated from a weights
+ *                       #   export (PERSONAS §10.7 Wave-0 loader; [D-31] §4 bars)
  */
 
 import { existsSync } from 'node:fs';
@@ -70,7 +74,25 @@ const fixturePath = getArg(args, 'fixture', defaultFixture);
  * byte-identical policies, so their win% should agree within noise.
  */
 const candidateName = getArg(args, 'name', DEFAULT_CANDIDATE_NAME);
-const barName = getArg(args, 'bar', 'Lookahead');
+/*
+ * `--bar` accepts a built-in field name ('Lookahead', 'PPO') or a `Name=weights.js`
+ * spec (the PERSONAS §10.7 Wave-0 loader): the exported net is parity-checked like
+ * the candidate and seated as an EXTRA bar seat, making non-built-in head-to-head
+ * bars runnable (e.g. the [D-31] §4 primary bar vs `ppo-scratch-long`). The bar
+ * fixture defaults to the sibling `<name>.fixture.json`; override with --bar-fixture.
+ */
+const barArg = getArg(args, 'bar', 'Lookahead');
+const barEq = barArg.indexOf('=');
+const barName = barEq === -1 ? barArg : barArg.slice(0, barEq);
+const barWeightsPath = barEq === -1 ? null : barArg.slice(barEq + 1);
+if (barEq !== -1 && (!barName || !barWeightsPath)) {
+  throw new Error(`--bar spec "${barArg}" must be Name=path/to/foo.weights.js`);
+}
+const barFixturePath = getArg(
+  args,
+  'bar-fixture',
+  barWeightsPath ? siblingFixturePath(barWeightsPath) : null
+);
 const stopBias = Number(getArg(args, 'stop-bias', '0'));
 
 const runCount = parseInt(getArg(args, 'runs', '20'), 10);
@@ -100,6 +122,24 @@ try {
   process.exit(1);
 }
 
+// --- Load + parity-check the bar policy, when --bar is a Name=weights.js spec ----
+let barFn;
+let barLabel = `${barName}@${LOOKAHEAD_PIN}`;
+if (barWeightsPath) {
+  try {
+    const bar = await loadExportedPolicy({
+      weightsPath: barWeightsPath,
+      fixturePath: barFixturePath,
+      label: barName,
+    });
+    barFn = makeBC({ policy: bar.policy });
+    barLabel = `${barName}=${barWeightsPath} (${bar.params.toLocaleString()} params, parity ${bar.parity.toExponential(1)})`;
+  } catch (err) {
+    console.error(`\nGate aborted: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 // --- Build the field: makeBC({ policy }) is exactly the in-browser registration --
 const counter = { stops: 0, decisions: 0 };
 const candidateFn = makeBC({
@@ -110,7 +150,7 @@ const candidateFn = makeBC({
     if (stopped) counter.stops++;
   },
 });
-const field = buildGateField(BUILT_IN_BOTS, candidateFn, candidateName, barName);
+const field = buildGateField(BUILT_IN_BOTS, candidateFn, candidateName, barName, barFn);
 
 /*
  * Seat-fair design (the gate requires it; matchRunner maps bots[i] → seat i, and
@@ -127,7 +167,7 @@ const gamesPerRunActual = seedsPerRun * N;
 const STRIDE = Math.max(1_000_000, gamesPerRunActual * 1000);
 
 console.log(
-  `Phase-3 gate: ${candidateName} vs ${barName}@${LOOKAHEAD_PIN} — ` +
+  `Phase-3 gate: ${candidateName} vs ${barLabel} — ` +
     `${runCount} runs x ${seedsPerRun} seeds x ${N} seat rotations ` +
     `(${runCount * gamesPerRunActual} games total)`
 );
@@ -230,6 +270,7 @@ rows.slice(1).forEach(r => console.log(fmt(r)));
 console.log(`\n${verdictLine(verdict, delta)}`);
 console.log(
   `\nGate = BEAT only — the paired Δwin% 95% CI strictly above 0 (a conservative one-sided ` +
-    `test at α≈0.025). Bar = ${barName}@${LOOKAHEAD_PIN} (in-repo HEAD differs only in ` +
-    `comments — behaviorally pinned). A small true edge needs more --runs to clear the CI.`
+    `test at α≈0.025). Bar = ${barLabel}${
+      barWeightsPath ? '' : ' (in-repo HEAD differs only in comments — behaviorally pinned)'
+    }. A small true edge needs more --runs to clear the CI.`
 );

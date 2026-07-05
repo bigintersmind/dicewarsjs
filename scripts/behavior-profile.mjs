@@ -14,6 +14,10 @@
  * the control comparison is paired at the seed/map level (NOT within-game — honest about
  * its strength). Personas are deliberately NOT pitted against each other.
  *
+ * The --json report persists each bot's PER-RUN axis scalars (`bots[].perRun`) plus git/time
+ * provenance, which is what `behavior:separation` pairs across identically-seeded reports for
+ * the PERSONAS §10.5 pairwise separation matrix.
+ *
  * A profiled/control entry is either a built-in name (`Lookahead`) OR a freshly-exported
  * persona weights file as `Name=path/to/weights.js` — the same loadExportedPolicy→makeBC
  * path (parity-checked) `ppo:gate` uses. When a profiled bot's name matches a
@@ -33,6 +37,10 @@
  *                               --mde aggression:1.5,turnsToWin:8
  *   npm run behavior:profile -- --json > profile.json
  */
+
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
@@ -337,6 +345,31 @@ log(
 
 // --- Aggregate + compare ---
 
+// Provenance for cross-report pairing (behavior:separation): identical seeds/config are only
+// half the §10.5 pairing story — a code change between sessions can change FIELD-BOT behavior
+// on the same seed, so the pairing script hard-checks this SHA across reports. Two hardening
+// details: the git calls are anchored to THIS script's directory (ES-module imports resolve
+// relative to the script file, so the code that runs is this checkout's — not whatever repo
+// happens to enclose process.cwd()), and a dirty working tree stamps `<sha>-dirty` (uncommitted
+// tracked changes can alter field-bot behavior at an unchanged HEAD; the pairing script treats
+// any dirty stamp as drift).
+const gitSha = (() => {
+  const cwd = path.dirname(fileURLToPath(import.meta.url));
+  try {
+    const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      encoding: 'utf8',
+      cwd,
+    }).trim();
+    const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+      encoding: 'utf8',
+      cwd,
+    }).trim();
+    return dirty ? `${sha}-dirty` : sha;
+  } catch {
+    return null; // not a git checkout (e.g. an exported tarball) — recorded as unknown
+  }
+})();
+
 const controlRuns = runsByBot.get(controlName);
 const report = {
   config: {
@@ -347,7 +380,13 @@ const report = {
     reference: referenceName,
     control: controlName,
     opponents: opponentNames,
+    // Full opponent provenance: two fields with the same opponent NAMES but different
+    // weights files are materially different fields, so the pairing identity check
+    // (assertPairableReports) compares specs, not just names.
+    opponentSpecs: opponentSpecs.map(s => ({ name: s.name, weightsPath: s.weightsPath ?? null })),
     fieldSize,
+    generatedAt: new Date().toISOString(),
+    gitSha,
     mde, // the (possibly calibrated) per-axis thresholds the signature gate used
     quarantine: {
       on: quarantine,
@@ -369,7 +408,17 @@ const report = {
     const sig = PERSONA_SIGNATURES[bot.name];
     const signature =
       sig && vsControl ? { persona: bot.name, ...signatureDetail(sig, vsControl, mde) } : null;
-    return { name: bot.name, metrics, vsControl, signature, liveRuns: liveRunCount(perRun) };
+    return {
+      name: bot.name,
+      // Provenance: which weights file this bot was loaded from (null = built-in registry).
+      weightsPath: profiledSpecByName.get(bot.name)?.weightsPath ?? null,
+      metrics,
+      vsControl,
+      signature,
+      liveRuns: liveRunCount(perRun),
+      // The raw per-run axis scalars — what behavior:separation pairs across reports.
+      perRun,
+    };
   }),
 };
 

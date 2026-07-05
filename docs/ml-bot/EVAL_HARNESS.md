@@ -234,6 +234,31 @@ MDE — _not_ marginal-CI overlap, which is the weaker test). This mode accepts 
 as a bonus, is ~N× cheaper than N separate sweeps — but it is for the separation matrix, not the clean
 signatures.
 
+> **As built (2026-07-05, Wave-0 item 3):** the PERSONAS §10.5 profile-pairing matrix — NOT this
+> melee mode. `npm run behavior:separation` (`scripts/behavior-separation.mjs`) consumes one or more
+> `behavior:profile --json` reports — which now persist per-run axis arrays (`bots[].perRun`) plus
+> `config.gitSha` and `config.generatedAt` provenance — and judges every pair of profiled bots on the
+> registered axes: aggression 0.3, turnsToWin 5.0, avgPlacement 0.4 (the calibrated `DEFAULT_MDE`
+> values, `--mde`-overridable), and kills at the §10.3 relative bar (15% of the pair's lower-kills
+> side over the paired runs; an explicit `--mde kills:X` reverts it to absolute; a comparator that
+> never kills makes the bar uncalibrated and the axis fails CLOSED rather than collapsing to a bare
+> significance test). SEPARATED on an axis means the paired-Δ 95% CI excludes 0 — two-sided, since
+> distinctness has no registered direction, so none of the §3.3 one-sided/Holm machinery applies —
+> AND |Δ| ≥ MDE. Cross-report pairing hard-fails on any config mismatch — including
+> `opponentSpecs`, so two fields with the same opponent NAMES but different weights files never
+> pair — and on git-SHA drift (§10.5: cross-time "pairing" is not pairing); a profile run from a
+> dirty working tree stamps `<sha>-dirty`, which counts as drift even when identical across
+> reports (two dirty trees are not known behavior-identical). `--allow-sha-drift` downgrades the
+> SHA check to a warning for known behavior-identical commits. `--require-separated` exits 2
+> unless every SHIPPED-ROSTER pair separates on ≥ 1 registered axis — the roster defaults to the
+> `PERSONA_SIGNATURES` names plus the shipped base `Conqueror` (§10.5's "every shipped pair"
+> includes base×persona pairs), `--shipped A,B,...` names it explicitly for versioned arm names,
+> a gate with fewer than 2 roster bots exits 1 (gating nothing must fail loud), and a
+> non-comparable roster pair fails the gate (fail closed). Overriding a separation-axis MDE is a
+> deviation from the registered protocol and is labeled loudly (stderr WARNING,
+> `config.mdeOverridden`, and the gate verdict line). The co-seated `--melee` mode above remains
+> a Phase-2b deferral (it answers a different question).
+
 ### 3.6 Determinism
 
 Pairing, reproducibility, and the byte-identical-JSON test all assume bot decisions are a pure function
@@ -297,12 +322,18 @@ compareToControl(personaRuns[], controlRuns[]) -> Record<axis, compareAxis-resul
 signatureDetail(signature, vsControl, mde) -> { pass, rule, p, axes[] }  // per-axis meetsMde/sigInDir/ok/p; p = one-sided IUT p (§3.3)
 signaturePass(signature, vsControl, mde) -> boolean     // = signatureDetail(...).pass; THROWS w/o MDE
 holmSignatures(entries[], {alpha, familySize}) -> { alpha, familySize, results[] }  // §3.3 family verdict; confirmatoryPass = pass AND Holm
+killsPairMde(aKills[], bKills[]) -> { mde|null, comparatorMean|null }  // §10.3 relative kills bar: 15% of the pair's lower side; null = uncalibrated (fails closed)
+separationPair(aRuns[], bRuns[], mde, {axes, relativeKills}) -> { separated, comparable, onAxes[], axes[] }  // §10.5 pairwise separation: two-sided paired CI + MDE
+assertPairableReports([{path, report}]) -> { shaDrift|null }  // §10.5 identical-field/seeds contract; THROWS on config mismatch / duplicate bots / missing perRun
 parseBotSpec(spec) -> { name, weightsPath|null }        // "Name" (built-in) vs "Name=weights.js"
 parseMdeOverrides(str, base=DEFAULT_MDE) -> Record<axis, number>  // "--mde axis:val,..." merged over base
 
 AXES                   // the canonical axis-key list (single source of truth)
 PERSONA_SIGNATURES     // persona -> { axes: [{ axis, direction }], rule: 'AND'|'single' }   (gated when a profiled bot's name matches)
 SIGNATURE_FAMILY_SIZE  // registered Holm family size m = the PERSONA_SIGNATURES count (§3.3)
+SEPARATION_AXES        // the registered §10.5 pairwise axes: aggression, turnsToWin, avgPlacement, kills
+KILLS_MDE_FRACTION     // 0.15 — the §10.3 relative kills bar
+SHIPPED_BASE           // 'Conqueror' — the shipped base; the ship gate unions it into its default roster
 DEFAULT_MDE            // partial Record<axis, number>; a signature axis MUST have an entry (else throws)
 ```
 
@@ -316,7 +347,10 @@ DEFAULT_MDE            // partial Record<axis, number>; a signature axis MUST ha
 > shared helper from `arenaRunner.js:130-168` remains a **TODO** (the one duplication the review
 > flagged). Weight-file bot loading + the signature PASS/FAIL verdict + `--mde` calibration are built
 > (Phase 2a, "bite E1"); the **Holm adjustment across the confirmatory family is built** (2026-07-05,
-> Wave-0 item 2 — `holmSignatures` + `--holm-family`, see the §3.3 as-built note).
+> Wave-0 item 2 — `holmSignatures` + `--holm-family`, see the §3.3 as-built note); the **§10.5
+> profile-pairing separation matrix is built** (2026-07-05, Wave-0 item 3 — `behavior:separation`,
+> see the §3.5 as-built note; the `separationMatrix` named above refers to the still-unbuilt §3.5
+> co-seated melee, a different question).
 
 ### CLI
 
@@ -341,6 +375,21 @@ one of `--opponents` or the CLI exits with an error.
 
 The **control is always profiled** with identical run/game/rotation config (auto-injected if not in
 `--bots`); assert `controlRuns.length === personaRuns.length` before `pairedDelta`.
+
+The §10.5 profile-pairing separation matrix (NOT melee) ships as its own CLI over saved reports:
+
+```
+node scripts/behavior-separation.mjs profile.json [more.json ...] \
+  [--bots A,B,...]        # restrict the matrix to a subset of the profiled bots
+  [--mde kills:0.5]       # override an axis MDE (LOUDLY labeled a registered-protocol deviation);
+                          #   an explicit kills:X disables the §10.3 relative bar
+  [--require-separated]   # exit 2 unless every shipped-roster pair separates on >= 1 registered
+                          #   axis (§10.5); exit 1 if the gate has < 2 roster bots to gate
+  [--shipped A,B,...]     # name the shipped roster explicitly (default: PERSONA_SIGNATURES names
+                          #   + Conqueror); hard-fails if a named roster bot is absent
+  [--allow-sha-drift]     # downgrade the cross-report git-SHA hard-fail to a warning
+  [--json]                # JSON->stdout, matrix + per-pair detail->stderr
+```
 
 ### Sweep execution (per profiled bot, fixed field)
 
@@ -422,9 +471,14 @@ worthwhile future test.)
 (`{ persona, pass, rule, p, axes[] }`, per-axis `p` included), the top-level **`holm`** block
 (`{ alpha, familySize, results[] }`, per-result
 `{ persona, p, pAdj, threshold, rank, holmReject, unadjustedPass, confirmatoryPass }`; `null` when
-nothing is gated), `config.quarantine.ratePerBot`, and a per-bot `liveRuns` count. It does **not**
-yet emit `territoryCurve`, `territoryAuc`, `borderExposure`, `placementHist`, or the
-`separationMatrix` block. (`winPctVsRef` ships as the `winPct` axis.)
+nothing is gated), `config.quarantine.ratePerBot`, a per-bot `liveRuns` count, per-bot **`perRun`**
+(the raw per-run axis scalars `behavior:separation` pairs — one `Record<axis, number|null>` per
+run), per-bot `weightsPath` (null for built-ins), and `config.generatedAt`/`config.gitSha`
+provenance (what the separation script's cross-report drift check reads). It does **not** yet emit
+`territoryCurve`, `territoryAuc`, `borderExposure`, `placementHist`, or the `separationMatrix`
+block (the §10.5 pairwise matrix ships as `behavior:separation`'s OWN output: `{ config, pairs[],
+requireSeparated }`, per-pair `{ a, b, separated, comparable, onAxes[], axes[], descriptive[] }` —
+see the §3.5 as-built note). (`winPctVsRef` ships as the `winPct` axis.)
 
 ```jsonc
 {
@@ -567,6 +621,12 @@ Scoped runs only (`npx vitest run tests/behaviorCore.test.js`), never the full s
 10. **Discrimination sanity (Phase 1 acceptance):** profiling two deliberately different built-ins
     (`Defensive` vs `Strategist`) yields ≥1 axis with non-overlapping paired-Δ CI _exceeding MDE_ —
     proves the harness can actually detect a style difference before any persona exists.
+
+_Wave-0 item 3 (2026-07-05) added: `killsPairMde`/`separationPair`/`assertPairableReports` unit
+coverage (the §10.3 relative bar incl. the uncalibrated fail-closed path, MDE-vs-significance
+independence both ways, every config-mismatch key) plus a `behavior:separation` CLI suite —
+synthetic-report validation/exit-code paths (cheap: the input is a JSON file, no games) and one
+live profile→separation end-to-end._
 
 ---
 

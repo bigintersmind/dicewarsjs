@@ -507,6 +507,273 @@ export const DEFAULT_MDE = {
 };
 
 /**
+ * The pre-registered pairwise separation axes (PERSONAS §10.5): every shipped persona pair
+ * must separate on ≥ 1 of these at its MDE, judged from identically-seeded profiles. Three
+ * carry the calibrated absolute MDEs (aggression 0.3, turnsToWin 5.0, avgPlacement 0.4 —
+ * the {@link DEFAULT_MDE} values); `kills` is judged at the §10.3 RELATIVE bar instead —
+ * see {@link killsPairMde}. This is the §10.5 profile-pairing matrix, NOT the §3.5 melee
+ * mode (which co-seats personas in one field and remains unbuilt).
+ */
+export const SEPARATION_AXES = ['aggression', 'turnsToWin', 'avgPlacement', 'kills'];
+
+/**
+ * PERSONAS §10.3: the kills confirmatory bar is 15% of the realized comparator's kills —
+ * a relative bar that supersedes both the +0.25 interim number and the 0.5 placeholder MDE
+ * ("don't silently keep the lower number"). Applied pairwise with the comparator = the
+ * pair's lower-kills side.
+ */
+export const KILLS_MDE_FRACTION = 0.15;
+
+/**
+ * Resolve the §10.3 relative kills MDE for one pair from their per-run kills arrays:
+ * 15% of the comparator's mean kills over the PAIRED (null-aligned) runs, comparator = the
+ * lower-kills side. Returns `mde: null` (uncalibrated — the axis can then never count as
+ * separated, failing CLOSED) when fewer than 2 paired runs remain or the comparator's mean
+ * is 0: a ~0 comparator collapses the 15% bar to ~0, i.e. a bare significance test — the
+ * exact "trivially-significant pass" the MDE guard exists to prevent.
+ *
+ * @param {Array<number|null>} aKills - per-run kills for side a
+ * @param {Array<number|null>} bKills - per-run kills for side b, same seed blocks
+ * @returns {{ mde: number|null, comparatorMean: number|null }}
+ */
+export function killsPairMde(aKills, bKills) {
+  const { a, b, n } = alignDropNull(aKills, bKills);
+  if (n < 2) return { mde: null, comparatorMean: null };
+  const mean = xs => xs.reduce((s, v) => s + v, 0) / xs.length;
+  const comparatorMean = Math.min(mean(a), mean(b));
+  if (comparatorMean <= 0) return { mde: null, comparatorMean };
+  return { mde: KILLS_MDE_FRACTION * comparatorMean, comparatorMean };
+}
+
+/**
+ * Judge one unordered pair of profiled bots on the pre-registered separation axes
+ * (PERSONAS §10.5). An axis SEPARATES the pair iff the paired-Δ 95% CI excludes 0 in either
+ * direction AND |Δ| ≥ the axis MDE — the §3.5 "paired-diff CI with MDE" test, deliberately
+ * NOT marginal-CI overlap (the weaker test). Direction is irrelevant here (distinctness,
+ * not a registered hypothesis), so no one-sided p / Holm machinery applies — the separation
+ * requirement is a distinctness FLOOR, where the conservative failure mode is failing to
+ * separate, not a false rejection.
+ *
+ * `kills` uses the §10.3 relative MDE via {@link killsPairMde} unless `relativeKills` is
+ * false (an explicit absolute `--mde kills:X` override). A missing absolute MDE for a listed
+ * axis throws even when the axis has no data — a registered separation axis without a
+ * registered MDE is a config error, and making the throw data-dependent would let it pass
+ * silently on sparse pairs (deliberate divergence from signatureDetail's cmp-first ordering).
+ *
+ * @param {Array<Record<string, number|null>>} aRuns - reduceRun() output per run, side a
+ * @param {Array<Record<string, number|null>>} bRuns - same, side b, SAME seed blocks
+ * @param {Record<string, number>} mde - per-axis absolute MDEs (DEFAULT_MDE + overrides)
+ * @param {{ axes?: string[], relativeKills?: boolean }} [opts]
+ * @returns {{ separated: boolean, comparable: boolean, onAxes: string[], axes: Array<{
+ *   axis:string, delta:number|null, ci:number|null, lo:number|null, hi:number|null,
+ *   n:number, verdict:string|null, mde:number|null, mdeBasis:'absolute'|'relative',
+ *   comparatorMean:number|null, meetsMde:boolean, sig:boolean, separated:boolean }> }}
+ */
+export function separationPair(
+  aRuns,
+  bRuns,
+  mde,
+  { axes = SEPARATION_AXES, relativeKills = true } = {}
+) {
+  const detail = axes.map(axis => {
+    const rel = axis === 'kills' && relativeKills;
+    let axisMde = null;
+    let comparatorMean = null;
+    if (rel) {
+      ({ mde: axisMde, comparatorMean } = killsPairMde(
+        aRuns.map(r => r.kills),
+        bRuns.map(r => r.kills)
+      ));
+    } else {
+      axisMde = mde[axis];
+      if (axisMde == null) {
+        throw new Error(
+          `separationPair: no MDE registered for axis "${axis}" — every separation axis must ` +
+            `have an MDE (else the |Δ| ≥ MDE guard is silently disabled).`
+        );
+      }
+    }
+    const cmp = compareAxis(
+      aRuns.map(r => r[axis]),
+      bRuns.map(r => r[axis])
+    );
+    const mdeBasis = rel ? 'relative' : 'absolute';
+    if (!cmp) {
+      return {
+        axis,
+        delta: null,
+        ci: null,
+        lo: null,
+        hi: null,
+        n: 0,
+        verdict: null,
+        mde: axisMde,
+        mdeBasis,
+        comparatorMean,
+        meetsMde: false,
+        sig: false,
+        separated: false,
+      };
+    }
+    // Two-sided significance: the paired CI excludes 0 either way (verdict ≠ SAME).
+    const sig = cmp.verdict !== 'SAME';
+    // An uncalibrated relative bar (axisMde null) fails closed here: meetsMde stays false.
+    const meetsMde = axisMde != null && Math.abs(cmp.delta) >= axisMde;
+    return {
+      axis,
+      delta: cmp.delta,
+      ci: cmp.ci,
+      lo: cmp.lo,
+      hi: cmp.hi,
+      n: cmp.n,
+      verdict: cmp.verdict,
+      mde: axisMde,
+      mdeBasis,
+      comparatorMean,
+      meetsMde,
+      sig,
+      separated: meetsMde && sig,
+    };
+  });
+  return {
+    separated: detail.some(d => d.separated),
+    comparable: detail.some(d => d.delta != null),
+    onAxes: detail.filter(d => d.separated).map(d => d.axis),
+    axes: detail,
+  };
+}
+
+/**
+ * The shipped base persona ([D-27]/[D-31]: Conqueror is the roster's base net). PERSONAS
+ * §10.5's "every SHIPPED pair separates" includes base×persona pairs, but Conqueror
+ * deliberately has no {@link PERSONA_SIGNATURES} entry (it is the thing personas are judged
+ * AGAINST, not a signature hypothesis) — so the separation CLI's ship gate unions this name
+ * into its default roster rather than keying on the signature registry alone.
+ */
+export const SHIPPED_BASE = 'Conqueror';
+
+/**
+ * The report-config keys that must be IDENTICAL for cross-report pairing to be valid:
+ * together they pin the exact seed set (runs × games × stride), the rotation scheme, and
+ * the opponent field — `opponents` (ordered names; order assigns seats) AND `opponentSpecs`
+ * (which weights file each non-built-in opponent was loaded from: two fields with the same
+ * opponent NAMES but different weights are materially different fields). `control`,
+ * `reference`, and `mde` are deliberately excluded: the control is just another profiled
+ * bot (not part of the field), `reference` only labels a seat, and MDEs don't affect the
+ * games played.
+ */
+const PAIRING_CONFIG_KEYS = [
+  'runs',
+  'games',
+  'stride',
+  'rotations',
+  'fieldSize',
+  'opponents',
+  'opponentSpecs',
+];
+
+/**
+ * Validate that a set of behavior:profile --json reports can be paired (PERSONAS §10.5:
+ * "all arms + control + base are profiled with identical field/seeds"). Throws on anything
+ * that breaks pairing outright: a report without per-run arrays, a config mismatch on the
+ * seed/field-defining keys, differing quarantine policy, or the same bot name in two
+ * reports (ambiguous arrays). Git-SHA drift across reports is RETURNED, not thrown — the
+ * §10.5 "cross-time pairing is not pairing" hazard is a protocol call the CLI enforces
+ * (hard by default, `--allow-sha-drift` to downgrade), while tests and same-session
+ * multi-invocation flows stay expressible.
+ *
+ * @param {Array<{path: string, report: any}>} reports
+ * @returns {{ shaDrift: string|null }} shaDrift describes per-report SHAs when they differ,
+ *   any is missing, or any carries a `-dirty` stamp, across >1 report; null for a single
+ *   report or a clean match.
+ */
+export function assertPairableReports(reports) {
+  if (!Array.isArray(reports) || reports.length === 0) {
+    throw new Error('assertPairableReports: need at least one report');
+  }
+  for (const { path: p, report } of reports) {
+    if (!report?.config || !Array.isArray(report.bots)) {
+      throw new Error(`${p}: not a behavior:profile --json report (missing config/bots)`);
+    }
+    if (!Number.isInteger(report.config.runs) || report.config.runs < 2) {
+      throw new Error(`${p}: config.runs is not an integer >= 2`);
+    }
+    if (typeof report.config.quarantine?.on !== 'boolean') {
+      throw new Error(`${p}: config.quarantine.on missing — not a behavior:profile --json report`);
+    }
+    if (!Array.isArray(report.config.opponentSpecs)) {
+      throw new Error(
+        `${p}: config.opponentSpecs missing — the report predates the separation-script ` +
+          `format; re-generate it with a current behavior:profile --json.`
+      );
+    }
+    for (const b of report.bots) {
+      if (!Array.isArray(b.perRun) || b.perRun.length !== report.config.runs) {
+        throw new Error(
+          `${p}: bot "${b.name}" has no per-run arrays (bots[].perRun) — the report predates ` +
+            `the separation-script format; re-generate it with a current behavior:profile --json.`
+        );
+      }
+      // Element shape gets its own message: a null/array entry is a CORRUPT report (the
+      // format is right, the data isn't), and without this it would surface far away as a
+      // context-free TypeError inside separationPair's r.kills access.
+      if (b.perRun.some(r => r === null || typeof r !== 'object' || Array.isArray(r))) {
+        throw new Error(
+          `${p}: bot "${b.name}" has a malformed bots[].perRun entry (expected one object of ` +
+            `per-run axis scalars per run) — the report is corrupt; re-generate it with ` +
+            `behavior:profile --json.`
+        );
+      }
+    }
+  }
+  const first = reports[0];
+  for (const { path: p, report } of reports.slice(1)) {
+    for (const key of PAIRING_CONFIG_KEYS) {
+      const a = JSON.stringify(first.report.config[key]);
+      const b = JSON.stringify(report.config[key]);
+      if (a !== b) {
+        throw new Error(
+          `config mismatch on "${key}": ${first.path} has ${a}, ${p} has ${b} — pairing needs ` +
+            `identical field/seeds (same runs/games/stride/rotations/fieldSize/opponents).`
+        );
+      }
+    }
+    if (first.report.config.quarantine.on !== report.config.quarantine.on) {
+      throw new Error(
+        `config mismatch on "quarantine.on": ${first.path} has ` +
+          `${first.report.config.quarantine.on}, ${p} has ${report.config.quarantine.on} — ` +
+          `differing quarantine policy changes which games each side kept.`
+      );
+    }
+  }
+  const seen = new Map();
+  for (const { path: p, report } of reports) {
+    for (const b of report.bots) {
+      if (seen.has(b.name)) {
+        throw new Error(
+          `bot "${b.name}" appears in both ${seen.get(b.name)} and ${p} — its per-run arrays ` +
+            `are ambiguous. Profile each bot once, or select one copy by re-running that ` +
+            `profile without it.`
+        );
+      }
+      seen.set(b.name, p);
+    }
+  }
+  let shaDrift = null;
+  if (reports.length > 1) {
+    const shas = reports.map(r => r.report.config.gitSha ?? null);
+    // A `-dirty` stamp fails closed even when IDENTICAL across reports: two dirty trees at
+    // the same commit are not known behavior-identical (the uncommitted changes can differ
+    // between the two profile runs), mirroring the missing-SHA handling.
+    const dirty = shas.some(s => typeof s === 'string' && s.endsWith('-dirty'));
+    if (new Set(shas).size > 1 || shas[0] == null || dirty) {
+      shaDrift = reports.map((r, i) => `${r.path}: ${shas[i] ?? 'unknown'}`).join(', ');
+    }
+  }
+  return { shaDrift };
+}
+
+/**
  * Parse a `--bots`/`--control` entry. A bare name (`Lookahead`) is a built-in registry lookup;
  * a `Name=path/to/weights.js` entry is a weights-file bot the CLI loads + parity-checks via the
  * same `loadExportedPolicy → makeBC` path as `ppo:gate`. The display name doubles as the

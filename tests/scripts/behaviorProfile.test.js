@@ -127,6 +127,28 @@ describe('behavior-profile CLI — Holm end-to-end (small real sweep)', () => {
     // The human verdict block on stderr, with the override provenance labeled.
     expect(res.stderr).toMatch(/Holm confirmatory family: m=5 \(--holm-family\)/);
     expect(res.stderr).toMatch(/Blitz signature \(AND\)/);
+    // The separation-script contract (§10.5 profile pairing): per-run arrays + provenance.
+    // Pinned here so a report-shape refactor can't silently strand behavior:separation.
+    expect(report.config.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // CI checkouts are git repos too; a dev tree with uncommitted changes stamps -dirty.
+    expect(report.config.gitSha).toMatch(/^[0-9a-f]{7,}(-dirty)?$/);
+    // Full opponent provenance — names AND weights paths (all built-ins here).
+    expect(report.config.opponentSpecs).toEqual(
+      report.config.opponents.map(name => ({ name, weightsPath: null }))
+    );
+    for (const b of report.bots) {
+      expect(b.weightsPath).toBeNull(); // both bots here are built-ins
+      expect(b.perRun).toHaveLength(report.config.runs);
+      for (const runRecord of b.perRun) {
+        // Every axis key present, values numeric or null (JSON-safe, alignable).
+        expect(Object.keys(runRecord).sort()).toEqual(
+          Object.keys(blitz.metrics).sort() // metrics is keyed by AXES too
+        );
+        for (const v of Object.values(runRecord)) {
+          expect(v === null || Number.isFinite(v)).toBe(true);
+        }
+      }
+    }
   }, 130000);
 
   it('report.holm is null when no gated persona is profiled', () => {

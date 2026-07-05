@@ -514,7 +514,13 @@ games toward the cap — exactly where the gradient lives.)
   (pairwise MDEs = the calibrated per-axis values: aggression 0.3, turnsToWin 5.0, avgPlacement
   0.4, kills per 10.3). **If Predator cannot separate from Survivor, it has no roster slot
   regardless of its bars** (kill condition, pre-committed). `--melee` co-seating stays a Phase-2b
-  deferral (answers a different question — behavior against each other).
+  deferral (answers a different question — behavior against each other). _(Landed 2026-07-05:
+  `npm run behavior:separation` over `behavior:profile --json` reports — which now persist
+  per-run arrays + opponent-weights specs + git/time provenance (dirty trees stamp `-dirty`);
+  `--require-separated` enforces this bullet's requirement at exit-code level over the SHIPPED
+  roster — the signature personas plus the Conqueror base, `--shipped` for versioned arm names,
+  exit 1 when the gate would gate nothing; cross-report pairing hard-fails on config/SHA drift.
+  See EVAL_HARNESS §3.5 "As built".)_
 - **Negative controls (run before grading any persona):** (1) an **A/A profile** of the v3 base
   against itself — signature axes must return |Δ| < MDE/3 (numeric tolerance registered now;
   restrict the halt rule to signature axes so unseeded-field noise on descriptive axes can't halt
@@ -555,7 +561,11 @@ a 20M placement scratch run as a v4 candidate.** No automatic reship this wave.
      `--holm-family`, exact-t p-values via `stats.mjs` `tSf`/`holmAdjust`; family registered at the
      `PERSONA_SIGNATURES` count per §10.5, CONFIRMED = registered single-test gate AND Holm — see
      EVAL_HARNESS §3.3 "As built")_;
-  3. the profile-pairing separation script (10.5);
+  3. the profile-pairing separation script (10.5) _(landed 2026-07-05: `behavior:separation` —
+     `separationPair`/`killsPairMde`/`assertPairableReports` in `behavior-core.mjs`, per-run
+     arrays + provenance in the profile report, the §10.3 relative kills bar, and
+     `--require-separated` for the ship requirement/kill condition — see EVAL_HARNESS §3.5
+     "As built")_;
   4. a **weights-loader for head-to-head bars** — `arena:ml --bots` accepts built-in names only
      and `buildGateField` throws on non-field bar names (verified), so the "beat v2 sibling" and
      "vs v3 base" bars are unrunnable without a `Name=weights.js` spec port;

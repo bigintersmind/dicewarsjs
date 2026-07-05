@@ -21,6 +21,84 @@ Entry template:
 
 ---
 
+## 2026-07-05 (night) — Wave-0 item 3: the §10.5 profile-pairing separation script (`behavior:separation`)
+
+**Phase:** Wave-0 eval builds (PERSONAS §10.7 item 3) · **Who:** Claude (PR merge Ivan-gated)
+
+**Did:**
+
+- **`behavior-profile.mjs`:** the --json report now persists what pairing needs — per-bot
+  **`perRun`** (the raw per-run axis scalars), per-bot `weightsPath`, `config.opponentSpecs`
+  (opponent names AND weights paths: same-name/different-weights fields must never pair), and
+  `config.generatedAt`/`config.gitSha` provenance. The git call is anchored to the script's own
+  directory (not process.cwd()'s enclosing repo), and a dirty working tree stamps `<sha>-dirty`.
+- **`behavior-core.mjs`:** `SEPARATION_AXES` (the registered §10.5 four: aggression 0.3,
+  turnsToWin 5.0, avgPlacement 0.4, kills), **`killsPairMde`** (the §10.3 relative bar: 15% of
+  the pair's lower-kills side over the PAIRED runs; a never-kills comparator returns `mde: null`
+  → the axis fails CLOSED rather than collapsing to a bare significance test),
+  **`separationPair`** (SEPARATED on an axis ⇔ paired-Δ 95% CI excludes 0 two-sided AND
+  |Δ| ≥ MDE — §3.5's "paired-diff CI with MDE, not marginal-CI overlap"), and
+  **`assertPairableReports`** (the identical-field/seeds contract: throws on missing perRun,
+  any config/opponents/quarantine mismatch, or duplicate bot names across reports; git-SHA
+  drift is RETURNED for the CLI to enforce as policy).
+- **New `scripts/behavior-separation.mjs`** (`npm run behavior:separation`): consumes ≥1 saved
+  report, prints the pairwise matrix (✓/✗/— cells) + per-pair axis detail + descriptive
+  non-registered movers, `--json` for machines; hard-fails on SHA drift (§10.5 "cross-time
+  pairing is not pairing"; a `-dirty` stamp counts even when identical) with `--allow-sha-drift`
+  as the explicit escape hatch; **`--require-separated`** exits 2 unless every SHIPPED-ROSTER
+  pair separates on ≥1 registered axis — roster = the signature personas + the Conqueror base
+  (§10.5's "every shipped pair" includes base×persona), `--shipped A,B,...` for versioned arm
+  names, exit 1 when the gate has <2 roster bots (gating nothing must fail loud), and a
+  non-comparable roster pair fails closed. Overridden separation-axis MDEs are labeled a
+  registered-protocol deviation everywhere a verdict appears (`config.mdeOverridden`).
+- **Tests +64** (suite green): 32 unit (relative-bar math incl. the §10.3 worked ≈0.28 number,
+  fail-closed paths, MDE-vs-significance independence both ways, every config-mismatch key incl.
+  opponent-weights specs, corrupt-perRun/dirty-sha contracts) + 31 synthetic-report CLI cases
+  (validation exits, output shape, the full ship-gate matrix of exits — cheap, the input is a
+  JSON file) + 1 live profile→separation e2e (12 matches); the profile e2e also pins the new
+  perRun/opponentSpecs/provenance report fields.
+- **Multi-lens adversarial review pre-PR** (spec/statistics, silent-failure, tests/docs; every
+  finding adversarially verified, default-refute): 15 raw → **8 distinct confirmed, all fixed
+  here**; 2 refuted (n=2 zero-variance separation — matches the registered protocol; both-absent
+  config keys — unreachable from honest inputs). Confirmed + fixed: the ship gate keyed on
+  PERSONA_SIGNATURES only (Conqueror×persona pairs never gated — found independently by all
+  three lenses — and versioned names silently gated nothing at exit 0); opponent field identity
+  compared NAMES only (same-name/different-weights opponents paired cleanly); `gitSha` read from
+  process.cwd()'s repo and blind to dirty trees; overridden MDEs printed under the "registered
+  §10.5" label; trailing value flags (`--mde` as last arg) silently ignored; corrupt perRun
+  entries crashed with a context-free TypeError; plus two test-coverage gaps and a wrong LOG
+  test count.
+- **Docs:** EVAL_HARNESS §3.5 "As built" + Public API + §7 shipped-JSON + separation CLI block +
+  §10 test-plan note; PERSONAS §10.5 bullet + §10.7 item-3 annotations; README status.
+
+**Learned / decided:**
+
+- **"kills per 10.3" = the relative bar, not the 0.5 placeholder:** §10.3 explicitly supersedes
+  both the +0.25 interim bar and the 0.5 pre-registered MDE with "15% of the realized
+  comparator's kills" — so the pairwise kills MDE is data-dependent (`killsPairMde`), with an
+  explicit `--mde kills:X` reverting to absolute. Generalized "comparator" to the pair's
+  lower-kills side (in Predator×Survivor that IS the §10.3 comparator).
+- **Separation is two-sided, no Holm:** distinctness has no registered direction, and §10.5/§3.5
+  register CI+MDE only — the risk asymmetry differs from the signature family (a false
+  NOT-SEPARATED costs a roster slot, recoverable; a false SEPARATED ships a non-distinct
+  persona, and MDE+CI is the registered guard for that). No unregistered corrections added.
+- **SHA drift is a hard fail, not a warning** (unlike ppo:curve's soft note): the [D-29] curve
+  grades each checkpoint independently (rows carry per-row SHAs), but pairing ASSUMES identical
+  field behavior — exactly what a code change breaks. `--allow-sha-drift` exists because a
+  docs-only commit legitimately changes the SHA without changing behavior.
+- Same-SHA cross-invocation pairing is no weaker than within-invocation pairing: the profile
+  sweeps each bot sequentially anyway, so two invocations at one SHA share exactly the same
+  guarantee (seed/map-level, §3.5) — which is why the split-session flow is allowed at all.
+
+**Next:**
+
+- PR (Ivan-gated) → then item 5 (#97 probe pre-flight + negative controls 1–2) and item 6
+  (3-arm throughput probe, shodan Ivan-gated), each its own PR.
+- Mini v3 curve still grading in the background (10/21 rows at last check; transient dip at 7M —
+  Δlook +9.8, ΔPPO −12.9 BEHIND — fully recovered by 8M, +33.0 at 10M).
+
+---
+
 ## 2026-07-05 (late evening) — Wave-0 item 2: Holm across the confirmatory signature family (EVAL_HARNESS §3.3)
 
 **Phase:** Wave-0 eval builds (PERSONAS §10.7 item 2) · **Who:** Claude (PR merge Ivan-gated)

@@ -66,6 +66,9 @@ Entry template:
   default-budget measurement behind it.
 - A long synchronous sweep starves Node's event loop (SIGINT, timers, vitest's worker RPC) —
   hence async `runGateSweep`. Surfaced as a flaky-looking vitest "onTaskUpdate timeout".
+- The games-heavy E2E is **skipped on CI** (`describe.skipIf(CI)`): the 2-vCPU runner under
+  coverage blew the 600 s hook timeout at the powered budget, and a weaker budget flakes. It
+  runs in every local `npm test`; the detection rules stay CI-covered via the stub-match suites.
 - Local (MacBook) smoke of the same checkpoint at 4×36: +28.5 ± 7.5, test-retest spread 4.16 pp —
   the noise-floor flag works and tiny budgets are honest about their CIs.
 

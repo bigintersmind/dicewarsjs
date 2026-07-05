@@ -551,7 +551,10 @@ a 20M placement scratch run as a v4 candidate.** No automatic reship this wave.
      precondition: one real checkpoint scored end-to-end on the mini** (it is the substitute for
      the missing KL/anneal drift control); _(landed 2026-07-05: `npm run ppo:curve` —
      `scripts/ppo-strength-curve.mjs` + STRENGTH_CURVE.md "As built" notes)_;
-  2. Holm adjustment in `behavior-core.mjs`;
+  2. Holm adjustment in `behavior-core.mjs` _(landed 2026-07-05: `holmSignatures` +
+     `--holm-family`, exact-t p-values via `stats.mjs` `tSf`/`holmAdjust`; family registered at the
+     `PERSONA_SIGNATURES` count per §10.5, CONFIRMED = registered single-test gate AND Holm — see
+     EVAL_HARNESS §3.3 "As built")_;
   3. the profile-pairing separation script (10.5);
   4. a **weights-loader for head-to-head bars** — `arena:ml --bots` accepts built-in names only
      and `buildGateField` throws on non-field bar names (verified), so the "beat v2 sibling" and

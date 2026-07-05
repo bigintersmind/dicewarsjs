@@ -19,7 +19,9 @@
  * path (parity-checked) `ppo:gate` uses. When a profiled bot's name matches a
  * PERSONA_SIGNATURES entry (e.g. `Blitz`), its pre-registered signature is gated PASS/FAIL
  * against the control (|Δ| ≥ MDE AND significant in the expected direction). The placeholder
- * MDEs are calibrated from a pilot via `--mde axis:value,...`.
+ * MDEs are calibrated from a pilot via `--mde axis:value,...`. Gated signatures are then
+ * Holm-adjusted as one confirmatory family (§3.3; m defaults to the PERSONA_SIGNATURES
+ * registry count, override with `--holm-family N`) — CONFIRMED = single-test gate AND Holm.
  *
  * Usage:
  *   npm run behavior:profile                                   # defaults: Strategist vs Defensive control
@@ -45,10 +47,12 @@ import {
   summarizeAxis,
   compareToControl,
   signatureDetail,
+  holmSignatures,
   parseBotSpec,
   parseMdeOverrides,
   AXES,
   PERSONA_SIGNATURES,
+  SIGNATURE_FAMILY_SIZE,
   DEFAULT_MDE,
 } from './lib/behavior-core.mjs';
 
@@ -83,6 +87,17 @@ try {
   mde = parseMdeOverrides(getArg(args, 'mde', ''), DEFAULT_MDE);
 } catch (err) {
   console.error(`Invalid --mde: ${err.message}`);
+  process.exit(1);
+}
+
+// Registered confirmatory family size m for the Holm step-down (§3.3). Defaults inside
+// holmSignatures to the PERSONA_SIGNATURES registry count; override (e.g. `--holm-family 5`
+// when the Blitz escalation registers its 5th test) — never below the REGISTERED family
+// (PERSONAS §10.5 registers 4 or 5; anything smaller would un-adjust the family).
+const holmFamilyRaw = getArg(args, 'holm-family', '');
+const holmFamily = holmFamilyRaw === '' ? null : Number(holmFamilyRaw);
+if (holmFamily != null && (!Number.isInteger(holmFamily) || holmFamily < 1)) {
+  console.error('Invalid --holm-family: need a positive integer (the registered family size m).');
   process.exit(1);
 }
 
@@ -209,6 +224,23 @@ for (const bot of profiled) {
     );
     process.exit(1);
   }
+}
+
+// Fail fast on an under-sized Holm family too (before the sweep burns minutes of games). The
+// floor is the REGISTERED family size, not just the personas gated in this invocation: the only
+// registered values are SIGNATURE_FAMILY_SIZE (4) and 5 (the Blitz escalation, PERSONAS §10.5) —
+// a smaller m would loosen the step-down thresholds and quietly un-adjust the family.
+const gatedPersonaCount = profiled.filter(
+  b => b.name !== controlName && PERSONA_SIGNATURES[b.name]
+).length;
+const holmFloor = Math.max(SIGNATURE_FAMILY_SIZE, gatedPersonaCount);
+if (holmFamily != null && holmFamily < holmFloor) {
+  console.error(
+    `--holm-family ${holmFamily} is below the registered family size (${holmFloor} — ` +
+      `PERSONAS §10.5 registers ${SIGNATURE_FAMILY_SIZE}, or 5 when the Blitz escalation fires). ` +
+      `The registered family may grow, never shrink: a smaller m un-adjusts the step-down.`
+  );
+  process.exit(1);
 }
 
 const fieldSize = opponents.length + 1; // profiled seat + fixed opponents
@@ -341,6 +373,15 @@ const report = {
   }),
 };
 
+// Holm step-down across the gated signatures (§3.3) — the family-wise confirmatory verdicts.
+// Cannot throw here: --holm-family was validated against the gated-persona count pre-sweep.
+const gatedSignatures = report.bots
+  .filter(b => b.signature)
+  .map(b => ({ persona: b.signature.persona, detail: b.signature }));
+report.holm = gatedSignatures.length
+  ? holmSignatures(gatedSignatures, holmFamily != null ? { familySize: holmFamily } : {})
+  : null;
+
 // --- Output ---
 
 if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -406,6 +447,7 @@ for (const b of report.bots) {
 }
 
 // --- Pre-registered persona signature verdicts (the "ships when distinct" gate, §3.2/§3.3) ---
+const fmtP = p => (p < 1e-3 ? p.toExponential(1) : p.toFixed(4));
 const signed = report.bots.filter(b => b.signature);
 if (signed.length) {
   log('');
@@ -417,11 +459,33 @@ if (signed.length) {
         if (a.delta == null) return `${a.axis}${dir} no data`;
         // Why this axis did/didn't pass: sub-MDE vs not-significant vs both-clear (ok).
         const why = a.ok ? 'ok' : !a.meetsMde ? `|Δ|<MDE(${a.mde})` : 'CI∌0';
-        return `${a.axis}${dir} Δ${a.delta.toFixed(2)} [${a.lo.toFixed(2)},${a.hi.toFixed(2)}] ${why}`;
+        return `${a.axis}${dir} Δ${a.delta.toFixed(2)} [${a.lo.toFixed(2)},${a.hi.toFixed(2)}] p=${fmtP(a.p)} ${why}`;
       })
       .join('; ');
     log(
       `${s.persona} signature (${s.rule}) vs ${controlName}: ${s.pass ? 'PASS ✓' : 'FAIL ✗'} — ${detail}`
+    );
+  }
+
+  // The family-wise verdicts (§3.3): the per-persona PASS above is the registered single-test
+  // gate; a persona is CONFIRMED only if it also survives the Holm step-down across the family.
+  const h = report.holm;
+  log('');
+  log(
+    `Holm confirmatory family: m=${h.familySize}` +
+      `${holmFamily == null ? ' (registered, PERSONA_SIGNATURES)' : ' (--holm-family)'}, ` +
+      `one-sided α=${h.alpha}`
+  );
+  for (const r of h.results) {
+    if (r.p == null) {
+      log(`  ${r.persona}: no p (a signature axis has no comparable data) → NOT CONFIRMED`);
+      continue;
+    }
+    log(
+      `  ${r.persona}: p=${fmtP(r.p)} → pAdj=${fmtP(r.pAdj)} ` +
+        `(rank ${r.rank}, threshold ${fmtP(r.threshold)}) Holm ${r.holmReject ? '✓' : '✗'} · ` +
+        `single-test ${r.unadjustedPass ? '✓' : '✗'} → ` +
+        `${r.confirmatoryPass ? 'CONFIRMED ✓' : 'NOT CONFIRMED ✗'}`
     );
   }
 }

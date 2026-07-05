@@ -18,10 +18,12 @@ import {
   compareToControl,
   signaturePass,
   signatureDetail,
+  holmSignatures,
   parseBotSpec,
   parseMdeOverrides,
   AXES,
   PERSONA_SIGNATURES,
+  SIGNATURE_FAMILY_SIZE,
   DEFAULT_MDE,
 } from '../scripts/lib/behavior-core.mjs';
 import { runMatch } from '../src/arena/matchRunner.js';
@@ -497,6 +499,179 @@ describe('signatureDetail — per-axis breakdown behind signaturePass', () => {
   it('throws when a present-comparison axis has no MDE (the guard signaturePass relies on)', () => {
     const sig = { axes: [{ axis: 'aggression', direction: 'HIGHER' }], rule: 'single' };
     expect(() => signatureDetail(sig, vsControl, {})).toThrow(/no MDE registered for axis/);
+  });
+});
+
+describe('compareAxis — paired standard error (the t-statistic input for the Holm family)', () => {
+  it('exposes the Bessel-corrected paired SE of the run diffs', () => {
+    // diffs [2,3,3,4]: sd = √(2/3), se = sd/√4 = 0.4082482905 (scipy-checked).
+    const cmp = compareAxis([12, 14, 13, 15], [10, 11, 10, 11]);
+    expect(cmp.se).toBeCloseTo(0.4082482905, 9);
+    expect(cmp.delta).toBeCloseTo(3, 12);
+    // Internal consistency: the CI half-width is tCrit(n−1) × se of the SAME diffs.
+    expect(cmp.ci).toBeCloseTo(3.182 * cmp.se, 9);
+  });
+});
+
+describe('signatureDetail — one-sided p-values for the Holm family (§3.3)', () => {
+  // Scipy 1.13.1 references (see the PR notes):
+  //   diffs [1,2,3,4,5]      → t = 4.2426, df 4, P(T ≥ t)  = 0.0066177998  (HIGHER direction)
+  //   diffs [-8,-6,-7,-9]    → t = −11.619, df 3, P(T ≤ t) = 0.0006846656  (LOWER direction)
+  const higherCmp = compareAxis([6, 8, 10, 12, 14], [5, 6, 7, 8, 9]); // diffs 1..5
+  const lowerCmp = compareAxis([2, 3, 2, 1], [10, 9, 9, 10]); // diffs -8,-6,-7,-9
+
+  it('computes the one-sided p in the registered direction (scipy-pinned)', () => {
+    const sig = { axes: [{ axis: 'aggression', direction: 'HIGHER' }], rule: 'single' };
+    const d = signatureDetail(sig, { aggression: higherCmp }, { aggression: 0.3 });
+    expect(d.axes[0].p).toBeCloseTo(0.0066177998, 8);
+    expect(d.p).toBeCloseTo(0.0066177998, 8); // single rule: signature p = the axis p
+
+    const sigLower = { axes: [{ axis: 'avgPlacement', direction: 'LOWER' }], rule: 'single' };
+    const dl = signatureDetail(sigLower, { avgPlacement: lowerCmp }, { avgPlacement: 0.4 });
+    expect(dl.axes[0].p).toBeCloseTo(0.0006846656, 8);
+  });
+
+  it('an in-direction effect tested AGAINST its direction gets the complementary p', () => {
+    // The same diffs 1..5 under a LOWER hypothesis: p = 1 − 0.00662 = 0.99338.
+    const sig = { axes: [{ axis: 'aggression', direction: 'LOWER' }], rule: 'single' };
+    const d = signatureDetail(sig, { aggression: higherCmp }, { aggression: 0.3 });
+    expect(d.axes[0].p).toBeCloseTo(1 - 0.0066177998, 8);
+  });
+
+  it('AND rule: the signature p is the MAX of the axis p-values (intersection–union test)', () => {
+    const blitz = PERSONA_SIGNATURES.Blitz;
+    const vs = { aggression: higherCmp, turnsToWin: lowerCmp };
+    const d = signatureDetail(blitz, vs, { aggression: 0.3, turnsToWin: 5 });
+    // max(0.0066177998, 0.0006846656) — the weaker axis carries the conjunction.
+    expect(d.p).toBeCloseTo(0.0066177998, 8);
+    expect(d.pass).toBe(true);
+  });
+
+  it('zero paired SE: in-direction floors at the sign-flip bound 2⁻ⁿ, else p=1', () => {
+    // n identical in-direction diffs carry at most P(all n signs agree | null) = 2⁻ⁿ of
+    // evidence — never p = 0, which would clear every Holm threshold even at n = 2 where
+    // the attainable bound (0.25) clears none.
+    const constUp = compareAxis([5, 6, 7], [3, 4, 5]); // diffs all exactly +2 → se 0, n 3
+    const constZero = compareAxis([5, 6, 7], [5, 6, 7]); // diffs all exactly 0 → se 0
+    const up = { axes: [{ axis: 'aggression', direction: 'HIGHER' }], rule: 'single' };
+    const down = { axes: [{ axis: 'aggression', direction: 'LOWER' }], rule: 'single' };
+    expect(signatureDetail(up, { aggression: constUp }, { aggression: 0.3 }).p).toBe(2 ** -3);
+    expect(signatureDetail(down, { aggression: constUp }, { aggression: 0.3 }).p).toBe(1);
+    expect(signatureDetail(up, { aggression: constZero }, { aggression: 0.3 }).p).toBe(1);
+    // At a 2-run tie the bound (0.25) correctly fails even the loosest Holm threshold (α=0.05).
+    const twoRuns = compareAxis([5, 6], [3, 4]);
+    expect(signatureDetail(up, { aggression: twoRuns }, { aggression: 0.3 }).p).toBe(0.25);
+  });
+
+  it('a null comparison on any required axis nulls the signature p (fail closed)', () => {
+    const blitz = PERSONA_SIGNATURES.Blitz;
+    const vs = { aggression: higherCmp, turnsToWin: null };
+    const d = signatureDetail(blitz, vs, { aggression: 0.3, turnsToWin: 5 });
+    expect(d.p).toBeNull();
+    expect(d.axes.find(a => a.axis === 'turnsToWin').p).toBeNull();
+  });
+});
+
+describe('holmSignatures — the family-wise confirmatory verdict (§3.3)', () => {
+  const detail = (p, pass) => ({ p, pass });
+
+  it('registers the family as the PERSONA_SIGNATURES count', () => {
+    expect(SIGNATURE_FAMILY_SIZE).toBe(Object.keys(PERSONA_SIGNATURES).length);
+    expect(SIGNATURE_FAMILY_SIZE).toBe(4); // §10.5: registered as 4 (5 if the Blitz escalation fires)
+  });
+
+  it('defaults m to the REGISTERED family even when fewer personas are graded', () => {
+    // One graded persona of the 4-family: threshold α/4, so p=0.02 does NOT reject —
+    // grading personas one-per-session must not quietly un-adjust the family.
+    const out = holmSignatures([{ persona: 'Blitz', detail: detail(0.02, true) }]);
+    expect(out.familySize).toBe(4);
+    expect(out.results[0].holmReject).toBe(false);
+    expect(out.results[0].confirmatoryPass).toBe(false);
+    expect(out.results[0].unadjustedPass).toBe(true); // visible as "passed only un-adjusted"
+  });
+
+  it('CONFIRMED requires the registered single-test gate AND the Holm rejection', () => {
+    const out = holmSignatures([
+      { persona: 'Blitz', detail: detail(0.001, true) }, // both → CONFIRMED
+      { persona: 'Survivor', detail: detail(0.4, true) }, // gate ✓, Holm ✗
+      { persona: 'Predator', detail: detail(0.002, false) }, // Holm ✓, gate ✗ (e.g. sub-MDE)
+    ]);
+    const byPersona = Object.fromEntries(out.results.map(r => [r.persona, r]));
+    expect(byPersona.Blitz.confirmatoryPass).toBe(true);
+    expect(byPersona.Survivor).toMatchObject({ holmReject: false, confirmatoryPass: false });
+    expect(byPersona.Predator).toMatchObject({ holmReject: true, confirmatoryPass: false });
+  });
+
+  it('Holm alone can be LOOSER than the registered gate at the last rank — the AND catches it', () => {
+    // A lone p = 0.04 at explicit familySize 1 clears Holm (α = 0.05 one-sided) but the
+    // registered CI-excludes-0 gate (one-sided 0.025) already failed it → NOT confirmed.
+    // This pins the composition rationale: Holm only ever tightens the registered gate.
+    const out = holmSignatures([{ persona: 'Blitz', detail: detail(0.04, false) }], {
+      familySize: 1,
+    });
+    expect(out.results[0].holmReject).toBe(true);
+    expect(out.results[0].confirmatoryPass).toBe(false);
+  });
+
+  it('a null signature p stays in the family and can never confirm', () => {
+    const out = holmSignatures([
+      { persona: 'Blitz', detail: detail(null, false) },
+      { persona: 'Survivor', detail: detail(0.001, true) },
+    ]);
+    const byPersona = Object.fromEntries(out.results.map(r => [r.persona, r]));
+    expect(byPersona.Blitz).toMatchObject({ p: null, holmReject: false, confirmatoryPass: false });
+    expect(byPersona.Survivor.confirmatoryPass).toBe(true);
+  });
+
+  it('throws when familySize is set below the graded entries (family shrink guard)', () => {
+    const entries = [
+      { persona: 'Blitz', detail: detail(0.01, true) },
+      { persona: 'Survivor', detail: detail(0.02, true) },
+    ];
+    expect(() => holmSignatures(entries, { familySize: 1 })).toThrow(/never the reverse/);
+  });
+
+  it('throws on a detail object missing the signatureDetail contract (no silent NOT CONFIRMED)', () => {
+    // holmAdjust reads a MISSING p as "no comparable data" (undefined == null), so a reshaped
+    // report object would otherwise quietly grade every persona NOT CONFIRMED with exit 0.
+    expect(() => holmSignatures([{ persona: 'Blitz', detail: { pass: true } }])).toThrow(
+      /no signatureDetail-shaped detail/
+    );
+    expect(() => holmSignatures([{ persona: 'Blitz', detail: { p: 0.01 } }])).toThrow(
+      /no signatureDetail-shaped detail/
+    );
+    expect(() => holmSignatures([{ persona: 'Blitz' }])).toThrow(
+      /no signatureDetail-shaped detail/
+    );
+  });
+
+  it('end-to-end: real comparisons through signatureDetail into the family verdict', () => {
+    // Blitz: both axes strongly in-direction (p ≈ 0.0066 via the IUT max) and both clear MDE.
+    const blitzDetail = signatureDetail(
+      PERSONA_SIGNATURES.Blitz,
+      {
+        aggression: compareAxis([6, 8, 10, 12, 14], [5, 6, 7, 8, 9]), // diffs 1..5
+        turnsToWin: compareAxis([2, 3, 2, 1], [10, 9, 9, 10]), // diffs -8,-6,-7,-9
+      },
+      DEFAULT_MDE
+    );
+    // Survivor: borderline diffs [-4.5,-3,-2,-1,0.5] → mean −2, one-sided p ≈ 0.039. The
+    // registered gate fails it (the two-sided CI includes 0) and so does Holm at m = 4
+    // (rank-2 threshold 0.0167) — NOT confirmed on both grounds.
+    const survivorDetail = signatureDetail(
+      PERSONA_SIGNATURES.Survivor,
+      { avgPlacement: compareAxis([1, 2, 3, 4, 5.5], [5.5, 5, 5, 5, 5]) },
+      DEFAULT_MDE
+    );
+    expect(survivorDetail.p).toBeCloseTo(0.0393056995, 8); // scipy-pinned
+    const out = holmSignatures([
+      { persona: 'Blitz', detail: blitzDetail },
+      { persona: 'Survivor', detail: survivorDetail },
+    ]);
+    expect(out.familySize).toBe(4);
+    const byPersona = Object.fromEntries(out.results.map(r => [r.persona, r]));
+    expect(byPersona.Blitz.confirmatoryPass).toBe(true);
+    expect(byPersona.Survivor.confirmatoryPass).toBe(false);
   });
 });
 

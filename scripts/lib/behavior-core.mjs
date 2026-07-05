@@ -23,7 +23,7 @@
  * @module scripts/lib/behavior-core
  */
 
-import { meanCi } from './stats.mjs';
+import { meanCi, meanSe, tSf, holmAdjust } from './stats.mjs';
 import { pairedDelta, classifyGate } from './ppo-gate-core.mjs';
 import { isStopMove } from '../../src/arena/trajectoryExport.js';
 
@@ -257,16 +257,19 @@ export function alignDropNull(a, b) {
  *
  * @param {Array<number|null>} personaRuns
  * @param {Array<number|null>} controlRuns
- * @returns {{ delta:number, ci:number, lo:number, hi:number, verdict:'HIGHER'|'SAME'|'LOWER', n:number } | null}
+ * @returns {{ delta:number, ci:number, lo:number, hi:number, se:number, verdict:'HIGHER'|'SAME'|'LOWER', n:number } | null}
  */
 export function compareAxis(personaRuns, controlRuns) {
   const { a, b, n } = alignDropNull(personaRuns, controlRuns);
   if (n < 2) return null;
   const d = pairedDelta(a, b); // { mean, ci, lo, hi }
+  // Paired standard error of the same diffs — what signatureDetail turns into a t statistic
+  // for the Holm-adjusted family (§3.3). Same numbers pairedDelta already used for the CI.
+  const { se } = meanSe(a.map((v, i) => v - b[i]));
   // classifyGate speaks BEAT/TIE/BEHIND; relabel to the direction-neutral HIGHER/SAME/LOWER.
   const verdict = { BEAT: 'HIGHER', BEHIND: 'LOWER', TIE: 'SAME' }[classifyGate(d)];
   // Expose the paired mean as `delta` (the spec's field name; what signaturePass/CLI read).
-  return { delta: d.mean, ci: d.ci, lo: d.lo, hi: d.hi, verdict, n };
+  return { delta: d.mean, ci: d.ci, lo: d.lo, hi: d.hi, se, verdict, n };
 }
 
 /**
@@ -288,6 +291,25 @@ export function compareToControl(personaRuns, controlRuns) {
 }
 
 /**
+ * One-sided p-value of a paired axis comparison in the REGISTERED direction: P(T ≥ t) for
+ * 'HIGHER', P(T ≤ t) for 'LOWER', with t = delta/se at df = n − 1. A zero paired SE (identical
+ * diffs across every run — reachable on quantized axes at small kept-n) has no t statistic;
+ * fall back to the sign-flip permutation bound: n identical in-direction diffs carry at most
+ * P(all n signs agree | null) = 2⁻ⁿ of evidence, never certainty — so p = 2⁻ⁿ in-direction
+ * (a p = 0 here would clear every Holm threshold even at n = 2, where the attainable bound is
+ * 0.25), and p = 1 for anything else.
+ */
+function oneSidedP(cmp, direction) {
+  if (cmp.se === 0) {
+    const inDir = direction === 'HIGHER' ? cmp.delta > 0 : cmp.delta < 0;
+    return inDir ? 2 ** -cmp.n : 1;
+  }
+  const t = cmp.delta / cmp.se;
+  // P(T ≤ t) = P(T ≥ −t) by symmetry, so both directions go through the upper tail.
+  return direction === 'HIGHER' ? tSf(t, cmp.n - 1) : tSf(-t, cmp.n - 1);
+}
+
+/**
  * Per-axis breakdown of a persona's pre-registered signature: for each required axis, whether
  * it clears its minimum-detectable-effect (|Δ| ≥ MDE) AND is significant in the expected
  * direction (CI excludes 0 the right way). The boolean gate {@link signaturePass} is just
@@ -295,10 +317,16 @@ export function compareToControl(personaRuns, controlRuns) {
  * (MDE and significance) guard against a statistically-significant but behaviorally-trivial
  * "difference" passing.
  *
+ * Also carries the signature's one-sided p-value for the Holm family ({@link holmSignatures}):
+ * per-axis p in the registered direction, combined across an AND rule as the MAX of the axis
+ * p-values — the intersection–union test, a valid level-α test of "every axis moved the
+ * registered way" with no further correction. `p` is null (never rejectable) if any required
+ * axis has no comparison.
+ *
  * @param {{ axes: Array<{axis:string, direction:'HIGHER'|'LOWER'}>, rule:'AND'|'single' }} signature
  * @param {Record<string, ReturnType<typeof compareAxis>>} vsControl
  * @param {Record<string, number>} mde - per-axis minimum |Δ| that counts as meaningful
- * @returns {{ pass:boolean, rule:string, axes:Array<{axis:string, direction:string, delta:number|null, lo:number|null, hi:number|null, mde:number|null, meetsMde:boolean, sigInDir:boolean, ok:boolean}> }}
+ * @returns {{ pass:boolean, rule:string, p:number|null, axes:Array<{axis:string, direction:string, delta:number|null, lo:number|null, hi:number|null, mde:number|null, p:number|null, meetsMde:boolean, sigInDir:boolean, ok:boolean}> }}
  * @throws if a signature axis HAS a comparison but no registered MDE (see below)
  */
 export function signatureDetail(signature, vsControl, mde) {
@@ -315,6 +343,7 @@ export function signatureDetail(signature, vsControl, mde) {
         lo: null,
         hi: null,
         mde: mde[axis] ?? null,
+        p: null,
         meetsMde: false,
         sigInDir: false,
         ok: false,
@@ -340,13 +369,17 @@ export function signatureDetail(signature, vsControl, mde) {
       lo: cmp.lo,
       hi: cmp.hi,
       mde: axisMde,
+      p: oneSidedP(cmp, direction),
       meetsMde,
       sigInDir,
       ok: meetsMde && sigInDir,
     };
   });
+  // Signature-level p: intersection–union over the required axes (max p), null if any axis
+  // could not be compared (fail closed — a signature with missing data can never Holm-reject).
+  const p = axes.some(a => a.p == null) ? null : Math.max(...axes.map(a => a.p));
   // 'single' and 'AND' both require all listed axes; the distinction is documentation of intent.
-  return { pass: axes.every(a => a.ok), rule: signature.rule, axes };
+  return { pass: axes.every(a => a.ok), rule: signature.rule, p, axes };
 }
 
 /**
@@ -363,6 +396,62 @@ export function signatureDetail(signature, vsControl, mde) {
  */
 export function signaturePass(signature, vsControl, mde) {
   return signatureDetail(signature, vsControl, mde).pass;
+}
+
+/**
+ * Holm step-down across the persona confirmatory family (EVAL_HARNESS §3.3). Input is one
+ * entry per gated persona: `{ persona, detail }` with `detail` from {@link signatureDetail}
+ * (its `p` is the signature-level one-sided IUT p-value; its `pass` is the registered
+ * unadjusted single-test gate).
+ *
+ * The family-wise confirmatory verdict is `confirmatoryPass = detail.pass AND holmReject`:
+ * Holm is applied ON TOP of the registered §3.2 gate (|Δ| ≥ MDE and CI excludes 0 in
+ * direction), so the adjustment can only tighten it, never loosen it. That composition
+ * matters at the family's last rank, where Holm's threshold relaxes to α = 0.05 one-sided —
+ * weaker than the registered CI-excludes-0 criterion (one-sided 0.025); without the AND, the
+ * "adjustment" would loosen the registered gate for the largest p in the family.
+ *
+ * @param {Array<{persona: string, detail: {p: number|null, pass: boolean}}>} entries
+ * @param {{ alpha?: number, familySize?: number }} [opts] - familySize defaults to
+ *   max({@link SIGNATURE_FAMILY_SIZE}, entries.length); throws (via holmAdjust) if set below
+ *   entries.length. The library accepts any legal m (unit tests and negative controls need
+ *   small families); the REGISTERED-floor protocol check (m ≥ SIGNATURE_FAMILY_SIZE) is
+ *   enforced at the profiling CLI, the only registered consumer.
+ * @returns {{ alpha:number, familySize:number, results:Array<{persona:string, p:number|null,
+ *   pAdj:number|null, threshold:number|null, rank:number|null, holmReject:boolean,
+ *   unadjustedPass:boolean, confirmatoryPass:boolean}> }}
+ */
+export function holmSignatures(entries, { alpha = 0.05, familySize } = {}) {
+  // Validate the detail contract up front: holmAdjust reads a MISSING p as a legitimate
+  // null ("no comparable data", never rejectable), so a caller passing a reshaped detail
+  // object would silently grade every persona NOT CONFIRMED. Fail loud instead.
+  for (const e of entries) {
+    if (!e?.detail || !('p' in e.detail) || typeof e.detail.pass !== 'boolean') {
+      throw new Error(
+        `holmSignatures: entry "${e?.persona}" has no signatureDetail-shaped detail ` +
+          `(need a 'p' field and a boolean 'pass') — got ${JSON.stringify(e?.detail)}`
+      );
+    }
+  }
+  const m = familySize ?? Math.max(SIGNATURE_FAMILY_SIZE, entries.length);
+  const adjusted = holmAdjust(
+    entries.map(e => ({ name: e.persona, p: e.detail.p })),
+    { alpha, familySize: m }
+  );
+  return {
+    alpha,
+    familySize: m,
+    results: entries.map((e, i) => ({
+      persona: e.persona,
+      p: adjusted[i].p,
+      pAdj: adjusted[i].pAdj,
+      threshold: adjusted[i].threshold,
+      rank: adjusted[i].rank,
+      holmReject: adjusted[i].reject,
+      unadjustedPass: e.detail.pass,
+      confirmatoryPass: e.detail.pass && adjusted[i].reject,
+    })),
+  };
 }
 
 /**
@@ -385,6 +474,16 @@ export const PERSONA_SIGNATURES = {
   Predator: { axes: [{ axis: 'kills', direction: 'HIGHER' }], rule: 'single' },
   Survivor: { axes: [{ axis: 'avgPlacement', direction: 'LOWER' }], rule: 'single' },
 };
+
+/**
+ * The registered confirmatory family size: one signature test per {@link PERSONA_SIGNATURES}
+ * entry (PERSONAS §10.5 registers the family as 4, "becoming 5 if the Blitz escalation fires" —
+ * an escalated arm adds a 5th test via `--holm-family 5`, it does not edit the registry).
+ * Defaulting m to the REGISTERED count — not the number of personas graded in one invocation —
+ * is deliberate: grading personas one-per-session must not quietly un-adjust the family.
+ * (Declared after the registry: the initializer runs at module evaluation.)
+ */
+export const SIGNATURE_FAMILY_SIZE = Object.keys(PERSONA_SIGNATURES).length;
 
 /**
  * Per-axis MDEs (§3.2) — the minimum effect a persona signature must clear to count.

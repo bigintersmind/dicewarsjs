@@ -62,4 +62,14 @@ describe('GameOverScreen', () => {
     renderGameOver({ gameState: { winner: null }, gameOverReason: null });
     expect(container.textContent).not.toContain('turn limit reached');
   });
+
+  // Locks the subtitle branch precedence: a real winner must win over a lingering
+  // 'turnLimit' reason. gameOverReason is a sticky store field (see GameStore
+  // DEFAULT_STATE); if a future reorder let it shadow `winner !== null`, a decisive
+  // game could wrongly read "Draw" — this guards against that.
+  it('prefers the winner subtitle over a stale turnLimit reason', () => {
+    renderGameOver({ gameState: { winner: 2 }, gameOverReason: 'turnLimit' });
+    expect(container.textContent).toContain('Player 3 wins');
+    expect(container.textContent).not.toContain('turn limit reached');
+  });
 });

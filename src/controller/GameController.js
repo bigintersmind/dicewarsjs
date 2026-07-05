@@ -37,8 +37,11 @@ const COMMUNITY_PREFIX = 'community:';
  * board should be called a draw well before a headless batch run would bother. 300
  * player-turns (~43 rounds of a 7-player game) still comfortably clears any genuinely
  * decisive game — a game that reaches it is stalled — while ending a hang in a fraction
- * of the wait. A game drawn here is a strict subset of what the arena scores a stalemate
- * (300 < 500). Exported so the boundary tests read the same source of truth.
+ * of the wait. 300 sits well below the arena's 500-turn stalemate cap, so any board still
+ * unresolved here is stalled by any reasonable measure. (Containment runs this way: every
+ * game the arena scores a stalemate at 500 was already unresolved at 300, so arena
+ * stalemates ⊆ browser draws — the browser draws the strict superset.) Exported so the
+ * boundary tests read the same source of truth.
  */
 export const MAX_GAME_TURNS = 300;
 
@@ -233,6 +236,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         animationPhase: 'idle',
         awaitingInput: null,
         humanEliminated: false,
+        gameOverReason: null,
         aiLoadWarnings: warnings,
       });
 
@@ -300,6 +304,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       currentReplay: null,
       replayOrigin: null,
       humanEliminated: false,
+      gameOverReason: null,
     });
   }
 

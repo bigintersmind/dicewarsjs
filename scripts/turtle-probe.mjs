@@ -5,8 +5,9 @@
  *
  * Question it answers: "which bots, when they hold a winning position (territory lead),
  * decline to press and PASS — freezing a game into a stall?" The browser AI-vs-AI mode is a
- * 7-player free-for-all with NO turn cap (src/controller/GameController.js), so a leader that
- * turtles hangs the game indefinitely. This measures the intrinsic tendency.
+ * 7-player free-for-all that, until this probe surfaced the stall, had NO turn cap: a leader
+ * that turtled hung the game indefinitely. The browser now caps at MAX_GAME_TURNS (300) in
+ * src/controller/GameController.js; this measures the intrinsic tendency that cap backstops.
  *
  * Two direct metrics per bot, measured over a 7-seat field of the SAME bot (self-mirror — the
  * cleanest isolate: "if a browser game were all Bot-X, would it stall?"), plus a mixed field:
@@ -131,8 +132,9 @@ function makeProbe(nSeats) {
 }
 
 /*
- * Fixed, diverse opponent pool for the MIXED field. When profiling bot X, seat 0 = X and the
- * remaining seats are filled from this pool excluding X (first `seats-1`). All-distinct, so every
+ * Fixed, diverse opponent pool for the MIXED field. When profiling bot X, the profiled seat = X
+ * (rotated through every seat across rounds, seat-fair) and the remaining seats are filled from
+ * this pool excluding X (first `seats-1`). All-distinct, so every
  * profiled bot faces a strong contested field of the SAME character — a lead is genuinely earned,
  * which is where turtle instinct (press vs sit) becomes visible. Strong searchers (Lookahead /
  * Expectimax) are included so leads are contested rather than trivially snowballed.

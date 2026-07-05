@@ -87,7 +87,8 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate }) {
   } else if (winner !== null) {
     subtitle = `Player ${winner + 1} wins!`;
   } else if (gameOverReason === 'turnLimit') {
-    // No conquest before the turn cap — an AI-vs-AI stalemate ended as a draw.
+    // No conquest before the turn cap — a stalemate (typically AI-vs-AI) ended as a draw.
+    // Fires for any winnerless game that hits the cap, including a human still alive at 300.
     subtitle = 'Draw — turn limit reached';
   }
 

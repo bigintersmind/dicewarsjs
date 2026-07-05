@@ -891,10 +891,17 @@ describe('GameController', () => {
       await controller.startNewGame({ playerCount: 2, spectator: false });
       controller.acceptMap();
 
-      // END_TURN pushes turnsTaken to the cap with no winner, game still 'playing'.
+      // END_TURN pushes turnsTaken to the cap with no winner, game still 'playing'. The
+      // `config` lets buildGameReplay run so we can assert the draw is still reviewable.
       applyAction.mockImplementationOnce((state, action) => {
         if (action.type === 'END_TURN') {
-          return { ...state, phase: 'playing', winner: null, turnsTaken: MAX_GAME_TURNS };
+          return {
+            ...state,
+            phase: 'playing',
+            winner: null,
+            turnsTaken: MAX_GAME_TURNS,
+            config: { playerCount: 2 },
+          };
         }
         return state;
       });
@@ -905,6 +912,9 @@ describe('GameController', () => {
       expect(store.getState().gameOverReason).toBe('turnLimit');
       expect(store.getState().gameState.winner).toBeNull();
       expect(soundManager.play).toHaveBeenCalledWith('over');
+      // A turn-cap draw still builds a reviewable replay (HISTORY button works). This is the
+      // `|| drawReason` branch in triggerGameOver — without it, currentReplay would be null.
+      expect(store.getState().currentReplay).toBeTruthy();
     });
 
     it('does not cap a game still under the turn budget', async () => {
@@ -925,6 +935,38 @@ describe('GameController', () => {
 
       expect(store.getState().screen).not.toBe('gameOver');
       expect(store.getState().gameOverReason ?? null).toBeNull();
+    });
+
+    it('caps an AI-vs-AI (spectator) game via the AI turn loop, not just endHumanTurn', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      // Spectator: no human, so the ONLY route to endTurn is runAITurn → endTurn — the
+      // path that actually hangs. This proves the cap stops that loop (the real stall),
+      // not merely the human END TURN button.
+      await controller.startNewGame({ playerCount: 2, spectator: true });
+
+      /*
+       * Arm the mock BEFORE acceptMap: acceptMap kicks off the AI turn synchronously
+       * (mocked runAI returns null → the AI immediately ends its turn), so the first
+       * applyAction(END_TURN) is the AI's. It pushes turnsTaken to the cap with no winner.
+       */
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          return { ...state, phase: 'playing', winner: null, turnsTaken: MAX_GAME_TURNS };
+        }
+        return state;
+      });
+
+      controller.acceptMap();
+      // Settle the async AI chain; the cap must END the game, not reschedule another turn.
+      for (let i = 0; i < 5; i++) {
+        await vi.runAllTimersAsync();
+        await flushPromises();
+      }
+
+      expect(store.getState().screen).toBe('gameOver');
+      expect(store.getState().gameOverReason).toBe('turnLimit');
+      expect(store.getState().gameState.winner).toBeNull();
     });
   });
 

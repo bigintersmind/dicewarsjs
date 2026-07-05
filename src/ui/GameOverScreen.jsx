@@ -67,6 +67,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate }) {
   const prefs = useGameStore(store, s => s.preferences);
   const humanPlayerIndex = useGameStore(store, s => s.humanPlayerIndex);
   const humanEliminated = useGameStore(store, s => s.humanEliminated);
+  const gameOverReason = useGameStore(store, s => s.gameOverReason);
   if (!gameState) return null;
 
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
@@ -85,6 +86,9 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate }) {
     subtitle = 'You were eliminated!';
   } else if (winner !== null) {
     subtitle = `Player ${winner + 1} wins!`;
+  } else if (gameOverReason === 'turnLimit') {
+    // No conquest before the turn cap — an AI-vs-AI stalemate ended as a draw.
+    subtitle = 'Draw — turn limit reached';
   }
 
   return (

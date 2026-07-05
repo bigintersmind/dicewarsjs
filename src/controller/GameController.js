@@ -26,6 +26,23 @@ import { resolveMapSize } from '../utils/config.js';
 const COMMUNITY_PREFIX = 'community:';
 
 /**
+ * Hard turn budget for a browser game, counted in completed player-turns
+ * (`state.turnsTaken`). The engine only ends a game on total conquest (active ≤ 1) — it
+ * has no natural draw — and, unlike the headless drivers, the browser loop
+ * (endTurn → startTurn) has no built-in bound. So an AI-vs-AI free-for-all where the
+ * leader turtles behind maxed 8-dice borders would hang forever.
+ *
+ * Set below the headless stalemate cap (matchRunner `DEFAULT_MAX_TURNS` / GameRunner
+ * `maxTurns` = 500): a browser game is watched turn-by-turn with animation, so a stalled
+ * board should be called a draw well before a headless batch run would bother. 300
+ * player-turns (~43 rounds of a 7-player game) still comfortably clears any genuinely
+ * decisive game — a game that reaches it is stalled — while ending a hang in a fraction
+ * of the wait. A game drawn here is a strict subset of what the arena scores a stalemate
+ * (300 < 500). Exported so the boundary tests read the same source of truth.
+ */
+export const MAX_GAME_TURNS = 300;
+
+/**
  * Resolve a single per-slot assignment id to an engine-callable AI function.
  * Community ids (prefixed `community:`) are compiled and reverse-adapted so the
  * in-game loop can drive them; everything else is a built-in strategy id.
@@ -658,15 +675,21 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * (vs. the game actually ending), build a replay for completed games,
    * optionally play a celebration, then show the gameOver screen.
    */
-  async function triggerGameOver(state) {
+  async function triggerGameOver(state, { drawReason = null } = {}) {
     const humanIdx = store.getState().humanPlayerIndex;
     const humanEliminated =
       humanIdx !== null &&
       state.players[humanIdx]?.eliminated === true &&
       state.phase !== GAME_PHASES.GAME_OVER;
 
-    // Only build replay for completed games (not partial on human elimination)
-    const replay = state.phase === GAME_PHASES.GAME_OVER ? buildGameReplay(state) : null;
+    /*
+     * Build a replay for any game the player can meaningfully review: a completed game
+     * (someone conquered the board) or a turn-cap draw (finished, if inconclusive). Skip
+     * it only for a mid-game human elimination, where the game is still running for the
+     * remaining AIs (phase stays 'playing', no drawReason).
+     */
+    const replay =
+      state.phase === GAME_PHASES.GAME_OVER || drawReason ? buildGameReplay(state) : null;
 
     if (renderer && state.winner !== null && !isReducedMotion()) {
       try {
@@ -680,6 +703,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       screen: 'gameOver',
       currentReplay: replay,
       humanEliminated,
+      gameOverReason: drawReason,
     });
     if (soundManager) soundManager.play('over');
   }
@@ -813,6 +837,16 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     if (nextState.phase === GAME_PHASES.GAME_OVER) {
       await triggerGameOver(nextState);
+      return;
+    }
+
+    /*
+     * Turn-cap draw. The engine never ends a game short of total conquest, so a stalled
+     * AI-vs-AI board (leaders turtling behind maxed 8-dice borders) would loop forever.
+     * On reaching MAX_GAME_TURNS with no winner, end it as a draw.
+     */
+    if (nextState.turnsTaken >= MAX_GAME_TURNS) {
+      await triggerGameOver(nextState, { drawReason: 'turnLimit' });
       return;
     }
 

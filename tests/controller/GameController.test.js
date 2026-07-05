@@ -6,7 +6,7 @@
  * handling, AI turn execution, and error recovery.
  */
 
-import { createGameController } from '../../src/controller/GameController.js';
+import { createGameController, MAX_GAME_TURNS } from '../../src/controller/GameController.js';
 import { createGameStore } from '../../src/store/GameStore.js';
 
 /*
@@ -871,6 +871,60 @@ describe('GameController', () => {
 
       expect(store.getState().screen).toBe('gameOver');
       expect(soundManager.play).toHaveBeenCalledWith('over');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * turn-cap draw (browser stalemate guard)
+   *
+   * The engine only ends a game on total conquest, so a stalled AI-vs-AI board would
+   * loop forever in the browser. endTurn caps the game at MAX_GAME_TURNS completed
+   * player-turns (state.turnsTaken) and ends it as a draw (winner null).
+   * -----------------------------------------------------------------------
+   */
+
+  describe('turn-cap draw', () => {
+    it('ends the game as a draw when END_TURN reaches the turn cap with no winner', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      // END_TURN pushes turnsTaken to the cap with no winner, game still 'playing'.
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          return { ...state, phase: 'playing', winner: null, turnsTaken: MAX_GAME_TURNS };
+        }
+        return state;
+      });
+
+      await controller.endHumanTurn();
+
+      expect(store.getState().screen).toBe('gameOver');
+      expect(store.getState().gameOverReason).toBe('turnLimit');
+      expect(store.getState().gameState.winner).toBeNull();
+      expect(soundManager.play).toHaveBeenCalledWith('over');
+    });
+
+    it('does not cap a game still under the turn budget', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      // One below the cap → the game must keep running, not jump to gameOver.
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          return { ...state, phase: 'playing', winner: null, turnsTaken: MAX_GAME_TURNS - 1 };
+        }
+        return state;
+      });
+
+      await controller.endHumanTurn();
+
+      expect(store.getState().screen).not.toBe('gameOver');
+      expect(store.getState().gameOverReason ?? null).toBeNull();
     });
   });
 

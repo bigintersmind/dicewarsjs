@@ -71,11 +71,10 @@ for (const bot of previousLeaderboard.bots) {
 
 /*
  * The field is the player-visible built-in roster (the hidden dev-harness nets
- * BC/PPO are excluded, so they never surface on the public leaderboard and the
- * PPO/Conqueror duplicate collapses to just Conqueror) plus every active
- * community bot, author-namespaced so a community name can't collide with a
- * first-party built-in (e.g. the "Blitz" persona vs. the community "Blitz").
- * See scripts/lib/tournament-field.mjs.
+ * BC/PPO are excluded, so they never surface on the public leaderboard) plus
+ * every active community bot, author-namespaced so a community name can't
+ * collide with a first-party built-in (e.g. the "Blitz" persona vs. the
+ * community "Blitz"). See scripts/lib/tournament-field.mjs.
  */
 let registry = [];
 if (fs.existsSync(REGISTRY_PATH)) {

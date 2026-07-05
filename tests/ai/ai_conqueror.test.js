@@ -1,18 +1,21 @@
 /**
  * Conqueror persona bot — the balanced, win-maximizing self-play net (the player-facing
- * flagship). Conqueror ships the `ppo-long` weights under a friendly name, so its numeric
- * parity is covered by tests/ai/ppoForward.test.js. This file covers the wiring that makes
- * Conqueror *playable*: legal moves on a real BotState, that the in-game aiConfig path
- * reverse-adapts it so runAI drives it without throwing (the "modern bot on the legacy
- * path throws every turn" trap), and that its raw arena registration runs its policy.
+ * flagship). Conqueror ships the [D-31] encoding-v3 net (`ppo-v3-scratch`) in its own
+ * weights file, so its numeric parity is covered by tests/ai/conquerorForward.test.js.
+ * This file covers the wiring that makes Conqueror *playable*: legal moves on a real
+ * BotState, that it runs the intended weights (not another net's), that the in-game
+ * aiConfig path reverse-adapts it so runAI drives it without throwing (the "modern bot
+ * on the legacy path throws every turn" trap), and that its raw arena registration runs
+ * its policy.
  */
 import { createGame } from '../../src/engine/GameRunner.js';
 import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
 import { GAME_PHASES } from '../../src/engine/constants.js';
 import { runAI } from '../../src/engine/AIAdapter.js';
 import { ai_conqueror } from '../../src/ai/ai_conqueror.js';
-import { ai_bc } from '../../src/ai/ai_bc.js';
+import { ai_bc, makeBC } from '../../src/ai/ai_bc.js';
 import { ai_ppo } from '../../src/ai/ai_ppo.js';
+import { BC_POLICY as CONQUEROR_POLICY } from '../../src/ai/conquerorPolicyWeights.js';
 import { getAIImplementation } from '../../src/ai/aiConfig.js';
 import { createBotState } from '../../src/arena/botState.js';
 import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
@@ -55,9 +58,9 @@ describe('ai_conqueror bot', () => {
 
   it('plays a neural policy, not the BC clone', () => {
     /*
-     * Conqueror is makeBC({ policy: CONQUEROR_POLICY }) over the ppo-long weights. If that
-     * import were fat-fingered to bcPolicyWeights, every other test here would still pass —
-     * silently shipping the BC clone under the "Conqueror" name. The ppo-long and BC nets
+     * Conqueror is makeBC({ policy: CONQUEROR_POLICY }) over the encoding-v3 weights. If
+     * that import were fat-fingered to bcPolicyWeights, every other test here would still
+     * pass — silently shipping the BC clone under the "Conqueror" name. The v3 and BC nets
      * diverge on many boards, so assert they differ on at least one initial state.
      */
     const choiceKey = m => (m === null ? 'STOP' : moveKey(m));
@@ -72,23 +75,46 @@ describe('ai_conqueror bot', () => {
     expect(diverged).toBe(true);
   });
 
-  it('IS the ppo-long net — identical moves to ai_ppo on every board ([D-27])', () => {
+  it('IS the encoding-v3 net — matches its own weights file move-for-move ([D-31] §5)', () => {
     /*
      * The not-BC divergence test above only rules out a fat-finger to bcPolicyWeights;
-     * a slip to blitz/survivorPolicyWeights would produce a *different* net that still
-     * diverges from BC, silently shipping the wrong persona's weights under the flagship
-     * "Conqueror" name. Conqueror's identity is that it reuses the ppo-long weights (both
-     * import ppoPolicyWeights.js), so it must match ai_ppo move-for-move — the positive
-     * assertion that actually pins the intended weights.
+     * a slip to ppo/blitz/survivorPolicyWeights would produce a *different* net that
+     * still diverges from BC, silently shipping the wrong weights under the flagship
+     * "Conqueror" name. Pin the identity positively: a policy built here directly from
+     * conquerorPolicyWeights.js must match ai_conqueror move-for-move. (The weights file
+     * itself is pinned to the Python reference by conquerorForward.test.js, so together
+     * these anchor the bot to the exact gated checkpoint.)
      */
+    expect(CONQUEROR_POLICY.encodingVersion).toBe(3);
+    const reference = makeBC({ policy: CONQUEROR_POLICY });
     const choiceKey = m => (m === null ? 'STOP' : moveKey(m));
     for (let seed = 1; seed <= 60; seed++) {
       const state = createGame({ seed, playerCount: 7 });
       if (getValidMoves(state).length === 0) continue;
       const me = state.turnOrder[state.currentPlayerIndex];
       const botState = createBotState(state, me);
-      expect(choiceKey(ai_conqueror(botState))).toBe(choiceKey(ai_ppo(botState)));
+      expect(choiceKey(ai_conqueror(botState))).toBe(choiceKey(reference(botState)));
     }
+  });
+
+  it('is NOT the ppo-long alias anymore — diverges from ai_ppo ([D-31] §5)', () => {
+    /*
+     * Until 2026-07-05 Conqueror aliased ppoPolicyWeights.js, and this suite asserted
+     * move-for-move identity with ai_ppo. The v3 ship inverts that contract: ai_ppo
+     * keeps the frozen v2 ppo-long weights as the gate baseline while Conqueror ships
+     * the v3 net — a regression to the old shared import would make them identical
+     * again, so assert they diverge on at least one initial state.
+     */
+    const choiceKey = m => (m === null ? 'STOP' : moveKey(m));
+    let diverged = false;
+    for (let seed = 1; seed <= 60 && !diverged; seed++) {
+      const state = createGame({ seed, playerCount: 7 });
+      if (getValidMoves(state).length === 0) continue;
+      const me = state.turnOrder[state.currentPlayerIndex];
+      const botState = createBotState(state, me);
+      if (choiceKey(ai_conqueror(botState)) !== choiceKey(ai_ppo(botState))) diverged = true;
+    }
+    expect(diverged).toBe(true);
   });
 
   it('drives a full game as a seat without throwing', () => {

@@ -21,6 +21,46 @@ Entry template:
 
 ---
 
+## 2026-07-05 (later) — v3 net SHIPPED as Conqueror ([D-31] §5): packed export → `conquerorPolicyWeights.js`, PPO baseline untouched
+
+**Phase:** rollout ([D-31] §5) · **Who:** Claude (Ivan-approved; merge Ivan-gated)
+
+**Did:**
+
+- Ivan closed out the run ops first: schtasks `dicewars-ppo-v3-scratch` deleted; `{ppo.pt, eval/,
+RUN_COMMIT, launcher.log}` backed up to the mini (`~/dicewarsjs/ml/runs/ppo-v3-scratch/`,
+  sha256-verified) — the first off-shodan copy of the strongest net + the Wave-1 warm-start source.
+- Exported `ml/runs/ppo-v3-scratch/ppo.pt` on shodan (repo clean at the run's pinned `464a2ee`) →
+  packed `src/ai/conquerorPolicyWeights.js` (103,779 params) + `tests/fixtures/bc/
+conquerorForwardCases.json`; pulled both (sha256 match), left shodan's checkout clean.
+- **Provenance check:** all 103,779 floats of the shipped packed export are **bit-identical** to
+  `eval-020004864.weights.js` — the exact artifact every §4 bar was gated on (maxAbsDiff 0).
+- Rewired `ai_conqueror.js` off the `ppoPolicyWeights.js` alias onto its own file; `ai_ppo` keeps
+  the frozen v2 `ppo-long` weights as the `ppo:gate` bar. New `npm run conqueror:export` pinned to
+  the v3 checkpoint. New `conquerorForward.test.js` (JS↔Python parity, asserts `encodingVersion 3`).
+- Test contract inverted deliberately: the old "Conqueror IS ppo-long — identical to `ai_ppo`
+  move-for-move" test became (a) a positive pin to `conquerorPolicyWeights.js` move-for-move and
+  (b) a **divergence** assertion vs `ai_ppo` (a regression to the shared import must now fail).
+- Stale "Conqueror = ppo-long" prose swept: `builtInBots.js`, `aiConfig.js` (Conqueror is now the
+  strongest net overall, not Survivor), root `CLAUDE.md`, PERSONAS pilot blockquote, README status.
+- Two review agents (determinism + AI-contract) on the diff converged on one functional catch:
+  `ml-roundrobin.mjs`'s "PPO ≡ Conqueror same-weights" calibration probe — its premise dies with
+  this ship (the Δ is now a real ~+6 pp strength signal), so an adequately-powered `arena:ml`
+  would deterministically print a false "harness defect" WARN. **Probe removed** (no same-weights
+  pair exists anymore); four sibling scripts' stale "duplicate policy" comments swept.
+
+**Learned / decided:**
+
+- End-to-end strength smoke on the shipped artifact itself (default `ppo:gate`, candidate =
+  `conquerorPolicyWeights.js`): **BEAT vs Lookahead +32.0 ± 1.6 pp [30.4, 33.7]** (37.9% vs 5.9%,
+  3060 games) — consistent with the eval-checkpoint's +33.9 [32.2, 35.5] (bit-identical weights;
+  the drift is unseeded-field noise). The packed module plays at the gated strength; the §4
+  verdicts remain the record. Log: shodan `ml/runs/_eval_logs/v3-scratch.20M.ship-smoke.log`.
+
+**Next:**
+
+- PR merge (Ivan-gated), then Wave-0 remainder ([D-29] scorer first) → Wave-1 warm-starts.
+
 ## 2026-07-05 — `ppo-v3-scratch` COMPLETE → ALL [D-31] §4 bars PASS: primary (encoding A/B) +6.1 h2h over `ppo-scratch-long`, ship +5.5 h2h over Survivor — the v3 net is the new strongest; ships as Conqueror
 
 **Phase:** 3 → rollout ([D-31] §5) · **Who:** Claude (Ivan away; results check requested)

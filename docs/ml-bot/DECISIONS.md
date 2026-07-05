@@ -2014,3 +2014,11 @@ head-to-head **+5.5 ± 1.7 pp [3.8, 7.2]** (initial +3.5 [1.2, 5.8]); floor vs L
 bars were run via the PERSONAS §10.7 Wave-0 item-4 loader (`ppo:gate --bar Name=weights.js`,
 landed 2026-07-05). Full tables: `RESULTS.md` (2026-07-05 section); logs archived to shodan
 `ml/runs/_eval_logs/v3-scratch.20M.*`.
+
+**§5 executed (2026-07-05, later that session).** `ppo.pt` packed-exported to
+`src/ai/conquerorPolicyWeights.js` (verified bit-identical to the gated `eval-020004864`
+checkpoint — all 103,779 floats, maxAbsDiff 0), `ai_conqueror` rewired off the `ppo-long` alias
+onto its own weights file (`npm run conqueror:export` pins the source checkpoint), and the old
+"identical to `ai_ppo`" identity test inverted into a divergence guard. `ai_ppo` keeps the frozen
+v2 `ppo-long` weights as the `ppo:gate` bar, exactly as specified above. Checkpoint + eval stream
+backed up off-shodan to the mini; the training schtasks entry is deleted.

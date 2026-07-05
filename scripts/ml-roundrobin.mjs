@@ -23,10 +23,11 @@
  * often the whole story: a survival-tuned net can top the placement/ELO table while a
  * finisher tops outright wins. This harness surfaces both so the split is visible.
  *
- * Calibration probe: `PPO` and `Conqueror` ship the SAME weights (Conqueror = ppo-long under
- * a friendly name). Include both and their paired Δ should sit on ~0 within CI — a built-in
- * check that the sweep is actually seat-fair and has enough samples. A large PPO-vs-Conqueror
- * gap means the run is under-powered or the seat balancing is off, not a real strength signal.
+ * (Historical note: this harness used to print a "PPO ≡ Conqueror" calibration line — the two
+ * shipped identical weights, so their paired Δ sitting on ~0 was a free seat-fairness check.
+ * The [D-31] §5 ship ended that aliasing (Conqueror now runs the encoding-v3 net and really is
+ * ~+6 pp stronger), so the probe was removed: no same-weights pair exists to calibrate against.
+ * If one ever exists again, resurrect the pairedDelta block that lived after the pairwise table.)
  *
  * Usage:
  *   npm run arena:ml                                   # 5 ML bots, 25 runs x 24 seeds x 5 rot
@@ -260,24 +261,6 @@ for (const p of pairs) {
   const d = `${p.mean >= 0 ? '+' : ''}${p.mean.toFixed(1)} ± ${p.ci.toFixed(1)} pp`;
   const flag = p.sig ? 'SIG' : '~ns';
   console.log(`  ${flag}  ${p.a} − ${p.b}: ${d}  [${p.lo.toFixed(1)}, ${p.hi.toFixed(1)}]`);
-}
-
-/*
- * Calibration: PPO and Conqueror ship identical weights, so their Δ should sit on ~0. Note
- * cyclic rotation equalizes ABSOLUTE seat/turn-order (the dominant, territory-by-seat effect)
- * but not the RELATIVE opponent permutation — each bot sits at a fixed field offset, so PPO and
- * Conqueror face slightly different lineups per run. That residual averages toward 0 over many
- * runs (so a spanning CI is the pass), but it means a marginal WARN can be benign residual +
- * under-power, not necessarily a harness defect.
- */
-if (field.some(b => b.name === 'PPO') && field.some(b => b.name === 'Conqueror')) {
-  const cal = pairedDelta(winPct.PPO, winPct.Conqueror);
-  const ok = cal.lo <= 0 && cal.hi >= 0;
-  console.log(
-    `\nCalibration (PPO ≡ Conqueror, same weights): Δ ${cal.mean >= 0 ? '+' : ''}` +
-      `${cal.mean.toFixed(1)} ± ${cal.ci.toFixed(1)} pp [${cal.lo.toFixed(1)}, ${cal.hi.toFixed(1)}] ` +
-      `→ ${ok ? 'OK (CI spans 0, seat-fair holds)' : 'WARN (CI excludes 0 — add runs; residual seating/under-power)'}`
-  );
 }
 
 /*

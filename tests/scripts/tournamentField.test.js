@@ -5,8 +5,7 @@
  *
  * Guards the two foot-guns that motivated extracting it:
  *  1. **No hidden dev nets on the public board.** The field is the player-visible
- *     roster, so `BC`/`PPO` never appear (and the PPO/Conqueror weight duplicate
- *     collapses to just Conqueror).
+ *     roster, so `BC`/`PPO` never appear.
  *  2. **No name collisions.** `runArena`/`runRoundRobin` throw on duplicate names.
  *     A first-party built-in and a community bot can share a bare name — e.g. the
  *     "Blitz" persona and a (hypothetical) community "Blitz". This exact clash is

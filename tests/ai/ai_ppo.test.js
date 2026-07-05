@@ -3,8 +3,9 @@
  *
  * PPO reuses ai_bc's machinery (forward pass + encoder), so the numeric parity is
  * already covered by tests/ai/ppoForward.test.js. PPO is no longer a player-facing
- * in-game pick — it's a hidden dev-harness baseline (the player-facing Conqueror persona
- * ships the same weights), so the in-game aiConfig adaptation is covered by the persona
+ * in-game pick — it's a hidden dev-harness baseline whose v2 `ppo-long` weights stay
+ * frozen as the `ppo:gate` bar (since the [D-31] v3 ship, Conqueror runs newer weights),
+ * so the in-game aiConfig adaptation is covered by the persona
  * tests (tests/ai/ai_conqueror.test.js). This file covers the wiring that keeps PPO
  * usable as an arena/harness bot: that it returns legal moves on a real BotState and that
  * its raw arena registration actually runs its policy.

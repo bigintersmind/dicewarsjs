@@ -291,6 +291,127 @@ export function compareToControl(personaRuns, controlRuns) {
 }
 
 /**
+ * One-sided p-value that the paired self-difference on one axis lies BEYOND the ±tol floor, in the
+ * observed direction — the per-axis test whose Holm-corrected family drives the BIASED verdict in
+ * {@link signatureNoiseFloor}.
+ *
+ * A degenerate zero paired SE (identical diffs across every kept run — reachable on quantized axes at
+ * small n) has no t statistic and its CI collapses to the point Δ; judging |Δ| against tol there is
+ * exactly the raw point test the equivalence criterion exists to avoid. So cap the evidence at the
+ * sign-agreement permutation bound 2⁻ⁿ (never 0), mirroring {@link oneSidedP}: n identical
+ * beyond-tol diffs carry at most P(all n agree | symmetric null) = 2⁻ⁿ — so a collapsed CI can't
+ * masquerade as a tight interval beyond the floor, yet the bound still tightens as n grows (8
+ * identical beyond-tol diffs → 2⁻⁸ ≈ 0.004, Holm-significant; 3 → 2⁻³ = 0.125, not).
+ */
+function pBeyondFloor(cmp, tol) {
+  const excess = Math.abs(cmp.delta) - tol;
+  if (cmp.se === 0) return excess > 0 ? 2 ** -cmp.n : 1;
+  return tSf(excess / cmp.se, cmp.n - 1);
+}
+
+/**
+ * Negative control 1 (PERSONAS §10.5): an A/A self-comparison — the SAME policy profiled twice at
+ * the SAME seeds — must show |Δ| < MDE/`divisor` on every registered {@link SIGNATURE_AXES}, or the
+ * profiling harness has a bias (or is underpowered) and persona grading must HALT. The registered
+ * `divisor` is 3: the harness's own noise floor on a signature axis must sit comfortably (3×) below
+ * the smallest effect that axis's signature claims to detect, else an effect measured at exactly its
+ * MDE could be mostly harness noise. Only signature axes gate — descriptive axes carry more of that
+ * noise and are never the halt criterion.
+ *
+ * The two arms share map seeds, so the paired Δ CANCELS map variance and isolates the residual noise
+ * the paired signature gate itself can't cancel — the heuristic opponents' unseeded Math.random (the
+ * same "unseeded-opponent" noise NC2's test-retest measures on the strength metric). A same-policy
+ * A/A therefore has E[Δ] = 0; each realized Δ is a random draw of that residual noise, and
+ * {@link compareAxis}'s paired CI narrows at feasible run counts (a disjoint-seed A/A would re-inject
+ * full map variance).
+ *
+ * Criterion — the registered "|Δ| < MDE/divisor" made statistically sound (EVAL_HARNESS §3.6/§3.9
+ * "As built"). Two refinements keep a *stochastic* A/A from crying wolf while still catching a real
+ * (systematic) harness bug:
+ *   1. Equivalence, not a raw point test. Judging |Δ| against the floor false-halts a winners-only,
+ *      high-variance axis (turnsToWin's per-run swings ≫ tol at feasible run counts even when the
+ *      TRUE self-difference is 0). So an axis CERTIFIES only when its paired 95% CI ⊆ (−tol, +tol).
+ *   2. Holm-corrected BIASED. Declaring bias from one stochastic A/A is a hypothesis test; run
+ *      per-axis at the CI's ~5% it false-fires ~1-in-11 across the five signature axes, and it
+ *      DEGENERATES back to the point test (1) removed when a small-n CI collapses (identical
+ *      quantized diffs → SE 0 → zero-width CI). So BIASED requires a Holm-significant (family-wise
+ *      `alpha`) "self-difference beyond ±tol" p-value ({@link pBeyondFloor}, which caps a zero-SE CI
+ *      at the 2⁻ⁿ sign-agreement bound, never 0). A systematic bug's Δ has a t that grows with n and
+ *      survives Holm; sampling noise does not.
+ *   • CERTIFIED  — CI ⊆ (−tol, +tol): the true self-difference is provably within the floor.
+ *   • BIASED     — Holm-significant beyond-±tol evidence → this axis HALTS the batch.
+ *   • INCONCLUSIVE — neither: no Holm-significant bias, but too thin to certify ("add runs").
+ * Only BIASED halts (`pass` = no BIASED axis); INCONCLUSIVE / NO DATA never halt — a thin A/A must
+ * never read as a clean bill (`certified` = every axis CERTIFIED). The family-wise false-HALT rate is
+ * ≤ `alpha` and → 0 as runs grow, so a true-null A/A CLEARs with high probability — NOT a guaranteed
+ * CLEAR, which is why the exit-2 CLI path is exercised by a deterministic probe failure, not the A/A.
+ * `divisor` (registered 3): the floor sits 3× below the smallest effect a signature claims, so an
+ * effect at exactly its MDE can't be mostly harness noise.
+ *
+ * @param {Array<Record<string,number|null>>} armA - reduceRun() per run, arm A (the base's pass 1)
+ * @param {Array<Record<string,number|null>>} armB - the SAME policy's pass 2 over the SAME seeds
+ * @param {Record<string,number>} mde - per-axis absolute MDEs (DEFAULT_MDE + any --mde overrides)
+ * @param {{ divisor?:number, axes?:string[], alpha?:number }} [opts]
+ * @returns {{ pass:boolean, certified:boolean, divisor:number, alpha:number, axes:Array<object>, biased:string[], inconclusive:string[], noData:string[] }}
+ */
+export function signatureNoiseFloor(
+  armA,
+  armB,
+  mde,
+  { divisor = 3, axes = SIGNATURE_AXES, alpha = 0.05 } = {}
+) {
+  const rows = axes.map(axis => {
+    const base = mde[axis];
+    if (base == null) {
+      throw new Error(`signatureNoiseFloor: no MDE registered for signature axis "${axis}".`);
+    }
+    const tol = base / divisor;
+    const cmp = compareAxis(
+      armA.map(r => r[axis]),
+      armB.map(r => r[axis])
+    );
+    return { axis, tol, cmp };
+  });
+  // Holm step-down over the "self-difference beyond ±tol" tests — one per signature axis, the
+  // registered family size (a NO-DATA axis stays in the family as a null p and can never reject), so
+  // a single stochastic A/A can't false-HALT above the family-wise `alpha` (§3.9 "As built").
+  const holm = new Map(
+    holmAdjust(
+      rows.map(({ axis, tol, cmp }) => ({
+        name: axis,
+        p: cmp == null ? null : pBeyondFloor(cmp, tol),
+      })),
+      { alpha, familySize: axes.length }
+    ).map(h => [h.name, h])
+  );
+  const results = rows.map(({ axis, tol, cmp }) => {
+    if (cmp == null) {
+      // Fewer than 2 paired runs (both arms null, or a winners-only axis too sparse). Unmeasured —
+      // not evidence of bias, but not certifiable either: reported as NO DATA, does not halt.
+      return { axis, delta: null, ci: null, lo: null, hi: null, n: 0, tol, verdict: 'NO DATA' };
+    }
+    const { delta, ci, lo, hi, n } = cmp;
+    let verdict;
+    if (holm.get(axis).reject)
+      verdict = 'BIASED'; // Holm-significant beyond-±tol self-difference: a real harness bug
+    else if (lo > -tol && hi < tol)
+      verdict = 'CERTIFIED'; // CI ⊆ (−tol, tol): floor certified clean
+    else verdict = 'INCONCLUSIVE'; // neither: no Holm-significant bias, just too thin to certify
+    return { axis, delta, ci, lo, hi, n, tol, verdict };
+  });
+  return {
+    pass: results.every(r => r.verdict !== 'BIASED'),
+    certified: results.every(r => r.verdict === 'CERTIFIED'),
+    divisor,
+    alpha,
+    axes: results,
+    biased: results.filter(r => r.verdict === 'BIASED').map(r => r.axis),
+    inconclusive: results.filter(r => r.verdict === 'INCONCLUSIVE').map(r => r.axis),
+    noData: results.filter(r => r.verdict === 'NO DATA').map(r => r.axis),
+  };
+}
+
+/**
  * One-sided p-value of a paired axis comparison in the REGISTERED direction: P(T ≥ t) for
  * 'HIGHER', P(T ≤ t) for 'LOWER', with t = delta/se at df = n − 1. A zero paired SE (identical
  * diffs across every run — reachable on quantized axes at small kept-n) has no t statistic;
@@ -484,6 +605,17 @@ export const PERSONA_SIGNATURES = {
  * (Declared after the registry: the initializer runs at module evaluation.)
  */
 export const SIGNATURE_FAMILY_SIZE = Object.keys(PERSONA_SIGNATURES).length;
+
+/**
+ * The distinct axes that appear in ANY registered persona signature — the axes the A/A negative
+ * control ({@link signatureNoiseFloor}) holds to the MDE/3 noise floor. Derived from
+ * {@link PERSONA_SIGNATURES} (deduped, registry order) so it can never drift from the family:
+ * aggression + turnsToWin (Blitz), avgTerritory (Expansionist), kills (Predator), avgPlacement
+ * (Survivor). Descriptive axes are deliberately excluded — only a signature axis can halt a batch.
+ */
+export const SIGNATURE_AXES = [
+  ...new Set(Object.values(PERSONA_SIGNATURES).flatMap(s => s.axes.map(a => a.axis))),
+];
 
 /**
  * Per-axis MDEs (§3.2) — the minimum effect a persona signature must clear to count.

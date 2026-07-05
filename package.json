@@ -28,6 +28,7 @@
     "arena:bc-stopbias": "node scripts/bc-stopbias-sweep.mjs",
     "behavior:profile": "node scripts/behavior-profile.mjs",
     "behavior:separation": "node scripts/behavior-separation.mjs",
+    "behavior:preflight": "node scripts/behavior-preflight.mjs",
     "new-bot": "node scripts/new-bot.mjs",
     "validate-bot": "node scripts/validate-bot.mjs",
     "benchmark-bot": "node scripts/benchmark-bot.mjs",

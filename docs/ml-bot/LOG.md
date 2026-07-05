@@ -21,6 +21,77 @@ Entry template:
 
 ---
 
+## 2026-07-05 (late night) — Wave-0 item 5: the launch pre-flight + negative controls 1–2 (`behavior:preflight`)
+
+**Phase:** Wave-0 eval builds (PERSONAS §10.7 item 5) · **Who:** Claude (PR merge Ivan-gated)
+
+**Did:**
+
+- **Extracted the sweep** to `scripts/lib/behavior-sweep.mjs` (`sweepBot`) — `behavior:profile` now
+  drives it (byte-identical seed schedule, its tests unchanged) so NC1's A/A profiles the base
+  through the IDENTICAL path personas are graded on (a re-implementation would test a copy).
+- **`signatureNoiseFloor`** in `behavior-core.mjs` + `SIGNATURE_AXES` (deduped union of every
+  `PERSONA_SIGNATURES` axis): the NC1 A/A gate.
+- **`behavior:preflight`** (`scripts/behavior-preflight.mjs`, new CLI): (1) #97 probe pre-flight —
+  loads + parity-checks a fixtured `eval-*.weights.js` end-to-end AND asserts a fixture-LESS load is
+  rejected loud (the snapshot guard); (2) NC1 A/A signature noise floor; (3) NC2 reader for
+  `ppo:curve --test-retest`'s recorded spread. Exit 0/1/2, closed flag inventory (repeated-flag +
+  trailing-value guards), `--json`.
+- **Live proof on the real v3 base** (pulled `eval-020004864.{weights.js,fixture.json}` off the
+  mini): probe pre-flight ✓ (103,779 params, parity 3.0e-4; fixture-less rejected); NC1 CLEARs (no
+  harness bias) at n=8×15.
+- **Tests +39** (1518 → 1557): `signatureNoiseFloor` unit coverage (every verdict + the zero-SE
+  degeneracy guard at n=4 vs. evidence accruing at n=8 + the Holm family correction), a mock-`runMatch`
+  `behavior-sweep` suite (seed schedule + tally), and a `behavior:preflight` CLI suite. Docs:
+  EVAL_HARNESS §3.9 "As built" + Public API + CLI + §7 + §10; PERSONAS §10.5/§10.7 annotations;
+  README status; this entry.
+
+**Learned / decided:**
+
+- **The A/A must share seeds, not use disjoint blocks.** First cut used disjoint seed blocks (arm A
+  offset 0, arm B offset `runCount`); the live v3-base A/A then false-HALTed (aggression |Δ| 0.18 >
+  tol 0.10) because disjoint blocks carry full MAP variance. The right design: BOTH arms at the SAME
+  seeds — the base is deterministic and maps are seeded, so the paired Δ cancels map variance and
+  isolates the heuristic opponents' unseeded-`Math.random` noise (§3.6), which is exactly the noise
+  the paired signature GATE also can't cancel (and what NC2's test-retest measures on strength).
+  Shared seeds ⇒ aggression |Δ| dropped to ~0.02 (CERTIFIED). The `seedOffset` param was removed.
+- **The registered "|Δ| < MDE/3" needed a statistical refinement (ratify).** The raw point estimate
+  false-halts a winners-only, high-variance axis — the live A/A measured `turnsToWin` Δ ≈ −4.7 ± 9.1
+  (tol 1.667), pure noise (CI spans 0), needing ~160 runs to get |Δ| under tol. So NC1 CERTIFIES an
+  axis only when its paired 95% CI ⊆ ±tol (equivalence), and — after the review below — **BIASED (the
+  HALT) requires Holm-significant (family-wise α) evidence beyond ±tol**, not just a single CI
+  clearing the band. Same "within the floor?" question, but a bias is separated from sampling
+  noise. A true-null self-A/A CLEARs with high probability (family-wise false-HALT ≤ α, → 0 as runs
+  grow) — which is why the exit-2 CLI test uses the deterministic probe-failure, not the A/A.
+- The heuristic opponents (`ai_default`/`ai_example`/`ai_adaptive`) use unseeded `Math.random`, so
+  `runMatch` is NOT bit-deterministic at a fixed seed — the documented "unseeded-opponent noise
+  floor." The sweep tests mock `runMatch` to pin the seed schedule deterministically instead.
+
+**Dead ends / surprises:**
+
+- **The pre-PR adversarial review (8 agents, 3 lenses) caught that the first equivalence cut still
+  cried wolf.** Two confirmed "important" findings, one root cause: the CI-only "beyond ±tol" BIASED
+  rule (a) false-fired ~9% on a true-null A/A across the 5-axis family (uncorrected multiplicity),
+  and (b) DEGENERATED back to the raw |Δ|-vs-tol point test when a small-n CI collapses (identical
+  quantized diffs → SE 0 → zero-width CI). Both are the exact failure mode the equivalence refinement
+  claimed to have solved. **Fix:** BIASED now needs a Holm-corrected, family-wise-α "beyond ±tol"
+  p-value, with a zero-SE CI capped at the 2⁻ⁿ sign-agreement bound (never 0). Empirically the
+  pathological runs=3/games=4 false-HALT fell **~9% → 3%** (200-trial repro), ≈0 at the operational
+  n=8 — but 3% is still nonzero, so the live-A/A CLI test now asserts only deterministic invariants
+  (never `pass`, which would flake CI ~1-in-33); the true-null-CLEARs property is pinned in the unit
+  layer. A systematic bug's t grows with n and survives Holm; sampling noise does not.
+- Minor review finds also fixed: `--runs`/`--games` used lenient `parseInt` (silently truncated
+  `10,000`→10, under-powering the gate) → strict `Number()` matching `--divisor`; the LOG test count
+  was stale.
+
+**Next:**
+
+- PR (Ivan-gated). Then item 6 (3-arm throughput probe, shodan — Ivan-gated launch). Then Wave-1
+  persona retrains warm-started from `ppo-v3-scratch/ppo.pt`.
+- NC3 (control-vs-base signatures) is built into the flow but needs the Wave-1 control arm.
+
+---
+
 ## 2026-07-05 (night) — Wave-0 item 3: the §10.5 profile-pairing separation script (`behavior:separation`)
 
 **Phase:** Wave-0 eval builds (PERSONAS §10.7 item 3) · **Who:** Claude (PR merge Ivan-gated)

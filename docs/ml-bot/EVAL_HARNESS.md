@@ -287,17 +287,67 @@ So a 7-seat field = `DEFAULT_PLAYER_COUNT` means **6 opponents (the reference am
 The shipped _default_ `--opponents` list has 5 entries → a 6-seat field; pass 6 opponents to profile at
 the full 7.)
 
+### 3.9 Negative controls & the launch pre-flight
+
+> **As built (2026-07-05, Wave-0 item 5):** `npm run behavior:preflight`
+> (`scripts/behavior-preflight.mjs`) — the zero-GPU gate an operator runs BEFORE a persona-retrain
+> wave. It bundles the three checks PERSONAS §10.5/§10.7 register and exits 0 (CLEAR) / 1 (usage) /
+> 2 (HALT):
+>
+> 1. **Probe pre-flight (#97 path).** With `--weights <eval-*.weights.js>` it (a) loads +
+>    parity-checks the checkpoint through the exact `loadExportedPolicy → makeBC` path the mid-run
+>    probe uses, and (b) asserts a fixture-LESS load is rejected loud (`parity fixture not found`) —
+>    the invariant that keeps fixture-less league snapshots ([D-22]) out of the probe (DECISIONS'
+>    "an earlier plan's silent failure"). The NC1 A/A below then profiles the loaded net end-to-end,
+>    so "profile one existing eval checkpoint end-to-end" is genuinely exercised, not simulated. A
+>    load failure or a non-firing fixture-less guard HALTS.
+> 2. **Negative control 1 — A/A signature noise floor** (`signatureNoiseFloor`, PERSONAS §10.5(1)).
+>    Profile the base against ITSELF (two passes at the SAME seeds) and judge the paired 95% CI on
+>    every registered {@link SIGNATURE*AXES} (`aggression`, `turnsToWin`, `avgTerritory`, `kills`,
+>    `avgPlacement`) against the ±MDE/3 floor. The base is deterministic and the maps are seeded, so
+>    the two passes differ ONLY by the heuristic opponents' unseeded `Math.random` (§3.6); pairing
+>    over the shared maps cancels map variance and isolates exactly the noise the paired signature
+>    gate also can't cancel — the same "unseeded-opponent" noise NC2 measures on strength.
+>    **Criterion (the registered "|Δ| < MDE/3" made statistically sound):** two refinements keep a
+>    \_stochastic* A/A from crying wolf while still catching a _systematic_ bug. (1) **Equivalence, not
+>    a raw point test:** judging the point estimate false-halts a winners-only, high-variance axis
+>    (`turnsToWin`'s per-run swings ≫ tol at feasible run counts even when the TRUE self-difference is
+>    0 — the live n=8 A/A on the v3 base measured Δ ≈ −4.7 ± 9.1 there, pure noise), so an axis
+>    **CERTIFIES** only when its paired 95% CI ⊆ ±tol. (2) **Holm-corrected BIASED:** declaring bias
+>    from one stochastic A/A is a hypothesis test — run per-axis at the CI's ~5% it false-fires
+>    ~1-in-11 across the five signature axes, and DEGENERATES back to the point test (1) removed when a
+>    small-n CI collapses (identical quantized diffs → SE 0 → zero-width CI). So **BIASED** requires a
+>    Holm-significant (family-wise α) "self-difference beyond ±tol" p-value (a zero-SE CI is capped at
+>    the 2⁻ⁿ sign-agreement bound, never 0), else **INCONCLUSIVE**. Only BIASED halts; INCONCLUSIVE /
+>    NO DATA are "add runs" signals (`certified` = every axis CERTIFIED). The family-wise false-HALT
+>    rate is ≤ α and → 0 as runs grow, so a true-null self-A/A CLEARs **with high probability** (not a
+>    guaranteed CLEAR — a systematic bug's Δ has a t that grows with n and survives Holm; sampling
+>    noise does not). `--mde` / `--divisor` overrides are labeled a non-registered floor.
+> 3. **Negative control 2 — test-retest noise floor.** NOT re-run here; it is `ppo:curve
+--test-retest` (§ STRENGTH_CURVE.md), which records `strength.meta.json → testRetest.spreadPp`.
+>    `--curve <strength.jsonl|.meta.json>` surfaces the recorded spread; otherwise the pre-flight
+>    prints the command to produce it.
+>
+> NC3 (control-arm-vs-base through all four signatures) needs the Wave-1 control arm and stays out
+> of this pre-flight. The shared seed×rotation sweep is extracted to `scripts/lib/behavior-sweep.mjs`
+> so NC1 runs the IDENTICAL path personas are graded on (a re-implementation would test a copy).
+
 ---
 
 ## 4. Architecture
 
 Two files, mirroring the `ppo-gate.mjs` (CLI) / `ppo-gate-core.mjs` (pure, unit-testable) split:
 
-- **`scripts/behavior-profile.mjs`** — CLI: arg parse, bot enumeration, the seed×rotation sweep driving
-  `runMatch`, output (JSON/CSV/table).
+- **`scripts/behavior-profile.mjs`** — CLI: arg parse, bot enumeration, output (JSON/CSV/table); drives
+  the sweep via `behavior-sweep.mjs`.
+- **`scripts/lib/behavior-sweep.mjs`** — the seed×rotation sweep over `runMatch` (extracted 2026-07-05,
+  Wave-0 item 5, so `behavior:preflight`'s A/A runs the IDENTICAL path). `behavior:profile` output is
+  byte-identical to the pre-extraction inline sweep.
+- **`scripts/behavior-separation.mjs`** / **`scripts/behavior-preflight.mjs`** — the §10.5 pairing matrix
+  and the Wave-1 launch pre-flight (probe path + negative controls, §3.9), both over the same core/sweep.
 - **`scripts/lib/behavior-core.mjs`** — pure logic (no arena, no I/O): per-game extraction, per-run
-  aggregation, MDE/multiplicity decision, persona-vs-control + persona×persona comparison. Unit-testable
-  like `ppo-gate-core.mjs`.
+  aggregation, MDE/multiplicity decision, persona-vs-control + persona×persona comparison + the A/A
+  noise floor. Unit-testable like `ppo-gate-core.mjs`.
 
 Lives under `scripts/` (offline analysis CLI like `arena-sweep.mjs`), not `src/`.
 
@@ -325,6 +375,8 @@ holmSignatures(entries[], {alpha, familySize}) -> { alpha, familySize, results[]
 killsPairMde(aKills[], bKills[]) -> { mde|null, comparatorMean|null }  // §10.3 relative kills bar: 15% of the pair's lower side; null = uncalibrated (fails closed)
 separationPair(aRuns[], bRuns[], mde, {axes, relativeKills}) -> { separated, comparable, onAxes[], axes[] }  // §10.5 pairwise separation: two-sided paired CI + MDE
 assertPairableReports([{path, report}]) -> { shaDrift|null }  // §10.5 identical-field/seeds contract; THROWS on config mismatch / duplicate bots / missing perRun
+signatureNoiseFloor(armA[], armB[], mde, {divisor=3, axes, alpha=0.05}) -> { pass, certified, divisor, alpha, axes[], biased[], inconclusive[], noData[] }  // NC1: A/A vs ±MDE/3 — CERTIFIED (CI ⊆ band) / BIASED (Holm-significant beyond band, family-wise α; zero-SE capped at 2⁻ⁿ) / INCONCLUSIVE / NO DATA; only BIASED halts
+SIGNATURE_AXES  // deduped union of every PERSONA_SIGNATURES axis — the axes the A/A gates on
 parseBotSpec(spec) -> { name, weightsPath|null }        // "Name" (built-in) vs "Name=weights.js"
 parseMdeOverrides(str, base=DEFAULT_MDE) -> Record<axis, number>  // "--mde axis:val,..." merged over base
 
@@ -350,7 +402,8 @@ DEFAULT_MDE            // partial Record<axis, number>; a signature axis MUST ha
 > Wave-0 item 2 — `holmSignatures` + `--holm-family`, see the §3.3 as-built note); the **§10.5
 > profile-pairing separation matrix is built** (2026-07-05, Wave-0 item 3 — `behavior:separation`,
 > see the §3.5 as-built note; the `separationMatrix` named above refers to the still-unbuilt §3.5
-> co-seated melee, a different question).
+> co-seated melee, a different question); and the **launch pre-flight + negative controls 1–2 are
+> built** (2026-07-05, Wave-0 item 5 — `behavior:preflight` + `signatureNoiseFloor`, see §3.9).
 
 ### CLI
 
@@ -389,6 +442,22 @@ node scripts/behavior-separation.mjs profile.json [more.json ...] \
                           #   + Conqueror); hard-fails if a named roster bot is absent
   [--allow-sha-drift]     # downgrade the cross-report git-SHA hard-fail to a warning
   [--json]                # JSON->stdout, matrix + per-pair detail->stderr
+```
+
+The Wave-1 launch pre-flight (probe path + negative controls 1–2, §3.9) is its own CLI:
+
+```
+node scripts/behavior-preflight.mjs \
+  (--weights eval-<step>.weights.js | --bot <builtin>) \  # the base: a #97 checkpoint (loader-checked) or a built-in
+  [--fixture <path>]      # override the sibling parity fixture (only with --weights)
+  [--opponents A,B,...]   # the A/A field (default = behavior:profile's default opponents)
+  [--runs 8] [--games 20] # A/A sweep size per arm (both arms share seeds)
+  [--divisor 3]           # the registered MDE/3 floor divisor
+  [--mde axis:val,...]    # override a signature-axis floor (LOUDLY labeled non-registered)
+  [--curve strength.jsonl] # NC2: surface ppo:curve's recorded test-retest spread if present
+  [--no-quarantine] [--json]
+  # exit 0 = CLEAR (per-axis CERTIFIED/INCONCLUSIVE); 1 = usage; 2 = HALT (probe-path failure,
+  # fixture-less-guard breach, or a BIASED signature axis — the base differs from itself past the floor).
 ```
 
 ### Sweep execution (per profiled bot, fixed field)
@@ -478,7 +547,12 @@ provenance (what the separation script's cross-report drift check reads). It doe
 `territoryCurve`, `territoryAuc`, `borderExposure`, `placementHist`, or the `separationMatrix`
 block (the §10.5 pairwise matrix ships as `behavior:separation`'s OWN output: `{ config, pairs[],
 requireSeparated }`, per-pair `{ a, b, separated, comparable, onAxes[], axes[], descriptive[] }` —
-see the §3.5 as-built note). (`winPctVsRef` ships as the `winPct` axis.)
+see the §3.5 as-built note). (`winPctVsRef` ships as the `winPct` axis.) The launch pre-flight
+(`behavior:preflight`, §3.9) has its OWN `--json` shape: `{ config, probePreflight, nc1, nc2, halt,
+reasons }`, where `probePreflight` = `{ loaded, parity, params, fixturelessGuard }` (null for
+`--bot`) and `nc1` = `signatureNoiseFloor`'s `{ pass, certified, divisor, alpha, axes[], biased[],
+inconclusive[], noData[] }` (per-axis `{ axis, delta, ci, lo, hi, n, tol, verdict }`; `verdict` ∈
+CERTIFIED / BIASED / INCONCLUSIVE / NO DATA, only BIASED halts).
 
 ```jsonc
 {
@@ -627,6 +701,18 @@ coverage (the §10.3 relative bar incl. the uncalibrated fail-closed path, MDE-v
 independence both ways, every config-mismatch key) plus a `behavior:separation` CLI suite —
 synthetic-report validation/exit-code paths (cheap: the input is a JSON file, no games) and one
 live profile→separation end-to-end._
+
+_Wave-0 item 5 (2026-07-05) added: `signatureNoiseFloor` unit coverage (each verdict — CERTIFIED /
+BIASED-halts / INCONCLUSIVE-doesn't / NO-DATA-doesn't, the divisor, the missing-MDE throw, an
+override flipping CERTIFIED→BIASED, the zero-SE degeneracy guard at n=4 vs. its evidence accruing at
+n=8, and the Holm family correction — a marginal axis that BIASes alone stays INCONCLUSIVE in the
+5-axis family); a mock-`runMatch` `behavior-sweep` suite (the exact seed schedule,
+identical-across-calls for the shared-seed A/A, the quarantine tally); and a `behavior:preflight` CLI
+suite — usage exits, the #97 loader positive + fixture-less HALT (a synthetic `*.weights.js`
+re-exporting the real BC policy), the deterministic huge-MDE CLEAR path, and a live-A/A smoke test
+(deterministic invariants only — NOT `pass`, which is a stochastic Holm-controlled draw). The exit-2
+halt is covered deterministically by the probe-failure case, not the live A/A, precisely because a
+true-null A/A's HALT is probabilistic (Holm-controlled ≤ α), not guaranteed._
 
 ---
 

@@ -24,10 +24,12 @@ import {
   killsPairMde,
   separationPair,
   assertPairableReports,
+  signatureNoiseFloor,
   SHIPPED_BASE,
   AXES,
   PERSONA_SIGNATURES,
   SIGNATURE_FAMILY_SIZE,
+  SIGNATURE_AXES,
   SEPARATION_AXES,
   KILLS_MDE_FRACTION,
   DEFAULT_MDE,
@@ -1289,5 +1291,182 @@ describe('assertPairableReports — the §10.5 identical-field/seeds contract', 
       { path: 'a.json', report: mkReport(['X', 'Y'], { gitSha: 'abc1234-dirty' }) },
     ]);
     expect(single.shaDrift).toBeNull();
+  });
+});
+
+describe('SIGNATURE_AXES — the axes the A/A negative control gates on', () => {
+  it('is the deduped union of every PERSONA_SIGNATURES axis, in registry order', () => {
+    expect(SIGNATURE_AXES).toEqual([
+      'aggression',
+      'turnsToWin',
+      'avgTerritory',
+      'kills',
+      'avgPlacement',
+    ]);
+  });
+
+  it('every signature axis has a registered DEFAULT_MDE (so the MDE/3 floor is always defined)', () => {
+    for (const axis of SIGNATURE_AXES) expect(DEFAULT_MDE[axis]).toBeGreaterThan(0);
+  });
+
+  it('contains no duplicates and only axes that appear in a registered signature', () => {
+    expect(new Set(SIGNATURE_AXES).size).toBe(SIGNATURE_AXES.length);
+    const registered = new Set(
+      Object.values(PERSONA_SIGNATURES).flatMap(s => s.axes.map(a => a.axis))
+    );
+    for (const axis of SIGNATURE_AXES) expect(registered.has(axis)).toBe(true);
+  });
+});
+
+describe('signatureNoiseFloor — negative control 1 (A/A equivalence vs ±MDE/divisor)', () => {
+  // Base arm A: a flat, noiseless profile. Each case perturbs only ONE axis in arm B so the other
+  // axes have zero paired diff (CI ≡ 0 ⊆ any band ⇒ CERTIFIED) and isolate the axis under test.
+  const flat = () =>
+    runsOf({
+      aggression: [3, 3, 3, 3],
+      turnsToWin: [40, 40, 40, 40],
+      avgTerritory: [12, 12, 12, 12],
+      kills: [1.5, 1.5, 1.5, 1.5],
+      avgPlacement: [2.2, 2.2, 2.2, 2.2],
+    });
+
+  it('CERTIFIES a clean A/A (CI ⊆ ±MDE/3 on every axis) — pass + certified', () => {
+    const armB = flat();
+    armB.forEach((r, i) => (r.aggression = [3.01, 2.99, 3.0, 3.0][i])); // tiny jitter, mean 0
+    const nf = signatureNoiseFloor(flat(), armB, DEFAULT_MDE);
+    expect(nf.pass).toBe(true);
+    expect(nf.certified).toBe(true);
+    expect(nf.divisor).toBe(3);
+    expect(nf.biased).toEqual([]);
+    const agg = nf.axes.find(a => a.axis === 'aggression');
+    expect(agg.tol).toBeCloseTo(DEFAULT_MDE.aggression / 3, 10);
+    expect(agg.verdict).toBe('CERTIFIED');
+  });
+
+  it('HALTS (BIASED) when a systematic offset is Holm-significant beyond ±tol', () => {
+    // aggression offset ~0.5 with small (non-degenerate) variance ⇒ a huge t on "beyond tol 0.1" ⇒
+    // Holm-significant across the family: exactly the systematic self-difference a harness bug makes.
+    const armB = flat();
+    armB.forEach((r, i) => (r.aggression = [2.5, 2.5, 2.51, 2.49][i]));
+    const nf = signatureNoiseFloor(flat(), armB, DEFAULT_MDE);
+    expect(nf.pass).toBe(false);
+    expect(nf.biased).toEqual(['aggression']);
+    expect(nf.axes.find(a => a.axis === 'aggression').verdict).toBe('BIASED');
+    // The other (zero-diff) axes still certify — only the offending axis halts.
+    expect(nf.axes.find(a => a.axis === 'kills').verdict).toBe('CERTIFIED');
+  });
+
+  it('zero-SE degeneracy: identical beyond-floor diffs at small n do NOT halt (collapsed CI ≠ evidence)', () => {
+    // Every paired diff is exactly +0.5 ⇒ paired SE 0 ⇒ the CI collapses to the point Δ. The OLD raw
+    // "CI beyond ±tol" rule read that as a tight interval beyond the floor and false-HALTed; capping
+    // the evidence at the 2⁻ⁿ sign-agreement bound (0.0625 at n=4, not Holm-significant) fixes it.
+    const armB = flat();
+    armB.forEach(r => (r.aggression = 2.5));
+    const nf = signatureNoiseFloor(flat(), armB, DEFAULT_MDE);
+    const agg = nf.axes.find(a => a.axis === 'aggression');
+    expect(agg.ci).toBe(0); // the degenerate zero-width CI
+    expect(agg.verdict).toBe('INCONCLUSIVE'); // not BIASED — a small-n collapse is not evidence
+    expect(nf.pass).toBe(true);
+  });
+
+  it('… but the SAME identical offset at n=8 IS Holm-significant (2⁻⁸ clears the family) ⇒ BIASED', () => {
+    // The 2⁻ⁿ bound tightens with n: 8 identical beyond-tol diffs carry real (systematic) evidence,
+    // so the guard suppresses a small-n artifact without blinding the gate to a genuine bug.
+    const eight = xs => Array(8).fill(xs);
+    const armA = runsOf({
+      aggression: eight(3),
+      turnsToWin: eight(40),
+      avgTerritory: eight(12),
+      kills: eight(1.5),
+      avgPlacement: eight(2.2),
+    });
+    const armB = runsOf({
+      aggression: eight(2.5),
+      turnsToWin: eight(40),
+      avgTerritory: eight(12),
+      kills: eight(1.5),
+      avgPlacement: eight(2.2),
+    });
+    const nf = signatureNoiseFloor(armA, armB, DEFAULT_MDE);
+    expect(nf.biased).toEqual(['aggression']);
+    expect(nf.pass).toBe(false);
+  });
+
+  it('Holm family correction: a marginal axis that would BIAS alone stays INCONCLUSIVE in the 5-axis family', () => {
+    // Δ ≈ 0.16 beyond tol 0.1 with real spread ⇒ one-sided "beyond floor" p ≈ 0.03: past the naive
+    // per-axis 5%, so judged ALONE it rejects (BIASED) — but Holm's rank-1 threshold across the five
+    // signature axes is α/5, which it does not meet ⇒ no false HALT. This is the ~1-in-11 fix.
+    const armB = flat();
+    armB.forEach((r, i) => (r.aggression = [2.8, 2.88, 2.81, 2.87][i]));
+    const solo = signatureNoiseFloor(flat(), armB, DEFAULT_MDE, { axes: ['aggression'] });
+    expect(solo.axes[0].verdict).toBe('BIASED');
+    const family = signatureNoiseFloor(flat(), armB, DEFAULT_MDE);
+    expect(family.axes.find(a => a.axis === 'aggression').verdict).toBe('INCONCLUSIVE');
+    expect(family.pass).toBe(true);
+  });
+
+  it('does NOT halt on INCONCLUSIVE (wide CI straddling the floor) — pass but not certified', () => {
+    // Mean ≈ 0 but ±0.4–0.5 swings ⇒ a wide CI spanning ±tol: no bias evidence, just too thin.
+    const armB = flat();
+    armB.forEach((r, i) => (r.aggression = [3.5, 2.5, 3.4, 2.6][i]));
+    const nf = signatureNoiseFloor(flat(), armB, DEFAULT_MDE);
+    const agg = nf.axes.find(a => a.axis === 'aggression');
+    expect(agg.verdict).toBe('INCONCLUSIVE');
+    expect(nf.inconclusive).toContain('aggression');
+    expect(nf.pass).toBe(true); // INCONCLUSIVE is an "add runs" signal, not a halt
+    expect(nf.certified).toBe(false);
+  });
+
+  it('reports NO DATA (does not halt) for an axis with no paired data', () => {
+    // Omit kills from both arms ⇒ all-null ⇒ compareAxis null ⇒ NO DATA (unmeasured, not a bias).
+    const a = runsOf({
+      aggression: [3, 3, 3, 3],
+      turnsToWin: [40, 40, 40, 40],
+      avgTerritory: [12, 12, 12, 12],
+      avgPlacement: [2.2, 2.2, 2.2, 2.2],
+    });
+    const b = runsOf({
+      aggression: [3, 3, 3, 3],
+      turnsToWin: [40, 40, 40, 40],
+      avgTerritory: [12, 12, 12, 12],
+      avgPlacement: [2.2, 2.2, 2.2, 2.2],
+    });
+    const nf = signatureNoiseFloor(a, b, DEFAULT_MDE);
+    const kills = nf.axes.find(a2 => a2.axis === 'kills');
+    expect(kills.verdict).toBe('NO DATA');
+    expect(nf.noData).toContain('kills');
+    expect(nf.pass).toBe(true); // unmeasured is not evidence of bias
+    expect(nf.certified).toBe(false); // but the floor is not certified either
+  });
+
+  it('the divisor tightens the tolerance (divisor 1 = the full MDE)', () => {
+    const tol3 = signatureNoiseFloor(flat(), flat(), DEFAULT_MDE, { divisor: 3 });
+    const tol1 = signatureNoiseFloor(flat(), flat(), DEFAULT_MDE, { divisor: 1 });
+    expect(tol1.axes.find(a => a.axis === 'aggression').tol).toBeCloseTo(
+      DEFAULT_MDE.aggression,
+      10
+    );
+    expect(tol3.axes.find(a => a.axis === 'aggression').tol).toBeCloseTo(
+      DEFAULT_MDE.aggression / 3,
+      10
+    );
+  });
+
+  it('throws when a requested axis has no registered MDE', () => {
+    expect(() =>
+      signatureNoiseFloor(flat(), flat(), { aggression: 0.3 }, { axes: ['aggression', 'winPct'] })
+    ).toThrow(/no MDE registered for signature axis "winPct"/);
+  });
+
+  it('honors an MDE override on a signature axis (tightening flips CERTIFIED → BIASED)', () => {
+    // aggression offset ~0.05 with small (non-degenerate) variance.
+    const armB = flat();
+    armB.forEach((r, i) => (r.aggression = [2.95, 2.95, 2.96, 2.94][i]));
+    // Default tol 0.1: |Δ| 0.05 is inside the floor ⇒ CERTIFIED ⇒ pass.
+    expect(signatureNoiseFloor(flat(), armB, DEFAULT_MDE).pass).toBe(true);
+    // Override aggression MDE to 0.06 ⇒ tol 0.02: |Δ| 0.05 is now Holm-significantly beyond ⇒ BIASED.
+    const tightened = signatureNoiseFloor(flat(), armB, { ...DEFAULT_MDE, aggression: 0.06 });
+    expect(tightened.pass).toBe(false);
+    expect(tightened.biased).toContain('aggression');
   });
 });

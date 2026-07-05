@@ -72,6 +72,30 @@ describe('runGateSweep', () => {
     }
   });
 
+  it('advances the per-seed term (+ s + 1) within a run, not just the run/stride offset', async () => {
+    // The seed-formula test above uses seedsPerRun = 1, so its inner s-loop never
+    // leaves s = 0 — a drift to `+ s`, `+ 2*s + 1`, etc. would slip past it. Grade a
+    // 2-seed run so s reaches 1 and pin the full seed set (per-seed term AND stride).
+    const field = mkField(['A', 'B', 'C']);
+    const seeds = [];
+    await runGateSweep({
+      field,
+      matchFn: ({ bots, seed }) => {
+        seeds.push(seed);
+        return stubResult(bots);
+      },
+      runs: 2,
+      gamesPerRun: 6, // seedsPerRun = 2 -> the inner s-loop reaches s = 1
+      seedBase: 0,
+      tallyNames: ['A'],
+    });
+    // seed = (seedBase + run) * stride + s + 1, stride = 1e6; each seed x 3 rotations.
+    // run 0: s in {0,1} -> 1, 2 ; run 1: -> 1000001, 1000002
+    expect(seeds).toEqual([
+      1, 1, 1, 2, 2, 2, 1_000_001, 1_000_001, 1_000_001, 1_000_002, 1_000_002, 1_000_002,
+    ]);
+  });
+
   it('offsets seed blocks by seedBase (the fresh-seed confirmation lever)', async () => {
     const seeds = [];
     await runGateSweep({

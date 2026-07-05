@@ -705,11 +705,19 @@ export function pointLine(row) {
   if (row.status !== 'ok') return `${row.id}  step ${row.step}  ${row.status}: ${row.error}`;
   const d = row.deltaVsLook;
   const p = row.deltaVsPPO;
+  /*
+   * A sweep tolerates up to ~50% per-match failures before shouldAbort trips, so an
+   * `ok` row can be built from a heavily-decimated (and possibly biased) game set. The
+   * per-match onMatchError noise has long scrolled off by summary time, so surface the
+   * decimation here — otherwise a thinned verdict prints identically to a clean one.
+   */
+  const decimated =
+    row.failedGames > 0 ? ` ⚠ ${row.failedGames}/${row.games + row.failedGames} games failed` : '';
   return (
     `${row.id}  step ${row.step}  ` +
     `Δlook ${d.mean >= 0 ? '+' : ''}${d.mean.toFixed(1)} ± ${d.ci.toFixed(1)} ${row.verdictVsLook}${
       p ? `  ΔPPO ${p.mean >= 0 ? '+' : ''}${p.mean.toFixed(1)} ${row.verdictVsPPO}` : ''
-    }  win ${row.winPct.toFixed(1)}%  place ${row.avgPlacement.toFixed(2)}  ${row.wallClockSec}s`
+    }  win ${row.winPct.toFixed(1)}%  place ${row.avgPlacement.toFixed(2)}  ${row.wallClockSec}s${decimated}`
   );
 }
 

@@ -72,6 +72,24 @@ function die(msg) {
   process.exit(1);
 }
 
+/**
+ * Parse a JSON file, routing a torn (killed mid-write) or hand-edited file through
+ * the clean `die()` abort instead of a raw SyntaxError — matching this scorer's
+ * warn-and-skip stance on the index/rows it reads and CLAUDE.md's "surface errors
+ * explicitly." Used for the meta sidecar, which is small enough that a partial
+ * write is a real possibility.
+ */
+function readJsonOrDie(path, what) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err) {
+    die(
+      `${what} at ${path} is unreadable (${err.message}) — a torn or hand-edited file; delete it to regenerate.`
+    );
+    return null; // unreachable: die() exits.
+  }
+}
+
 // --- Args -------------------------------------------------------------------------
 const evalDir = getArg(args, 'eval-dir', null);
 if (!evalDir) die('--eval-dir is required (a Phase-0 producer dir containing index.jsonl)');
@@ -183,7 +201,7 @@ function ensureMetaCompatible() {
     writeFileSync(metaPath, `${JSON.stringify(currentMeta, null, 2)}\n`);
     return currentMeta;
   }
-  const existing = JSON.parse(readFileSync(metaPath, 'utf8'));
+  const existing = readJsonOrDie(metaPath, 'strength.meta.json');
   const { hard, gitShaDrift } = metaMismatches(existing, currentMeta);
   if (hard.length > 0) {
     die(
@@ -216,14 +234,21 @@ function loudRegressionAlert(slump) {
   console.error(bar);
 }
 
-/** Failure-threshold guard: a systematically broken producer/export must not exit 0. */
-function checkFailureThreshold(rows) {
-  const attempted = rows.length;
-  const failed = rows.filter(r => r.status !== 'ok').length;
+/**
+ * In-loop guard: stop early when the checkpoints graded THIS session are failing en
+ * masse (a systematically broken producer/export stream). Scoped to session-fresh
+ * rows on purpose — counting persisted historical failures would false-abort a
+ * legitimately recovering resume (e.g. two stale parity-failed rows from a
+ * since-fixed export bug + one fresh ok = 2/3 > 0.5). The "curve has zero usable
+ * points" case is caught separately by the terminal guard, which keys on ok-count.
+ */
+function checkFailureThreshold(sessionRows) {
+  const attempted = sessionRows.length;
+  const failed = sessionRows.filter(r => r.status !== 'ok').length;
   if (attempted >= 3 && failed / attempted > 0.5) {
     die(
-      `${failed}/${attempted} graded checkpoints failed (>50%) — the producer/export stream ` +
-        `looks systematically broken; fix it before grading further.`
+      `${failed}/${attempted} checkpoints graded this session failed (>50%) — the ` +
+        `producer/export stream looks systematically broken; fix it before grading further.`
     );
   }
 }
@@ -293,6 +318,7 @@ async function walkOnce({ alertOnRegression }) {
 
   let gradedNow = 0;
   let notSynced = 0;
+  const sessionRows = []; // graded THIS walk — the failure-threshold denominator
   for (const indexRow of plan.toGrade) {
     console.log(`[curve] grading ${indexRow.id} (step ${indexRow.step}) ...`);
     const res = await gradeCheckpoint({ indexRow, evalDir, knobs, refNames, gitSha, deps });
@@ -307,10 +333,11 @@ async function walkOnce({ alertOnRegression }) {
     }
     if (res.kind === 'encoding-abort') encodingAbort(res);
     rows = [...rows, res.row];
+    sessionRows.push(res.row);
     persist(rows);
     gradedNow++;
     console.log(`[curve] ${pointLine(res.row)}`);
-    checkFailureThreshold(rows);
+    checkFailureThreshold(sessionRows);
     if (alertOnRegression && res.row.status === 'ok') {
       const analysis = analyzeCurve(rows, { indexSteps: plan.eligibleSteps });
       if (analysis.activeSlump) loudRegressionAlert(analysis.activeSlump);
@@ -367,7 +394,7 @@ async function runTestRetest(rows) {
   console.log(
     `[curve] test-retest spread: ${spread.toFixed(2)} pp — the curve's empirical noise floor at these knobs`
   );
-  const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+  const meta = readJsonOrDie(metaPath, 'strength.meta.json');
   meta.testRetest = {
     step: indexRow.step,
     first: first.deltaVsLook,
@@ -395,11 +422,21 @@ if (!watch) {
     alertOnRegression: false,
   });
   if (indexCount === 0) die('index.jsonl has no parseable rows');
-  if (!rows || rows.length === 0) {
+  /*
+   * Fatal on ZERO usable (ok) points, not zero rows: a short all-failed stream (1-2
+   * parity/sweep-failed rows never reaches checkFailureThreshold's >=3 floor) or a
+   * resumed walk whose whole persisted curve is failed rows with nothing new to grade
+   * would otherwise print "up to date" and exit 0 — the exact "a broken/unsynced
+   * stream must not exit 0" case. (The rows===0 case is subsumed here.)
+   */
+  const okPoints = rows ? rows.filter(r => r.status === 'ok').length : 0;
+  if (okPoints === 0) {
+    const failed = rows ? rows.length : 0;
     die(
-      `graded 0 of ${indexCount} index rows and no prior rows exist${
-        notSynced ? ` (${notSynced} awaiting artifact sync)` : ''
-      } — nothing to show; a broken/unsynced stream must not exit 0.`
+      `0 usable (ok) points of ${indexCount} index rows` +
+        `${failed ? ` (${failed} recorded as failed)` : ''}` +
+        `${notSynced ? ` (${notSynced} awaiting artifact sync)` : ''} — ` +
+        `nothing gradeable; a broken/unsynced stream must not exit 0.`
     );
   }
   if (gradedNow === 0) console.log('[curve] up to date — no new checkpoints to grade');

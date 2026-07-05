@@ -415,6 +415,21 @@ describe('gradeCheckpoint — the three-way failure policy', () => {
   });
 });
 
+describe('pointLine', () => {
+  const okRow = { ...mkRow(7, around(12)), games: 153, wallClockSec: 12.3 };
+
+  it('surfaces a decimated sweep (an ok row built from failed games) as a warning', () => {
+    // Up to ~50% per-match failures are tolerated before the sweep aborts, so an ok
+    // row can hide a thinned/biased game set. The onMatchError noise has scrolled off
+    // by summary time — the point line must not read identical to a clean sweep.
+    expect(pointLine({ ...okRow, failedGames: 20 })).toContain('20/173 games failed');
+  });
+
+  it('omits the decimation note when no games failed', () => {
+    expect(pointLine({ ...okRow, failedGames: 0 })).not.toContain('games failed');
+  });
+});
+
 describe('provenance + IO', () => {
   it('metaMismatches: hard on knobs/field/encoding/refs, soft on gitSha drift', () => {
     const mk = over =>

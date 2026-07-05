@@ -5,8 +5,11 @@
 > `scripts/lib/strength-curve-core.mjs`, and the prerequisite `runGateSweep` extraction landed in
 > `scripts/lib/ppo-gate-core.mjs` (`ppo-gate.mjs` is now a thin CLI over it). Tier-1 hermetic
 > acceptance: `tests/scripts/strengthCurveE2E.test.js` (real games over known-strength exports —
-> the regression detector fires on the descending PPO→BC pair). See
-> [As built](#as-built-2026-07-05) for the deltas vs this design.
+> the regression detector fires on the descending PPO→BC pair). **Mini acceptance PASSED
+> 2026-07-05** (the PERSONAS §10.7 Wave-1 precondition): `eval-001000008` of `ppo-v3-scratch`
+> graded end-to-end on the mini at default budget — Δ vs Lookahead +27.6 ± 2.2 BEAT, Δ vs PPO
+> +0.6 TIE, 3060 games, **552.1 s** (the mini timing calibration; shodan's 267.7–440.5 s never
+> applied to the mini). See [As built](#as-built-2026-07-05) for the deltas vs this design.
 >
 > **Last updated:** 2026-07-05 · **Owners:** Ivan (+ Claude)
 

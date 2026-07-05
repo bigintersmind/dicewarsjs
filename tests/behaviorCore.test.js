@@ -21,9 +21,15 @@ import {
   holmSignatures,
   parseBotSpec,
   parseMdeOverrides,
+  killsPairMde,
+  separationPair,
+  assertPairableReports,
+  SHIPPED_BASE,
   AXES,
   PERSONA_SIGNATURES,
   SIGNATURE_FAMILY_SIZE,
+  SEPARATION_AXES,
+  KILLS_MDE_FRACTION,
   DEFAULT_MDE,
 } from '../scripts/lib/behavior-core.mjs';
 import { runMatch } from '../src/arena/matchRunner.js';
@@ -905,5 +911,383 @@ describe('config invariants — AXES is the single source of truth', () => {
       zeroAttackTurnFrac: 0.1,
     };
     expect(Object.keys(reduceRun([sample])).sort()).toEqual([...AXES].sort());
+  });
+});
+
+// --- §10.5 profile-pairing separation (Wave-0 item 3) ---
+
+/** Per-run records where only the named axes carry the given arrays; the rest are null. */
+const runsOf = axisArrays => {
+  const len = Object.values(axisArrays)[0].length;
+  return Array.from({ length: len }, (_, i) =>
+    Object.fromEntries(AXES.map(a => [a, axisArrays[a] ? axisArrays[a][i] : null]))
+  );
+};
+
+describe('separation registry — the pre-registered §10.5 axes', () => {
+  it('SEPARATION_AXES is exactly the four registered pairwise axes, in spec order', () => {
+    expect(SEPARATION_AXES).toEqual(['aggression', 'turnsToWin', 'avgPlacement', 'kills']);
+  });
+
+  it('the three absolute axes carry the calibrated DEFAULT_MDE values (0.3 / 5.0 / 0.4)', () => {
+    expect(DEFAULT_MDE.aggression).toBe(0.3);
+    expect(DEFAULT_MDE.turnsToWin).toBe(5.0);
+    expect(DEFAULT_MDE.avgPlacement).toBe(0.4);
+  });
+
+  it('KILLS_MDE_FRACTION is the §10.3 15% relative bar', () => {
+    expect(KILLS_MDE_FRACTION).toBe(0.15);
+  });
+
+  it('SHIPPED_BASE is Conqueror ([D-27]/[D-31]) — the ship gate unions it into the roster', () => {
+    expect(SHIPPED_BASE).toBe('Conqueror');
+    // The base deliberately has NO signature entry (it is what personas are judged against),
+    // which is exactly why the ship gate cannot key on PERSONA_SIGNATURES alone.
+    expect(PERSONA_SIGNATURES[SHIPPED_BASE]).toBeUndefined();
+  });
+});
+
+describe('killsPairMde — the §10.3 relative kills bar', () => {
+  it('is 15% of the LOWER side over the paired runs (comparator = the exceeded side)', () => {
+    // a mean 2.0, b mean 1.0 → comparator 1.0 → MDE 0.15 (order-symmetric).
+    const a = [2.0, 2.1, 1.9, 2.0];
+    const b = [1.0, 1.05, 0.95, 1.0];
+    expect(killsPairMde(a, b)).toEqual({ mde: 0.15, comparatorMean: 1.0 });
+    expect(killsPairMde(b, a)).toEqual({ mde: 0.15, comparatorMean: 1.0 });
+  });
+
+  it('reproduces the §10.3 worked number: 15% of ~1.87 ≈ 0.28', () => {
+    const { mde } = killsPairMde([2.2, 2.1], [1.86, 1.88]);
+    expect(mde).toBeCloseTo(0.2805, 4);
+  });
+
+  it('comparator means over the ALIGNED runs only (null runs dropped from both sides)', () => {
+    // Index 1 is null on side a → dropped from both, so b's kept mean is (1+3)/2 = 2.
+    const { mde, comparatorMean } = killsPairMde([5, null, 5], [1, 100, 3]);
+    expect(comparatorMean).toBe(2);
+    expect(mde).toBeCloseTo(0.3, 12);
+  });
+
+  it('fails CLOSED (mde null) when the comparator never kills — a ~0 bar would be a bare significance test', () => {
+    expect(killsPairMde([2, 2, 2], [0, 0, 0])).toEqual({ mde: null, comparatorMean: 0 });
+  });
+
+  it('fails CLOSED (mde null) with fewer than 2 paired runs', () => {
+    expect(killsPairMde([2, null], [null, 1])).toEqual({ mde: null, comparatorMean: null });
+  });
+});
+
+describe('separationPair — paired-diff CI with MDE, never marginal-CI overlap', () => {
+  // A pair that clearly separates on aggression: Δ ≈ +0.55, tight CI above 0, ≥ MDE 0.3.
+  const A_AGG = [3.0, 3.2, 2.9, 3.1];
+  const B_AGG = [2.5, 2.55, 2.45, 2.5];
+
+  it('separates on an axis when |Δ| ≥ MDE AND the paired CI excludes 0 (either direction)', () => {
+    const res = separationPair(
+      runsOf({ aggression: A_AGG }),
+      runsOf({ aggression: B_AGG }),
+      DEFAULT_MDE
+    );
+    expect(res.separated).toBe(true);
+    expect(res.onAxes).toEqual(['aggression']);
+    const agg = res.axes.find(d => d.axis === 'aggression');
+    expect(agg.delta).toBeCloseTo(0.55, 12);
+    expect(agg.lo).toBeGreaterThan(0);
+    expect(agg.meetsMde).toBe(true);
+    expect(agg.sig).toBe(true);
+    expect(agg.mdeBasis).toBe('absolute');
+  });
+
+  it('direction does not matter: a LOWER verdict separates too', () => {
+    const res = separationPair(
+      runsOf({ aggression: B_AGG }),
+      runsOf({ aggression: A_AGG }),
+      DEFAULT_MDE
+    );
+    const agg = res.axes.find(d => d.axis === 'aggression');
+    expect(agg.verdict).toBe('LOWER');
+    expect(agg.separated).toBe(true);
+  });
+
+  it('a significant but sub-MDE Δ does NOT separate (the trivially-significant guard)', () => {
+    // Δ = 0.2 with near-zero spread: CI excludes 0, but 0.2 < MDE 0.3.
+    const res = separationPair(
+      runsOf({ aggression: [3.0, 3.01, 2.99, 3.0] }),
+      runsOf({ aggression: [2.8, 2.8, 2.8, 2.81] }),
+      DEFAULT_MDE
+    );
+    const agg = res.axes.find(d => d.axis === 'aggression');
+    expect(agg.sig).toBe(true);
+    expect(agg.meetsMde).toBe(false);
+    expect(agg.separated).toBe(false);
+    expect(res.separated).toBe(false);
+  });
+
+  it('a large but non-significant Δ does NOT separate (CI straddles 0)', () => {
+    // Mean Δ 0.5 but hugely noisy diffs → CI spans 0.
+    const res = separationPair(
+      runsOf({ aggression: [5.0, 1.0, 4.0, 2.0] }),
+      runsOf({ aggression: [2.0, 4.0, 1.0, 3.0] }),
+      DEFAULT_MDE
+    );
+    const agg = res.axes.find(d => d.axis === 'aggression');
+    expect(agg.meetsMde).toBe(true);
+    expect(agg.sig).toBe(false);
+    expect(agg.separated).toBe(false);
+  });
+
+  it('kills separates at the relative §10.3 bar with the comparator recorded', () => {
+    const res = separationPair(
+      runsOf({ kills: [2.0, 2.1, 1.9, 2.0] }),
+      runsOf({ kills: [1.0, 1.05, 0.95, 1.0] }),
+      DEFAULT_MDE
+    );
+    const k = res.axes.find(d => d.axis === 'kills');
+    expect(k.mdeBasis).toBe('relative');
+    expect(k.mde).toBeCloseTo(0.15, 12);
+    expect(k.comparatorMean).toBe(1.0);
+    expect(k.separated).toBe(true);
+    expect(res.onAxes).toEqual(['kills']);
+  });
+
+  it('an uncalibrated relative kills bar (comparator ≈ 0) fails closed even on a huge significant Δ', () => {
+    const res = separationPair(
+      runsOf({ kills: [3.0, 3.1, 2.9, 3.0] }),
+      runsOf({ kills: [0, 0, 0, 0] }),
+      DEFAULT_MDE
+    );
+    const k = res.axes.find(d => d.axis === 'kills');
+    expect(k.sig).toBe(true); // the CI excludes 0 by a mile...
+    expect(k.mde).toBeNull(); // ...but there is no calibrated bar to clear
+    expect(k.meetsMde).toBe(false);
+    expect(k.separated).toBe(false);
+  });
+
+  it('relativeKills:false reverts kills to the absolute MDE from the map', () => {
+    const res = separationPair(
+      runsOf({ kills: [2.0, 2.1, 1.9, 2.0] }),
+      runsOf({ kills: [1.0, 1.05, 0.95, 1.0] }),
+      { ...DEFAULT_MDE, kills: 1.5 },
+      { relativeKills: false }
+    );
+    const k = res.axes.find(d => d.axis === 'kills');
+    expect(k.mdeBasis).toBe('absolute');
+    expect(k.mde).toBe(1.5);
+    expect(k.meetsMde).toBe(false); // Δ = 1.0 < 1.5
+    expect(k.separated).toBe(false);
+  });
+
+  it('an all-null axis (e.g. turnsToWin with no wins) reads "no data" and cannot separate — but other axes still can', () => {
+    const res = separationPair(
+      runsOf({ aggression: A_AGG }), // turnsToWin all null via runsOf
+      runsOf({ aggression: B_AGG }),
+      DEFAULT_MDE
+    );
+    const ttw = res.axes.find(d => d.axis === 'turnsToWin');
+    expect(ttw.delta).toBeNull();
+    expect(ttw.separated).toBe(false);
+    expect(res.separated).toBe(true); // aggression carried the pair
+    expect(res.comparable).toBe(true);
+  });
+
+  it('comparable=false when NO registered axis has paired data', () => {
+    const res = separationPair(runsOf({ winPct: [1, 2] }), runsOf({ winPct: [1, 2] }), DEFAULT_MDE);
+    expect(res.comparable).toBe(false);
+    expect(res.separated).toBe(false);
+  });
+
+  it('throws on a missing absolute MDE even when the axis has no data (config error, not data-dependent)', () => {
+    const noMde = { ...DEFAULT_MDE };
+    delete noMde.avgPlacement;
+    expect(() =>
+      separationPair(runsOf({ aggression: A_AGG }), runsOf({ aggression: B_AGG }), noMde)
+    ).toThrow(/no MDE registered for axis "avgPlacement"/);
+  });
+});
+
+describe('assertPairableReports — the §10.5 identical-field/seeds contract', () => {
+  const CONFIG = {
+    runs: 3,
+    games: 2,
+    stride: 1_000_000,
+    rotations: 3,
+    fieldSize: 3,
+    opponents: ['Default', 'Example'],
+    opponentSpecs: [
+      { name: 'Default', weightsPath: null },
+      { name: 'Example', weightsPath: null },
+    ],
+    quarantine: { on: true },
+    gitSha: 'abc1234',
+    generatedAt: '2026-07-05T00:00:00.000Z',
+  };
+  // perRun length always tracks config.runs, so a config override like runs:4 still yields a
+  // SHAPE-valid report — the cross-report mismatch check is what must fire, not the shape check.
+  const mkReport = (names, over = {}) => {
+    const config = { ...CONFIG, ...over };
+    return {
+      config,
+      bots: names.map(name => ({
+        name,
+        perRun: Array.from({ length: config.runs }, () => reduceShape()),
+      })),
+    };
+  };
+
+  it('accepts a single well-formed report (no drift possible)', () => {
+    expect(assertPairableReports([{ path: 'a.json', report: mkReport(['X', 'Y']) }])).toEqual({
+      shaDrift: null,
+    });
+  });
+
+  it('accepts two reports with identical config + SHA and disjoint bots', () => {
+    const res = assertPairableReports([
+      { path: 'a.json', report: mkReport(['X']) },
+      { path: 'b.json', report: mkReport(['Y']) },
+    ]);
+    expect(res.shaDrift).toBeNull();
+  });
+
+  it('throws when a bot has no perRun arrays (pre-separation report format)', () => {
+    const r = mkReport(['X']);
+    delete r.bots[0].perRun;
+    expect(() => assertPairableReports([{ path: 'a.json', report: r }])).toThrow(
+      /no per-run arrays/
+    );
+  });
+
+  it('throws when perRun length disagrees with config.runs (truncated/corrupt report)', () => {
+    const r = mkReport(['X']);
+    r.bots[0].perRun = r.bots[0].perRun.slice(0, 2);
+    expect(() => assertPairableReports([{ path: 'a.json', report: r }])).toThrow(
+      /no per-run arrays/
+    );
+  });
+
+  it('throws its own message on a malformed perRun ELEMENT (null/array) — not a downstream TypeError', () => {
+    const r = mkReport(['X']);
+    r.bots[0].perRun = [null, null, null]; // right length, corrupt entries
+    expect(() => assertPairableReports([{ path: 'a.json', report: r }])).toThrow(
+      /malformed bots\[\]\.perRun entry/
+    );
+    const r2 = mkReport(['X']);
+    r2.bots[0].perRun[1] = [1, 2, 3]; // an array is not a Record<axis, number|null>
+    expect(() => assertPairableReports([{ path: 'a.json', report: r2 }])).toThrow(
+      /malformed bots\[\]\.perRun entry/
+    );
+  });
+
+  it('throws when config.opponentSpecs is missing (pre-separation format)', () => {
+    const r = mkReport(['X']);
+    delete r.config.opponentSpecs;
+    expect(() => assertPairableReports([{ path: 'a.json', report: r }])).toThrow(
+      /opponentSpecs missing/
+    );
+  });
+
+  it('throws when config.runs is below 2 or non-integer (pairing needs >= 2 seed blocks)', () => {
+    // A `--runs 1` profile can't be paired: every axis has n<2 and degrades to non-comparable.
+    // Fail loud at the contract instead of silently producing an all-incomparable matrix.
+    expect(() =>
+      assertPairableReports([{ path: 'a.json', report: mkReport(['X'], { runs: 1 }) }])
+    ).toThrow(/runs is not an integer >= 2/);
+    expect(() =>
+      assertPairableReports([{ path: 'a.json', report: mkReport(['X'], { runs: 2.5 }) }])
+    ).toThrow(/runs is not an integer >= 2/);
+  });
+
+  it('throws on a config mismatch for every seed/field-defining key', () => {
+    const cases = [
+      ['runs', 4],
+      ['games', 9],
+      ['stride', 2_000_000],
+      ['rotations', 4],
+      ['fieldSize', 4],
+      ['opponents', ['Example', 'Default']], // same set, different ORDER — seats differ
+    ];
+    for (const [key, value] of cases) {
+      expect(() =>
+        assertPairableReports([
+          { path: 'a.json', report: mkReport(['X']) },
+          { path: 'b.json', report: mkReport(['Y'], { [key]: value }) },
+        ])
+      ).toThrow(new RegExp(`config mismatch on "${key}"`));
+    }
+  });
+
+  it('throws on differing quarantine policy (changes which games each side kept)', () => {
+    expect(() =>
+      assertPairableReports([
+        { path: 'a.json', report: mkReport(['X']) },
+        { path: 'b.json', report: mkReport(['Y'], { quarantine: { on: false } }) },
+      ])
+    ).toThrow(/quarantine\.on/);
+  });
+
+  it('throws when opponent NAMES match but a weightsPath differs — same names, different field', () => {
+    expect(() =>
+      assertPairableReports([
+        { path: 'a.json', report: mkReport(['X']) },
+        {
+          path: 'b.json',
+          report: mkReport(['Y'], {
+            opponentSpecs: [
+              { name: 'Default', weightsPath: null },
+              { name: 'Example', weightsPath: 'ml/runs/x/eval-5M.weights.js' },
+            ],
+          }),
+        },
+      ])
+    ).toThrow(/config mismatch on "opponentSpecs"/);
+  });
+
+  it('pairs reports differing only in mde/control/reference (deliberately excluded from identity)', () => {
+    const res = assertPairableReports([
+      { path: 'a.json', report: mkReport(['X']) },
+      {
+        path: 'b.json',
+        report: mkReport(['Y'], {
+          mde: { kills: { rule: 'absolute', value: 0.5 } },
+          control: 'Defensive',
+          reference: 'Example',
+        }),
+      },
+    ]);
+    expect(res.shaDrift).toBeNull();
+  });
+
+  it('throws when the same bot name appears in two reports (ambiguous arrays)', () => {
+    expect(() =>
+      assertPairableReports([
+        { path: 'a.json', report: mkReport(['X', 'Y']) },
+        { path: 'b.json', report: mkReport(['Y']) },
+      ])
+    ).toThrow(/"Y" appears in both a\.json and b\.json/);
+  });
+
+  it('returns shaDrift (not a throw) on differing or missing SHAs across >1 report — a CLI policy call', () => {
+    const drift = assertPairableReports([
+      { path: 'a.json', report: mkReport(['X']) },
+      { path: 'b.json', report: mkReport(['Y'], { gitSha: 'fff9999' }) },
+    ]);
+    expect(drift.shaDrift).toMatch(/a\.json: abc1234.*b\.json: fff9999/);
+    const missing = assertPairableReports([
+      { path: 'a.json', report: mkReport(['X'], { gitSha: null }) },
+      { path: 'b.json', report: mkReport(['Y'], { gitSha: null }) },
+    ]);
+    expect(missing.shaDrift).toMatch(/unknown/);
+  });
+
+  it('an IDENTICAL -dirty stamp still reads as drift — two dirty trees are not known behavior-identical', () => {
+    const drift = assertPairableReports([
+      { path: 'a.json', report: mkReport(['X'], { gitSha: 'abc1234-dirty' }) },
+      { path: 'b.json', report: mkReport(['Y'], { gitSha: 'abc1234-dirty' }) },
+    ]);
+    expect(drift.shaDrift).toMatch(/abc1234-dirty/);
+    // A single dirty report has nothing to pair across — no drift concern.
+    const single = assertPairableReports([
+      { path: 'a.json', report: mkReport(['X', 'Y'], { gitSha: 'abc1234-dirty' }) },
+    ]);
+    expect(single.shaDrift).toBeNull();
   });
 });

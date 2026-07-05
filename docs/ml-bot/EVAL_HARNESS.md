@@ -37,10 +37,22 @@
 >   rejects a profiled persona whose signature axis lacks an MDE (no more uncaught throw _after_ the
 >   full sweep); `behaviorCore` tests 42→46 + a new spawn-based `tests/scripts/behaviorProfile.test.js`
 >   pinning the CLI exit codes. CI green; full suite 1215.
-> - **Phase 2b (still TODO — separable follow-ups):** Holm adjustment across the ≤5 confirmatory tests
->   (a no-op for a 1–2-persona pilot), §3.6 determinism enforcement in the loader, the §3.8
->   training-field-match assertion, the §3.5 `--melee` persona×persona separation matrix, `--csv`, the
->   territory _curve_/AUC + border-exposure axes, and the with/without-quarantine dual pass.
+> - **Phase 2b — Holm adjustment: ✅ LANDED (2026-07-05, Wave-0 item 2).** `stats.mjs` gained an exact
+>   Student-t upper-tail `tSf` (Lanczos log-gamma + continued-fraction incomplete beta, scipy-pinned to
+>   ~1e-8) and a generic `holmAdjust` step-down; `signatureDetail` now carries a one-sided p per axis in
+>   the registered direction plus a signature-level p (AND rule = **max of the axis p-values**, the
+>   intersection–union test); `holmSignatures` issues the family verdict with
+>   **`confirmatoryPass = registered single-test gate AND Holm rejection`** (Holm may only tighten §3.2's
+>   registered criterion, never loosen it — at the family's last rank Holm's α = 0.05 one-sided is weaker
+>   than CI-excludes-0's one-sided 0.025). Family size m defaults to the registered count
+>   (`SIGNATURE_FAMILY_SIZE` = the `PERSONA_SIGNATURES` entries, 4; PERSONAS §10.5 — "becoming 5
+>   if the Blitz escalation fires" via `--holm-family 5`, growth-only), NOT the personas graded in
+>   one invocation, so grading one-per-session cannot
+>   quietly un-adjust the family; a signature with no comparable data keeps `p: null` — in the family,
+>   never rejectable.
+> - **Phase 2b (still TODO — separable follow-ups):** §3.6 determinism enforcement in the loader, the
+>   §3.8 training-field-match assertion, the §3.5 `--melee` persona×persona separation matrix, `--csv`,
+>   the territory _curve_/AUC + border-exposure axes, and the with/without-quarantine dual pass.
 
 ---
 
@@ -178,6 +190,21 @@ Blitz's "aggression HIGHER **and** turns-to-win LOWER") _before_ running. That b
 family to ~5 tests; apply **Holm** across those 5. **All other axes are descriptive** (reported, not
 pass/fail). `PERSONA_SIGNATURES` encodes the one hypothesis + AND/OR rule per persona.
 
+> **As built (2026-07-05):** each signature's p-value is **one-sided in the registered direction**
+> (t = paired Δ/SE at df = paired n − 1, exact t tail via `tSf`); an AND-conjunction takes the **max**
+> of its axis p-values (intersection–union test — valid at level α without further correction);
+> `holmAdjust` runs the step-down at family-wise α = 0.05 with m = the registered family size
+> (`SIGNATURE_FAMILY_SIZE` = the `PERSONA_SIGNATURES` count, overridable upward via `--holm-family`);
+> the shipped verdict is `confirmatoryPass = single-test gate (§3.2) AND Holm` — see the Phase-2b
+> status note at the top for the loosening-guard rationale. Zero paired SE (identical diffs, a
+> real event on quantized axes at small kept-n) floors the in-direction p at the **sign-flip
+> permutation bound 2⁻ⁿ** (n identical signs are at most that much evidence — never p = 0, which
+> would clear every threshold even at n = 2 where the bound 0.25 clears none); anything else is
+> p = 1. Known approximation, documented not changed: at **runs ≥ 32** the §3.2 CI gate's `tCrit`
+> falls back to the normal 1.96 (effective one-sided ≈ 0.03, slightly looser than the exact p the
+> Holm path computes); every registered budget (10–20 runs) uses the exact tabulated t, so this
+> only matters if a future protocol registers > 31 runs — extend the table/invert `tSf` first.
+
 ### 3.4 Null-run policy (winners-only axes)
 
 Turns-to-win is `null` for any run where the bot never won — and `pairedDelta`
@@ -265,25 +292,31 @@ profileGameFromCapture(result, playerIndex, capture) -> GameProfile   // throws 
 reduceRun(profiles[]) -> Record<axis, number|null>      // one scalar per AXES key per run
 summarizeAxis(perRunValues[]) -> { mean, ci, n } | null // mean ± 95% CI; n = RUN count (§3.1)
 alignDropNull(a[], b[]) -> { a[], b[], n }              // drop indices null on either side (§3.4)
-compareAxis(personaRuns[], controlRuns[]) -> { delta, ci, lo, hi, verdict, n } | null  // paired Δ
+compareAxis(personaRuns[], controlRuns[]) -> { delta, ci, lo, hi, se, verdict, n } | null  // paired Δ (se: paired stderr for the t statistic)
 compareToControl(personaRuns[], controlRuns[]) -> Record<axis, compareAxis-result | null>
-signatureDetail(signature, vsControl, mde) -> { pass, rule, axes[] }  // per-axis meetsMde/sigInDir/ok
+signatureDetail(signature, vsControl, mde) -> { pass, rule, p, axes[] }  // per-axis meetsMde/sigInDir/ok/p; p = one-sided IUT p (§3.3)
 signaturePass(signature, vsControl, mde) -> boolean     // = signatureDetail(...).pass; THROWS w/o MDE
+holmSignatures(entries[], {alpha, familySize}) -> { alpha, familySize, results[] }  // §3.3 family verdict; confirmatoryPass = pass AND Holm
 parseBotSpec(spec) -> { name, weightsPath|null }        // "Name" (built-in) vs "Name=weights.js"
 parseMdeOverrides(str, base=DEFAULT_MDE) -> Record<axis, number>  // "--mde axis:val,..." merged over base
 
-AXES                // the canonical axis-key list (single source of truth)
-PERSONA_SIGNATURES  // persona -> { axes: [{ axis, direction }], rule: 'AND'|'single' }   (gated when a profiled bot's name matches)
-DEFAULT_MDE         // partial Record<axis, number>; a signature axis MUST have an entry (else throws)
+AXES                   // the canonical axis-key list (single source of truth)
+PERSONA_SIGNATURES     // persona -> { axes: [{ axis, direction }], rule: 'AND'|'single' }   (gated when a profiled bot's name matches)
+SIGNATURE_FAMILY_SIZE  // registered Holm family size m = the PERSONA_SIGNATURES count (§3.3)
+DEFAULT_MDE            // partial Record<axis, number>; a signature axis MUST have an entry (else throws)
 ```
 
+(`stats.mjs` supplies the primitives: `tSf(t, df)` — exact Student-t upper tail — and
+`holmAdjust(tests, {alpha, familySize})` — the generic named-family step-down.)
+
 > **Not yet built (Phase 2b / future):** `aggregateCurves` (territory _curve_ alignment/padding),
-> `separationMatrix` (§3.5 persona×persona melee), Holm adjustment across the 5 confirmatory tests, and
-> the `--melee`/`--csv` CLI modes. The shipped `summarizeAxis` is the `aggregateRuns` thin-`meanCi`
-> wrapper the draft named. The terminal-stat math (`avgPlacement`, win%, capture-efficiency) is computed
-> in `behavior-core.mjs` directly; extracting a shared helper from `arenaRunner.js:130-168` remains a
-> **TODO** (the one duplication the review flagged). Weight-file bot loading + the signature PASS/FAIL
-> verdict + `--mde` calibration are **now built** (Phase 2a, "bite E1").
+> `separationMatrix` (§3.5 persona×persona melee), and the `--melee`/`--csv` CLI modes. The shipped
+> `summarizeAxis` is the `aggregateRuns` thin-`meanCi` wrapper the draft named. The terminal-stat math
+> (`avgPlacement`, win%, capture-efficiency) is computed in `behavior-core.mjs` directly; extracting a
+> shared helper from `arenaRunner.js:130-168` remains a **TODO** (the one duplication the review
+> flagged). Weight-file bot loading + the signature PASS/FAIL verdict + `--mde` calibration are built
+> (Phase 2a, "bite E1"); the **Holm adjustment across the confirmatory family is built** (2026-07-05,
+> Wave-0 item 2 — `holmSignatures` + `--holm-family`, see the §3.3 as-built note).
 
 ### CLI
 
@@ -296,8 +329,10 @@ node scripts/behavior-profile.mjs \
   --mde aggression:1.5,turnsToWin:8 \                 # CALIBRATE the signature thresholds from the §3.2 pilot
   --runs 20 --games 150 \                             # CALIBRATE runs/games via the §3.2 pilot, don't hard-code
   --no-quarantine \                                   # run a second, unfiltered pass (§3.7)
+  --holm-family 5 \                                   # registered Holm family m (default: PERSONA_SIGNATURES count; §3.3)
   --json                                              # JSON->stdout, human table->stderr
-  # A weights bot named `Blitz` opts into PERSONA_SIGNATURES.Blitz → a PASS/FAIL verdict vs the control.
+  # A weights bot named `Blitz` opts into PERSONA_SIGNATURES.Blitz → a PASS/FAIL verdict vs the control,
+  # then the gated signatures are Holm-adjusted as one family (report.holm + the CONFIRMED verdicts).
   # --melee (§3.5 persona×persona) is NOT yet implemented — Phase 2b.
 ```
 
@@ -381,10 +416,15 @@ worthwhile future test.)
 ## 7. Output format
 
 `--json` → stdout (machine), human table → stderr. Shape below is the **full Phase-2 target**
-(abbreviated); the **shipped Phase-1 JSON** carries only the `AXES` metrics + per-axis `vsControl`
-(each `{ delta, ci, lo, hi, verdict, n }`), `config.quarantine.ratePerBot`, and a per-bot `liveRuns`
-count — it does **not** yet emit `territoryCurve`, `territoryAuc`, `borderExposure`, `placementHist`, or
-the `separationMatrix`/`signature` blocks. (`winPctVsRef` ships as the `winPct` axis.)
+(abbreviated); the **shipped JSON** (as of 2026-07-05) carries the `AXES` metrics, per-axis
+`vsControl` (each `{ delta, ci, lo, hi, se, verdict, n }` — `se` is the paired stderr feeding the
+§3.3 t statistic), a per-bot `signature` block when a `PERSONA_SIGNATURES` name is gated
+(`{ persona, pass, rule, p, axes[] }`, per-axis `p` included), the top-level **`holm`** block
+(`{ alpha, familySize, results[] }`, per-result
+`{ persona, p, pAdj, threshold, rank, holmReject, unadjustedPass, confirmatoryPass }`; `null` when
+nothing is gated), `config.quarantine.ratePerBot`, and a per-bot `liveRuns` count. It does **not**
+yet emit `territoryCurve`, `territoryAuc`, `borderExposure`, `placementHist`, or the
+`separationMatrix` block. (`winPctVsRef` ships as the `winPct` axis.)
 
 ```jsonc
 {
@@ -435,7 +475,7 @@ the `separationMatrix`/`signature` blocks. (`winPctVsRef` ships as the `winPct` 
           "axes": ["aggression", "turnsToWin"],
           "rule": "AND",
           "mdeMet": true,
-          "holmAdjusted": true,
+          "holmAdjusted": true, // as built, Holm lives in the top-level `holm` block instead — see below
           "signaturePass": true,
         },
       },
@@ -447,9 +487,15 @@ the `separationMatrix`/`signature` blocks. (`winPctVsRef` ships as the `winPct` 
 }
 ```
 
+> **As-built divergence (2026-07-05):** the Holm result deliberately ships as a **top-level
+> `report.holm` block** (`{ alpha, familySize, results[] }` with per-persona `confirmatoryPass`),
+> not the `vsControl.signature.holmAdjusted` boolean sketched above — the step-down is a property
+> of the FAMILY (ranks/thresholds depend on every member's p), so nesting it per-bot would hide
+> the joint structure. The shipped per-bot `signature` block is `{ persona, pass, rule, p, axes[] }`.
+
 CSV (optional `--csv <dir>`): `summary.csv`, `territory.csv` (tidy long form for plotting),
 `vs_control.csv`, `separation.csv`. Console table prints the headline axes + the per-persona signature
-verdict.
+verdict, then the Holm confirmatory-family block (m, per-persona p/pAdj/rank/threshold, CONFIRMED).
 
 ---
 
@@ -479,8 +525,9 @@ play — even though aggression+tempo is Blitz's confirmatory signature.
 - **vs `ppo:gate`:** complementary — `ppo:gate` = _"stronger?"_ (paired Δwin% vs Lookahead),
   `behavior:profile` = _"different?"_ (paired Δ on behavioral axes vs Conqueror), reusing the very same
   `pairedDelta`/`classifyGate`. Pipeline: train personas → (optional) `ppo:gate` for strength →
-  `behavior:profile` for distinct style. A persona "ships as a persona" when `signaturePass === true`
-  (MDE + Holm) — strength is _not_ required of a personality bot (PERSONAS §9 open question).
+  `behavior:profile` for distinct style. A persona "ships as a persona" when its family verdict is
+  **CONFIRMED** (`holmSignatures` `confirmatoryPass` = the §3.2 MDE+significance gate AND the §3.3 Holm
+  rejection) — strength is _not_ required of a personality bot (PERSONAS §9 open question).
 
 ---
 
@@ -501,7 +548,10 @@ Scoped runs only (`npx vitest run tests/behaviorCore.test.js`), never the full s
    reduction correct.
 4. `compareToControl`: crafted per-run arrays → exact `pairedDelta` + verdicts; **`signaturePass` true
    only when |Δ| ≥ MDE AND CI excludes 0 in the expected direction** (assert it is FALSE for a
-   significant-but-sub-MDE Δ); Holm adjustment across the 5.
+   significant-but-sub-MDE Δ); Holm adjustment across the registered family _(built + tested
+   2026-07-05: scipy-pinned `tSf`/one-sided p, the worked step-down example, family m = the
+   `PERSONA_SIGNATURES` count with `--holm-family` growth-only override, the CONFIRMED
+   composition — see §3.3 as-built)_.
 5. **Null-run policy:** a `null` turns-to-win run on either side drops index `i` from both, preserving
    alignment; `pairedDelta` never sees mismatched lengths.
 6. Edge cases: never-wins (`turnsToWin {n:0, mean:null}`), 0 kills, quarantined game excluded,

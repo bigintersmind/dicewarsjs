@@ -21,6 +21,69 @@ Entry template:
 
 ---
 
+## 2026-07-05 (late evening) — Wave-0 item 2: Holm across the confirmatory signature family (EVAL_HARNESS §3.3)
+
+**Phase:** Wave-0 eval builds (PERSONAS §10.7 item 2) · **Who:** Claude (PR merge Ivan-gated)
+
+**Did:**
+
+- **`stats.mjs`:** exact Student-t upper tail **`tSf(t, df)`** (Lanczos log-gamma +
+  continued-fraction regularized incomplete beta — needed because Holm's per-rank thresholds
+  α/(m−rank+1) land at levels no lookup table covers), pinned against scipy 1.13.1 to ~1e-8 plus
+  closed forms at df=1/2 and both existing t-tables; generic **`holmAdjust`** step-down over named
+  tests (registered `familySize` may exceed the tests supplied, never shrink; `p: null` stays in
+  the family and never rejects; reject ⇔ monotone pAdj ≤ α, algebraically identical to the
+  textbook stop-at-first-failure rule).
+- **`behavior-core.mjs`:** `compareAxis` now exposes the paired `se`; `signatureDetail` carries a
+  one-sided p per axis in the REGISTERED direction plus a signature-level p (AND rule = **max of
+  the axis p-values**, the intersection–union test); new **`holmSignatures`** family verdict with
+  `confirmatoryPass = registered single-test gate AND Holm rejection` and
+  `SIGNATURE_FAMILY_SIZE` (= the `PERSONA_SIGNATURES` count, 4).
+- **`behavior:profile` CLI:** gated signatures flow into a top-level `report.holm` block + a
+  "Holm confirmatory family" stderr verdict table (CONFIRMED/NOT CONFIRMED with p/pAdj/rank/
+  threshold and override provenance); `--holm-family` (growth-only, for the §10.5 Blitz-escalation
+  5th test) validated pre-sweep.
+- Tests: +12 `stats.test.js` (scipy pins, worked Holm example, step-down-blocks-later-ranks), +14
+  `behaviorCore.test.js` (IUT max-p, se===0 floor, family composition incl. the
+  Holm-looser-than-gate rank pin, contract-validation throw), +4 `behaviorProfile.test.js` (shrink
+  guard m=1/2/3, 2 small real-sweep e2e pinning `report.holm` + stderr, ~4 s).
+- Docs: EVAL_HARNESS §3.3 as-built note, Phase-2b status flip, Public API + CLI + §7 output-format
+  sync (incl. an as-built divergence note: Holm ships as top-level `report.holm`, not the sketched
+  `holmAdjusted` boolean), §9 ship criterion → CONFIRMED, §10 item 4; PERSONAS §10.7 item-2
+  annotation; README status.
+
+**Learned / decided:**
+
+- **Methodology decisions (now written into §3.3 as-built):** (1) one-sided p in the registered
+  direction; (2) AND signature = max-p IUT; (3) `CONFIRMED = single-test gate AND Holm` — Holm may
+  only tighten the registered §3.2 criterion, never loosen it (at the family's last rank Holm's
+  α=0.05 one-sided is WEAKER than CI-excludes-0's one-sided 0.025, so the naive "replace the gate
+  with Holm" would loosen the largest-p member); (4) m defaults to the REGISTERED family (4), not
+  the graded count — grading personas one-per-session must not quietly un-adjust the family.
+- **4-lens adversarial review (3 reviewers → 8 findings → 6 confirmed, 2 refuted), all fixed
+  pre-PR:** the `--holm-family` guard originally floored at the per-invocation gated count, so
+  `--holm-family 2` could halve the rank-1 threshold's denominator and flip CONFIRMED (now floored
+  at the registered 4); `holmSignatures` now validates the detail contract (a reshaped report
+  object would have read as "missing p" → all-NOT-CONFIRMED with exit 0); the se===0 in-direction
+  fallback now floors at the **sign-flip permutation bound 2⁻ⁿ** instead of p=0 (n=2 exact ties
+  correctly fail; ship-grade n unaffected); EVAL_HARNESS §7 output-format drift fixed. Known
+  approximation documented, not changed: `tCrit`'s 1.96 fallback at df>30 makes the CI gate run at
+  effective one-sided ≈0.03 for ≥32-run sweeps — every registered budget (10–20 runs) is
+  tabulated-exact; extend the table/invert `tSf` before registering a bigger protocol.
+- Live smoke at a 3×3 budget: Survivor (vs a Defensive control) CONFIRMED at m=4 (p 0.0016 →
+  pAdj 0.0064), Blitz correctly NOT (its aggression axis is sub-MDE vs an unmatched control) —
+  the family verdict block reads exactly as designed.
+
+**Next:**
+
+- PR for item 2 (Ivan-gated merge), then Wave-0 item 3: the profile-pairing separation script
+  (PERSONAS §10.5 pairwise-separation matrix from identically-seeded profiles).
+- Mini is grading the remaining 20 v3 checkpoints in the background (`ppo:curve`, ~520 s each) —
+  first real within-trajectory curve lands this evening; early rows: v3@2M and @3M both BEAT
+  Lookahead ≈ +28 and already BEAT the v2 20M `PPO` bar (+6.5 at 3M).
+
+---
+
 ## 2026-07-05 (evening) — [D-29] strength-curve scorer Phase 1 BUILT + mini acceptance PASSED (Wave-0 item 1, the hard Wave-1 precondition)
 
 **Phase:** Wave-0 eval builds (PERSONAS §10.7 item 1) · **Who:** Claude (PR review + merge Ivan-gated)

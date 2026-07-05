@@ -19,8 +19,11 @@ src/utils/config.js
 
 # Generated model weights (compact single-line dump) + their parity fixtures —
 # Prettier would explode the array literals; all produced by export_weights.py.
+# Keeping them ignored also keeps the committed file byte-exact with what the
+# exporter emits (re-export → identical hash, no formatting churn).
 src/ai/bcPolicyWeights.js
 src/ai/ppoPolicyWeights.js
+src/ai/conquerorPolicyWeights.js
 tests/fixtures/bc/
 
 # Python BC-trainer subproject (ml-bot Phase 2) — owns its own tooling (ruff).

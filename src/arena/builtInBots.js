@@ -52,16 +52,18 @@ export const BUILT_IN_BOTS = [
    * PPO — the self-play RL net (Phase 3), aka `ppo-long`. Like BC, already a modern
    * `(BotState) => move` bot, so it registers RAW. `hidden`: "PPO" is an internal
    * training name, so it's not shown in-game — but it stays in BUILT_IN_BOTS as the
-   * strength baseline the ML gate measures personas against. (The player-facing
-   * Conqueror persona ships the SAME weights under a friendlier name.)
+   * strength baseline the ML gate measures personas against. (Its v2 `ppo-long`
+   * weights are frozen for that role; the player-facing Conqueror moved on to the
+   * stronger encoding-v3 net in 2026-07, so the two are no longer the same policy.)
    */
   { id: 'ai_ppo', name: 'PPO', fn: ai_ppo, hidden: true },
   /*
    * Personas (docs/ml-bot/PERSONAS.md) — the player-facing self-play roster, each a
    * RAW modern bot. `persona: true` keeps them out of the canonical `ppo:gate` reference
    * field (so the documented baselines stay fixed) while still appearing in the in-game
-   * arena/tournament and the online tournament. Conqueror reuses the ppo-long weights
-   * (the strongest balanced net); Blitz/Survivor have their own fine-tuned checkpoints.
+   * arena/tournament and the online tournament. Each ships its own weights: Conqueror
+   * the encoding-v3 net ([D-31] — the strongest net overall), Blitz/Survivor their v2
+   * fine-tuned checkpoints.
    */
   { id: 'ai_conqueror', name: 'Conqueror', fn: ai_conqueror, persona: true },
   { id: 'ai_blitz', name: 'Blitz', fn: ai_blitz, persona: true },

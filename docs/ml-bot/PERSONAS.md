@@ -55,6 +55,10 @@
 > for the dev harness). The weaker `ppo-conqueror` checkpoint stays in the repo as a training artifact,
 > not shipped. **Batch 2 (Expansionist + Predator, dense rewards) is still queued.**
 >
+> _(Update 2026-07-05: Conqueror no longer aliases `ppo-long` — it ships the encoding-v3 net in its
+> own `conquerorPolicyWeights.js` per [D-31] §5, after the §10.1 bars passed; the hidden `PPO` keeps
+> the frozen v2 `ppo-long` weights as the gate baseline.)_
+>
 > **Field-sensitivity audit (2026-06-30, `arena:ml`).** A 19,472-game seat-fair round-robin among the ML
 > nets found the win-rate ranking is **field-dependent**: Survivor's `+8.4` BEAT above is a weak-bot-heavy
 > gate-field effect (it leads on placement everywhere and on win% in mixed fields), but **Blitz** wins the

@@ -23,9 +23,10 @@ export const load_ai_expectimax = async () => (await import('./ai_expectimax.js'
  * throw every turn). The arena/tournament screens use the RAW bots from `builtInBots.js`,
  * whose consumers already call `fn(botState)` directly, so no wrapper is needed there.
  *
- * Conqueror reuses the `ppo-long` weights (the balanced flagship net); Blitz and Survivor
- * have their own fine-tuned checkpoints. The internal `ai_ppo`/`ai_bc` nets are NOT in
- * this player-facing picker — they stay in `builtInBots.js` (hidden) for the dev harness.
+ * Each persona ships its own weights: Conqueror the encoding-v3 net ([D-31], the strongest
+ * net overall); Blitz and Survivor their v2 fine-tuned checkpoints. The internal
+ * `ai_ppo`/`ai_bc` nets are NOT in this player-facing picker — they stay in
+ * `builtInBots.js` (hidden) for the dev harness.
  */
 export const load_ai_conqueror = async () => {
   const { ai_conqueror } = await import('./ai_conqueror.js');
@@ -128,9 +129,9 @@ export const AI_STRATEGIES = {
   /*
    * Personas — the player-facing self-play roster (docs/ml-bot/PERSONAS.md). Each is a
    * single reactive forward pass (no search), so it plays on learned instinct. Conqueror
-   * is the balanced flagship (the strongest balanced net the game ships); Blitz closes
-   * games fast; Survivor outlasts the field (and is the strongest net overall). The
-   * internal PPO/BC nets are hidden — see builtInBots.js.
+   * is the balanced flagship — since the [D-31] encoding-v3 ship, the strongest net
+   * overall; Blitz closes games fast; Survivor outlasts the field. The internal PPO/BC
+   * nets are hidden — see builtInBots.js.
    *
    * `category: 'self-play'` groups them under the picker's **Self-Play** section (shown
    * above the hand-written **General** bots) — see {@link getAIStrategiesByCategory}.

@@ -43,9 +43,8 @@ if (botFilter) {
   }
 } else {
   /*
-   * Default field = the player-visible roster. Excludes the hidden dev nets
-   * (BC, and PPO — whose weights already ship as the Conqueror persona), so the
-   * ranking isn't diluted by a duplicate policy. Request them by name if needed.
+   * Default field = the player-visible roster. Excludes the hidden dev-harness
+   * nets (BC/PPO) — players never face them. Request them by name if needed.
    */
   bots = [...PLAYER_VISIBLE_BOTS];
 }

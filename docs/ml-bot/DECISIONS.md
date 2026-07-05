@@ -2002,3 +2002,15 @@ Caveats, recorded with the decision:
 - **The value is constant across all decisions within one player-turn, by design** (it counts
   completed turns; at a decision during player-turn N the column reads (N−1)/500 and saturates
   exactly at the truncation boundary).
+
+**Outcome (2026-07-05) — §4 bars run and ALL PASSED.** `ppo-v3-scratch` (relaunched on the fixed
+encoder, pinned `464a2ee`) completed clean at 20M (2026-07-04, attempt #1, zero restarts).
+Gated off the final fixtured eval checkpoint: **primary** — BEAT `ppo-scratch-long` head-to-head,
+fresh-seed-confirmed **+6.1 ± 2.2 pp [3.9, 8.4]** (initial +7.0 [5.0, 9.1]) → the encoding A/B
+resolves in favor of v3 and the §3 warm-start fallback never fires; **ship** — BEAT Survivor
+head-to-head **+5.5 ± 1.7 pp [3.8, 7.2]** (initial +3.5 [1.2, 5.8]); floor vs Lookahead **+33.9
+[32.2, 35.5]** with a monotonically rising 16M→20M curve tail (the final checkpoint is the peak).
+§5 rollout (ship as Conqueror, defer personas to the PERSONAS §10 wave) proceeds. Head-to-head
+bars were run via the PERSONAS §10.7 Wave-0 item-4 loader (`ppo:gate --bar Name=weights.js`,
+landed 2026-07-05). Full tables: `RESULTS.md` (2026-07-05 section); logs archived to shodan
+`ml/runs/_eval_logs/v3-scratch.20M.*`.

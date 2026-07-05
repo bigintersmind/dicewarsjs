@@ -371,6 +371,12 @@ fun. The roster makes that filter _possible_; it doesn't automate it.
 
 ### 10.1 Premise and conditionality
 
+> **RESOLVED 2026-07-05: both bars PASSED** (primary +6.1 pp fresh-seed h2h over
+> `ppo-scratch-long`; ship +5.5 pp h2h over Survivor — see `RESULTS.md`), so the slate proceeds
+> on the full-pass path: Conqueror ships the v3 base weights, and every retrain below
+> warm-starts from `ml/runs/ppo-v3-scratch/ppo.pt`. Wave-0 item 4 (the head-to-head
+> weights-loader, §10.7) also landed that session via `ppo:gate --bar Name=weights.js`.
+
 Conditional on `ppo-v3-scratch` (20M, fixed `turnClockNorm`, `ENCODING_VERSION=3`, pinned
 `464a2ee`) passing the [D-31] §4 bars: **primary** = beat `ppo-scratch-long` head-to-head;
 **ship** = beat Survivor head-to-head (then its weights ship as Conqueror per the [D-27] pattern).

@@ -995,3 +995,68 @@ export/ship plumbing — correctly never built.
 (checkpoints + fixtured eval streams), eval logs in `ml/runs/_b2c_eval/*.{profile,gate}.log`,
 supervisor log `ml/runs/persona-b2c.supervisor.log`. Both schtasks tasks
 (`dicewars-persona-b2c`, `dicewars-b2c-eval`) deleted post-run.
+
+## Phase 3 — encoding-v3 scratch run COMPLETE: ALL [D-31] §4 bars PASS (primary A/B + ship) · 2026-07-05
+
+`ppo-v3-scratch` — the [D-31] encoding A/B (fixed `turnClockNorm` encoder, `ENCODING_VERSION 3`,
+pinned `464a2ee`; `FROM_SCRATCH=1`, 20M steps, R=3 PFSP league, `lr 2.5e-4 / ent_coef 0.01`,
+`n_envs 12` — the `ppo-scratch-long` recipe with ONLY the observation changed) — **completed
+cleanly 2026-07-04 20:53 CDT**: exit 0, attempt #1, **zero restarts**, ~31.6 h wall at ~175 fps,
+final checkpoint 20,004,864 steps. Everything below is gated **locally on the Mac** off the run's
+fixtured eval stream (the #97 producer): candidate = `eval-020004864.*` (the final fixtured
+eval-stream checkpoint per PERSONAS §10.2 — and the curve's peak, see below; 103,779 params,
+parity 3.0e-4).
+
+### The [D-31] §4 bars — all PASS
+
+Head-to-head bars were run with the PERSONAS §10.7 **Wave-0 item-4 loader built this session**:
+`ppo:gate --bar Name=weights.js` parity-checks the bar export and seats it as an EXTRA field seat
+(10 seats: 8 baselines + bar + candidate), so candidate and bar are measured **in the same games**
+and judged on the paired Δ win% CI. Both v2 bars ran via slice-compat on the v3 encoder (parity:
+ScratchLong 2.5e-5, Survivor 1.9e-5). **NB:** the extra seat depresses absolute win% — 10-seat
+rows are not comparable to 9-seat rows; only the paired Δ is judged. Fresh-seed confirmations per
+§10.2 (`--seedbase 20` ≥ run count, 2× runs = 6000 games) are **the reported strengths**.
+
+| Bar ([D-31] §4)                                     | Field       | Initial (seedbase 0, 3000–3060 games)      | Fresh-seed (seedbase 20, 6000 games)     | Verdict     |
+| --------------------------------------------------- | ----------- | ------------------------------------------ | ---------------------------------------- | ----------- |
+| _floor_ — `Lookahead@596f781`                       | 9-seat gate | **+33.9 ± 1.6 [32.2, 35.5]** (39.8 vs 6.0) | —                                        | ✅ **BEAT** |
+| **PRIMARY** — `ppo-scratch-long` (the encoding A/B) | 10-seat h2h | +7.0 ± 2.0 [5.0, 9.1] (32.2 vs 25.2)       | **+6.1 ± 2.2 [3.9, 8.4]** (31.5 vs 25.4) | ✅ **BEAT** |
+| **SHIP** — `Survivor` (strongest shipped net)       | 10-seat h2h | +3.5 ± 2.3 [1.2, 5.8] (29.8 vs 26.4)       | **+5.5 ± 1.7 [3.8, 7.2]** (31.7 vs 26.2) | ✅ **BEAT** |
+
+### Strength curve vs Lookahead (9-seat, 3060 games/point, all off the eval stream)
+
+| Steps | Paired Δ vs Lookahead        | Cand win% | STOP% |
+| ----: | ---------------------------- | --------- | ----- |
+|    2M | +32.4 ± 1.9 [30.5, 34.3]     | 37.5      | 44.8  |
+|    6M | +27.2 ± 2.2 [25.0, 29.4]     | 34.8      | 37.6  |
+|   12M | +26.0 ± 1.9 [24.1, 27.9]     | 34.1      | 38.5  |
+|   16M | +30.7 ± 2.3 [28.4, 33.0]     | 37.0      | 41.3  |
+|   19M | +32.3 ± 2.2 [30.1, 34.5]     | 39.2      | 42.7  |
+|   20M | **+33.9 ± 1.6 [32.2, 35.5]** | 39.8      | 45.0  |
+
+The PFSP dip bottoms at ~12M and the tail **rises monotonically into the final checkpoint** — the
+shipped candidate is the curve's peak, not a lucky endpoint (a [D-29] k=2 tail-regression check
+would not fire). The late climb past the 2M exploit-the-weak-field peak is genuine strength (same
+field throughout), and STOP% recovering 38.5 → 45.0 is the net re-learning patience as it
+strengthens.
+
+### Read
+
+- **The [D-31] representational-gap thesis is validated at full budget.** With the training recipe
+  held fixed, the v3 observation (owner identity, income economics, turn order, clock) is worth
+  **+6.1 pp head-to-head at 20M** over the v2-encoding control — training could never have
+  recovered what the encoding withheld.
+- **The v3 base is now the strongest net, full stop:** it beats Survivor (+5.5), which had beaten
+  `ppo-long` (+8.4), which had beaten the BC clone and every heuristic. The floor gate (+33.9 vs
+  Lookahead) also exceeds the v2 warm-start headline (+27.7) on a comparable 9-seat field.
+- **Consequence per [D-31] §5:** the v3 net ships as **Conqueror's** weights ([D-27] pattern —
+  packed export into `src/ai/`; hidden `ai_ppo` keeps the v2 `ppo-long` weights as the gate
+  baseline; the gate field keeps its v2 `PPO` seat for era comparability). Per PERSONAS §10.1,
+  primary + ship PASS → the pre-registered v3 persona slate proceeds intact; Wave 1 unblocks once
+  the remaining Wave-0 preconditions land (the [D-29] scorer Phase 1 is the hard one).
+
+**Artifacts:** gate logs archived to shodan
+`ml/runs/_eval_logs/v3-scratch.20M.{final-gate,primary-bar,ship-bar,primary-bar.freshseed,ship-bar.freshseed}.log`
+and `v3-scratch.{16M,19M}.curve.log`; candidate/curve weights from
+`ml/runs/ppo-v3-scratch/eval/`; bar weights `ml/runs/ppo-scratch-long/scratch.weights.js` and
+`ml/runs/ppo-survivor/survivor.weights.js`. Run commit `464a2ee`; Lookahead pin `596f781`.

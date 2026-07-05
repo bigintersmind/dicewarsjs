@@ -21,6 +21,57 @@ Entry template:
 
 ---
 
+## 2026-07-05 — `ppo-v3-scratch` COMPLETE → ALL [D-31] §4 bars PASS: primary (encoding A/B) +6.1 h2h over `ppo-scratch-long`, ship +5.5 h2h over Survivor — the v3 net is the new strongest; ships as Conqueror
+
+**Phase:** 3 → rollout ([D-31] §5) · **Who:** Claude (Ivan away; results check requested)
+
+**Did:**
+
+- Completion check on shodan: the run finished **clean 2026-07-04 20:53 CDT** — exit 0, attempt
+  #1, **zero restarts**, 20,004,864 steps in ~31.6 h (~175 fps), actor repacked to `ppo.pt`, full
+  per-1M fixtured eval stream through the terminal checkpoint.
+- Built PERSONAS §10.7 **Wave-0 item 4** (the head-to-head bar loader): `ppo:gate --bar
+Name=weights.js` (+ `--bar-fixture`) parity-checks a bar export and seats it as an extra field
+  seat; `buildGateField` gained the optional `barFn` seat + collision guards. 3 new unit tests
+  (suite 1373 green, lint/format clean).
+- Ran the full [D-31] §4 bar set **locally on the Mac** (zero shodan load), candidate =
+  `eval-020004864.*`: floor vs Lookahead **BEAT +33.9 ± 1.6 [32.2, 35.5]**; **PRIMARY vs
+  `ppo-scratch-long` BEAT** (initial +7.0 [5.0, 9.1]; fresh-seed §10.2 confirmation at
+  `--seedbase 20 --runs 40` = **+6.1 ± 2.2 [3.9, 8.4]** — the reported number); **SHIP vs
+  Survivor BEAT** (initial +3.5 [1.2, 5.8]; fresh-seed **+5.5 ± 1.7 [3.8, 7.2]**).
+- Filled the strength curve's tail (16M **+30.7**, 19M **+32.3** vs Lookahead) — with 2M/6M/12M
+  from yesterday the dip bottoms at ~12M and the tail **rises monotonically to the final
+  checkpoint** (+33.9): the candidate is the curve's peak, no winner's-curse rescue needed.
+- Archived all seven gate logs to shodan `ml/runs/_eval_logs/` (`v3-scratch.20M.*`,
+  `v3-scratch.{16M,19M}.curve.log`). Full tables in `RESULTS.md`.
+
+**Learned / decided:**
+
+- **The encoding was the binding constraint, as [D-31] hypothesized:** same recipe, same budget,
+  only the observation changed → +6.1 pp head-to-head over the v2 scratch control. The
+  warm-start-fallback arm ([D-31] §3) is moot — never fires.
+- **Ship-bar consequence ([D-31] §5):** the v3 net replaces **Conqueror's** weights (packed
+  export into `src/ai/`, [D-27] pattern; hidden `ai_ppo` keeps `ppo-long` as the gate baseline;
+  the 9-seat gate field keeps its v2 `PPO` seat — era comparability, no row boundary). PERSONAS
+  §10.1's conditionality resolves to the full-slate path: every retrain warm-starts from
+  `ml/runs/ppo-v3-scratch/ppo.pt`.
+- 10-seat h2h fields (bar = extra seat) depress absolute win% — only the paired Δ is judged;
+  don't cross-compare those win% columns with 9-seat rows.
+- The ship-bar initial (+3.5) vs fresh-seed (+5.5) spread is a reminder the §10.2 fresh-seed
+  confirmation isn't ceremony — seed-block luck at 20 runs is ±2 pp.
+
+**Next:**
+
+- **Ship plumbing** ([D-31] §5 / PERSONAS §10.7): packed export of the v3 actor into `src/ai/`
+  as Conqueror's weights + export-parity check + PR (Ivan-gated merge, per the auto-mode
+  classifier).
+- **Wave 0 remainder before Wave 1** (§10.7): [D-29] scorer Phase 1 (hard precondition — one real
+  checkpoint scored end-to-end on the mini), Holm in `behavior-core.mjs`, profile-pairing script,
+  probe-path pre-flight, A/A + test-retest negative controls, 3-arm throughput probe. Item 4 (the
+  weights-loader) is DONE as of this session. Wave-1 launches stay Ivan-gated (`schtasks`).
+
+---
+
 ## 2026-07-04 — v3 persona slate designed + pre-registered (PERSONAS.md §10); Predator closure scoped "under the current wire"
 
 **Phase:** post-3 (persona re-batch planning) · **Who:** Ivan + Claude

@@ -1185,6 +1185,17 @@ describe('assertPairableReports — the §10.5 identical-field/seeds contract', 
     );
   });
 
+  it('throws when config.runs is below 2 or non-integer (pairing needs >= 2 seed blocks)', () => {
+    // A `--runs 1` profile can't be paired: every axis has n<2 and degrades to non-comparable.
+    // Fail loud at the contract instead of silently producing an all-incomparable matrix.
+    expect(() =>
+      assertPairableReports([{ path: 'a.json', report: mkReport(['X'], { runs: 1 }) }])
+    ).toThrow(/runs is not an integer >= 2/);
+    expect(() =>
+      assertPairableReports([{ path: 'a.json', report: mkReport(['X'], { runs: 2.5 }) }])
+    ).toThrow(/runs is not an integer >= 2/);
+  });
+
   it('throws on a config mismatch for every seed/field-defining key', () => {
     const cases = [
       ['runs', 4],

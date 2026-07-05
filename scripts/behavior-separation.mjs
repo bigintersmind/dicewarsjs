@@ -30,10 +30,10 @@
  * Pairing honesty: within one report all bots were profiled in an identical field over the
  * same seed blocks (§3.5 seed/map-level pairing — documented as such, not within-game).
  * Across MULTIPLE reports the script hard-fails on any config mismatch (runs/games/stride/
- * rotations/fieldSize/opponents/quarantine) and on git-SHA drift (§10.5: cross-time "pairing"
- * is not pairing — a code change can alter field-bot behavior on the same seeds);
- * `--allow-sha-drift` downgrades the SHA check to a warning for commits known to be
- * behavior-identical (e.g. docs-only).
+ * rotations/fieldSize/opponents/opponentSpecs/quarantine) and on git-SHA drift (§10.5:
+ * cross-time "pairing" is not pairing — a code change can alter field-bot behavior on the
+ * same seeds); `--allow-sha-drift` downgrades the SHA check to a warning for commits known
+ * to be behavior-identical (e.g. docs-only).
  *
  * This is the §10.5 profile-pairing matrix, NOT the §3.5 "melee" mode (co-seating all
  * personas in one shared field), which remains a Phase-2b deferral.
@@ -78,10 +78,21 @@ const USAGE =
 const VALUE_FLAGS = new Set(['bots', 'mde', 'shipped']);
 const BOOL_FLAGS = new Set(['json', 'require-separated', 'allow-sha-drift']);
 const reportPaths = [];
+const seenFlags = new Set();
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a.startsWith('--')) {
     const name = a.slice(2);
+    // Reject a repeated flag. getArg/hasFlag read only the FIRST occurrence, so a duplicate
+    // value flag (e.g. `--mde aggression:1.5 --mde turnsToWin:8`) would silently drop the
+    // second — reverting that axis to its DEFAULT bar with no error and no `mdeOverridden`
+    // entry, which can flip the ship gate from FAIL to PASS while the operator believes both
+    // overrides are in force. (The documented form is one comma-separated `--mde`.) Fail loud.
+    if (seenFlags.has(name)) {
+      console.error(`--${name} passed more than once. ${USAGE}`);
+      process.exit(1);
+    }
+    seenFlags.add(name);
     if (VALUE_FLAGS.has(name)) {
       // Fail loud on a missing value: a trailing `--mde` (or `--mde --json`) would otherwise
       // be silently ignored by getArg's default fallback and the run would grade under

@@ -734,7 +734,8 @@ export function assertPairableReports(reports) {
       if (a !== b) {
         throw new Error(
           `config mismatch on "${key}": ${first.path} has ${a}, ${p} has ${b} — pairing needs ` +
-            `identical field/seeds (same runs/games/stride/rotations/fieldSize/opponents).`
+            `identical field/seeds (same runs/games/stride/rotations/fieldSize/opponents/` +
+            `opponentSpecs).`
         );
       }
     }

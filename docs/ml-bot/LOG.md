@@ -51,12 +51,12 @@ Entry template:
   names, exit 1 when the gate has <2 roster bots (gating nothing must fail loud), and a
   non-comparable roster pair fails closed. Overridden separation-axis MDEs are labeled a
   registered-protocol deviation everywhere a verdict appears (`config.mdeOverridden`).
-- **Tests +64** (suite green): 32 unit (relative-bar math incl. the §10.3 worked ≈0.28 number,
+- **Tests +67** (suite green): 33 unit (relative-bar math incl. the §10.3 worked ≈0.28 number,
   fail-closed paths, MDE-vs-significance independence both ways, every config-mismatch key incl.
-  opponent-weights specs, corrupt-perRun/dirty-sha contracts) + 31 synthetic-report CLI cases
-  (validation exits, output shape, the full ship-gate matrix of exits — cheap, the input is a
-  JSON file) + 1 live profile→separation e2e (12 matches); the profile e2e also pins the new
-  perRun/opponentSpecs/provenance report fields.
+  opponent-weights specs, the runs-<2 contract, corrupt-perRun/dirty-sha contracts) + 33
+  synthetic-report CLI cases (validation exits incl. the repeated-flag guard, output shape, the
+  full ship-gate matrix of exits — cheap, the input is a JSON file) + 1 live profile→separation
+  e2e (12 matches); the profile e2e also pins the new perRun/opponentSpecs/provenance fields.
 - **Multi-lens adversarial review pre-PR** (spec/statistics, silent-failure, tests/docs; every
   finding adversarially verified, default-refute): 15 raw → **8 distinct confirmed, all fixed
   here**; 2 refuted (n=2 zero-variance separation — matches the registered protocol; both-absent
@@ -68,6 +68,12 @@ Entry template:
   §10.5" label; trailing value flags (`--mde` as last arg) silently ignored; corrupt perRun
   entries crashed with a context-free TypeError; plus two test-coverage gaps and a wrong LOG
   test count.
+- **Second review pass at merge** (4 parallel lenses): 1 confirmed gate-weakening + 1 doc drift,
+  both fixed here. A REPEATED value flag (`--mde a:1 --mde b:2`) was silently dropped by `getArg`
+  (reads the first only), reverting the other axis to its default bar with no `mdeOverridden`
+  entry — can flip `--require-separated` FAIL→PASS; the parser now rejects any repeated flag. And
+  the config-mismatch key enumeration in the CLI header + the thrown-error hint omitted
+  `opponentSpecs` (the headline new key) — corrected to match `PAIRING_CONFIG_KEYS`.
 - **Docs:** EVAL_HARNESS §3.5 "As built" + Public API + §7 shipped-JSON + separation CLI block +
   §10 test-plan note; PERSONAS §10.5 bullet + §10.7 item-3 annotations; README status.
 

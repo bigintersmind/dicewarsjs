@@ -210,6 +210,18 @@ describe('behavior-separation CLI — validation exits (no games ever run)', () 
     expect(stderr).toMatch(/Unknown flag/);
   });
 
+  it('rejects a repeated flag — getArg reads only the first, so a dropped 2nd could flip the gate', () => {
+    const p = writeReport(mkReport([mkBot('A'), mkBot('B')]));
+    // A duplicate value flag: only the first --mde would be read, silently reverting the other
+    // axis to its default bar (the gate-weakening the parser now closes).
+    const dupMde = run([p, '--mde', 'aggression:1.5', '--mde', 'turnsToWin:8']);
+    expect(dupMde.exitCode).toBe(1);
+    expect(dupMde.stderr).toMatch(/--mde passed more than once/);
+    // Also uniform across --bots and repeated booleans.
+    expect(run([p, '--bots', 'A,B', '--bots', 'A']).stderr).toMatch(/--bots passed more than once/);
+    expect(run([p, '--json', '--json']).stderr).toMatch(/--json passed more than once/);
+  });
+
   it('rejects a report whose perRun entries are corrupt (null elements) with a validation message', () => {
     const r = mkReport([mkBot('A'), mkBot('B')]);
     r.bots[0].perRun = [null, null, null, null];
@@ -308,13 +320,29 @@ describe('behavior-separation CLI — matrix output (synthetic reports)', () => 
     expect(out.pairs[0].separated).toBe(false);
   });
 
-  it('--mde kills:0.5 reverts kills to an absolute bar (recorded in config)', () => {
+  it('--mde kills:0.5 reverts kills to an absolute bar (recorded in config), flagged as an override', () => {
     const p = writeReport(mkReport([mkBot('A'), mkBot('B')]));
-    const { stdout, exitCode } = run([p, '--json', '--mde', 'kills:0.5']);
+    const { stdout, stderr, exitCode } = run([p, '--json', '--mde', 'kills:0.5']);
     expect(exitCode).toBe(0);
     const out = JSON.parse(stdout);
     expect(out.config.mde.kills).toEqual({ rule: 'absolute', value: 0.5 });
     expect(out.pairs[0].axes.find(d => d.axis === 'kills').mdeBasis).toBe('absolute');
+    // Switching kills OFF the §10.3 relative bar is a registered-protocol deviation and must be
+    // labeled — mdeOverridden is the only machine-readable signal a PASS wasn't the §10.5 gate.
+    expect(out.config.mdeOverridden).toEqual(['kills']);
+    expect(stderr).toMatch(/OVERRIDDEN — not the registered §10\.5 bars/);
+    expect(stderr).toMatch(/WARNING: --mde overrides deviate .* \[kills\]/);
+  });
+
+  it("a boolean flag before the report path does not swallow it (the parser's reason to exist)", () => {
+    // getPositionalArg would treat --json as consuming the next token; the explicit inventory
+    // must instead read the path as a positional. Pin it: flag-first still produces the matrix.
+    const p = writeReport(mkReport([mkBot('Blitz', BLITZY), mkBot('Survivor', SURVIVORY)]));
+    const flagFirst = run(['--json', p]);
+    expect(flagFirst.exitCode).toBe(0);
+    expect(JSON.parse(flagFirst.stdout).pairs).toHaveLength(1);
+    // The same for a boolean flag in the gate path (Blitz×Survivor both separate → PASS exit 0).
+    expect(run(['--require-separated', p]).exitCode).toBe(0);
   });
 
   it('near-identical profiles do NOT separate', () => {

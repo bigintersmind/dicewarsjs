@@ -1,11 +1,17 @@
 # Checkpoint strength-curve harness
 
-> **Status:** Phase 0 (producer) ✅ SHIPPED (PR #97). Phase 1 (scorer) ⬜ **DESIGN — reviewed
-> 2026-07-01** (multi-agent code-grounded review; every finding adversarially verified against
-> the repo). Amendments applied; the five open questions are **resolved** (see
-> [Resolved questions](#resolved-questions-2026-07-01-review)). Ready to build.
+> **Status:** Phase 0 (producer) ✅ SHIPPED (PR #97). Phase 1 (scorer) ✅ **BUILT (2026-07-05)** —
+> `scripts/ppo-strength-curve.mjs` (**`npm run ppo:curve`**), core logic in
+> `scripts/lib/strength-curve-core.mjs`, and the prerequisite `runGateSweep` extraction landed in
+> `scripts/lib/ppo-gate-core.mjs` (`ppo-gate.mjs` is now a thin CLI over it). Tier-1 hermetic
+> acceptance: `tests/scripts/strengthCurveE2E.test.js` (real games over known-strength exports —
+> the regression detector fires on the descending PPO→BC pair). **Mini acceptance PASSED
+> 2026-07-05** (the PERSONAS §10.7 Wave-1 precondition): `eval-001000008` of `ppo-v3-scratch`
+> graded end-to-end on the mini at default budget — Δ vs Lookahead +27.6 ± 2.2 BEAT, Δ vs PPO
+> +0.6 TIE, 3060 games, **552.1 s** (the mini timing calibration; shodan's 267.7–440.5 s never
+> applied to the mini). See [As built](#as-built-2026-07-05) for the deltas vs this design.
 >
-> **Last updated:** 2026-07-01 · **Owners:** Ivan (+ Claude)
+> **Last updated:** 2026-07-05 · **Owners:** Ivan (+ Claude)
 
 ## Why this exists
 
@@ -306,6 +312,52 @@ no mini timing exists yet, so **calibrate on the first run** before trusting est
 run ≈ 20 checkpoints ≈ **~1.5–2.5 h serially** — trivial against ~29 h of GPU training, and in
 watch mode the question evaporates (one ~7 min grade per ~1.6 h of training). Whatever is
 dropped/subsampled gets `log()`'d, never silently skipped.
+
+### As built (2026-07-05)
+
+Implemented as designed above; the deltas, all additive or operational:
+
+- **`runGateSweep` is async**, yielding the event loop between runs — a default-budget sweep is
+  minutes of otherwise-synchronous game crunching, which starves signal handlers (watch mode's
+  Ctrl-C) and timers until the whole sweep ends. Seed math, rotation order, tallies, and abort
+  semantics are byte-identical to the pre-refactor inline loop, pinned by
+  `tests/scripts/ppoGateSweep.test.js` against a stub match runner.
+- **`--max-points N`** caps a walk's new points (deferred remainder logged) — the budget escape
+  hatch used for the single-checkpoint mini acceptance run.
+- **`--test-retest`** implements the test-retest calibration as a flag: re-grades the current
+  argmax once at identical settings, prints the spread, and records it under `testRetest` in
+  `strength.meta.json`.
+- **Failure threshold** operationalized as: abort once >50% of _graded rows_ (min 3) are
+  `parity-failed`/`sweep-failed`. The `encodingVersion` run-global abort peeks the exported
+  module directly so a fixture-config throw can't misclassify a systemic mismatch as one bad
+  checkpoint.
+- **Meta sidecar enforcement:** a resumed walk hard-aborts on knob/field/encoding/ref mismatch
+  with the existing `strength.meta.json` (rows would be incomparable — use a different `--out`);
+  a git-SHA drift only warns (rows carry their own `gitSha`).
+- **Watch-mode alert condition** = the trailing ≥k graded points all test below the running
+  best (`activeSlump`), so an ongoing slump alerts once per new point while it persists; the
+  regression report prints the `tb/progress-*.csv` join pointer (diagnose, not just detect).
+- The confirmation protocol is printed as `npm run ppo:gate -- --weights <eval-...>.weights.js
+--seedbase <fresh> --runs <2x>` (a standalone one-checkpoint re-grade), rather than a scorer
+  flag — the gate CLI already does exactly this.
+
+Post-build multi-agent review (3 lenses, findings adversarially verified — 15 raw → 7 confirmed,
+all fixed same-session; the determinism lens formally verified **zero methodology drift** in the
+`runGateSweep` extraction, a purely-additive core-module diff):
+
+- Rows now carry a **per-row `gitSha`** (the spec's variants/invariants split — the sidecar SHA
+  is only the starting point), and `parity-failed` rows record the artifact's `weightsSha256`.
+- `analyzeCurve` takes the walk's **subsample-eligible index steps**, so an indexed-but-ungraded
+  checkpoint (artifacts awaiting sync) breaks k-consecutive windows exactly like a failed row —
+  previously only failed _rows_ could break a window.
+- The encoding-abort union gained a **`reason` discriminator** (`unsupported-version` vs
+  `incompatible-widths`): a supported-version net whose feature widths break the live encoder
+  (makeBC's guard) no longer aborts with a false "version outside supported set" headline.
+- `runGateSweep` validates `seedBase` (a NaN — e.g. a `--seedbase` typo — used to coerce every
+  seed to 0 in the engine RNG and silently grade N replays of one map as "independent" runs);
+  `ppo-gate.mjs` validates the flag too.
+- `--test-retest --watch` is rejected at arg-parse (the retest only ran in batch mode and was
+  silently dropped under `--watch`).
 
 ### Acceptance test (three tiers)
 

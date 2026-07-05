@@ -49,8 +49,64 @@ const T95 = {
  */
 export const tCrit = df => T95[df] ?? 1.96;
 
+// One-sided α = 0.05 Student's t critical values (= the two-sided 90% quantile),
+// df = runs - 1. Used by the strength-curve run-paired regression/plateau tests
+// ([D-29]), which are directional by design — the two-sided T95 table above would
+// test them at an effective α of 0.025 per side.
+const T95_ONE_SIDED = {
+  1: 6.314,
+  2: 2.92,
+  3: 2.353,
+  4: 2.132,
+  5: 2.015,
+  6: 1.943,
+  7: 1.895,
+  8: 1.86,
+  9: 1.833,
+  10: 1.812,
+  11: 1.796,
+  12: 1.782,
+  13: 1.771,
+  14: 1.761,
+  15: 1.753,
+  16: 1.746,
+  17: 1.74,
+  18: 1.734,
+  19: 1.729,
+  20: 1.725,
+  21: 1.721,
+  22: 1.717,
+  23: 1.714,
+  24: 1.711,
+  25: 1.708,
+  26: 1.706,
+  27: 1.703,
+  28: 1.701,
+  29: 1.699,
+  30: 1.697,
+};
+
+/**
+ * One-sided α = 0.05 t critical value for `df` degrees of freedom. For df > 30
+ *  falls back to the normal approximation 1.645.
+ */
+export const tCritOneSided = df => T95_ONE_SIDED[df] ?? 1.645;
+
 /** Plain arithmetic mean of a sample array. */
 export const mean = values => values.reduce((a, b) => a + b, 0) / values.length;
+
+/**
+ * Mean and standard error for a sample array (the shared primitive under
+ * {@link meanCi} and the one-sided curve tests).
+ * @param {number[]} values - one entry per independent run
+ * @returns {{ mean: number, se: number, n: number }}
+ */
+export function meanSe(values) {
+  const n = values.length;
+  const m = mean(values);
+  const variance = values.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1);
+  return { mean: m, se: Math.sqrt(variance) / Math.sqrt(n), n };
+}
 
 /**
  * Mean and 95% confidence half-width for a sample array.
@@ -58,9 +114,6 @@ export const mean = values => values.reduce((a, b) => a + b, 0) / values.length;
  * @returns {{ mean: number, ci: number }}
  */
 export function meanCi(values) {
-  const n = values.length;
-  const m = mean(values);
-  const variance = values.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1);
-  const stdErr = Math.sqrt(variance) / Math.sqrt(n);
-  return { mean: m, ci: tCrit(n - 1) * stdErr };
+  const { mean: m, se, n } = meanSe(values);
+  return { mean: m, ci: tCrit(n - 1) * se };
 }

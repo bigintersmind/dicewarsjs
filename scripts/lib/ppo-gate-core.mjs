@@ -168,6 +168,175 @@ export function rotatedField(field, r) {
 }
 
 /**
+ * Derive the sweep's per-run game plan from the field size and the requested
+ * per-run game budget. `gamesPerRun` is rounded to whole rotation sets
+ * (`seedsPerRun × fieldSize`) — e.g. the default 150 on the 9-seat field gives
+ * 17 seeds × 9 = 153 games/run. `stride` spaces the per-run seed blocks so runs
+ * never share seeds (the [D-29] scorer also relies on it staying a pure function
+ * of `(fieldSize, gamesPerRun)`: constant knobs ⇒ identical seeds ⇒ per-run
+ * samples pairable across checkpoints).
+ *
+ * @param {number} fieldSize - number of seats (bots) in the field
+ * @param {number} gamesPerRun - requested games per run (pre-rounding)
+ * @returns {{ seedsPerRun: number, gamesPerRunActual: number, stride: number }}
+ */
+export function sweepPlan(fieldSize, gamesPerRun) {
+  const seedsPerRun = Math.max(1, Math.round(gamesPerRun / fieldSize));
+  const gamesPerRunActual = seedsPerRun * fieldSize;
+  const stride = Math.max(1_000_000, gamesPerRunActual * 1000);
+  return { seedsPerRun, gamesPerRunActual, stride };
+}
+
+/**
+ * The seat-fair gate sweep, extracted from `ppo-gate.mjs` per [D-29] so the
+ * strength-curve scorer can drive the identical orchestration (same seed
+ * formula, same rotation order, same abort semantics) without forking the
+ * gate's methodology. Runs `runs` independent seed blocks; each block replays
+ * `seedsPerRun` maps through all `field.length` seat rotations
+ * ({@link rotatedField}), and tallies per-run win% / mean placement /
+ * attack-win-rate for every name in `tallyNames` from the same games.
+ *
+ * Failure semantics — THROWS instead of `process.exit` (callers decide
+ * fatality), preserving the CLI's guards:
+ * - mass failure ({@link shouldAbort}: >50% of attempted matches threw, past
+ *   the {@link ABORT_MIN_ATTEMPTS} floor) → throw;
+ * - a run that completed zero games (win% would be NaN, which `classifyGate`
+ *   silently reads as TIE) → throw;
+ * - an individual match throw under those thresholds → counted, reported via
+ *   `onMatchError`, and skipped.
+ *
+ * `matchFn` is required rather than defaulted so this module keeps its "pure
+ * logic, no arena import" property (its unit tests run zero games) — pass
+ * `runMatch` from `src/arena/matchRunner.js`.
+ *
+ * Async, yielding the event loop between runs: a default-budget sweep is
+ * minutes of otherwise-synchronous game crunching, which would starve signal
+ * handlers (the curve scorer's Ctrl-C) and timers until the whole sweep ends.
+ *
+ * @param {object} args
+ * @param {Array<{ name: string, fn: Function }>} args.field - from {@link buildGateField}
+ * @param {Function} args.matchFn - `({ bots, seed }) => MatchResult` (i.e. `runMatch`)
+ * @param {number} args.runs - independent seed blocks (>= 1; >= 2 for any CI)
+ * @param {number} args.gamesPerRun - per-run game budget (see {@link sweepPlan})
+ * @param {number} [args.seedBase=0] - seed-block offset; hold constant for pairable runs
+ * @param {string[]} args.tallyNames - field names to tally (candidate + references)
+ * @param {(done: number, total: number) => void} [args.onRunComplete]
+ * @param {(info: { seed: number, rotation: number, error: Error }) => void} [args.onMatchError]
+ * @returns {Promise<{
+ *   perRun: Record<string, { winPct: number[], avgPlacement: number[], attackWinRate: number[] }>,
+ *   games: number, failedGames: number, attempts: number,
+ *   seedsPerRun: number, gamesPerRunActual: number, stride: number
+ * }>}
+ */
+export async function runGateSweep({
+  field,
+  matchFn,
+  runs,
+  gamesPerRun,
+  seedBase = 0,
+  tallyNames,
+  onRunComplete,
+  onMatchError,
+}) {
+  if (typeof matchFn !== 'function') throw new Error('runGateSweep: matchFn is required');
+  if (!Number.isFinite(runs) || runs < 1) throw new Error('runGateSweep: runs must be >= 1');
+  if (!Number.isFinite(gamesPerRun) || gamesPerRun < 1) {
+    throw new Error('runGateSweep: gamesPerRun must be >= 1');
+  }
+  /*
+   * A NaN seedBase would flow into every seed as NaN, which the engine RNG
+   * coerces (>>> 0) to seed 0 — every "independent" run silently replaying the
+   * same map, yielding a plausible-looking but statistically bogus verdict.
+   */
+  if (!Number.isFinite(seedBase)) throw new Error('runGateSweep: seedBase must be a finite number');
+  if (!Array.isArray(tallyNames) || tallyNames.length === 0) {
+    throw new Error('runGateSweep: tallyNames must be a non-empty array');
+  }
+  const fieldNames = new Set(field.map(b => b.name));
+  for (const t of tallyNames) {
+    if (!fieldNames.has(t)) {
+      throw new Error(
+        `runGateSweep: tally name "${t}" is not in the field ` +
+          `(${field.map(b => b.name).join(', ')}) — references must be tallied IN-field, never seated`
+      );
+    }
+  }
+
+  const N = field.length;
+  const { seedsPerRun, gamesPerRunActual, stride } = sweepPlan(N, gamesPerRun);
+
+  const perRun = {};
+  for (const t of tallyNames) perRun[t] = { winPct: [], avgPlacement: [], attackWinRate: [] };
+  let failedGames = 0;
+  let attempts = 0; // every match tried (success or fail) — the abort denominator
+  let games = 0;
+
+  for (let run = 0; run < runs; run++) {
+    const tally = {};
+    for (const t of tallyNames) tally[t] = { wins: 0, placementSum: 0, attacks: 0, attackWins: 0 };
+    let runGames = 0;
+    for (let s = 0; s < seedsPerRun; s++) {
+      const seed = (seedBase + run) * stride + s + 1;
+      for (let r = 0; r < N; r++) {
+        attempts++;
+        let res;
+        try {
+          res = matchFn({ bots: rotatedField(field, r), seed });
+        } catch (err) {
+          failedGames++;
+          /*
+           * Count real attempts, not successes: a run whose every match throws leaves
+           * `runGames` at 0, so a successes-based denominator would pin the abort and
+           * let a catastrophic sweep through to a NaN verdict.
+           */
+          if (shouldAbort(failedGames, attempts)) {
+            throw new Error(`${failedGames}/${attempts} matches failed (>50%).`);
+          }
+          onMatchError?.({ seed, rotation: r, error: err });
+          continue;
+        }
+        runGames++;
+        games++;
+        for (const t of tallyNames) {
+          const rec = tally[t];
+          if (res.winnerName === t) rec.wins++;
+          const stat = res.botStats.find(b => b.name === t);
+          if (!stat)
+            throw new Error(`runGateSweep: tallied bot "${t}" missing from match botStats`);
+          rec.placementSum += stat.placement;
+          rec.attacks += stat.attacksMade;
+          rec.attackWins += stat.attacksWon;
+        }
+      }
+    }
+    /*
+     * A run with zero completed games (every match failed but stayed under the abort
+     * threshold) would make win% = 0/0 = NaN, which classifyGate silently reads as a
+     * TIE. Fail loud instead of grading a broken run.
+     */
+    if (runGames === 0) {
+      throw new Error(
+        `run ${run + 1} completed 0 of ${gamesPerRunActual} attempted games ` +
+          `— win% (and the verdict) would be NaN.`
+      );
+    }
+    for (const t of tallyNames) {
+      const rec = tally[t];
+      perRun[t].winPct.push((rec.wins / runGames) * 100);
+      perRun[t].avgPlacement.push(rec.placementSum / runGames);
+      perRun[t].attackWinRate.push(rec.attacks > 0 ? rec.attackWins / rec.attacks : 0);
+    }
+    onRunComplete?.(run + 1, runs);
+    // Yield between runs so signals/timers can fire during a minutes-long sweep.
+    await new Promise(resolve => {
+      setImmediate(resolve);
+    });
+  }
+
+  return { perRun, games, failedGames, attempts, seedsPerRun, gamesPerRunActual, stride };
+}
+
+/**
  * The actionable "no weights yet" message — the exact commands that produce
  * `src/ai/ppoPolicyWeights.js` from a trained PPO checkpoint.
  * @param {string} weightsPath

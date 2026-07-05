@@ -45,7 +45,8 @@
     "conqueror:export": "cd ml && python -m dicewars_bc.export_weights --ckpt runs/ppo-v3-scratch/ppo.pt --out ../src/ai/conquerorPolicyWeights.js --fixture ../tests/fixtures/bc/conquerorForwardCases.json",
     "blitz:export": "cd ml && python -m dicewars_bc.export_weights --ckpt runs/ppo-blitz/ppo.pt --out ../src/ai/blitzPolicyWeights.js --fixture ../tests/fixtures/bc/blitzForwardCases.json",
     "survivor:export": "cd ml && python -m dicewars_bc.export_weights --ckpt runs/ppo-survivor/ppo.pt --out ../src/ai/survivorPolicyWeights.js --fixture ../tests/fixtures/bc/survivorForwardCases.json",
-    "ppo:gate": "node scripts/ppo-gate.mjs"
+    "ppo:gate": "node scripts/ppo-gate.mjs",
+    "ppo:curve": "node scripts/ppo-strength-curve.mjs"
   },
   "keywords": [
     "game",

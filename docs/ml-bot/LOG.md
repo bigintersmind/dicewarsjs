@@ -21,6 +21,70 @@ Entry template:
 
 ---
 
+## 2026-07-05 (evening) — [D-29] strength-curve scorer Phase 1 BUILT + mini acceptance PASSED (Wave-0 item 1, the hard Wave-1 precondition)
+
+**Phase:** Wave-0 eval builds (PERSONAS §10.7 item 1) · **Who:** Claude (PR review + merge Ivan-gated)
+
+**Did:**
+
+- Extracted **`runGateSweep`** from `ppo-gate.mjs` into `ppo-gate-core.mjs` ([D-29] decision 6):
+  identical seed formula / rotation order / tallies / abort semantics, pinned by
+  `tests/scripts/ppoGateSweep.test.js` against a stub match runner; generalized to per-run
+  win%/placement/attack tallies for arbitrary **in-field** names; throws instead of
+  `process.exit`; made async (yields between runs) so SIGINT/timers stay live through
+  minutes-long sweeps. `ppo-gate.mjs` is now a thin CLI over it — output unchanged.
+- Built **`npm run ppo:curve`** (`scripts/ppo-strength-curve.mjs` + `strength-curve-core.mjs`):
+  resume-safe index walking, `CP-<step>` candidate vs Lookahead + `PPO` tallied from the same
+  games, per-run arrays persisted per row, `--watch`/`--rsync-from` transport, `--every-n`/
+  `--max-points` (logged, never silent), `--test-retest`, `strength.meta.json` provenance with
+  hard-mismatch abort, and `analyzeCurve` (k=2 run-paired regression vs the running best's lower
+  CI bound + loud alert + `tb/` join pointer; k=3 plateau; gaps break windows; divergence flag;
+  mandatory confirmation-protocol printout). One-sided α=0.05 t-table added to `stats.mjs`.
+- **Tier-1 hermetic acceptance** (`strengthCurveE2E.test.js`): synthetic index over real exports
+  of known strength (PPO early / BC anchor twice later / corrupted fixture) with real games —
+  the regression detector fires on the descending pair; corrupted fixture → `parity-failed` row.
+  First budget (8×18) left ~1 t-unit of margin and flaked; re-powered to 10×27 (expected t ≈ −5).
+- **Multi-agent review** (determinism + AI-contract + spec-fidelity, findings adversarially
+  verified): 15 raw → 7 confirmed, all fixed (per-row `gitSha` + sha256 on failed rows;
+  not-yet-synced expected steps now break k-windows; encoding-abort `reason` discriminator —
+  width mismatch ≠ version mismatch; `seedBase` NaN guard in sweep + gate CLI — a `--seedbase`
+  typo used to silently grade N replays of the seed-0 map; `--test-retest --watch` rejected).
+  The determinism lens **formally verified zero methodology drift** in the extraction. 8 refuted.
+- **Mini acceptance PASSED (the pre-registered Wave-1 precondition):** on the mini
+  (branch `wave0-strength-curve` @ `d3a5892`, master deps refreshed), graded `eval-001000008`
+  (the v3 run's 1M checkpoint) end-to-end at the default budget from the backed-up eval stream —
+  **Δ vs Lookahead +27.6 ± 2.2 [25.4, 29.8] BEAT · Δ vs PPO +0.6 TIE · 3060 games ·
+  parity 1.2e-6 · 552.1 s**. Outputs (`strength.jsonl` with per-run arrays + per-row provenance,
+  `.csv`, `.meta.json`) live in `mini:~/dicewarsjs/ml/runs/ppo-v3-scratch/eval/`.
+
+**Learned / decided:**
+
+- **Mini timing calibration** (the doc's open Q4 item): ~**552 s/checkpoint** at default budget
+  vs shodan's 267.7–440.5 s → a full 21-point v3 curve ≈ **3.2 h serially on the mini**.
+- The v3 net at **1M steps already TIEs the full 20M v2 `ppo-long`** (+0.6 ΔPPO) while BEATing
+  Lookahead +27.6 — consistent with the 2M/6M/12M "bar saturates by 2M" sketch, now with a
+  default-budget measurement behind it.
+- A long synchronous sweep starves Node's event loop (SIGINT, timers, vitest's worker RPC) —
+  hence async `runGateSweep`. Surfaced as a flaky-looking vitest "onTaskUpdate timeout".
+- The games-heavy E2E is **skipped on CI** (`describe.skipIf(CI)`): the 2-vCPU runner under
+  coverage blew the 600 s hook timeout at the powered budget, and a weaker budget flakes. It
+  runs in every local `npm test`; the detection rules stay CI-covered via the stub-match suites.
+- Local (MacBook) smoke of the same checkpoint at 4×36: +28.5 ± 7.5, test-retest spread 4.16 pp —
+  the noise-floor flag works and tiny budgets are honest about their CIs.
+
+**Next:**
+
+- PR `wave0-strength-curve` — Ivan reviews/merges (stopping point per Ivan: one PR per Wave-0
+  item, not one big batch).
+- Grade the remaining 20 v3 checkpoints on the mini (~3.2 h, `--max-points 0` resumes where the
+  acceptance left off) — the first real within-trajectory curve; its test-retest gives negative
+  control (2) of PERSONAS §10.5.
+- Wave-0 remainder, each its own PR: Holm in `behavior-core.mjs` (item 2), profile-pairing
+  script (item 3), #97 probe pre-flight + negative controls (item 5), 3-arm throughput probe
+  (item 6, Ivan-gated shodan).
+
+---
+
 ## 2026-07-05 (later) — v3 net SHIPPED as Conqueror ([D-31] §5): packed export → `conquerorPolicyWeights.js`, PPO baseline untouched
 
 **Phase:** rollout ([D-31] §5) · **Who:** Claude (Ivan-approved; merge Ivan-gated)

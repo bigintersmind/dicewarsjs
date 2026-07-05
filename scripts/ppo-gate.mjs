@@ -47,8 +47,8 @@ import {
   classifyGate,
   missingWeightsHelp,
   pairedDelta,
-  rotatedField,
-  shouldAbort,
+  runGateSweep,
+  sweepPlan,
   verdictLine,
 } from './lib/ppo-gate-core.mjs';
 
@@ -100,6 +100,7 @@ const gamesPerRun = parseInt(getArg(args, 'games', '150'), 10);
 const seedBase = parseInt(getArg(args, 'seedbase', '0'), 10);
 if (!Number.isFinite(runCount) || runCount < 2) throw new Error('--runs must be an integer >= 2');
 if (!Number.isFinite(gamesPerRun) || gamesPerRun < 1) throw new Error('--games must be >= 1');
+if (!Number.isFinite(seedBase)) throw new Error('--seedbase must be an integer');
 if (!Number.isFinite(stopBias)) throw new Error('--stop-bias must be a number');
 
 if (!existsSync(weightsPath)) {
@@ -155,16 +156,16 @@ const field = buildGateField(BUILT_IN_BOTS, candidateFn, candidateName, barName,
 /*
  * Seat-fair design (the gate requires it; matchRunner maps bots[i] → seat i, and
  * MapGenerator hands out territory by seat, so a fixed field would let seat advantage
- * confound the candidate-vs-bar delta). Each run replays SEEDS_PER_RUN distinct maps,
+ * confound the candidate-vs-bar delta). Each run replays seedsPerRun distinct maps,
  * and every map is played through all N seat rotations so each bot occupies every seat
  * exactly once — counterbalanced exactly like scripts/_baseline.mjs. `--games` is the
- * per-run game budget, rounded to whole rotation sets (SEEDS_PER_RUN × N) — e.g. the
- * default 150 on the 9-seat field gives 17 seeds × 9 = 153 games/run.
+ * per-run game budget, rounded to whole rotation sets (seedsPerRun × N) — e.g. the
+ * default 150 on the 9-seat field gives 17 seeds × 9 = 153 games/run. The sweep loop
+ * itself lives in runGateSweep ([D-29] extraction) so the strength-curve scorer drives
+ * the identical methodology; this CLI stays a thin arg-parse + report wrapper.
  */
 const N = field.length;
-const seedsPerRun = Math.max(1, Math.round(gamesPerRun / N));
-const gamesPerRunActual = seedsPerRun * N;
-const STRIDE = Math.max(1_000_000, gamesPerRunActual * 1000);
+const { seedsPerRun, gamesPerRunActual } = sweepPlan(N, gamesPerRun);
 
 console.log(
   `Phase-3 gate: ${candidateName} vs ${barLabel} — ` +
@@ -179,65 +180,30 @@ console.log(`Field (${N}): ${field.map(b => b.name).join(', ')}`);
 console.log(`stopBias=${stopBias}  judging on WIN% (paired, seat-fair), not ELO\n`);
 
 // --- Run the sweep (seat-counterbalanced) ---------------------------------------
-const candWin = [];
-const barWin = [];
-const candAtkWin = [];
-let failedGames = 0;
-let attempts = 0; // every match tried (success or fail) — the abort denominator
 const startTime = Date.now();
 
-for (let run = 0; run < runCount; run++) {
-  let candWins = 0;
-  let barWins = 0;
-  let candAttacks = 0;
-  let candAttackWins = 0;
-  let games = 0;
-  for (let s = 0; s < seedsPerRun; s++) {
-    const seed = (seedBase + run) * STRIDE + s + 1;
-    for (let r = 0; r < N; r++) {
-      attempts++;
-      let res;
-      try {
-        res = runMatch({ bots: rotatedField(field, r), seed });
-      } catch (err) {
-        failedGames++;
-        /*
-         * Count real attempts, not successes: a run whose every match throws leaves
-         * `games` at 0, so a successes-based denominator would pin the abort and let a
-         * catastrophic sweep through to a NaN verdict.
-         */
-        if (shouldAbort(failedGames, attempts)) {
-          console.error(`\nGate aborted: ${failedGames}/${attempts} matches failed (>50%).`);
-          process.exit(1);
-        }
-        console.error(`\n[gate] match failed (seed ${seed}, rot ${r}): ${err.message}`);
-        continue;
-      }
-      games++;
-      if (res.winnerName === candidateName) candWins++;
-      else if (res.winnerName === barName) barWins++;
-      const candStat = res.botStats.find(b => b.name === candidateName);
-      candAttacks += candStat.attacksMade;
-      candAttackWins += candStat.attacksWon;
-    }
-  }
-  /*
-   * A run with zero completed games (every match failed but stayed under the abort
-   * threshold) would make win% = 0/0 = NaN, which classifyGate silently reads as a
-   * TIE. Fail loud instead of grading a broken run.
-   */
-  if (games === 0) {
-    console.error(
-      `\nGate aborted: run ${run + 1} completed 0 of ${gamesPerRunActual} attempted games ` +
-        `— win% (and the verdict) would be NaN.`
-    );
-    process.exit(1);
-  }
-  candWin.push((candWins / games) * 100);
-  barWin.push((barWins / games) * 100);
-  candAtkWin.push(candAttacks > 0 ? candAttackWins / candAttacks : 0);
-  process.stdout.write(`\rRuns: ${run + 1}/${runCount}`);
+let sweep;
+try {
+  sweep = await runGateSweep({
+    field,
+    matchFn: runMatch,
+    runs: runCount,
+    gamesPerRun,
+    seedBase,
+    tallyNames: [candidateName, barName],
+    onRunComplete: (done, total) => process.stdout.write(`\rRuns: ${done}/${total}`),
+    onMatchError: ({ seed, rotation, error }) =>
+      console.error(`\n[gate] match failed (seed ${seed}, rot ${rotation}): ${error.message}`),
+  });
+} catch (err) {
+  console.error(`\nGate aborted: ${err.message}`);
+  process.exit(1);
 }
+
+const { failedGames } = sweep;
+const candWin = sweep.perRun[candidateName].winPct;
+const barWin = sweep.perRun[barName].winPct;
+const candAtkWin = sweep.perRun[candidateName].attackWinRate;
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 console.log(`\n\nCompleted in ${elapsed}s${failedGames ? ` (${failedGames} games failed)` : ''}\n`);

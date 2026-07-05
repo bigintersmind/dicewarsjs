@@ -549,7 +549,8 @@ a 20M placement scratch run as a v4 candidate.** No automatic reship this wave.
 - **Wave 0 (now, zero GPU, Mac/mini — can start before `ppo-v3-scratch` finishes):**
   1. [D-29] strength-curve scorer Phase 1 (+ `runGateSweep` extraction) — **hard Wave-1 launch
      precondition: one real checkpoint scored end-to-end on the mini** (it is the substitute for
-     the missing KL/anneal drift control);
+     the missing KL/anneal drift control); _(landed 2026-07-05: `npm run ppo:curve` —
+     `scripts/ppo-strength-curve.mjs` + STRENGTH_CURVE.md "As built" notes)_;
   2. Holm adjustment in `behavior-core.mjs`;
   3. the profile-pairing separation script (10.5);
   4. a **weights-loader for head-to-head bars** — `arena:ml --bots` accepts built-in names only

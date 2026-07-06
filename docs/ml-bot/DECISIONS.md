@@ -2022,3 +2022,59 @@ onto its own weights file (`npm run conqueror:export` pins the source checkpoint
 "identical to `ai_ppo`" identity test inverted into a divergence guard. `ai_ppo` keeps the frozen
 v2 `ppo-long` weights as the `ppo:gate` bar, exactly as specified above. Checkpoint + eval stream
 backed up off-shodan to the mini; the training schtasks entry is deleted.
+
+## D-32 — Wave-1 persona acceptance: ship Blitz-v3 on strength over a dual-control signature flag; Survivor-v3 killed → keep v2; Predator's comparator = v2 Survivor · Accepted (2026-07-06) · resolves the [PERSONAS.md](./PERSONAS.md) §10.2 Wave-1 ship decisions
+
+**Context.** The Wave-1 slate ([PERSONAS.md](./PERSONAS.md) §10.2 — `ppo-v3-conq-ctl` / `ppo-v3-blitz` /
+`ppo-v3-survivor`, 3×3M warm-started from the shipped Conqueror base) ran clean on shodan and was graded
+2026-07-06 on the full §10 battery (numbers: RESULTS.md 2026-07-06 section; session: LOG.md). Strength:
+all three BEAT the Lookahead floor; Blitz-v3 BEAT v2 Blitz **+11.6 [8.7, 14.4]** and TIED its warm-start
+base; Survivor-v3 came in BEHIND v2 Survivor **−5.9** and BEHIND the base **−20.8**. Style: Blitz-v3's
+signature CONFIRMED vs the base (aggr +0.42, turnsToWin −30, Holm ✓) but sub-MDE vs the matched control
+arm (aggr +0.16, turns −3.7) — the control itself drifted toward aggression/speed, so under the §10.5
+dual-control rule the signature is **FLAGGED**: most of the vs-base distinctiveness is
+continuation-training drift, not the γ0.99 lever. §10.4 clock-hack panel: all clear.
+
+**The fork.** §10.5 pre-registered "a signature that passes against only one [comparator] is flagged,
+not shipped" — read literally, Blitz-v3 does not ship. But every pre-registered _kill_ condition for
+Blitz-v3 (§10.8: tripwire panel, BEHIND v2 at the fresh re-gate, Holm signature fail) passed; the flag is
+an **attribution** finding (which training lever produced the style), not a strength or product-contrast
+finding.
+
+**Decisions (Ivan, 2026-07-06).**
+
+1. **Ship Blitz-v3 ([PR #120](https://github.com/bigintersmind/dicewarsjs/pull/120)) — an explicit
+   maintainer override of the §10.5 "flagged, not shipped" rule, on strength grounds.** The ship case:
+   strictly stronger than what players have (BEAT v2 Blitz +11.6, fresh same-session re-gate), no
+   warm-start regression (TIE base, well inside the −8 pp floor), BEAT Lookahead +29.6, and the
+   player-facing contrast vs Conqueror (aggr +0.42, −30 turns, all-pairs separation matrix distinct)
+   holds **regardless of which lever produced it** — players feel the behavior, not the attribution. The
+   flag is retained in RESULTS.md as an attribution caveat: "γ0.99 drives Blitz's style" is NOT a claim
+   this wave supports. The §10.2 escalation (`--terminal-speed-bonus`) was NOT taken — the registered
+   signature family stays at 4, and the escalation remains available to a future wave only as a
+   pre-registered new arm.
+2. **Survivor-v3 killed — the pre-registered §10.8 gates applied as written, no override.** BEHIND v2,
+   BEHIND base, signature fails both comparators → **keep shipping v2 Survivor** (the §10.5 fallback;
+   the roster is never worse than today). The mechanism finding worth keeping: placement fine-tuning off
+   the sharper/more-aggressive v3 base moved avgPlacement LESS than v2's identical recipe did off
+   `ppo-long` (−0.33 vs −0.82) while costing raw strength — the base's aggression prior fights the
+   placement objective. Corollary: **the §10.6 scratch trigger is dead** — it required Survivor-v3 to
+   beat the base again (it lost by −20.8), so the "placement as the flagship objective" v4 question
+   closes unfired.
+3. **Predator's mandatory comparator is v2 Survivor** — the §10.3 pre-registered fallback ("whichever
+   Survivor ships") fires. Consequence for Wave 2: the confirmatory kills bar (≥15% of the realized
+   comparator's kills) must be **recomputed from v2 Survivor's realized kills in the v3-era profile
+   field** before pilot grading — the drafted ≈+0.28 figure was derived from Survivor-v3's 1.86–1.92
+   kills and is void with it.
+4. **The §10.8 "control beats base" flag is judged on head-to-head and dissolves.** The control's +5.5 pp
+   in-field winPct edge over the base was a field-composition artifact; the paired head-to-head gate is a
+   TIE (+1.1 [−1.3, 3.5]). The [D-27] drift lore (matched-objective continuation ≈ wash) stands. Rule of
+   thumb now written into §10.8's intent: judge controls on paired head-to-head, never in-field winPct.
+
+**Pre-Wave-2 follow-ups (blocking pilot grading, not the #120 ship).** (a) Build the §10.3 **scavenge
+co-read** — it is a pre-committed §10.8 Predator kill condition (vulture detection: victim territory
+count / time-at-one-territory before the killing blow) with no implementation in the harness yet;
+(b) recalibrate the tripwire **winPct floor** and ratify the §10.4 clock-hack thresholds (drafted
+50/0.05/0.3 — behaved correctly in Wave 1: no false fire on a genuine turtle) from the control arm's
+0.5M/1M eval probes, per the §10.5 caveat; (c) picker/ladder copy (§10.5 "ladder honesty") stays
+deferred until the Predator slot resolves, so the fresh-seed `arena:ml` field is measured once.

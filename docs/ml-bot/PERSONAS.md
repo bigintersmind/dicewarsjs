@@ -472,7 +472,10 @@ killing blow) as a ship-blocking sanity check. Also noted: the aggregate bounty 
 pre-registered MDE was 0.5. On a closure-grade gate, don't silently keep the lower number:
 **confirmatory bar = kills ≥ 15% of the realized comparator's kills** (≈ +0.28 vs Survivor-v3's
 1.86–1.92), with +0.25 explicitly labeled the pilot bar. Comparator = whichever Survivor ships
-(pre-registered fallback if Survivor-v3 fails its keep-v2 gate).
+(pre-registered fallback if Survivor-v3 fails its keep-v2 gate). _(Outcome 2026-07-06: the fallback
+fired — Survivor-v3 was killed, so the comparator is **v2 Survivor** and the ≈+0.28 figure is void;
+recompute the 15% bar from v2 Survivor's realized kills in the v3-era profile field before pilot
+grading. [D-32].)_
 
 ### 10.4 New v3 hazard class — the clock cuts both ways (pre-register before Wave 1)
 
@@ -516,7 +519,10 @@ comparator = raw v3 base) before enforcing them, exactly as the §10.5 winPct fl
   precedent), so a signature measured only against it conflates persona effect with control decay
   — and the contrast players feel is vs the shipped Conqueror (the untouched base). Profile every
   persona against **both** the control (training-recipe attribution) and the raw v3 base (product
-  claim); a signature that passes against only one is flagged, not shipped.
+  claim); a signature that passes against only one is flagged, not shipped. _(Outcome 2026-07-06:
+  Blitz-v3 was exactly this case — CONFIRMED vs base, sub-MDE vs the control — and was **shipped
+  anyway on strength grounds by explicit maintainer override**, the flag retained as an attribution
+  caveat; see [D-32](./DECISIONS.md).)_
 - **Signatures** (Holm-adjusted; family registered as **4, becoming 5 if the Blitz escalation
   fires** — registered now, not post-hoc): Blitz = aggression ≥ +0.3 AND turnsToWin ≤ −5;
   Survivor = avgPlacement ≥ 0.4 better; Predator = the 10.3 kills bar vs the matched Survivor
@@ -645,11 +651,17 @@ a 20M placement scratch run as a v4 candidate.** No automatic reship this wave.
   halt slate ship decisions and investigate (contradicts the drift lore).
 - **Blitz-v3:** killed by the tripwire panel; or BEHIND v2 Blitz at 3M (fresh re-gate); or
   Holm-adjusted signature fail including the one escalation. Consequence: ship v2 Blitz unchanged.
+  _(Outcome 2026-07-06: no kill condition fired — SHIPPED v3 (#120), BEAT v2 +11.6, with the §10.5
+  dual-control flag accepted as an attribution caveat. [D-32].)_
 - **Survivor-v3:** killed by the tripwire panel; or BEHIND v2 Survivor; or signature fail; or the
   §10.4 clock-hack monitor firing — now operational: `evaluateClockHack()` returns `kill=true` when
   either primary tripwire fires (`nearCapDeathRate` +0.05 or `lateGameAggressionSpike` +0.3, each
   CI-excludes-0 vs the raw v3 base). A Survivor that games the now-visible clock is a reward hack —
-  keep v2, and log the finding as a v3-encoding hazard note.
+  keep v2, and log the finding as a v3-encoding hazard note. _(Outcome 2026-07-06: KILLED, but by
+  the strength/signature gates, not the clock monitor — BEHIND v2 −5.9, BEHIND base −20.8, signature
+  fails both comparators; §10.4 stayed clean (a genuine turtle). Keep v2. The control arm's §10.8
+  check also resolved: paired h2h TIE +1.1 — its +5.5 in-field winPct was a field artifact; judge
+  controls on head-to-head. [D-32].)_
 - **Predator:** killed by the tripwire panel; or failing the Lookahead floor; or neither pilot
   clearing the 10.3 confirmatory bar; or passing kills but failing to separate from Survivor on
   the matrix; or the scavenge co-read showing vulture behavior. Consequence per Ivan's ruling:

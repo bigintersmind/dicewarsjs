@@ -528,6 +528,23 @@ games toward the cap — exactly where the gradient lives.)
   control arm run through all four signatures **vs the base** (defined explicitly as control-vs-base)
   — if matched-objective fine-tuning alone passes any signature, that signature measures drift,
   not personality: fix before claiming anything.
+  - _(Landed 2026-07-05, Wave-0 item 5: NC1 + NC2 + the #97 probe pre-flight ship as `npm run
+behavior:preflight` — see EVAL_HARNESS §3.9. NC1 profiles the base against itself at the SAME
+    seeds (the base is deterministic, so the paired Δ cancels map variance and isolates the
+    unseeded-opponent noise). **Refinement to ratify:** the live n=8 A/A on the v3 base showed the
+    registered raw "|Δ| < MDE/3" false-halts `turnsToWin` — a winners-only, high-variance axis whose
+    per-run game length swings ≫ tol (Δ ≈ −4.7 ± 9.1) even though the true self-difference is 0. So
+    NC1 CERTIFIES an axis only when its paired 95% CI ⊆ ±tol (equivalence). **BIASED** — the halt —
+    additionally requires **Holm-significant** (family-wise α across the five signature axes) evidence
+    the self-difference is beyond ±tol, because declaring bias from ONE stochastic A/A is a hypothesis
+    test that per-axis false-fires ~1-in-11 across the family and degenerates to the raw point test
+    when a small-n CI collapses (a zero paired SE is capped at the 2⁻ⁿ sign-agreement bound). So the
+    family-wise false-HALT rate is ≤ α and → 0 as runs grow (measured: the pathological runs=3/games=4
+    config fell from ~9% → 3% false-HALT; ≈0 at the operational n=8). A systematic harness bug's t
+    grows with n and survives Holm; sampling noise does not. This tests the same "is the
+    self-difference within the floor?" question but correctly separates a bias from sampling noise.
+    On the shipped v3 base it CLEARs (no bias; the noisy axes flag INCONCLUSIVE). NC2 = `ppo:curve
+    --test-retest` (already built). NC3 (control-vs-base) waits for the Wave-1 control arm.)_
 - **Ladder honesty.** The v2 audit proved win-rate rank flips with field composition, and the
   premise itself says the base beat Survivor-v2 head-to-head — so no pre-written ladder. Label
   picker rungs from **fresh-seed measured placement in the mixed field** (the one field-stable
@@ -569,7 +586,11 @@ a 20M placement scratch run as a v4 candidate.** No automatic reship this wave.
   4. a **weights-loader for head-to-head bars** — `arena:ml --bots` accepts built-in names only
      and `buildGateField` throws on non-field bar names (verified), so the "beat v2 sibling" and
      "vs v3 base" bars are unrunnable without a `Name=weights.js` spec port;
-  5. pre-flight the #97 probe path; run negative controls 1–2;
+  5. pre-flight the #97 probe path; run negative controls 1–2; _(landed 2026-07-05:
+     `behavior:preflight` — loads a fixtured eval checkpoint end-to-end + asserts the fixture-less
+     guard, the A/A signature noise floor `signatureNoiseFloor` (CI-equivalence CERTIFY + a
+     Holm-corrected, family-wise BIASED halt that de-cry-wolfs a stochastic A/A), and reads NC2's
+     `ppo:curve --test-retest` spread; EVAL_HARNESS §3.9)_;
   6. a **3-arm throughput probe** before committing Wave 1's N_ENVS — batch-1's ~175 fps figure
      and the ≤20-env-server proven footprint don't obviously support 3×12 envs, and the v3
      encoder costs ~5–9%.

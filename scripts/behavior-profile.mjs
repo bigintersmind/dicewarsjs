@@ -42,16 +42,12 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
 import { makeBC } from '../src/ai/ai_bc.js';
-import { rotatedField } from './lib/ppo-gate-core.mjs';
 import { loadExportedPolicy, siblingFixturePath } from './lib/load-bc-policy.mjs';
 import { getArg, hasFlag } from './lib/cli-utils.mjs';
+import { sweepBot } from './lib/behavior-sweep.mjs';
 import {
-  makeCapture,
-  profileGameFromCapture,
-  reduceRun,
   summarizeAxis,
   compareToControl,
   signatureDetail,
@@ -274,66 +270,27 @@ log(`  quarantine forced-end games: ${quarantine ? 'on' : 'off'}\n`);
 
 // --- Sweep: profile each bot in the one profiled seat of an identical field ---
 
-const NULL_RUN = Object.fromEntries(AXES.map(a => [a, null]));
-
-// Quarantine policy (§3.7): drop a game if ANY seat shows a forced-end signal.
-const isForcedEnd = s => s.errors > 0 || s.invalidMoves > 0 || s.maxMovesHit > 0;
-
-// A NULL_RUN has winPct === null (no game contributed); a live run always has a numeric winPct
-// (0 if it never won). So this counts the runs that actually carry behavioral data.
+// A fully-quarantined run has winPct === null (no game contributed); a live run always has a
+// numeric winPct (0 if it never won). So this counts the runs that actually carry behavioral data.
 const liveRunCount = perRun => perRun.filter(r => r.winPct != null).length;
 
-/**
- * Run the full seed×rotation sweep for one profiled bot. Returns the per-run reduceRun() plus
- * per-bot played/quarantined tallies so the report can surface how much sample each bot kept
- * (a fully-quarantined bot must NOT look like a measured "no difference" — see the output below).
- */
-function sweepBot(bot) {
-  const baseField = [bot, ...opponents]; // profiled bot at index 0
-  const perRun = [];
-  let played = 0;
-  let quarantined = 0;
-  for (let run = 0; run < runCount; run++) {
-    const baseSeed = run * STRIDE + 1;
-    const profiles = [];
-    for (let s = 0; s < gamesPerRun; s++) {
-      const seed = baseSeed + s;
-      for (let rot = 0; rot < fieldSize; rot++) {
-        // Under rotation `rot`, field[0] (the profiled bot) sits at seat `rot`.
-        const field = rotatedField(baseField, rot);
-        const pi = rot;
-        const { capture, onTurn, onStep } = makeCapture(pi);
-        try {
-          const result = runMatch({ bots: field, seed, onTurn, onStep });
-          played += 1;
-          if (quarantine && result.botStats.some(isForcedEnd)) {
-            quarantined += 1;
-            continue;
-          }
-          // profileGameFromCapture is in the try too: its contract throws (misaligned capture /
-          // seat mismatch) are genuine engine-contract violations and deserve the same coordinates.
-          profiles.push(profileGameFromCapture(result, pi, capture));
-        } catch (err) {
-          // Surface which game blew up rather than dying with a context-free stack far from its
-          // cause (this is inside runCount×games×rotations×bots iterations).
-          throw new Error(
-            `match failed (bot=${bot.name} seed=${seed} rot=${rot}): ${err.message}`,
-            {
-              cause: err,
-            }
-          );
-        }
-      }
-    }
-    perRun.push(profiles.length ? reduceRun(profiles) : { ...NULL_RUN });
-    process.stderr.write(`\r  ${bot.name}: run ${run + 1}/${runCount}`); // in-place progress
-  }
-  log('');
-  return { perRun, played, quarantined };
-}
+// Drive the shared behavior-sweep (extracted so behavior:preflight's A/A negative control runs the
+// identical path — the seed schedule here is byte-identical to the original inline sweep).
+const runSweep = bot => {
+  const swept = sweepBot(bot, {
+    opponents,
+    runCount,
+    gamesPerRun,
+    stride: STRIDE,
+    quarantine,
+    progress: run => process.stderr.write(`\r  ${bot.name}: run ${run + 1}/${runCount}`),
+  });
+  log(''); // newline after the in-place progress, as before
+  return swept;
+};
 
 const start = Date.now();
-const sweepByBot = new Map(profiled.map(bot => [bot.name, sweepBot(bot)]));
+const sweepByBot = new Map(profiled.map(bot => [bot.name, runSweep(bot)]));
 const runsByBot = new Map([...sweepByBot].map(([name, s]) => [name, s.perRun]));
 const totalPlayed = [...sweepByBot.values()].reduce((a, s) => a + s.played, 0);
 const totalQuarantined = [...sweepByBot.values()].reduce((a, s) => a + s.quarantined, 0);

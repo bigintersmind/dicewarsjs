@@ -62,8 +62,9 @@ export const BUILT_IN_BOTS = [
    * RAW modern bot. `persona: true` keeps them out of the canonical `ppo:gate` reference
    * field (so the documented baselines stay fixed) while still appearing in the in-game
    * arena/tournament and the online tournament. Each ships its own weights: Conqueror
-   * the encoding-v3 net ([D-31] — the strongest net overall), Blitz/Survivor their v2
-   * fine-tuned checkpoints.
+   * the encoding-v3 base net ([D-31] — the strongest net overall), Blitz a v3 fine-tune
+   * of that base ([D-32]), Survivor its v2 fine-tuned checkpoint (the v3 retrain was
+   * killed — [D-32]).
    */
   { id: 'ai_conqueror', name: 'Conqueror', fn: ai_conqueror, persona: true },
   { id: 'ai_blitz', name: 'Blitz', fn: ai_blitz, persona: true },

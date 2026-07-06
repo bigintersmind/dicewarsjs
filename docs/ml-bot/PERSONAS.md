@@ -591,9 +591,16 @@ a 20M placement scratch run as a v4 candidate.** No automatic reship this wave.
      guard, the A/A signature noise floor `signatureNoiseFloor` (CI-equivalence CERTIFY + a
      Holm-corrected, family-wise BIASED halt that de-cry-wolfs a stochastic A/A), and reads NC2's
      `ppo:curve --test-retest` spread; EVAL_HARNESS §3.9)_;
-  6. a **3-arm throughput probe** before committing Wave 1's N_ENVS — batch-1's ~175 fps figure
+  6. a **3-arm throughput probe** before committing Wave 1's N*ENVS — batch-1's ~175 fps figure
      and the ≤20-env-server proven footprint don't obviously support 3×12 envs, and the v3
-     encoder costs ~5–9%.
+     encoder costs ~5–9%. *(landed 2026-07-05: `npm run ppo:arm-throughput` —
+     `scripts/ppo-arm-throughput-probe.mjs` + `lib/ppo-arm-probe-core.mjs`; two TIMED passes over
+     the real `runSelfPlayEpisode` path (v3 encoder cost captured natively), one arm alone vs all
+     3 at once, reporting the per-arm contention penalty + a one-sided go/no-go: it measures the
+     env-sim CEILING (upper bound on trainer fps), so **RED = ceiling below the 175 fps/arm target
+     with zero GPU cost is conclusive** — reduce N*ENVS or arms; GREEN = env-sim isn't the limiter
+     (GPU/latency then decide). **Run it on shodan** (contention scales with core count); zero-GPU,
+     ~a minute. RUNBOOK §8e.)*
 - **Wave 1:** Conqueror-control + Blitz-v3 + Survivor-v3, 3 concurrent × 3M, ~5 h wall (v2
   precedent 4.7 h). Survivor first-wave because it is the strongest lever, answers the flagship
   question, and is Predator's mandatory comparator.

@@ -43,6 +43,7 @@
     "ppo:booking-smoke": "node scripts/ppo-env-booking-smoke.mjs",
     "ppo:shaped-smoke": "node scripts/ppo-env-shaped-smoke.mjs",
     "ppo:throughput-probe": "node scripts/ppo-throughput-probe.mjs",
+    "ppo:arm-throughput": "node scripts/ppo-arm-throughput-probe.mjs",
     "ppo:league-probe": "node scripts/ppo-league-probe.mjs",
     "ppo:export": "cd ml && python -m dicewars_bc.export_weights --ckpt checkpoints/ppo-tracer.pt --out ../src/ai/ppoPolicyWeights.js --fixture ../tests/fixtures/bc/ppoForwardCases.json",
     "conqueror:export": "cd ml && python -m dicewars_bc.export_weights --ckpt runs/ppo-v3-scratch/ppo.pt --out ../src/ai/conquerorPolicyWeights.js --fixture ../tests/fixtures/bc/conquerorForwardCases.json",

@@ -1060,3 +1060,64 @@ strengthens.
 and `v3-scratch.{16M,19M}.curve.log`; candidate/curve weights from
 `ml/runs/ppo-v3-scratch/eval/`; bar weights `ml/runs/ppo-scratch-long/scratch.weights.js` and
 `ml/runs/ppo-survivor/survivor.weights.js`. Run commit `464a2ee`; Lookahead pin `596f781`.
+
+## Phase 3 — v3 Wave-1 persona retrain: Blitz-v3 SHIPS (upgrade), Survivor-v3 KILLED · 2026-07-06
+
+The PERSONAS §10.2 Wave-1 slate: three concurrent 3M-step fine-tunes warm-started from the
+encoding-v3 base `ppo-v3-scratch/ppo.pt` (= the shipped Conqueror), matched on every axis but the
+reward (`LR 1e-4 / ent_coef 0.01`, R=3 PFSP league, `EVAL_EVERY=500000`; γ + reward-mode from each
+PERSONA preset). Ran on shodan via the durable supervisor `launch-v3-wave.sh` under schtasks
+`dicewars-ppo-v3-wave` (2026-07-05 23:02 → 2026-07-06 04:00 CDT, ~5 h wall, all three `exit 0`,
+attempt #1, zero restarts, ~167 fps/arm, final step 3,004,416). Arms: `ppo-v3-conq-ctl`
+(win/γ0.999 = matched control, never ships) · `ppo-v3-blitz` (win/**γ0.99**) · `ppo-v3-survivor`
+(**placement**/γ0.999). Graded **locally on the Mac** off each arm's final fixtured eval checkpoint
+`eval-003000024.*` (103,779 params; parity 1.0–3.4e-4).
+
+### Strength — `ppo:gate` (paired Δ win%, seat-fair)
+
+| Arm            | vs Lookahead@596f781 (9-seat floor) | vs v3 base Conqueror (10-seat h2h)      | vs v2 sibling (10-seat h2h)                      |
+| -------------- | ----------------------------------- | --------------------------------------- | ------------------------------------------------ |
+| ConqCtl (ctrl) | **+34.0 [32.0, 35.9]** ✅ BEAT      | +1.1 [−1.3, 3.5] ~TIE                   | —                                                |
+| **Blitz-v3**   | **+29.6 [27.1, 32.1]** ✅ BEAT      | +1.8 [−0.8, 4.4] ~TIE (clears −8 floor) | **+11.6 [8.7, 14.4]** ✅ BEAT (vs v2 Blitz)      |
+| Survivor-v3    | +21.5 [20.1, 22.9] ✅ BEAT          | **−20.8 [−23.0, −18.6]** ❌ BEHIND      | **−5.9 [−7.5, −4.2]** ❌ BEHIND (vs v2 Survivor) |
+
+All three beat the Lookahead floor. **§10.8 control check:** the vs-base _profile_ showed ConqCtl
++5.5 pp winPct over base, but the paired _head-to-head gate_ is a TIE (+1.1) — a field-composition
+artifact, not a real edge → the [D-27] drift lore holds (matched fine-tune ≈ wash on the stronger v3
+base), no "halt & investigate." (Judge the control on head-to-head, never in-field winPct.)
+
+### Style — `behavior:profile` 10×30×6, dual-control (§10.5) + §10.4 clock-hack
+
+| Arm          | Signature vs base                              | Signature vs control arm                 | Dual-control | Clock-hack (§10.4) |
+| ------------ | ---------------------------------------------- | ---------------------------------------- | ------------ | ------------------ |
+| **Blitz-v3** | CONFIRMED (aggr +0.42, turnsToWin −30; Holm ✓) | FAIL (aggr +0.16, turns −3.7; both <MDE) | ⚠️ FLAGGED   | clear ✓            |
+| Survivor-v3  | FAIL (avgPlacement −0.33 < 0.40 MDE)           | FAIL (−0.24 < 0.40)                      | ❌ FAIL both | clear ✓            |
+
+- **Blitz-v3's signature is dual-control-FLAGGED.** Vs the base it clears both axes, but the control
+  arm _itself_ drifted toward aggression/speed (ConqCtl aggr 1.86 / turns 148 vs base 1.64 / 169), so
+  the reward-attributable (γ0.99) residual is sub-MDE — most of Blitz-v3's vs-base distinctiveness is
+  generic continuation-training **drift**, not the tempo lever. Per §10.5 that flags the signature.
+- **§10.4 clock-hack: ALL CLEAR.** The v3 hazard (a placement arm forcing an early decisive death
+  near the now-visible cap to bank rank rather than truncate to 0) did **not** materialize —
+  Survivor-v3 truncates _more_ (Δ+0.11) and is _less_ late-aggressive (Δ−0.26): a genuine turtle, not
+  a reward-hacker. The drafted 50/0.05/0.3 thresholds never fired (no false-positive on a legit
+  placement bot).
+- **Separation matrix (`behavior:separation`):** all pairs distinct; Blitz × Survivor separate on all
+  three registered axes (aggression, turnsToWin, avgPlacement).
+
+### Roster outcome
+
+- **Conqueror** — v3 base, unchanged.
+- **Blitz → SHIP v3** ([PR #120](https://github.com/bigintersmind/dicewarsjs/pull/120)). A strict
+  strength upgrade (+11.6 vs v2 Blitz, TIE base, BEAT Lookahead +29.6) and player-visibly distinct
+  from Conqueror; the dual-control signature flag is accepted as an attribution caveat, not a product
+  blocker (maintainer call — the §10.2 escalation was **not** taken). Shipped from the gated
+  `eval-003000024`, repack verified **bit-identical** (103,779 floats, max diff 0).
+- **Survivor → KEEP v2.** Survivor-v3 killed on three independent bars (BEHIND v2 −5.9, BEHIND base
+  −20.8, signature fails both comparators). Fine-tuning placement from the stronger/more-aggressive v3
+  base yielded a **weaker and less-distinctive** Survivor (placement shift −0.33 vs v2's −0.82) — the
+  v3 aggression prior fights the placement reward.
+
+**Artifacts:** each arm's `{ppo.pt, eval/, state}` backed up to `mini:~/dicewarsjs/ml/runs/`
+(sha256-verified end-to-end, `fc9b8735…`); shodan cleanup done (schtasks `dicewars-ppo-v3-wave` +
+supervisor `launch-v3-wave.sh` removed). Run commit `a10f405`; Lookahead pin `596f781`.

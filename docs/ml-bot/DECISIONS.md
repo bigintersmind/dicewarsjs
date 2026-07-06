@@ -2036,8 +2036,10 @@ dual-control rule the signature is **FLAGGED**: most of the vs-base distinctiven
 continuation-training drift, not the γ0.99 lever. §10.4 clock-hack panel: all clear.
 
 **The fork.** §10.5 pre-registered "a signature that passes against only one [comparator] is flagged,
-not shipped" — read literally, Blitz-v3 does not ship. But every pre-registered _kill_ condition for
-Blitz-v3 (§10.8: tripwire panel, BEHIND v2 at the fresh re-gate, Holm signature fail) passed; the flag is
+not shipped" — read literally, Blitz-v3 does not ship. But no pre-registered §10.8 _kill_ condition for
+Blitz-v3 fired in the recorded battery — BEAT v2 at the fresh re-gate, Holm signature CONFIRMED vs the
+base; the tripwire panel rides the 0.5M/1M eval probes, which this battery did not grade (their
+ratification is follow-up (b)); the flag is
 an **attribution** finding (which training lever produced the style), not a strength or product-contrast
 finding.
 
@@ -2053,7 +2055,7 @@ finding.
    this wave supports. The §10.2 escalation (`--terminal-speed-bonus`) was NOT taken — the registered
    signature family stays at 4, and the escalation remains available to a future wave only as a
    pre-registered new arm.
-2. **Survivor-v3 killed — the pre-registered §10.8 gates applied as written, no override.** BEHIND v2,
+2. **Survivor-v3 killed — the pre-registered gates (§10.8 kills + the §10.5 strength bar) applied as written, no override.** BEHIND v2,
    BEHIND base, signature fails both comparators → **keep shipping v2 Survivor** (the §10.5 fallback;
    the roster is never worse than today). The mechanism finding worth keeping: placement fine-tuning off
    the sharper/more-aggressive v3 base moved avgPlacement LESS than v2's identical recipe did off
@@ -2064,14 +2066,16 @@ finding.
 3. **Predator's mandatory comparator is v2 Survivor** — the §10.3 pre-registered fallback ("whichever
    Survivor ships") fires. Consequence for Wave 2: the confirmatory kills bar (≥15% of the realized
    comparator's kills) must be **recomputed from v2 Survivor's realized kills in the v3-era profile
-   field** before pilot grading — the drafted ≈+0.28 figure was derived from Survivor-v3's 1.86–1.92
-   kills and is void with it.
+   field** before pilot grading — the drafted ≈+0.28 figure came from v2 Survivor's 1.86–1.92 kills in
+   the v2-era Batch-2B field (§10.3's "Survivor-v3" attribution was a pre-registration mislabel — no
+   v3 net existed then), so it is void because the profile field changed, not because the comparator
+   did.
 4. **The §10.8 "control beats base" flag is judged on head-to-head and dissolves.** The control's +5.5 pp
    in-field winPct edge over the base was a field-composition artifact; the paired head-to-head gate is a
    TIE (+1.1 [−1.3, 3.5]). The [D-27] drift lore (matched-objective continuation ≈ wash) stands. Rule of
    thumb now written into §10.8's intent: judge controls on paired head-to-head, never in-field winPct.
 
-**Pre-Wave-2 follow-ups (blocking pilot grading, not the #120 ship).** (a) Build the §10.3 **scavenge
+**Pre-Wave-2 follow-ups ((a)–(b) block pilot grading, not the #120 ship; (c) is a deferral).** (a) Build the §10.3 **scavenge
 co-read** — it is a pre-committed §10.8 Predator kill condition (vulture detection: victim territory
 count / time-at-one-territory before the killing blow) with no implementation in the harness yet;
 (b) recalibrate the tripwire **winPct floor** and ratify the §10.4 clock-hack thresholds (drafted

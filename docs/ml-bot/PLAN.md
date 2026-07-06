@@ -609,7 +609,7 @@ runnable via slice-compat (`SUPPORTED_ENCODING_VERSIONS`). Work plan:
 
 ---
 
-## Phase 4 — Ship the strongest bot · 🟨 In progress (2026-06-29) · ~2–4 days on top of the winner
+## Phase 4 — Ship the strongest bot · ✅ Done (2026-06-30) · ~2–4 days on top of the winner
 
 **Objective.** Wire whichever candidate won `arena:sweep` most decisively (Track A
 search bot, the imitation net, or the RL net) as a real shipped bot. **The winner is

@@ -33,7 +33,7 @@ describe.skipIf(!present)('blitzForward — JS↔Python parity (Blitz export)', 
       fixturePath: FIXTURE,
       label: 'Blitz',
     });
-    expect(policy.encodingVersion).toBe(2);
+    expect(policy.encodingVersion).toBe(3);
     expect(params).toBeGreaterThan(0);
     expect(parity).toBeLessThan(1e-3);
   });

@@ -57,7 +57,7 @@ describe('ai_blitz bot', () => {
      * Blitz is makeBC({ policy: BLITZ_POLICY }) over its own checkpoint. A fat-fingered
      * import to bcPolicyWeights OR ppoPolicyWeights would silently ship the wrong net under
      * the "Blitz" name and pass every other test here. Blitz was fine-tuned 3M steps off
-     * ppo-long and imitates nothing, so its argmax diverges from both — assert it differs
+     * the v3 base (ppo-v3-scratch) and imitates nothing, so its argmax diverges from both — assert it differs
      * from each on at least one initial state.
      */
     let divergedBc = false;

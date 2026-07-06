@@ -8,12 +8,13 @@ import {
   DICE_COLORS,
   COLORBLIND_DICE_COLORS,
   DIE_FACES,
+  TOP_PIPS,
+  LEFT_PIPS,
+  RIGHT_PIPS,
   deriveDieColors,
+  luminance,
 } from '../../src/renderer/DiceRenderer.js';
 import { PLAYER_COLORS, COLORBLIND_PLAYER_COLORS } from '../../src/renderer/constants.js';
-
-/** Rec.601 luminance of a hex int color. */
-const luminance = c => 0.299 * ((c >> 16) & 0xff) + 0.587 * ((c >> 8) & 0xff) + 0.114 * (c & 0xff);
 
 describe('DICE_COLORS', () => {
   it('has one entry per player color', () => {
@@ -42,13 +43,15 @@ describe('DICE_COLORS', () => {
   it('dice bodies are far more vivid than the pale territory fills they sit on', () => {
     /*
      * The old derived formula left only a ~45-65 luminance gap, which read
-     * as washed out; the legacy art sits at 58-113. Dark green (index 2) is
-     * the one deliberate exception — its territory is already dark and the
-     * original relied on the bright top face instead.
+     * as washed out; the legacy art sits at 58-113. Dark green (index 2)
+     * gets a looser bound — its territory is already dark, so the gap is
+     * smaller — but its side must still read as darker than the fill (a
+     * regression that brightened it back toward the fill is what this
+     * guards), so it's checked, not skipped.
      */
     DICE_COLORS.forEach((c, i) => {
-      if (i === 2) return;
-      expect(luminance(PLAYER_COLORS[i]) - luminance(c.side)).toBeGreaterThan(55);
+      const minGap = i === 2 ? 30 : 55;
+      expect(luminance(PLAYER_COLORS[i]) - luminance(c.side)).toBeGreaterThan(minGap);
     });
   });
 });
@@ -80,6 +83,39 @@ describe('DIE_FACES', () => {
   });
 });
 
+describe('pip tables cover every face DIE_FACES can request', () => {
+  /*
+   * drawFacePips looks each face value up in TOP_PIPS / LEFT_PIPS / RIGHT_PIPS.
+   * A value missing from every table silently falls back to a DIFFERENT
+   * value's layout (a 5-face rendered with one pip) with no error. This locks
+   * the hand-maintained invariant that keeps those fallbacks dead: every value
+   * any shipped die actually shows has a real table entry, so the fallback
+   * never fires and the pip count is always correct.
+   */
+  it.each(DIE_FACES.map((f, i) => [i, f]))(
+    'player %i faces all resolve to a real pip-table entry',
+    (_i, [top, left, right]) => {
+      expect(TOP_PIPS[top]).toBeDefined();
+      // Walls may legitimately borrow the other wall's shape (mirrored), so a
+      // value only needs to exist in SOME wall table — never the wrong-count terminal.
+      expect(LEFT_PIPS[left] || RIGHT_PIPS[left]).toBeDefined();
+      expect(RIGHT_PIPS[right] || LEFT_PIPS[right]).toBeDefined();
+    }
+  );
+
+  const pipEntries = [
+    ['TOP', TOP_PIPS],
+    ['LEFT', LEFT_PIPS],
+    ['RIGHT', RIGHT_PIPS],
+  ].flatMap(([name, table]) =>
+    Object.entries(table).map(([value, entry]) => [`${name}_PIPS[${value}]`, Number(value), entry])
+  );
+
+  it.each(pipEntries)('%s holds exactly N pip points for value N', (_label, value, entry) => {
+    expect(entry.pts).toHaveLength(value);
+  });
+});
+
 describe('deriveDieColors (color-blind palette)', () => {
   it('derives one entry per color-blind player color', () => {
     expect(COLORBLIND_DICE_COLORS).toHaveLength(COLORBLIND_PLAYER_COLORS.length);
@@ -105,11 +141,19 @@ describe('deriveDieColors (color-blind palette)', () => {
     expect(light.pips.top).toBe(0x000000);
   });
 
-  it('clamps the brightness boost for near-black (but not pure black) fills', () => {
-    const c = deriveDieColors(0x100810);
-    for (const ch of [16, 8, 0]) {
-      expect((c.top >> ch) & 0xff).toBeLessThanOrEqual(255);
-    }
-    expect(luminance(c.top)).toBeGreaterThan(0);
+  it('normalizes a mid-brightness fill so its brightest channel lands on 224', () => {
+    // The boost is f = min(2, 224 / max), so for any fill whose brightest
+    // channel is >= 112 the top face's brightest channel lands exactly on
+    // 224 — the legacy "brilliant top". Guards the 224 constant itself.
+    const channels = c => [(c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff];
+    expect(Math.max(...channels(deriveDieColors(0x009302).top))).toBe(224);
+    expect(Math.max(...channels(deriveDieColors(0x808080).top))).toBe(224);
+  });
+
+  it('caps the boost at 2x for dark (but non-black) fills instead of over-brightening', () => {
+    // max = 8 < 112, so 224 / max would exceed 2; the min(2, ...) cap doubles
+    // the channels instead of blowing them out, and never leaves them black.
+    expect(deriveDieColors(0x080808).top).toBe(0x101010);
+    expect(luminance(deriveDieColors(0x100810).top)).toBeGreaterThan(0);
   });
 });

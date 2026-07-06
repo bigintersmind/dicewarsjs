@@ -5,19 +5,21 @@
  * look. Every shape here is the legacy Flash vector art itself
  * (`areadice.js` lib.dice0-7, removed in the modernization; see git history
  * commit 376c7c7^): the compact-encoded CreateJS paths were decoded to
- * absolute coordinates at the on-map die scale (0.085) and are replayed
- * verbatim, so the die matches the original sprites curve for curve:
+ * absolute coordinates in the hex-cell system (the ~0.085 on-map scale is
+ * applied by the parent container, not baked into these numbers) and are
+ * replayed verbatim, so the die matches the original sprites curve for curve:
  *
  * - Each die is a corner-forward isometric cube — a plump cushion-like top
  *   face (short straight edges, huge shallow corner arcs), a mid-tone left
  *   wall, and a near-black silhouette that doubles as the right wall. No
  *   outlines; edge definition comes from face contrast.
  * - Rim wedges at the east/west corners and a bottom crescent tuck between
- *   the faces; a four-pointed glint star sits at the front corner junction.
+ *   the faces; a three-pointed glint star sits at the front corner junction.
  * - Every player has a hand-tuned face-color set (the originals were baked
  *   into the art, far more vivid than the pale territory fills).
  * - Pip positions and sizes are the measured legacy values per face and
- *   value; wall pips are narrow ellipses tilted ~55 deg into the wall plane.
+ *   value; top pips are ellipses, wall pips decoded paths shaped like narrow
+ *   ovals tilted ~55 deg into the wall plane.
  * - Dice in a column overlap deeply (14px pitch on a ~30px die); stacks of
  *   5+ split into a second column behind and to the LEFT of the first.
  * - The drop shadow is a hard-edged, near-solid black blob spilling to the
@@ -48,7 +50,7 @@ const SIDE_PATH = ['M', -3.07, 14.52, 'L', -10.53, 9.08, 'Q', -12.76, 6.59, -13.
 /** Top face: fat rounded diamond (the legacy "cushion" face). */
 // prettier-ignore
 const TOP_PATH = ['M', -3.38, 1.26, 'L', -10.18, -3.84, 'Q', -12.61, -6.23, -10.18, -9.6, 'L', -3.72, -14.36, 'Q', -0.25, -15.67, 3.74, -14.36, 'L', 10.54, -9.27, 'Q', 12.21, -6.45, 10.54, -4.18, 'L', 3.4, 1.26, 'Q', 1.74, 2.14, 0.04, 2.14, 'Q', -1.64, 2.14, -3.38, 1.26, 'Z'];
-/** Specular glint: four-pointed star at the front corner junction. */
+/** Specular glint: three-pointed star at the front corner junction. */
 // prettier-ignore
 const GLINT_PATH = ['M', -3.38, 1.28, 'Q', 0, 1.96, 3.39, 1.28, 'Q', 0.88, 3.72, 0, 6.7, 'Q', -1.04, 3.48, -3.38, 1.28, 'Z'];
 /** Rim wedges between top face and silhouette at the west/east corners. */
@@ -209,7 +211,7 @@ export const DIE_FACES = [
  * ------------------------------------------------------------------ */
 
 // prettier-ignore
-const TOP_PIPS = {
+export const TOP_PIPS = {
   1: { rx: 6.07, ry: 4.63, pts: [[0.05, -6.7]] },
   2: { rx: 2.93, ry: 2.21, pts: [[0.02, -2.46], [0.06, -10.57]] },
   3: { rx: 2.23, ry: 1.62, pts: [[-7.06, -6.78], [-0.14, -6.75], [6.83, -6.79]] },
@@ -239,7 +241,7 @@ const PIP_R4 = ['M', -1.16, 1.72, 'Q', -1.48, 1.5, -1.36, 0.86, 'Q', -1.25, 0.21
 const PIP_R6 = ['M', -1.23, 1.66, 'Q', -1.54, 1.42, -1.41, 0.78, 'Q', -1.27, 0.15, -0.76, -0.51, 'Q', -0.25, -1.18, 0.34, -1.48, 'Q', 0.91, -1.77, 1.23, -1.53, 'Q', 1.54, -1.29, 1.41, -0.65, 'Q', 1.27, 0, 0.76, 0.65, 'Q', 0.25, 1.31, -0.33, 1.61, 'Q', -0.65, 1.77, -0.89, 1.77, 'Q', -1.08, 1.77, -1.23, 1.66, 'Z'];
 
 // prettier-ignore
-const LEFT_PIPS = {
+export const LEFT_PIPS = {
   2: { path: PIP_L2, pts: [[-9.84, 5.42], [-4.23, 4.34]] },
   3: { path: PIP_L3, pts: [[-10.43, 5.83], [-6.99, 5.08], [-3.46, 4.36]] },
   4: { path: PIP_L4, pts: [[-3.42, 10.81], [-10.29, 5.59], [-3.5, 4.27], [-10.33, -0.95]] },
@@ -248,7 +250,7 @@ const LEFT_PIPS = {
 };
 
 // prettier-ignore
-const RIGHT_PIPS = {
+export const RIGHT_PIPS = {
   1: { path: PIP_R1, pts: [[6.85, 5.04]] },
   2: { path: PIP_R2, pts: [[4.31, 9.5], [9.73, 0.15]] },
   4: { path: PIP_R4, pts: [[3.39, 10.86], [10.33, 5.59], [3.36, 4.29], [10.26, -0.91]] },
@@ -285,7 +287,7 @@ function lighten(color, amount) {
 }
 
 /** Rec.601 luminance of a hex int color (0-255). */
-function luminance(color) {
+export function luminance(color) {
   return 0.299 * ((color >> 16) & 0xff) + 0.587 * ((color >> 8) & 0xff) + 0.114 * (color & 0xff);
 }
 

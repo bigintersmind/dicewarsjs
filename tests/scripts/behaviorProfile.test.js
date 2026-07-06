@@ -136,6 +136,11 @@ describe('behavior-profile CLI — Holm end-to-end (small real sweep)', () => {
     }
     expect('scavenge' in blitz).toBe(false);
     expect(res.stderr).toMatch(/Scavenge co-read \(§10\.3\)/);
+    // Pin the rendered ROW, not just the header: the panel loop must print the bot's kills mean and
+    // BOTH axes, in order — a wrong axis, a swapped lo/hi, or a dropped axis is a non-throwing bug
+    // the header match alone can't see. Skeleton only (labels + order), so it holds whether or not
+    // Blitz recorded kills in this small sweep (a no-kill row renders "— Δ no data" for each axis).
+    expect(res.stderr).toMatch(/Blitz: kills [\d.]+.*killVictimTerr .+; killVictimOneTerrTurns /);
     // The separation-script contract (§10.5 profile pairing): per-run arrays + provenance.
     // Pinned here so a report-shape refactor can't silently strand behavior:separation.
     expect(report.config.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);

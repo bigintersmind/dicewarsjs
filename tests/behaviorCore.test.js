@@ -516,6 +516,18 @@ describe('§10.3 scavenge co-read — victim trackers, per-game means, aggregati
     expect(capture.killVictims).toEqual([{ victimTerr: 3, victimOneTerrTurns: 0 }]);
   });
 
+  it('a THIRD-PARTY-softened victim reads victimTerr 1 with a LOW streak (the joint-read discriminator)', () => {
+    // The exact false positive the co-read exists to expose: victimTerr≈1 alone is NOT vulture prey.
+    // A third party (seat 2) drops seat 1 to 1 only on the turn immediately before the kill, so the
+    // streak is 1 (just-doomed) — read JOINTLY, that low streak distinguishes it from a true vulture
+    // snipe of a long-doomed 1-territory player (which carries a HIGH streak).
+    const { capture, onTurn } = makeCapture(0);
+    onTurn(1, boardOf([4, 3, 3]), 1); // victim (seat 1) still holds 3 — streak 0
+    onTurn(2, boardOf([4, 1, 3]), 2); // seat 2 softens seat 1 to 1 the turn before the kill
+    onTurn(3, boardOf([5, 0, 3]), 0); // bot 0 lands the killing blow
+    expect(capture.killVictims).toEqual([{ victimTerr: 1, victimOneTerrTurns: 1 }]);
+  });
+
   it('the turns-at-1 streak resets when the victim recovers above 1 territory', () => {
     const { capture, onTurn } = makeCapture(0);
     onTurn(1, boardOf([4, 1, 3]), 2); // at 1 — streak 1
@@ -1230,6 +1242,46 @@ describe('§6 engine signal — runMatch passes actingPlayerId to onTurn', () =>
     const s = summarizeAxis([reduceRun([p]).avgPlacement]);
     expect(s.n).toBe(1);
     expect(s.ci).toBeNull();
+  });
+
+  it('populates §10.3 killVictims from the real engine (the synthetic tests assume the elimination timing this pins)', () => {
+    // Every value-level scavenge test above fabricates post-turn states via boardOf(), which bakes
+    // in the engine contract that a killed seat reports `eliminated: true` on the SAME onTurn firing
+    // as the killing blow (so the prior firing still saw it alive — the read-before-ingest premise).
+    // Nothing else in the suite drives that path on real data, so the profileGameFromCapture
+    // count-mismatch guard never fires on a real capture — pin it against an engine change to
+    // elimination timing or player shape. The default Example/Default/Defensive field calls
+    // Math.random() so kills don't reproduce on seed alone; use a deterministic search field and
+    // sweep a few seeds, so one shifting outcome can't strand the test (fail loud only if ALL go
+    // killless).
+    const detField = ['Lookahead', 'Strategist', 'Expectimax'].map(name => {
+      const b = BUILT_IN_BOTS.find(x => x.name === name);
+      return { name: b.name, fn: b.fn };
+    });
+    let totalKills = 0;
+    for (const seed of [4, 6, 8]) {
+      const { capture, onTurn, onStep } = makeCapture(0);
+      const result = runMatch({ bots: detField, seed, onTurn, onStep });
+      // The capture contract the guard enforces must hold on real engine data, not just fixtures,
+      // and profiling a real capture must flow through without tripping the fail-loud mismatch.
+      expect(capture.killVictims).toHaveLength(capture.kills);
+      for (const v of capture.killVictims) {
+        // Live seats hold ≥1 territory, so an observed victim reads ≥1 (never the post-kill 0); an
+        // unobserved (first-turn) kill reads null. The streak is a non-negative turn count or null.
+        expect(v.victimTerr === null || (Number.isInteger(v.victimTerr) && v.victimTerr >= 1)).toBe(
+          true
+        );
+        expect(
+          v.victimOneTerrTurns === null ||
+            (Number.isInteger(v.victimOneTerrTurns) && v.victimOneTerrTurns >= 0)
+        ).toBe(true);
+      }
+      // A kill-carrying game yields finite means; a killless one yields null — both are valid here.
+      const p = profileGameFromCapture(result, 0, capture);
+      expect(p.killVictimTerr === null || Number.isFinite(p.killVictimTerr)).toBe(true);
+      totalKills += capture.kills;
+    }
+    expect(totalKills).toBeGreaterThan(0); // ≥1 real seat-0 kill exercised; fail loud if seeds go stale
   });
 });
 

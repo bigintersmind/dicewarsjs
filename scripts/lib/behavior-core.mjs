@@ -227,6 +227,18 @@ export function summarizeAxis(perRunValues) {
 }
 
 /**
+ * Whether a reduced run (from {@link reduceRun}) carries behavioral data. A fully-quarantined run is
+ * `nullRun()` with `winPct === null`; a live run always has a numeric winPct (0 if it never won). So
+ * `!= null` — NOT falsy — is the correct test: a genuine 0%-win run is live data, not "no data". This
+ * is the sentinel the sweep's live-run count and {@link summarizeAaSample} key on (a 0/null mix-up
+ * would read a real 0%-win arm as an unrun control).
+ *
+ * @param {Record<string, number|null>} run
+ * @returns {boolean}
+ */
+export const isLiveRun = run => run.winPct != null;
+
+/**
  * Drop run indices where EITHER side is null or non-finite, keeping the two arrays aligned (so
  * `pairedDelta`'s positional pairing stays valid). Returns the filtered pair + kept count. Treating
  * a NaN/Infinity as a dropped index (not a paired value) keeps it out of `pairedDelta`, where it
@@ -408,6 +420,53 @@ export function signatureNoiseFloor(
     biased: results.filter(r => r.verdict === 'BIASED').map(r => r.axis),
     inconclusive: results.filter(r => r.verdict === 'INCONCLUSIVE').map(r => r.axis),
     noData: results.filter(r => r.verdict === 'NO DATA').map(r => r.axis),
+  };
+}
+
+/**
+ * Reduce an A/A pair to its sample-health flags for the launch pre-flight (behavior-preflight.mjs).
+ * The A/A is a valid negative control ONLY if two things hold, and each fails in a way that would
+ * otherwise read as a clean bill:
+ *   - **Enough games survived quarantine** to form a paired CI on ≥ 1 signature axis. A base that
+ *     LOADS + parity-checks but then force-ends its games (engine error / illegal move / move-cap)
+ *     has them quarantined ({@link isForcedEnd}), collapsing every arm to `nullRun()` ⇒ every axis
+ *     NO DATA ⇒ `signatureNoiseFloor.pass === true`. Left unguarded, the pre-flight exits 0
+ *     "CLEAR (uncertified)" on exactly the broken harness it exists to catch. `insufficient` flags it.
+ *   - **The field actually injected opponent noise.** The A/A's two arms diverge only via the
+ *     heuristic opponents' unseeded `Math.random`; a deterministic `--opponents` field makes arm A ≡
+ *     arm B ⇒ every signature axis a zero-width CI ⇒ trivially CERTIFIED — the *strongest* "cleared"
+ *     message on a control that measured nothing. `zeroNoise` flags it (a warning, not a halt: a
+ *     genuinely deterministic field is a footgun, not a proven failure).
+ *
+ * Pure: consumes only the two sweep results (`sweepBot` already returns `played`/`quarantined`) and
+ * the NC1 verdict, so it is unit-tested without an arena. The CLI turns `insufficient` into a HALT
+ * and `zeroNoise` into a loud caveat.
+ *
+ * @param {{ perRun: Array<Record<string,number|null>>, played:number, quarantined:number }} armA
+ * @param {{ perRun: Array<Record<string,number|null>>, played:number, quarantined:number }} armB
+ * @param {ReturnType<typeof signatureNoiseFloor>} nc1 - the NC1 verdict over these same two arms
+ * @param {{ minLiveRuns?: number }} [opts] - live-run floor for a paired CI (compareAxis needs 2)
+ * @returns {{ playedA:number, quarantinedA:number, liveRunsA:number, playedB:number,
+ *   quarantinedB:number, liveRunsB:number, insufficient:boolean, zeroNoise:boolean }}
+ */
+export function summarizeAaSample(armA, armB, nc1, { minLiveRuns = 2 } = {}) {
+  const liveRunsA = armA.perRun.filter(isLiveRun).length;
+  const liveRunsB = armB.perRun.filter(isLiveRun).length;
+  // A MEASURED axis (not NO DATA) whose CI is exactly 0 has paired SE 0 — identical diffs across every
+  // kept run, i.e. the field produced no divergence between the two passes. If EVERY measured axis is
+  // like that (and there is ≥ 1), the A/A saw no opponent noise and its CERTIFIED verdicts are vacuous.
+  const measured = nc1.axes.filter(a => a.verdict !== 'NO DATA');
+  return {
+    playedA: armA.played,
+    quarantinedA: armA.quarantined,
+    liveRunsA,
+    playedB: armB.played,
+    quarantinedB: armB.quarantined,
+    liveRunsB,
+    // The control could not run: either arm has < 2 live paired runs, OR not one signature axis
+    // yielded a comparison (every axis NO DATA). Both mean the noise floor is unmeasured, not clean.
+    insufficient: Math.min(liveRunsA, liveRunsB) < minLiveRuns || measured.length === 0,
+    zeroNoise: measured.length > 0 && measured.every(a => a.ci === 0),
   };
 }
 

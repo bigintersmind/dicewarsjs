@@ -167,6 +167,12 @@ describe('behavior-preflight — NC1 A/A wiring', () => {
     expect(r.halt).toBe(false);
     expect(exitCode).toBe(0);
     expect(stderr).toMatch(/PRE-FLIGHT CLEAR/);
+    // Sample-health wiring: the pre-flight surfaces per-arm live-run/quarantine counts, and a healthy
+    // A/A (games complete) is not flagged insufficient — the guard that HALTs a fully-quarantined base.
+    expect(r.nc1Sample.liveRunsA).toBeGreaterThanOrEqual(2);
+    expect(r.nc1Sample.liveRunsB).toBeGreaterThanOrEqual(2);
+    expect(typeof r.nc1Sample.quarantinedA).toBe('number');
+    expect(r.nc1Sample.insufficient).toBe(false);
   });
 
   it('a live self-A/A emits a well-formed NC1 verdict per signature axis (smoke test)', () => {
@@ -192,6 +198,14 @@ describe('behavior-preflight — NC1 A/A wiring', () => {
     for (const ax of r.nc1.axes) expect(valid.has(ax.verdict)).toBe(true);
     expect(typeof r.nc1.pass).toBe('boolean');
     expect(r.halt).toBe(exitCode === 2); // halt flag agrees with the exit code
+    // Gap-2 guard: the two arms must genuinely DIVERGE (unseeded-opponent noise) — a stochastic field
+    // (Example + Adaptive both call Math.random) makes zeroNoise false. If opponents ever went
+    // deterministic, or arm B were accidentally arm A, every axis would collapse to a zero-width CI
+    // and this flips true — turning the A/A into a vacuous always-CERTIFY rubber stamp. This deterministic
+    // invariant (arms diverge, both arms live) is safe to assert on a live run; `pass` is not.
+    expect(r.nc1Sample.zeroNoise).toBe(false);
+    expect(r.nc1Sample.liveRunsA).toBeGreaterThanOrEqual(2);
+    expect(r.nc1Sample.liveRunsB).toBeGreaterThanOrEqual(2);
   });
 
   it('labels an MDE override on a signature axis as a non-registered floor', () => {

@@ -323,6 +323,13 @@ the full 7.)
 >    rate is ≤ α and → 0 as runs grow, so a true-null self-A/A CLEARs **with high probability** (not a
 >    guaranteed CLEAR — a systematic bug's Δ has a t that grows with n and survives Holm; sampling
 >    noise does not). `--mde` / `--divisor` overrides are labeled a non-registered floor.
+>    **Sample-health guards (`summarizeAaSample`):** the A/A is a valid control only if games survived
+>    quarantine AND the field injected noise. A base that LOADS but force-ends its games has them
+>    quarantined to NO DATA on every axis — that now **HALTS** ("the control could not run"), not a
+>    soft exit-0 "uncertified" (advising "add runs" when more games would just force-end too); and a
+>    deterministic `--opponents` field (arm A ≡ arm B ⇒ every signature axis a zero-width CI ⇒
+>    trivially CERTIFIED) is **WARNED** as vacuous, since its CERTIFIED measured nothing. Per-arm
+>    live-run / quarantine counts now ride the report and `--json` (`nc1Sample`).
 > 3. **Negative control 2 — test-retest noise floor.** NOT re-run here; it is `ppo:curve
 --test-retest` (§ STRENGTH_CURVE.md), which records `strength.meta.json → testRetest.spreadPp`.
 >    `--curve <strength.jsonl|.meta.json>` surfaces the recorded spread; otherwise the pre-flight
@@ -376,6 +383,8 @@ killsPairMde(aKills[], bKills[]) -> { mde|null, comparatorMean|null }  // §10.3
 separationPair(aRuns[], bRuns[], mde, {axes, relativeKills}) -> { separated, comparable, onAxes[], axes[] }  // §10.5 pairwise separation: two-sided paired CI + MDE
 assertPairableReports([{path, report}]) -> { shaDrift|null }  // §10.5 identical-field/seeds contract; THROWS on config mismatch / duplicate bots / missing perRun
 signatureNoiseFloor(armA[], armB[], mde, {divisor=3, axes, alpha=0.05}) -> { pass, certified, divisor, alpha, axes[], biased[], inconclusive[], noData[] }  // NC1: A/A vs ±MDE/3 — CERTIFIED (CI ⊆ band) / BIASED (Holm-significant beyond band, family-wise α; zero-SE capped at 2⁻ⁿ) / INCONCLUSIVE / NO DATA; only BIASED halts
+summarizeAaSample(armA, armB, nc1, {minLiveRuns=2}) -> { playedA, quarantinedA, liveRunsA, playedB, quarantinedB, liveRunsB, insufficient, zeroNoise }  // NC1 sample health: insufficient (quarantine gutted the control ⇒ HALT) / zeroNoise (deterministic field ⇒ vacuous CERTIFIED, WARN)
+isLiveRun(run) -> boolean  // a reduced run carries data (winPct != null; a 0%-win run is live, not "no data")
 SIGNATURE_AXES  // deduped union of every PERSONA_SIGNATURES axis — the axes the A/A gates on
 parseBotSpec(spec) -> { name, weightsPath|null }        // "Name" (built-in) vs "Name=weights.js"
 parseMdeOverrides(str, base=DEFAULT_MDE) -> Record<axis, number>  // "--mde axis:val,..." merged over base
@@ -548,11 +557,13 @@ provenance (what the separation script's cross-report drift check reads). It doe
 block (the §10.5 pairwise matrix ships as `behavior:separation`'s OWN output: `{ config, pairs[],
 requireSeparated }`, per-pair `{ a, b, separated, comparable, onAxes[], axes[], descriptive[] }` —
 see the §3.5 as-built note). (`winPctVsRef` ships as the `winPct` axis.) The launch pre-flight
-(`behavior:preflight`, §3.9) has its OWN `--json` shape: `{ config, probePreflight, nc1, nc2, halt,
-reasons }`, where `probePreflight` = `{ loaded, parity, params, fixturelessGuard }` (null for
-`--bot`) and `nc1` = `signatureNoiseFloor`'s `{ pass, certified, divisor, alpha, axes[], biased[],
+(`behavior:preflight`, §3.9) has its OWN `--json` shape: `{ config, probePreflight, nc1, nc1Sample,
+nc2, halt, reasons }`, where `probePreflight` = `{ loaded, parity, params, fixturelessGuard }` (null
+for `--bot`), `nc1` = `signatureNoiseFloor`'s `{ pass, certified, divisor, alpha, axes[], biased[],
 inconclusive[], noData[] }` (per-axis `{ axis, delta, ci, lo, hi, n, tol, verdict }`; `verdict` ∈
-CERTIFIED / BIASED / INCONCLUSIVE / NO DATA, only BIASED halts).
+CERTIFIED / BIASED / INCONCLUSIVE / NO DATA, only BIASED halts), and `nc1Sample` =
+`summarizeAaSample`'s per-arm live-run/quarantine counts + `{ insufficient, zeroNoise }` (insufficient
+⇒ the A/A could not run ⇒ HALT; zeroNoise ⇒ a deterministic field ⇒ vacuous CERTIFIED ⇒ WARN).
 
 ```jsonc
 {

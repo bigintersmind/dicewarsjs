@@ -25,6 +25,8 @@ import {
   separationPair,
   assertPairableReports,
   signatureNoiseFloor,
+  summarizeAaSample,
+  isLiveRun,
   SHIPPED_BASE,
   AXES,
   PERSONA_SIGNATURES,
@@ -1356,6 +1358,22 @@ describe('signatureNoiseFloor — negative control 1 (A/A equivalence vs ±MDE/d
     expect(nf.axes.find(a => a.axis === 'kills').verdict).toBe('CERTIFIED');
   });
 
+  it('HALTS (BIASED) on a NEGATIVE systematic offset too — guards the |Δ| in pBeyondFloor', () => {
+    // Mirror of the positive-offset HALT but with arm B ABOVE arm A (Δ = A−B ≈ −0.5). pBeyondFloor
+    // tests |Δ|−tol, so a bias in EITHER direction must halt; a signed `Δ−tol` would read this
+    // negative excess as < 0 (p=1, never BIASED) and wave a whole class of harness bug through unseen.
+    // Every existing BIASED case pushes arm B BELOW arm A (positive Δ), so this is the only guard on
+    // that abs — drop it and this test alone fails.
+    const armB = flat();
+    armB.forEach((r, i) => (r.aggression = [3.5, 3.5, 3.49, 3.51][i]));
+    const nf = signatureNoiseFloor(flat(), armB, DEFAULT_MDE);
+    expect(nf.pass).toBe(false);
+    expect(nf.biased).toEqual(['aggression']);
+    const agg = nf.axes.find(a => a.axis === 'aggression');
+    expect(agg.verdict).toBe('BIASED');
+    expect(agg.delta).toBeLessThan(0); // the offset is NEGATIVE — the direction the |Δ| guard is for
+  });
+
   it('zero-SE degeneracy: identical beyond-floor diffs at small n do NOT halt (collapsed CI ≠ evidence)', () => {
     // Every paired diff is exactly +0.5 ⇒ paired SE 0 ⇒ the CI collapses to the point Δ. The OLD raw
     // "CI beyond ±tol" rule read that as a tight interval beyond the floor and false-HALTed; capping
@@ -1468,5 +1486,87 @@ describe('signatureNoiseFloor — negative control 1 (A/A equivalence vs ±MDE/d
     const tightened = signatureNoiseFloor(flat(), armB, { ...DEFAULT_MDE, aggression: 0.06 });
     expect(tightened.pass).toBe(false);
     expect(tightened.biased).toContain('aggression');
+  });
+});
+
+describe('isLiveRun + summarizeAaSample — A/A sample-health guards', () => {
+  const deadRun = () => Object.fromEntries(AXES.map(a => [a, null])); // fully quarantined ⇒ nullRun()
+  const wrap = (perRun, played, quarantined) => ({ perRun, played, quarantined });
+  // A flat, live A/A arm (winPct present ⇒ isLiveRun true), reused across the noise cases.
+  const flatLive = () =>
+    runsOf({
+      winPct: [50, 50, 50, 50],
+      aggression: [3, 3, 3, 3],
+      turnsToWin: [40, 40, 40, 40],
+      avgTerritory: [12, 12, 12, 12],
+      kills: [1.5, 1.5, 1.5, 1.5],
+      avgPlacement: [2.2, 2.2, 2.2, 2.2],
+    });
+
+  it('isLiveRun: a 0%-win run is live data; only a null winPct is "no data"', () => {
+    expect(isLiveRun(reduceShape({ winPct: 0 }))).toBe(true); // 0% is a real measurement, not absence
+    expect(isLiveRun(reduceShape({ winPct: 12.5 }))).toBe(true);
+    expect(isLiveRun(deadRun())).toBe(false);
+  });
+
+  it('insufficient (HALT-worthy) when quarantine leaves an arm < 2 live runs', () => {
+    // Arm A: two fully-quarantined runs + one live ⇒ 1 live run ⇒ every axis NO DATA.
+    const a = wrap([deadRun(), deadRun(), flatLive()[0]], 12, 8);
+    const b = wrap(flatLive().slice(0, 3), 12, 0);
+    const nc1 = signatureNoiseFloor(a.perRun, b.perRun, DEFAULT_MDE);
+    const s = summarizeAaSample(a, b, nc1);
+    expect(s.liveRunsA).toBe(1);
+    expect(s.liveRunsB).toBe(3);
+    expect(s.quarantinedA).toBe(8);
+    expect(s.insufficient).toBe(true);
+    expect(s.zeroNoise).toBe(false); // no measured axis ⇒ "no data", NOT "zero noise"
+  });
+
+  it('insufficient when EVERY signature axis is NO DATA even with ≥ 2 live runs', () => {
+    // Live runs (winPct present) but no signature axis has data ⇒ measured.length 0 ⇒ nothing to
+    // certify. This is the second insufficient branch, independent of the live-run count.
+    const noSig = () => runsOf({ winPct: [50, 50, 50, 50] }); // every signature axis null
+    const a = wrap(noSig(), 16, 0);
+    const b = wrap(noSig(), 16, 0);
+    const s = summarizeAaSample(a, b, signatureNoiseFloor(a.perRun, b.perRun, DEFAULT_MDE));
+    expect(s.liveRunsA).toBe(4);
+    expect(s.insufficient).toBe(true);
+    expect(s.zeroNoise).toBe(false);
+  });
+
+  it('a healthy divergent A/A is neither insufficient nor zeroNoise', () => {
+    const a = runsOf({
+      winPct: [50, 50, 50, 50],
+      aggression: [3, 3.2, 2.9, 3.1],
+      turnsToWin: [40, 41, 39, 40],
+      avgTerritory: [12, 12, 12, 12],
+      kills: [1.5, 1.5, 1.5, 1.5],
+      avgPlacement: [2.2, 2.2, 2.2, 2.2],
+    });
+    const b = runsOf({
+      winPct: [50, 50, 50, 50],
+      aggression: [3.05, 3.1, 2.95, 3.0],
+      turnsToWin: [40, 40, 40, 41],
+      avgTerritory: [12, 12, 12, 12],
+      kills: [1.5, 1.5, 1.5, 1.5],
+      avgPlacement: [2.2, 2.2, 2.2, 2.2],
+    });
+    const s = summarizeAaSample(
+      wrap(a, 16, 0),
+      wrap(b, 16, 0),
+      signatureNoiseFloor(a, b, DEFAULT_MDE)
+    );
+    expect(s.insufficient).toBe(false);
+    expect(s.zeroNoise).toBe(false);
+    expect(s.liveRunsA).toBe(4);
+  });
+
+  it('flags zeroNoise (vacuous CERTIFIED) when the field injected no divergence (arm A ≡ arm B)', () => {
+    const nc1 = signatureNoiseFloor(flatLive(), flatLive(), DEFAULT_MDE);
+    const s = summarizeAaSample(wrap(flatLive(), 16, 0), wrap(flatLive(), 16, 0), nc1);
+    expect(s.zeroNoise).toBe(true);
+    expect(s.insufficient).toBe(false);
+    // Every signature axis CERTIFIED on a zero-width CI — the vacuous "clean bill" the flag guards.
+    expect(nc1.certified).toBe(true);
   });
 });

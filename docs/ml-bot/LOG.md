@@ -45,6 +45,18 @@ Entry template:
   `behavior-sweep` suite (seed schedule + tally), and a `behavior:preflight` CLI suite. Docs:
   EVAL_HARNESS §3.9 "As built" + Public API + CLI + §7 + §10; PERSONAS §10.5/§10.7 annotations;
   README status; this entry.
+- **Review follow-up — A/A sample-health guards** (`summarizeAaSample` + `isLiveRun` in
+  `behavior-core.mjs`): the pre-flight had DROPPED `sweepBot`'s `played`/`quarantined` counts, so a
+  base that LOADS but force-ends its games (all quarantined ⇒ every axis NO DATA) exited 0
+  "CLEAR (uncertified)" — the exact silent mis-grade the gate exists to catch, and a regression vs
+  `behavior:profile`'s per-arm accounting. Now: quarantine gutting the control (< 2 live paired runs,
+  or every signature axis NO DATA) **HALTS**; a deterministic `--opponents` field (arm A ≡ arm B ⇒
+  zero-width CIs ⇒ vacuous CERTIFIED) **WARNS**; per-arm live-run/quarantine counts ride the report +
+  `--json` (`nc1Sample`), and the uncertified NOTE stops advising "add runs" when quarantine (not thin
+  sampling) is the cause. **Tests +6** (1557 → 1563): a negative-direction BIASED case (guards
+  `pBeyondFloor`'s `|Δ|` — every prior BIASED case pushed arm B _below_ arm A, leaving that abs
+  untested) and `summarizeAaSample`/`isLiveRun` unit coverage; a live-A/A CLI assertion that the two
+  arms genuinely diverge (`zeroNoise` false). Docs: EVAL_HARNESS §3.9 + Public API + §10 `--json`.
 
 **Learned / decided:**
 

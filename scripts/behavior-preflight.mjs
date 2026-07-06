@@ -26,6 +26,10 @@
  *     look like two) — grading HALTS. Only signature axes gate; descriptive axes carry more of that
  *     noise and are reported, never the halt criterion. The A/A runs the SAME `behavior-sweep`
  *     personas are graded on (extracted to a shared lib so it tests the real path, not a copy).
+ *     Sample-health guards (summarizeAaSample) keep a degenerate A/A from reading as a clean bill:
+ *     if a base LOADS but force-ends its games they are quarantined to NO DATA — that HALTS (the
+ *     control could not run) rather than exiting 0 "uncertified"; and a deterministic --opponents
+ *     field (arm A ≡ arm B, zero measured noise) is WARNED as vacuous, since its CERTIFIED is empty.
  *
  *  3. NEGATIVE CONTROL 2 — test-retest noise floor. Already produced by `ppo:curve --test-retest`
  *     (STRENGTH_CURVE.md), which re-grades one checkpoint at identical settings and records the
@@ -51,6 +55,7 @@ import { loadExportedPolicy, siblingFixturePath } from './lib/load-bc-policy.mjs
 import { sweepBot } from './lib/behavior-sweep.mjs';
 import {
   signatureNoiseFloor,
+  summarizeAaSample,
   parseMdeOverrides,
   SIGNATURE_AXES,
   DEFAULT_MDE,
@@ -58,6 +63,8 @@ import {
 
 const args = process.argv.slice(2);
 const log = (...a) => console.error(...a); // human output → stderr so --json owns stdout
+/** Integer percentage n/d for the quarantine accounting; 'n/a' when no games were played. */
+const pct = (n, d) => (d > 0 ? `${Math.round((100 * n) / d)}%` : 'n/a');
 
 // --- Parse args: a closed flag inventory (no positionals) ------------------------------------
 const USAGE =
@@ -178,8 +185,9 @@ const halt = [];
 let baseBot;
 let probePreflight = null;
 // Declared up front (not at their assignment sites): reportAndExit() can fire EARLY on a probe-path
-// failure, before the A/A runs, and it reads both — a `const` declared later would be in its TDZ.
+// failure, before the A/A runs, and it reads them all — a `const` declared later would be in its TDZ.
 let nc1 = null;
+let nc1Sample = null;
 let nc2 = null;
 
 if (weightsPath) {
@@ -310,7 +318,23 @@ const armB = sweepBot(baseBot, {
 log('');
 
 nc1 = signatureNoiseFloor(armA.perRun, armB.perRun, mde, { divisor });
-if (!nc1.pass) {
+// Sample health: a base that LOADS but force-ends its games gets them quarantined, collapsing every
+// axis to NO DATA — without this the pre-flight would exit 0 "CLEAR (uncertified)" on exactly the
+// broken harness it exists to catch. summarizeAaSample folds the two arms' quarantine/live-run counts
+// (sweepBot already returns them; the A/A had dropped them) into a HALT-if-uninformative flag and a
+// vacuous-field (zero-noise) warning, mirroring behavior-profile's per-arm accounting.
+nc1Sample = summarizeAaSample(armA, armB, nc1);
+if (nc1Sample.insufficient) {
+  // The negative control could not run: too few games survived quarantine to form a paired CI on any
+  // signature axis. That is NOT a clean bill — HALT rather than emit the soft "CLEAR (uncertified)".
+  halt.push(
+    `negative control 1 (A/A): could not run — only ` +
+      `${Math.min(nc1Sample.liveRunsA, nc1Sample.liveRunsB)}/${runCount} live paired run(s) after ` +
+      `quarantine (arm A ${pct(armA.quarantined, armA.played)}, arm B ` +
+      `${pct(armB.quarantined, armB.played)} of games quarantined) — the base force-ends games or ` +
+      `the field is broken; the harness noise floor is unverified.`
+  );
+} else if (!nc1.pass) {
   // Only a BIASED axis halts — a signature-sized self-difference with Holm-significant (family-wise)
   // evidence it is real, i.e. a harness bug that makes one policy look like two. INCONCLUSIVE / NO
   // DATA are "add runs", below.
@@ -383,6 +407,7 @@ function reportAndExit() {
     },
     probePreflight,
     nc1,
+    nc1Sample,
     nc2,
     halt: halt.length > 0,
     reasons: halt,
@@ -436,14 +461,38 @@ function reportAndExit() {
         ].join('')
       );
     }
-    const uncertified = [...nc1.inconclusive, ...nc1.noData];
-    if (uncertified.length) {
+    if (nc1Sample) {
+      const arm = (live, played, quar) =>
+        `${live}/${runCount} live${quar > 0 ? ` (${quar}/${played} games quarantined)` : ''}`;
       log(
-        `  NOTE: [${uncertified.join(', ')}] not yet CERTIFIED (CI too wide / no winners) — ` +
-          `increase --runs/--games to certify their floor. Not a bias, does not halt.`
+        `  sample: arm A ${arm(nc1Sample.liveRunsA, nc1Sample.playedA, nc1Sample.quarantinedA)}; ` +
+          `arm B ${arm(nc1Sample.liveRunsB, nc1Sample.playedB, nc1Sample.quarantinedB)}`
       );
     }
-    if (!nc1.pass) {
+    const uncertified = [...nc1.inconclusive, ...nc1.noData];
+    if (uncertified.length) {
+      // When quarantine (not thin sampling) starved the axes, "add runs" is the WRONG remedy — more
+      // games just get force-ended too. Point at the real cause when either arm lost games.
+      const starved = nc1Sample && (nc1Sample.quarantinedA > 0 || nc1Sample.quarantinedB > 0);
+      const remedy = starved
+        ? 'games were quarantined (forced-end) — fix the base/field so games complete, not just more runs'
+        : 'increase --runs/--games to certify their floor';
+      log(
+        `  NOTE: [${uncertified.join(', ')}] not yet CERTIFIED (CI too wide / no winners) — ` +
+          `${remedy}. Not a bias, does not halt.`
+      );
+    }
+    if (nc1Sample?.zeroNoise) {
+      // Field injected no noise ⇒ arm A ≡ arm B ⇒ CERTIFIED is vacuous (a deterministic --opponents
+      // field, not the intended stochastic one). Warn loud so a footgun field can't read as clean.
+      log(
+        '  ⚠ the A/A measured ZERO opponent noise (every signature axis has a zero-width CI) — the ' +
+          'field is deterministic, so CERTIFIED is vacuous. Re-run with a stochastic --opponents field.'
+      );
+    }
+    if (nc1Sample?.insufficient) {
+      log('  → NC1 HALT: the A/A could not run — too few games survived quarantine (see sample)');
+    } else if (!nc1.pass) {
       log(`  → NC1 HALT: [${nc1.biased.join(', ')}] show a signature-sized self-difference (bias)`);
     } else if (nc1.certified) {
       log('  → NC1 PASS — every signature axis CERTIFIED within the floor');
@@ -467,12 +516,21 @@ function reportAndExit() {
     for (const r of halt) log(`  • ${r}`);
     process.exit(2);
   }
-  const caveat = nc1 && !nc1.certified;
-  log(
-    caveat
-      ? 'PRE-FLIGHT CLEAR (no harness bias) — but some signature axes are uncertified (see NOTE); ' +
-          'add runs to certify their floor before trusting those signatures.'
-      : 'PRE-FLIGHT CLEAR — the probe path and negative controls pass; cleared for Wave-1 launch.'
-  );
+  if (nc1Sample?.zeroNoise) {
+    // Not a halt (a deterministic field is a footgun, not a proven bug), but the strongest "cleared"
+    // message would be dishonest — the control measured no noise, so say so.
+    log(
+      'PRE-FLIGHT CLEAR (no detected bias) — but the A/A measured no opponent noise (see ⚠ above); ' +
+        'with a deterministic field the negative control is vacuous. Re-run with a stochastic ' +
+        '--opponents field before trusting it.'
+    );
+  } else if (nc1 && !nc1.certified) {
+    log(
+      'PRE-FLIGHT CLEAR (no harness bias) — but some signature axes are uncertified (see NOTE); ' +
+        'add runs to certify their floor before trusting those signatures.'
+    );
+  } else {
+    log('PRE-FLIGHT CLEAR — the probe path and negative controls pass; cleared for Wave-1 launch.');
+  }
   process.exit(0);
 }

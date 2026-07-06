@@ -21,6 +21,77 @@ Entry template:
 
 ---
 
+## 2026-07-05 (late night, cont.) — Wave-0 item 6: the 3-arm throughput capacity probe (`ppo:arm-throughput`)
+
+**Phase:** Wave-0 eval builds (PERSONAS §10.7 item 6 — the LAST Wave-0 item) · **Who:** Claude (PR merge + shodan launch Ivan-gated)
+
+**Did:**
+
+- **`npm run ppo:arm-throughput`** (`scripts/ppo-arm-throughput-probe.mjs` + `lib/ppo-arm-probe-core.mjs`
+  - `lib/ppo-arm-probe-worker.mjs`): the concurrent-wave capacity gate the single-arm
+    `ppo:throughput-probe` can't be. Two TIMED passes over the real `runSelfPlayEpisode` path — 1 arm ×
+    N_ENVS alone (uncontended ceiling), then `arms` × N_ENVS all at once (contended) — reporting the
+    per-arm contention penalty, aggregate speedup / parallel efficiency, oversubscription (workers/cores),
+    and a one-sided go/no-go.
+- **Fixed-WALL windows, not fixed episodes**: a fast shard finishing early and dropping out would
+  INFLATE the measured rate — the exact contention this probe exists to detect. So each shard runs
+  warmup→measure→cooldown by wall clock; only the measure phase counts; cooldown keeps every peer
+  under full load through the others' measure windows.
+- **Tests** (`tests/ml/ppo-arm-throughput-probe.test.js`, +20): pure helpers (seed layout, config
+  validation, contention math incl. the honest super-linear-noise case, GREEN/YELLOW/RED boundaries)
+  - the timed shard's phase machine via an INJECTED clock **and an injected `episodeFn`** (a fake with
+    a known decision count) so the warmup/cooldown-exclusion contract is pinned EXACTLY — needed because
+    the real episode isn't bit-deterministic. One fast live smoke over the real path.
+- Docs: RUNBOOK **§8e** (the pre-launch capacity gate + a pointer from §8a), PERSONAS §10.7 item-6
+  annotation, README status, this entry.
+- **Adversarial review** (8-agent, 4 finder lenses × 2 diverse default-refute verifiers): **0
+  confirmed defects** (both verifiers agreeing), 2 "plausible" (code-lens real, impact-lens refuted
+  as not-a-defect). Applied both anyway as cheap correctness wins: (1) an empty `--opponents=` slipped
+  the `??` nullish default → `[]` → a worker stack-trace; now a clean loud usage error (a non-empty
+  guard, better than the sibling's silent fall-back). (2) Added a CLI subprocess test
+  (`tests/scripts/ppoArmThroughputProbe.test.js`, +8) pinning the operator-facing exit-code contract
+  (0 GREEN/YELLOW · 2 RED · 1 usage), arg strictness, the empty-field guard, and the `--json` shape —
+  the pure-core tests can't reach the driver glue. Also proactively surfaced a **net-negative
+  concurrency** warning: when aggregate speedup < 1 (the box thrashes), the report now states the wave
+  would finish SOONER run serially — the §8a premise failing, made explicit rather than left to infer.
+
+**Learned / decided:**
+
+- **The verdict is a one-sided gate, and that's the honest framing.** The probe measures the env-sim
+  CEILING (stub learner ~free, no GPU, no wire) — an UPPER BOUND on realized trainer fps. So RED
+  (ceiling below the per-arm target even with zero GPU cost) is CONCLUSIVE: training can't sustain the
+  wall. GREEN only says env-sim isn't the limiter; GPU/latency then set the realized fps (the §8a
+  latency-bound regime). `--margin` (default 1.3) buffers the GPU-forward + wire (~2–10%, [D-19]) + SB3
+  overhead that sit on top of env-sim.
+- **Target 175 fps/arm is the wall math, not a guess:** Wave-1 = 3×3M steps / ~5 h ≈ 500 steps/s
+  aggregate ≈ 167/arm, and batch-1 measured ~175. The concern is real: 3×12 = 36 env-servers on
+  shodan's 16 cores (`nproc` verified 16 this session) = 2.25× oversubscribed, past the ≤20-env
+  footprint any run has proven.
+- **The v3 encoder's ~5–9% is captured natively** — `makeLearnerBot` calls
+  `encodeObservationForInference` on every learner decision, so the probe path runs the live encoder;
+  no separate tax term needed.
+
+**Dead ends / surprises:**
+
+- **First exclusion test was wrong for a subtle reason.** I tried to prove "warmup episodes aren't
+  counted" via same-seed determinism (warmup consumes 3 seeds so the measured episode lands on the
+  same seed as a 0-warmup run) — it failed 228≠234 because the heuristic opponents roll UNSEEDED
+  `Math.random` (the same non-determinism NC2's test-retest measures), so same seed ≠ same game. Fixed
+  by adding an injectable `episodeFn` seam: the phase-machine tests use a deterministic fake with a
+  known per-episode decision count, so exclusion is proven exactly (3 measured eps × 4 = 12, never
+  6×4) with zero flakiness; the real path is exercised by the live smoke.
+- Local Mac is 8 cores, so a laptop run is 36/8 = 4.5× oversubscribed — HEAVIER than shodan. The
+  "run on the target box" caveat is load-bearing and stated in the report, the module header, and §8e.
+
+**Next:**
+
+- PR (Ivan-gated merge). **All Wave-0 items (1–6) are now built** → Wave-1 persona retrains
+  (Conqueror-control + Blitz-v3 + Survivor-v3, 3×3M concurrent), warm-started from
+  `ml/runs/ppo-v3-scratch/ppo.pt`, are unblocked — the shodan launch is Ivan-gated. Run §8e on shodan
+  first to confirm N_ENVS=12 before committing the wave.
+
+---
+
 ## 2026-07-05 (late night) — Wave-0 item 5: the launch pre-flight + negative controls 1–2 (`behavior:preflight`)
 
 **Phase:** Wave-0 eval builds (PERSONAS §10.7 item 5) · **Who:** Claude (PR merge Ivan-gated)

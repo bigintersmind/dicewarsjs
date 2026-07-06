@@ -263,7 +263,9 @@ rather than wrecks the warm start. (Expansionist/Predator need the per-frame ter
 ### 8a. Launch concurrently (the simple path — one WSL session)
 
 The box is idle and the runs are latency-bound, so 3 concurrent runs cost ≈ the time of one
-(PERSONAS §1). For a same-day batch, background all three in one WSL session:
+(PERSONAS §1) — but that assumes env-sim still has CPU headroom at the K-arm footprint; **before
+committing N_ENVS for a concurrent wave, run the capacity pre-flight (§8e).** For a same-day batch,
+background all three in one WSL session:
 
 ```bash
 cd <repo> && source ml/.venv/bin/activate
@@ -401,3 +403,32 @@ run-dir exports have no sibling decoder, and a packed export outside `src/ai/` f
 Lookahead. Ship bars, kill criteria, and the 3M → fresh-seed → `--bar PPO` → `arena:ml` chain are
 pre-registered in **[D-30] decisions 5–6** — grade against those, not vibes. Export/ship plumbing
 (`ai_<persona>.js`, `builtInBots`) stays unbuilt until a 3M winner clears everything.
+
+### 8e. Pre-flight: 3-arm throughput capacity (BEFORE committing a concurrent wave's N_ENVS)
+
+The single-arm `ppo:throughput-probe` (§`RESULTS`) proves ONE arm's env-sim speed; it does NOT
+prove that _K arms at once_ still each hit that speed. A concurrent wave seats K arms × N_ENVS
+env-servers simultaneously (one `ppo-env-server.mjs` per env — §4's `N_ENVS = min(nproc-2, 12)`),
+so the v3 Wave-1 slate is **3 × 12 = 36 Node servers on shodan's 16 cores** (2.25× oversubscribed),
+past the ≤20-env footprint any run has actually proven. §8a's "3 concurrent runs cost ≈ the time of
+one" only holds while the CPU still has env-sim headroom under that load — this probe measures
+whether it does, so **run it BEFORE locking N_ENVS for any concurrent wave.**
+
+It is **zero-GPU** (stub learner, ~free), so run it **on shodan itself** — contention scales with
+core count, so a laptop run only sanity-checks the tool, not the real footprint. It costs ~a minute
+of CPU and touches no GPU, so it's safe to run while nothing is training:
+
+```bash
+cd <repo> && node scripts/ppo-arm-throughput-probe.mjs   # defaults: 3 arms × 12 envs, realistic league
+# knobs: --arms --envs-per-arm --seconds --target-fps --margin --json ; --help via an unknown flag
+```
+
+Two timed passes (one arm alone, then all 3 at once) report the per-arm throughput DROP and a
+go/no-go on the N_ENVS you're about to commit. The verdict is one-sided: the probe measures the
+env-sim CEILING (an upper bound on realized trainer fps — it captures the v3 encoder's ~5–9% cost
+natively but not the GPU/wire that sit ON TOP), so **RED (ceiling below the per-arm target even
+with zero GPU cost) is conclusive** — reduce N_ENVS or run fewer arms concurrently. GREEN means
+env-sim is not the bottleneck at this footprint (GPU/latency then set the realized fps — the §8a
+regime); commit N_ENVS. Target defaults to **175 fps/arm** — batch-1's figure, and the wall the
+Wave-1 estimate assumes (3 × 3M steps / ~5 h ≈ 167 steps/s per arm). Exit code: 0/GREEN|YELLOW,
+2/RED, 1/usage. Re-probe after any change to N_ENVS, the arm count, or the encoder.

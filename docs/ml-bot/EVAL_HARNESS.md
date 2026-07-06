@@ -161,6 +161,27 @@ turns and adds nothing over the turn-normalized axis. Derive on demand if ever n
 > `SIGNATURE_AXES`/Holm/the A/A noise floor** — they gate the placement-arm reward hack via
 > `evaluateClockHack()`/`CLOCK_HACK_TRIPWIRES` (a KILL-gate, §10.8), not a persona signature.
 
+> **Added 2026-07-06 — the §10.3 scavenge co-read cluster** (PERSONAS.md §10.3, the vulture-hack
+> guard): two descriptive per-kill axes in `AXES` — `killVictimTerr` (the victim's territory count
+> as of the end of the player-turn immediately before the killing blow) and `killVictimOneTerrTurns`
+> (the victim's consecutive observed player-turns at exactly 1 territory before it). Captured via
+> per-player trackers in `makeCapture` that ingest every post-turn state AFTER kill detection reads
+> them, so a bot that softens a 3-territory victim itself during the killing turn reads 3 (hunter),
+> never the post-kill 0 — while a vulture's kills read as long-doomed 1-territory snipes. Per-game
+> scalars are means over the game's observed kill victims (`null` on no-kill games, the
+> winners-only sparsity pattern; a kill on the game's first observed turn records nulls and is
+> excluded). Like the §10.4 cluster they are excluded from `SIGNATURE_AXES`/`SEPARATION_AXES`/Holm/
+> the A/A noise floor — but unlike it there is **no auto-tripwire**: the CLI prints a "Scavenge
+> co-read (§10.3)" panel (own mean + paired Δ vs control, with the `kills` mean as context), the
+> axes ride `bots[].metrics`/`vsControl`/`perRun` in `--json` (no separate serialized block), and
+> the ship-blocking judgment is the **operator's** at Predator grading (Ivan, 2026-07-06 —
+> thresholds may be ratified later from pilot data). Operator caveats: read the two axes jointly
+> (third-party softening the turn before the kill reads victimTerr ≈ 1 with a LOW streak; true
+> vulture prey reads a HIGH streak), and the streak's raw magnitude scales with live-seat count
+> (paired Δ on an identical field cancels it; absolute thresholds must be field-size-calibrated).
+> `assertPairableReports` also now fails loud on a perRun **axis-set drift** across reports, so a
+> pre-§10.3 report can't silently pair as "no data" even under `--allow-sha-drift`.
+
 ---
 
 ## 3. Statistical design — the part that makes "distinct" mean something

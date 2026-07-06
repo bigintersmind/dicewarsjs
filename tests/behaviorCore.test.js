@@ -207,6 +207,7 @@ describe('profileGameFromCapture', () => {
       dice: [10, 16],
       largestGroup: [4, 7],
       kills: 1,
+      killVictims: [{ victimTerr: 2, victimOneTerrTurns: 0 }], // one entry per kill (contract)
       eliminatedAtTurn: null,
       zeroAttackTurns: 0,
       attacksByTurn: [
@@ -239,6 +240,7 @@ describe('profileGameFromCapture', () => {
       dice: [3],
       largestGroup: [1],
       kills: 0,
+      killVictims: [],
       eliminatedAtTurn: 2,
       zeroAttackTurns: 1,
       attacksByTurn: [{ turn: 1, attacks: 0 }],
@@ -275,6 +277,7 @@ describe('profileGameFromCapture', () => {
       dice: [],
       largestGroup: [],
       kills: 0,
+      killVictims: [],
       eliminatedAtTurn: 1,
       zeroAttackTurns: 0,
       attacksByTurn: [],
@@ -311,6 +314,7 @@ describe('profileGameFromCapture', () => {
       dice: [10],
       largestGroup: [4],
       kills: 0,
+      killVictims: [],
       eliminatedAtTurn: null,
       zeroAttackTurns: 0,
       attacksByTurn: [{ turn: 1, attacks: 0 }],
@@ -339,6 +343,7 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
     dice: [10, 10],
     largestGroup: [4, 4],
     kills: 0,
+    killVictims: [],
     eliminatedAtTurn: null,
     zeroAttackTurns: 0,
     attacksByTurn: [
@@ -479,6 +484,211 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
     expect(sub.kill).toBe(false);
     expect(sub.primaryFired).toBe(false);
     expect(sub.coSignal).toBe(false);
+  });
+});
+
+describe('§10.3 scavenge co-read — victim trackers, per-game means, aggregation', () => {
+  // A post-turn state from territory counts alone: count 0 ⇒ eliminated (the engine sets the flag
+  // on the turn a player loses their last territory). Dice/group values don't matter here.
+  const boardOf = counts =>
+    stateOf(
+      counts.map(t =>
+        t === 0
+          ? { territoryCount: 0, diceCount: 0, largestGroup: 0, eliminated: true }
+          : { territoryCount: t, diceCount: t * 2, largestGroup: t, eliminated: false }
+      )
+    );
+
+  it('a vulture kill records the victim at 1 territory with its full turns-at-1 streak', () => {
+    const { capture, onTurn } = makeCapture(0);
+    onTurn(1, boardOf([4, 1, 3]), 2); // victim (seat 1) observed at 1 territory — streak 1
+    onTurn(2, boardOf([4, 1, 3]), 1); // streak 2
+    onTurn(3, boardOf([4, 1, 3]), 2); // streak 3
+    onTurn(4, boardOf([5, 0, 3]), 0); // bot 0's turn: the killing blow
+    expect(capture.kills).toBe(1);
+    expect(capture.killVictims).toEqual([{ victimTerr: 1, victimOneTerrTurns: 3 }]);
+  });
+
+  it('a hunter kill reads the victim as of the END of the previous player-turn, not post-kill 0', () => {
+    const { capture, onTurn } = makeCapture(0);
+    onTurn(1, boardOf([4, 3, 3]), 1); // victim still holds 3 territories
+    onTurn(2, boardOf([7, 0, 3]), 0); // bot 0 takes all 3 itself during the killing turn
+    expect(capture.killVictims).toEqual([{ victimTerr: 3, victimOneTerrTurns: 0 }]);
+  });
+
+  it('a THIRD-PARTY-softened victim reads victimTerr 1 with a LOW streak (the joint-read discriminator)', () => {
+    // The exact false positive the co-read exists to expose: victimTerr≈1 alone is NOT vulture prey.
+    // A third party (seat 2) drops seat 1 to 1 only on the turn immediately before the kill, so the
+    // streak is 1 (just-doomed) — read JOINTLY, that low streak distinguishes it from a true vulture
+    // snipe of a long-doomed 1-territory player (which carries a HIGH streak).
+    const { capture, onTurn } = makeCapture(0);
+    onTurn(1, boardOf([4, 3, 3]), 1); // victim (seat 1) still holds 3 — streak 0
+    onTurn(2, boardOf([4, 1, 3]), 2); // seat 2 softens seat 1 to 1 the turn before the kill
+    onTurn(3, boardOf([5, 0, 3]), 0); // bot 0 lands the killing blow
+    expect(capture.killVictims).toEqual([{ victimTerr: 1, victimOneTerrTurns: 1 }]);
+  });
+
+  it('the turns-at-1 streak resets when the victim recovers above 1 territory', () => {
+    const { capture, onTurn } = makeCapture(0);
+    onTurn(1, boardOf([4, 1, 3]), 2); // at 1 — streak 1
+    onTurn(2, boardOf([4, 2, 3]), 1); // recovered to 2 — streak resets
+    onTurn(3, boardOf([4, 1, 3]), 2); // back to 1 — streak 1
+    onTurn(4, boardOf([4, 1, 3]), 1); // streak 2
+    onTurn(5, boardOf([6, 0, 3]), 0); // killed
+    expect(capture.killVictims).toEqual([{ victimTerr: 1, victimOneTerrTurns: 2 }]);
+  });
+
+  it('a multi-kill turn records one entry per victim, each from its own tracker', () => {
+    const { capture, onTurn } = makeCapture(0);
+    onTurn(1, boardOf([5, 1, 4]), 1); // seat 1 at 1 (streak 1), seat 2 at 4
+    onTurn(2, boardOf([5, 1, 4]), 2); // seat 1 streak 2
+    onTurn(3, boardOf([10, 0, 0]), 0); // bot 0 sweeps both
+    expect(capture.kills).toBe(2);
+    expect(capture.killVictims).toEqual([
+      { victimTerr: 1, victimOneTerrTurns: 2 },
+      { victimTerr: 4, victimOneTerrTurns: 0 },
+    ]);
+  });
+
+  it("kills by other seats and the bot's own death record no victim entries", () => {
+    const { capture, onTurn } = makeCapture(0);
+    onTurn(1, boardOf([2, 1, 5]), 2);
+    onTurn(2, boardOf([2, 0, 6]), 2); // seat 2 killed seat 1 — not the profiled bot's kill
+    onTurn(3, boardOf([0, 0, 8]), 2); // the profiled bot itself dies
+    expect(capture.kills).toBe(0);
+    expect(capture.killVictims).toEqual([]);
+  });
+
+  it('a kill on the first observed player-turn (no prior observation) records nulls', () => {
+    const { capture, onTurn } = makeCapture(0);
+    onTurn(1, boardOf([6, 0, 3]), 0); // killing blow before any tracker observation exists
+    expect(capture.kills).toBe(1);
+    expect(capture.killVictims).toEqual([{ victimTerr: null, victimOneTerrTurns: null }]);
+  });
+
+  const scavResult = {
+    winner: 0,
+    turnCount: 9,
+    botStats: [
+      {
+        playerIndex: 0,
+        placement: 1,
+        attacksMade: 4,
+        attacksWon: 4,
+        errors: 0,
+        invalidMoves: 0,
+        maxMovesHit: 0,
+      },
+    ],
+  };
+  const scavCap = (over = {}) => ({
+    playerIndex: 0,
+    activeTurns: 1,
+    territory: [5],
+    dice: [10],
+    largestGroup: [4],
+    kills: 0,
+    killVictims: [],
+    eliminatedAtTurn: null,
+    zeroAttackTurns: 0,
+    attacksByTurn: [{ turn: 1, attacks: 4 }],
+    ...over,
+  });
+
+  it('profileGameFromCapture means the per-kill victim context; null-observation kills are excluded', () => {
+    const p = profileGameFromCapture(
+      scavResult,
+      0,
+      scavCap({
+        kills: 2,
+        killVictims: [
+          { victimTerr: 1, victimOneTerrTurns: 4 },
+          { victimTerr: 3, victimOneTerrTurns: 0 },
+        ],
+      })
+    );
+    expect(p.killVictimTerr).toBe(2); // mean(1, 3)
+    expect(p.killVictimOneTerrTurns).toBe(2); // mean(4, 0)
+
+    // A first-turn (unobserved) kill contributes nothing to either mean.
+    const partial = profileGameFromCapture(
+      scavResult,
+      0,
+      scavCap({
+        kills: 2,
+        killVictims: [
+          { victimTerr: null, victimOneTerrTurns: null },
+          { victimTerr: 3, victimOneTerrTurns: 1 },
+        ],
+      })
+    );
+    expect(partial.killVictimTerr).toBe(3);
+    expect(partial.killVictimOneTerrTurns).toBe(1);
+
+    // ALL kills unobserved ⇒ null (no data), never 0.
+    const unobserved = profileGameFromCapture(
+      scavResult,
+      0,
+      scavCap({ kills: 1, killVictims: [{ victimTerr: null, victimOneTerrTurns: null }] })
+    );
+    expect(unobserved.killVictimTerr).toBeNull();
+    expect(unobserved.killVictimOneTerrTurns).toBeNull();
+  });
+
+  it('a no-kill game yields null on both axes (winners-only-style sparsity, not a diluting 0)', () => {
+    const p = profileGameFromCapture(scavResult, 0, scavCap());
+    expect(p.killVictimTerr).toBeNull();
+    expect(p.killVictimOneTerrTurns).toBeNull();
+  });
+
+  it('throws on a kills/killVictims count mismatch (every kill pushes exactly one entry)', () => {
+    expect(() =>
+      profileGameFromCapture(scavResult, 0, scavCap({ kills: 1, killVictims: [] }))
+    ).toThrow(/killVictims/);
+  });
+
+  it('throws when killVictims is missing entirely — the field is required, like the other arrays', () => {
+    // A capture producer that drops the field (e.g. a rebuild-via-spread refactor) must fail on
+    // the FIRST profiled game, not surface mid-sweep on the first game with a kill.
+    const noField = scavCap();
+    delete noField.killVictims;
+    expect(() => profileGameFromCapture(scavResult, 0, noField)).toThrow(/killVictims/);
+  });
+
+  it('reduceRun means the axes over kill-carrying games only; an all-null run reduces to null', () => {
+    const g = (over = {}) => ({
+      won: true,
+      placement: 1,
+      turnsToWin: 20,
+      aggression: 4,
+      captureEfficiency: 0.7,
+      avgDiceReserve: 9,
+      avgTerritory: 8,
+      dicePerTerritory: 1.2,
+      largestGroup: 6,
+      kills: 1,
+      survivalTurn: 20,
+      zeroAttackTurnFrac: 0.1,
+      ...over,
+    });
+    const r = reduceRun([
+      g({ kills: 2, killVictimTerr: 1, killVictimOneTerrTurns: 4 }),
+      g({ kills: 0, killVictimTerr: null, killVictimOneTerrTurns: null }), // no-kill game dropped
+      g({ kills: 1, killVictimTerr: 3, killVictimOneTerrTurns: 0 }),
+    ]);
+    expect(r.killVictimTerr).toBe(2); // mean(1, 3)
+    expect(r.killVictimOneTerrTurns).toBe(2); // mean(4, 0)
+    const empty = reduceRun([g({ kills: 0, killVictimTerr: null, killVictimOneTerrTurns: null })]);
+    expect(empty.killVictimTerr).toBeNull();
+    expect(empty.killVictimOneTerrTurns).toBeNull();
+  });
+
+  it('both axes are registered as descriptive only — in AXES, never signature/separation', () => {
+    for (const axis of ['killVictimTerr', 'killVictimOneTerrTurns']) {
+      expect(AXES).toContain(axis);
+      expect(SIGNATURE_AXES).not.toContain(axis);
+      expect(SEPARATION_AXES).not.toContain(axis);
+    }
   });
 });
 
@@ -1033,6 +1243,46 @@ describe('§6 engine signal — runMatch passes actingPlayerId to onTurn', () =>
     expect(s.n).toBe(1);
     expect(s.ci).toBeNull();
   });
+
+  it('populates §10.3 killVictims from the real engine (the synthetic tests assume the elimination timing this pins)', () => {
+    // Every value-level scavenge test above fabricates post-turn states via boardOf(), which bakes
+    // in the engine contract that a killed seat reports `eliminated: true` on the SAME onTurn firing
+    // as the killing blow (so the prior firing still saw it alive — the read-before-ingest premise).
+    // Nothing else in the suite drives that path on real data, so the profileGameFromCapture
+    // count-mismatch guard never fires on a real capture — pin it against an engine change to
+    // elimination timing or player shape. The default Example/Default/Defensive field calls
+    // Math.random() so kills don't reproduce on seed alone; use a deterministic search field and
+    // sweep a few seeds, so one shifting outcome can't strand the test (fail loud only if ALL go
+    // killless).
+    const detField = ['Lookahead', 'Strategist', 'Expectimax'].map(name => {
+      const b = BUILT_IN_BOTS.find(x => x.name === name);
+      return { name: b.name, fn: b.fn };
+    });
+    let totalKills = 0;
+    for (const seed of [4, 6, 8]) {
+      const { capture, onTurn, onStep } = makeCapture(0);
+      const result = runMatch({ bots: detField, seed, onTurn, onStep });
+      // The capture contract the guard enforces must hold on real engine data, not just fixtures,
+      // and profiling a real capture must flow through without tripping the fail-loud mismatch.
+      expect(capture.killVictims).toHaveLength(capture.kills);
+      for (const v of capture.killVictims) {
+        // Live seats hold ≥1 territory, so an observed victim reads ≥1 (never the post-kill 0); an
+        // unobserved (first-turn) kill reads null. The streak is a non-negative turn count or null.
+        expect(v.victimTerr === null || (Number.isInteger(v.victimTerr) && v.victimTerr >= 1)).toBe(
+          true
+        );
+        expect(
+          v.victimOneTerrTurns === null ||
+            (Number.isInteger(v.victimOneTerrTurns) && v.victimOneTerrTurns >= 0)
+        ).toBe(true);
+      }
+      // A kill-carrying game yields finite means; a killless one yields null — both are valid here.
+      const p = profileGameFromCapture(result, 0, capture);
+      expect(p.killVictimTerr === null || Number.isFinite(p.killVictimTerr)).toBe(true);
+      totalKills += capture.kills;
+    }
+    expect(totalKills).toBeGreaterThan(0); // ≥1 real seat-0 kill exercised; fail loud if seeds go stale
+  });
 });
 
 describe('summarizeAxis', () => {
@@ -1380,6 +1630,29 @@ describe('assertPairableReports — the §10.5 identical-field/seeds contract', 
     delete r.config.opponentSpecs;
     expect(() => assertPairableReports([{ path: 'a.json', report: r }])).toThrow(
       /opponentSpecs missing/
+    );
+  });
+
+  it('throws on a perRun axis-set drift across reports (harness-version mismatch)', () => {
+    // A report generated before an axis existed (e.g. pre-§10.3 scavenge axes) must not pair
+    // with a current one: the missing axes would silently read as "no data" downstream (every
+    // pair dropped by alignDropNull) instead of failing loud like the other format drifts.
+    const older = mkReport(['X']);
+    for (const rec of older.bots[0].perRun) {
+      delete rec.killVictimTerr;
+      delete rec.killVictimOneTerrTurns;
+    }
+    expect(() =>
+      assertPairableReports([
+        { path: 'old.json', report: older },
+        { path: 'new.json', report: mkReport(['Y']) },
+      ])
+    ).toThrow(/different perRun axes/);
+    // Same drift within ONE report's bots is equally unpairable.
+    const mixed = mkReport(['X', 'Y']);
+    delete mixed.bots[1].perRun[0].killVictimTerr;
+    expect(() => assertPairableReports([{ path: 'a.json', report: mixed }])).toThrow(
+      /different perRun axes/
     );
   });
 

@@ -17,8 +17,10 @@
  *     end-to-end" is genuinely exercised, not just simulated.
  *
  *  2. NEGATIVE CONTROL 1 — A/A signature noise floor (§10.5). Profile the base against ITSELF —
- *     two passes at the SAME seeds — and require |Δ| < MDE/3 on every registered signature axis
- *     ({@link SIGNATURE_AXES}). The base is deterministic and the maps are seeded, so the two passes
+ *     two passes at the SAME seeds — and judge each registered signature axis ({@link SIGNATURE_AXES})
+ *     against the ±MDE/3 floor. NOT a raw |Δ| < MDE/3 point test: an axis CERTIFIES when its paired
+ *     95% CI ⊆ ±MDE/3, and only a Holm-significant self-difference BEYOND ±MDE/3 HALTs (see
+ *     `signatureNoiseFloor`). The base is deterministic and the maps are seeded, so the two passes
  *     differ only by the heuristic opponents' unseeded Math.random; pairing over the shared maps
  *     cancels map variance and leaves the unseeded-opponent noise the paired signature GATE also
  *     cannot cancel (the same noise NC2 measures on the strength metric). A self-comparison that
@@ -228,9 +230,21 @@ if (weightsPath) {
         'probe pre-flight: a fixture-less checkpoint was NOT rejected (silent-accept risk)'
       );
     } catch (err) {
-      probePreflight.fixturelessGuard = /parity fixture not found/.test(err.message)
-        ? 'fired'
-        : 'fired-other';
+      if (/parity fixture not found/.test(err.message)) {
+        probePreflight.fixturelessGuard = 'fired';
+      } else {
+        // Rejected, but NOT by the intended "parity fixture not found" guard (load-bc-policy's
+        // existsSync check). An incidental error — e.g. if that guard were refactored to a bare
+        // readFileSync ENOENT — proves nothing about the snapshot guard this control certifies, so
+        // fail loud (unreachable in the current loader, where the positive load already succeeded;
+        // kept as a future-proof).
+        probePreflight.fixturelessGuard = 'fired-other';
+        halt.push(
+          `probe pre-flight: the fixture-less load was rejected by an UNEXPECTED error ` +
+            `(${err.message}) — the intended "parity fixture not found" guard did not fire, so the ` +
+            `snapshot guard is not certified`
+        );
+      }
     }
     baseBot = { name: baseName, fn: makeBC({ policy: loaded.policy }) };
   }
@@ -373,7 +387,7 @@ function readTestRetest(p) {
   }
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-    if (meta.testRetest && typeof meta.testRetest.spreadPp === 'number') {
+    if (meta.testRetest && Number.isFinite(meta.testRetest.spreadPp)) {
       return { source: metaPath, testRetest: meta.testRetest, note: null };
     }
     return {
@@ -423,11 +437,12 @@ function reportAndExit() {
         ? `  ✓ fixtured checkpoint loads + parity-checks (${probePreflight.parity.toExponential(1)})`
         : `  ✗ checkpoint FAILED to load — ${probePreflight.loadError}`
     );
-    if (
-      probePreflight.fixturelessGuard === 'fired' ||
-      probePreflight.fixturelessGuard === 'fired-other'
-    ) {
+    if (probePreflight.fixturelessGuard === 'fired') {
       log('  ✓ fixture-less input rejected loud — a snapshot cannot silently feed the probe');
+    } else if (probePreflight.fixturelessGuard === 'fired-other') {
+      log(
+        '  ✗ fixture-less input rejected by an UNEXPECTED error — the intended guard did not fire'
+      );
     } else if (probePreflight.fixturelessGuard === 'DID-NOT-FIRE') {
       log('  ✗ fixture-less input was ACCEPTED — the snapshot guard is broken');
     }

@@ -73,6 +73,14 @@ describe('behavior-preflight — usage exits', () => {
     expect(run(['--bot', 'Default', '--runs', '1']).exitCode).toBe(1);
   });
 
+  it('exits 1 on --games < 1', () => {
+    expect(run(['--bot', 'Default', '--games', '0']).exitCode).toBe(1);
+  });
+
+  it('exits 1 on a non-numeric --games (Number() NaN guard, not parseInt truncation)', () => {
+    expect(run(['--bot', 'Default', '--games', 'abc']).exitCode).toBe(1);
+  });
+
   it('exits 1 on a non-positive --divisor', () => {
     expect(run(['--bot', 'Default', '--divisor', '0']).exitCode).toBe(1);
   });

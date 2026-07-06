@@ -57,6 +57,17 @@ Entry template:
   `pBeyondFloor`'s `|Δ|` — every prior BIASED case pushed arm B _below_ arm A, leaving that abs
   untested) and `summarizeAaSample`/`isLiveRun` unit coverage; a live-A/A CLI assertion that the two
   arms genuinely diverge (`zeroNoise` false). Docs: EVAL_HARNESS §3.9 + Public API + §10 `--json`.
+- **Merge-review hardening — fixture-less guard + comment/test gaps** (2026-07-05, before merge to
+  master; layered on the sample-health follow-up above): a second review pass caught that the
+  fixture-less negative control counted ANY throw as "fired". Now only a `parity fixture not found`
+  throw certifies the guard, and an unexpected-error rejection HALTS (future-proofs the control
+  against a `load-bc-policy` refactor — unreachable today, where the positive load already succeeded).
+  Also: the file-overview comment no longer restates the naive `|Δ| < MDE/3` point test the code
+  replaced; `readTestRetest` uses `Number.isFinite` (a `NaN` `spreadPp` no longer prints as a real
+  floor); the `behavior-sweep` header drops the inaccurate "verbatim". **Tests +3** (1563 → 1566): the
+  sweep's rotation→seat (`pi = rot`) wiring (a `pi = 0` regression previously passed every sweep test)
+  and the `--games` NaN / `< 1` guards. EVAL_HARNESS §3.9/§7 updated; fixed the §3.9 markdown
+  artifacts (`SIGNATURE_AXES` link, the NC2 blockquote break).
 
 **Learned / decided:**
 

@@ -300,16 +300,17 @@ the full 7.)
 >    the invariant that keeps fixture-less league snapshots ([D-22]) out of the probe (DECISIONS'
 >    "an earlier plan's silent failure"). The NC1 A/A below then profiles the loaded net end-to-end,
 >    so "profile one existing eval checkpoint end-to-end" is genuinely exercised, not simulated. A
->    load failure or a non-firing fixture-less guard HALTS.
+>    load failure, a non-firing fixture-less guard, or a fixture-less rejection by an UNEXPECTED
+>    (non-`parity fixture not found`) error — which would not prove the intended guard fired — HALTS.
 > 2. **Negative control 1 — A/A signature noise floor** (`signatureNoiseFloor`, PERSONAS §10.5(1)).
 >    Profile the base against ITSELF (two passes at the SAME seeds) and judge the paired 95% CI on
->    every registered {@link SIGNATURE*AXES} (`aggression`, `turnsToWin`, `avgTerritory`, `kills`,
+>    every registered `SIGNATURE_AXES` (`aggression`, `turnsToWin`, `avgTerritory`, `kills`,
 >    `avgPlacement`) against the ±MDE/3 floor. The base is deterministic and the maps are seeded, so
 >    the two passes differ ONLY by the heuristic opponents' unseeded `Math.random` (§3.6); pairing
 >    over the shared maps cancels map variance and isolates exactly the noise the paired signature
 >    gate also can't cancel — the same "unseeded-opponent" noise NC2 measures on strength.
 >    **Criterion (the registered "|Δ| < MDE/3" made statistically sound):** two refinements keep a
->    \_stochastic* A/A from crying wolf while still catching a _systematic_ bug. (1) **Equivalence, not
+>    _stochastic_ A/A from crying wolf while still catching a _systematic_ bug. (1) **Equivalence, not
 >    a raw point test:** judging the point estimate false-halts a winners-only, high-variance axis
 >    (`turnsToWin`'s per-run swings ≫ tol at feasible run counts even when the TRUE self-difference is
 >    0 — the live n=8 A/A on the v3 base measured Δ ≈ −4.7 ± 9.1 there, pure noise), so an axis
@@ -330,10 +331,10 @@ the full 7.)
 >    deterministic `--opponents` field (arm A ≡ arm B ⇒ every signature axis a zero-width CI ⇒
 >    trivially CERTIFIED) is **WARNED** as vacuous, since its CERTIFIED measured nothing. Per-arm
 >    live-run / quarantine counts now ride the report and `--json` (`nc1Sample`).
-> 3. **Negative control 2 — test-retest noise floor.** NOT re-run here; it is `ppo:curve
---test-retest` (§ STRENGTH_CURVE.md), which records `strength.meta.json → testRetest.spreadPp`.
->    `--curve <strength.jsonl|.meta.json>` surfaces the recorded spread; otherwise the pre-flight
->    prints the command to produce it.
+> 3. **Negative control 2 — test-retest noise floor.** NOT re-run here; it is
+>    `ppo:curve --test-retest` (§ STRENGTH_CURVE.md), which records
+>    `strength.meta.json → testRetest.spreadPp`. `--curve <strength.jsonl|.meta.json>` surfaces the
+>    recorded spread; otherwise the pre-flight prints the command to produce it.
 >
 > NC3 (control-arm-vs-base through all four signatures) needs the Wave-1 control arm and stays out
 > of this pre-flight. The shared seed×rotation sweep is extracted to `scripts/lib/behavior-sweep.mjs`
@@ -718,8 +719,9 @@ BIASED-halts / INCONCLUSIVE-doesn't / NO-DATA-doesn't, the divisor, the missing-
 override flipping CERTIFIED→BIASED, the zero-SE degeneracy guard at n=4 vs. its evidence accruing at
 n=8, and the Holm family correction — a marginal axis that BIASes alone stays INCONCLUSIVE in the
 5-axis family); a mock-`runMatch` `behavior-sweep` suite (the exact seed schedule,
-identical-across-calls for the shared-seed A/A, the quarantine tally); and a `behavior:preflight` CLI
-suite — usage exits, the #97 loader positive + fixture-less HALT (a synthetic `*.weights.js`
+identical-across-calls for the shared-seed A/A, the rotation→seat wiring (`pi = rot`), the quarantine
+tally); and a `behavior:preflight` CLI suite — usage exits (incl. the `--games` NaN / `< 1` guards),
+the #97 loader positive + fixture-less HALT (a synthetic `*.weights.js`
 re-exporting the real BC policy), the deterministic huge-MDE CLEAR path, and a live-A/A smoke test
 (deterministic invariants only — NOT `pass`, which is a stochastic Holm-controlled draw). The exit-2
 halt is covered deterministically by the probe-failure case, not the live A/A, precisely because a

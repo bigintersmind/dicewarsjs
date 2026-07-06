@@ -2,7 +2,7 @@
  * The behavioral-profiling sweep — run one bot through `runCount × gamesPerRun × fieldSize`
  * rotations of an identical opponent field and reduce each seed block to per-axis scalars.
  *
- * Extracted verbatim (behavior-identical — same seed schedule) from `behavior-profile.mjs` so the
+ * Extracted (behavior-identical — same seed schedule) from `behavior-profile.mjs` so the
  * A/A negative control (`behavior-preflight.mjs`, PERSONAS §10.5) profiles the base through the
  * EXACT sweep personas are graded on. A re-implementation would test a copy, not the path the gate
  * actually uses — the whole point of an A/A is to exercise the real harness. (The A/A gets its two

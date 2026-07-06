@@ -11,7 +11,7 @@
  */
 import { vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ seeds: [], forcedEndSeeds: new Set() }));
+const h = vi.hoisted(() => ({ seeds: [], seats: [], rotations: [], forcedEndSeeds: new Set() }));
 
 vi.mock('../../src/arena/matchRunner.js', () => ({
   runMatch: ({ seed }) => {
@@ -20,10 +20,21 @@ vi.mock('../../src/arena/matchRunner.js', () => ({
     return { botStats: [{ errors: forced ? 1 : 0, invalidMoves: 0, maxMovesHit: 0 }] };
   },
 }));
-vi.mock('../../scripts/lib/ppo-gate-core.mjs', () => ({ rotatedField: field => field }));
+// Record the rotation index rotatedField is asked for, so a seat-wiring regression is observable.
+vi.mock('../../scripts/lib/ppo-gate-core.mjs', () => ({
+  rotatedField: (field, rot) => {
+    h.rotations.push(rot);
+    return field;
+  },
+}));
 vi.mock('../../scripts/lib/behavior-core.mjs', async orig => ({
   ...(await orig()), // keep the real AXES (nullRun depends on it)
-  makeCapture: () => ({ capture: {}, onTurn: () => {}, onStep: () => {} }),
+  // Record the profiled seat (pi = rot) so the sweep's rotation→seat wiring is asserted, not just
+  // the seed schedule — otherwise a `pi = rot` → `pi = 0` regression would pass every sweep test.
+  makeCapture: pi => {
+    h.seats.push(pi);
+    return { capture: {}, onTurn: () => {}, onStep: () => {} };
+  },
   profileGameFromCapture: () => ({ marker: true }),
   reduceRun: profiles => ({ winPct: profiles.length }), // marker: how many games survived quarantine
 }));
@@ -41,6 +52,8 @@ const fieldSize = opponents.length + 1; // 3
 
 beforeEach(() => {
   h.seeds.length = 0;
+  h.seats.length = 0;
+  h.rotations.length = 0;
   h.forcedEndSeeds.clear();
 });
 
@@ -49,6 +62,17 @@ describe('sweepBot — seed schedule', () => {
     sweepBot(bot, { ...COMMON });
     // run 0 → seeds 1,2 ; run 1 → seeds 1001,1002 ; each ×3 rotations.
     expect(h.seeds).toEqual([1, 1, 1, 2, 2, 2, 1001, 1001, 1001, 1002, 1002, 1002]);
+  });
+
+  it('profiles seat pi = rot for each rotation (rotation→seat wiring)', () => {
+    sweepBot(bot, { ...COMMON });
+    // Under rotation `rot`, the profiled bot sits at seat `rot`; each seed cycles rot 0..fieldSize-1.
+    const perSeed = Array.from({ length: fieldSize }, (_, r) => r); // [0,1,2]
+    const expected = Array(COMMON.runCount * COMMON.gamesPerRun)
+      .fill(perSeed)
+      .flat();
+    expect(h.seats).toEqual(expected); // [0,1,2, 0,1,2, 0,1,2, 0,1,2]
+    expect(h.rotations).toEqual(expected); // rotatedField asked for the same rot sequence
   });
 
   it('is identical across calls (the A/A relies on both arms drawing the SAME map seeds)', () => {

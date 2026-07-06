@@ -51,7 +51,11 @@ python -c "import torch; print(torch.__version__, torch.cuda.is_available())"   
 - `pip install -e .[rl]` **re-resolves torch from PyPI** and may replace your CUDA build — see
   `ml/README.md` for the `constraints.txt` pin if `torch.cuda.is_available()` flips to `False`.
 - `node` must be on PATH inside WSL (the trainer spawns one Node `ppo-env-server.mjs` per env via
-  `EnvServerProcess`, `cwd = repo root`, `shutil.which("node")`).
+  `EnvServerProcess`, `cwd = repo root`, `shutil.which("node")`). It must be **Node ≥14 (shodan runs
+  v22 via nvm)**: a login/non-interactive shell (`bash -lc`, a scheduled `wsl -e`) resolves the stale
+  `/usr/bin/node` **v12**, which SyntaxErrors on the env-server's `??` and crash-loops the run. nvm
+  only loads from `.bashrc` (interactive shells), so any launcher that isn't interactive must
+  `export PATH="$HOME/.nvm/versions/node/v22*/bin:$PATH"` explicitly (the §4b supervisor does this).
 - The BC warm-start checkpoint (`ml/checkpoints/v2-base/bc_model.pt`, the deployed `ai_bc`) must be
   present. It is a trained artifact, not committed — copy it to shodan if missing.
 
@@ -151,6 +155,26 @@ Common overrides (env vars; defaults in `ppo-train.sh` header):
    `InteractiveToken` principal + a logon trigger — pair with auto-login to survive reboot. If you
    switch to "run whether logged on or not", verify `torch.cuda.is_available()` is `True` under that
    context first (the launcher preflight halts loudly otherwise).
+4. **Why Task Scheduler and not `nohup` (the durability mechanism):** the run survives because the
+   Task Scheduler _service_ owns the `wsl.exe` process for the whole run, which keeps the WSL2 **VM**
+   alive. A `nohup`/`&` launch driven over SSH does NOT — when the launching `wsl.exe` returns nothing
+   holds the VM open and WSL2 idle-reaps it within ~1–2 min (symptom: boot logs stop mid-startup at
+   step 0, no error, `uptime` reset). So a hand-rolled supervisor `.sh` must background the arms then
+   `wait` (the `wait` is what anchors the VM for the run's duration).
+5. **Registering without the `.xml`:** `schtasks.exe` will **not run from inside WSL** ("cannot execute
+   binary file: Exec format error" — interop binfmt isn't registered there); register from the
+   PowerShell landing shell. Cleanest is the cmdlets (no `/tr` quoting), pointing at a supervisor:
+   ```powershell
+   Register-ScheduledTask -TaskName "dicewars-ppo-wave" -Force `
+     -Action    (New-ScheduledTaskAction -Execute C:\Windows\System32\wsl.exe -Argument '-d Ubuntu -e /home/<you>/<supervisor>.sh') `
+     -Trigger   (New-ScheduledTaskTrigger -AtStartup) `
+     -Principal (New-ScheduledTaskPrincipal -UserId 'SHODAN\<you>' -LogonType Interactive) `
+     -Settings  (New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew)
+   Start-ScheduledTask -TaskName "dicewars-ppo-wave"
+   ```
+   `LogonType Interactive` needs the user logged into the console (verify with
+   `(Get-CimInstance Win32_ComputerSystem).UserName`); a running task reads `LastTaskResult=267009`
+   (`0x41301` = "currently running", **not** an error).
 
 ---
 
@@ -293,6 +317,12 @@ ways (clone `ppo-train-task.xml` per persona, each with a distinct `<URI>`/name)
   (the `set`s populate the process env that `WSLENV` then forwards).
 - **Per-persona .cmd copy:** copy `ppo-train.cmd` → `ppo-train-blitz.cmd` with `set PERSONA=blitz` (and
   any per-run knobs) near the top, and point that persona's task at the copy.
+
+> **⚠ `ppo-train.cmd`'s `WSLENV` list does NOT forward `EVAL_EVERY`** (nor `EXPECTED_ENCODING_VERSION`).
+> The latter is harmless (defaults to 3), but a `.cmd`-based Task Scheduler launch silently reverts
+> `EVAL_EVERY` to `1000000` — halving strength-curve resolution and dropping the 0.5M tripwire probe.
+> To carry the §8f `EVAL_EVERY=500000` override through Task Scheduler, add `EVAL_EVERY/u` to the
+> `WSLENV` line first, `set` it in the wrapper `.cmd`, or bypass `.cmd` with a supervisor `.sh` (§4b.5).
 
 The auto-restart / HALT semantics (§6) apply per persona, independently.
 
@@ -474,11 +504,17 @@ done
 jobs -l
 ```
 
+> **⚠ Durability:** this `nohup` loop survives only inside a session that outlives your shell — paste
+> it into a **persistent** interactive WSL console, or (preferred) drop it into a supervisor `.sh` that
+> ends in `wait` and launch that via a Task Scheduler task (§4b.4–5). Fired-and-forgotten over SSH it
+> dies at **step 0** when WSL2 idle-reaps the VM. Verified 2026-07-05: the raw SSH `nohup` launch
+> reached "Using cuda device" on all 3 arms, then the VM shut down (`uptime` reset) before any step.
+
 | Knob                        | Value                        | Why override / fail-loud-or-silent                                                                                                                                                                                                                                                                                                                                     |
 | --------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PERSONA`                   | conqueror/blitz/survivor     | Selects the preset that supplies `REWARD_MODE` + `GAMMA` for free (ppo-train.sh:57-59) — do NOT hand-set γ/reward on this path.                                                                                                                                                                                                                                        |
 | `RUN_NAME`                  | `ppo-v3-*` (fresh)           | Overrides the preset's v2 default (`ppo-conqueror` etc.). **Fresh name = fresh `--state-dir`** (SB3 resume silently restores old γ). Collision w/ an old v2 dir → **FAIL-LOUD** (below).                                                                                                                                                                               |
-| `CHECKPOINT`                | `runs/ppo-v3-scratch/ppo.pt` | Overrides the preset default (v2 `runs/ppo-long/ppo.pt`). **FAIL-LOUD**: the v3 loader (`load_bc_checkpoint`/policy.py) rejects a non-v3 checkpoint.                                                                                                                                                                                                                   |
+| `CHECKPOINT`                | `runs/ppo-v3-scratch/ppo.pt` | Overrides the preset default (v2 `runs/ppo-long/ppo.pt`). Resolved **relative to `ml/`** (`$ML_DIR/$CHECKPOINT`, ppo-train.sh:167) → on disk it's `ml/runs/ppo-v3-scratch/ppo.pt`; don't sanity-check it from the repo root. **FAIL-LOUD**: the v3 loader (`load_bc_checkpoint`/policy.py) rejects a non-v3 checkpoint.                                                |
 | `EXPECTED_ENCODING_VERSION` | `3`                          | Asserts the repo's **live JS encoder** (`encodeObservation.js`) is at v3 — a mismatch HALTs with `POINTER_ENCODING_SKEW` (guards a mid-campaign `ENCODING_VERSION` bump), **FAIL-LOUD**. NB: it does NOT inspect the checkpoint — the stale-_checkpoint_ backstop is the `CHECKPOINT` row above. Equals the launcher default, so on a v3 box it's belt-and-suspenders. |
 | `TIMESTEPS`                 | `3000000`                    | **SILENT trap** — default `20000000` is a ~6.7× / ~31h-vs-5h GPU overrun. No guard.                                                                                                                                                                                                                                                                                    |
 | `LR`                        | `1e-4`                       | **SILENT trap** — default `2.5e-4` (the BEAT LR) over-nudges the warm start. No guard.                                                                                                                                                                                                                                                                                 |

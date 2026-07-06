@@ -21,6 +21,66 @@ Entry template:
 
 ---
 
+## 2026-07-06 — v3 Wave-1 persona grading: Blitz-v3 ships (upgrade), Survivor-v3 killed
+
+**Phase:** Wave-1 (PERSONAS §10) · **Who:** Claude (grading + ship PR + shodan ops; merge Ivan-gated)
+
+**Did:**
+
+- Confirmed the 3-arm v3 Wave-1 retrain finished cleanly on shodan (supervisor `launch-v3-wave.sh` /
+  schtasks `dicewars-ppo-v3-wave`, 2026-07-05 23:02 → 07-06 04:00 CDT, ~5 h, all `exit 0`, 3.004M
+  steps, ~167 fps/arm). The durable supervisor+`wait` held the WSL2 VM the whole run — the raw-SSH
+  step-0 death mode did NOT recur.
+- Graded all three **locally on the Mac** off `eval-003000024.*` (self-contained `--no-packed`
+  modules pulled from shodan): full §10 battery — `ppo:gate` (Lookahead floor + vs-base warm-start
+  bar + vs-v2-sibling non-regression), `behavior:profile` dual-control 10×30×6 (signatures +
+  §10.4 clock-hack panel), `behavior:separation` matrix. Numbers → RESULTS.md 2026-07-06 section.
+- **Shipped Blitz-v3** ([PR #120](https://github.com/bigintersmind/dicewarsjs/pull/120)): repacked the
+  gated `eval-003000024` into `src/ai/blitzPolicyWeights.js` (verified **bit-identical**, 103,779
+  floats, 0 diff); fixture → sibling; `blitzForward` parity `encodingVersion` 2→3; `blitz:export`
+  provenance → v3 ckpt; ai_blitz doc comments → v3. Full suite 1610 green; CI green.
+- Ops: backed up all 3 arms' `{ppo.pt, eval/, state}` to `mini:~/dicewarsjs/ml/runs/` (36 MB,
+  sha256-verified shodan==Mac==mini `fc9b8735…`); deleted schtasks `dicewars-ppo-v3-wave` +
+  supervisor `launch-v3-wave.sh`.
+
+**Learned / decided:**
+
+- **Blitz-v3 signature is dual-control-FLAGGED** — the matched control arm drifts toward
+  aggression/speed too (ConqCtl aggr 1.86 / turns 148 vs base 1.64 / 169), so the γ0.99-attributable
+  residual is sub-MDE (aggr +0.16, turns −3.7 vs control, both < MDE). Blitz-v3's vs-base
+  distinctiveness (aggr +0.42, turns −30) is mostly continuation-training drift, not the tempo lever.
+  **Ivan's call: ship it as a strength upgrade anyway** — it BEAT v2 Blitz +11.6, ties the base, and
+  the player-visible "faster + more aggressive than Conqueror" contrast holds. The §10.2 escalation
+  (`--terminal-speed-bonus`) was NOT taken.
+- **Survivor-v3 killed** on three bars (BEHIND v2 −5.9, BEHIND base −20.8, signature fails both
+  comparators) → **keep v2 Survivor**. Placement reward from the stronger/more-aggressive v3 base
+  moved avgPlacement LESS than v2 (−0.33 vs −0.82) and cost raw strength — the aggression prior fights
+  the placement objective.
+- **§10.8 control-beats-base flag dissolved** — the profile's +5.5 pp was a field-composition
+  artifact; the paired head-to-head is a TIE (+1.1). [D-27] drift lore intact. Lesson: judge the
+  control on head-to-head, not in-field winPct (exactly why §10.8 says "head-to-head").
+- **§10.4 clock-hack never fired** — Survivor-v3 truncates MORE and is LESS late-aggressive: a genuine
+  turtle, not a bank-rank-near-cap reward-hacker. The drafted 50/0.05/0.3 thresholds held clean on a
+  legit placement bot (no false-positive).
+
+**Dead ends / surprises:**
+
+- `ppo:gate --bar <bare persona name>` FAILS — `buildGateField` drops `persona`-tagged bots from the
+  field, so head-to-head bars need the `--bar Name=weights.js` spec form (Wave-0 item 4), with
+  `--bar-fixture` pointing at the tests/fixtures parity file.
+- The v3 eval `.weights.js` are `--no-packed` (self-contained), so they gate directly on the Mac; a
+  reship only needs a local `--repack-js` (system `python3` + torch 2.3.1, no venv, no shodan/GPU).
+- WSL2 `/tmp` is volatile across SSH sessions (a VM idle-reap wiped a staged backup tarball there) —
+  stage transfers in the persistent home dir (ext4), never `/tmp`.
+
+**Next:**
+
+- Ivan merges PR #120 (self-merge blocked).
+- Predator revival (PERSONAS §10 Wave 2) remains the open item — its mandatory comparator is now **v2
+  Survivor** (Survivor-v3 was killed, not shipped).
+
+---
+
 ## 2026-07-05 (late night, cont.) — Wave-0 item 6: the 3-arm throughput capacity probe (`ppo:arm-throughput`)
 
 **Phase:** Wave-0 eval builds (PERSONAS §10.7 item 6 — the LAST Wave-0 item) · **Who:** Claude (PR merge + shodan launch Ivan-gated)

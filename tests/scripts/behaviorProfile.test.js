@@ -127,6 +127,17 @@ describe('behavior-profile CLI — Holm end-to-end (small real sweep)', () => {
     // The human verdict block on stderr, with the override provenance labeled.
     expect(res.stderr).toMatch(/Holm confirmatory family: m=5 \(--holm-family\)/);
     expect(res.stderr).toMatch(/Blitz signature \(AND\)/);
+    // §10.3 scavenge co-read: an addressable JSON block for non-control bots (null for the
+    // control) and a printed panel — descriptive only, so no verdict field anywhere in it.
+    const scav = blitz.scavenge;
+    expect(scav).toBeTruthy();
+    expect(Object.keys(scav).sort()).toEqual(['killVictimOneTerrTurns', 'killVictimTerr', 'kills']);
+    for (const axis of ['killVictimTerr', 'killVictimOneTerrTurns']) {
+      expect('own' in scav[axis]).toBe(true);
+      expect('vsControl' in scav[axis]).toBe(true);
+    }
+    expect(report.bots.find(b => b.name === report.config.control).scavenge).toBeNull();
+    expect(res.stderr).toMatch(/Scavenge co-read \(§10\.3\)/);
     // The separation-script contract (§10.5 profile pairing): per-run arrays + provenance.
     // Pinned here so a report-shape refactor can't silently strand behavior:separation.
     expect(report.config.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);

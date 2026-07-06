@@ -53,6 +53,12 @@ export const LATE_WINDOW = 50;
  * @property {number[]} dice          - diceCount at the end of each of the bot's own turns
  * @property {number[]} largestGroup  - largestGroup at the end of each of the bot's own turns
  * @property {number}   kills         - opponents the bot eliminated (last-territory capture)
+ * @property {Array<{victimTerr:number|null, victimOneTerrTurns:number|null}>} killVictims - §10.3
+ *   scavenge co-read: one entry per kill, the victim's state as of the END of the player-turn
+ *   immediately before the killing blow — territory count, and consecutive observed player-turns
+ *   spent at exactly 1 territory (a vulture snipes long-doomed 1-territory players; a hunter takes
+ *   multi-territory players down itself). Both null for a kill on the game's first observed turn
+ *   (no prior observation — practically unreachable on real maps).
  * @property {number|null} eliminatedAtTurn - turn the bot was itself eliminated, or null if it survived
  * @property {number}   zeroAttackTurns  - the bot's own turns that ended with 0 attacks (pass turns)
  * @property {Array<{turn:number, attacks:number}>} attacksByTurn - per own-turn attack count keyed by
@@ -61,6 +67,10 @@ export const LATE_WINDOW = 50;
  * @property {number}   _ownAttacks   - internal: cumulative own attacks across the game (do not read)
  * @property {number}   _lastOwnTurnAttackTotal - internal: `_ownAttacks` at the previous own turn (do not read)
  * @property {Set<number>} _seenEliminated - internal: players already counted as eliminated
+ * @property {Map<number, number>} _lastSeenTerr - internal: per-player territoryCount as of the
+ *   last observed post-turn state (do not read)
+ * @property {Map<number, number>} _oneTerrStreak - internal: per-player consecutive observed
+ *   player-turns at exactly 1 territory (do not read)
  */
 
 /**
@@ -78,6 +88,7 @@ export function makeCapture(playerIndex) {
     dice: [],
     largestGroup: [],
     kills: 0,
+    killVictims: [],
     eliminatedAtTurn: null,
     zeroAttackTurns: 0,
     attacksByTurn: [],
@@ -85,6 +96,8 @@ export function makeCapture(playerIndex) {
     _ownAttacks: 0,
     _lastOwnTurnAttackTotal: 0,
     _seenEliminated: new Set(),
+    _lastSeenTerr: new Map(),
+    _oneTerrStreak: new Map(),
   };
 
   // Fires after every player-turn with the post-turn state and the acting player.
@@ -97,7 +110,24 @@ export function makeCapture(playerIndex) {
         capture.eliminatedAtTurn = turnNumber;
       } else if (actingPlayerId === playerIndex) {
         capture.kills += 1;
+        // §10.3 scavenge co-read: the victim as of the END of the previous player-turn — read
+        // BEFORE the tracker ingest below, so a bot that softened the victim itself this turn
+        // still reads the pre-turn count, and the post-kill 0 is never what's recorded. A kill
+        // with no prior observation (the game's first observed turn) records nulls.
+        capture.killVictims.push({
+          victimTerr: capture._lastSeenTerr.get(p.id) ?? null,
+          victimOneTerrTurns: capture._oneTerrStreak.get(p.id) ?? null,
+        });
       }
+    }
+    // §10.3 victim trackers ingest the current post-turn state (all live seats, every firing).
+    for (const p of state.players) {
+      if (p.eliminated) continue;
+      capture._lastSeenTerr.set(p.id, p.territoryCount);
+      capture._oneTerrStreak.set(
+        p.id,
+        p.territoryCount === 1 ? (capture._oneTerrStreak.get(p.id) ?? 0) + 1 : 0
+      );
     }
     // Board-shape snapshots are taken at the END of the bot's OWN turns ("what it holds").
     if (actingPlayerId === playerIndex) {
@@ -181,6 +211,20 @@ export function profileGameFromCapture(result, playerIndex, capture, maxTurns = 
     );
   }
 
+  // §10.3 scavenge co-read: every kill pushes exactly one killVictims entry, so a count mismatch
+  // is a capture-contract drift — fail loud like the array misalignment above. (`?? []` keeps
+  // hand-built zero-kill captures in tests valid without the field.)
+  const killVictims = capture.killVictims ?? [];
+  if (killVictims.length !== capture.kills) {
+    throw new Error(
+      `profileGameFromCapture: misaligned capture killVictims for seat ${playerIndex} ` +
+        `(kills=${capture.kills}, killVictims=${killVictims.length})`
+    );
+  }
+  // Per-kill victim context, unobserved (null) victims excluded — a no-kill game (or an
+  // all-unobserved one) yields null, the turnsToWin-style sparsity, never a diluting 0.
+  const victimField = field => killVictims.map(k => k[field]).filter(v => Number.isFinite(v));
+
   // Per-turn dice density, then averaged below: a mean of per-turn (dice/territory) ratios — NOT
   // aggregate totalDice/totalTerritory. Both are defensible; this one weights each turn equally.
   const dicePerTerritory = capture.territory.map((t, i) => (t > 0 ? capture.dice[i] / t : 0));
@@ -222,6 +266,8 @@ export function profileGameFromCapture(result, playerIndex, capture, maxTurns = 
     truncated,
     nearCapDeath,
     lateGameAggressionSpike,
+    killVictimTerr: meanOrNull(victimField('victimTerr')),
+    killVictimOneTerrTurns: meanOrNull(victimField('victimOneTerrTurns')),
   };
 }
 
@@ -244,6 +290,13 @@ export const AXES = [
   'truncationRate',
   'nearCapDeathRate',
   'lateGameAggressionSpike',
+  // §10.3 scavenge co-read cluster — descriptive per-kill victim context (the vulture-hack guard
+  // for the Predator arms). Like the §10.4 cluster it is absent from PERSONA_SIGNATURES/
+  // SIGNATURE_AXES/SEPARATION_AXES/Holm, but unlike it there is NO auto-tripwire: the co-read is
+  // operator-judged at Predator grading (Ivan, 2026-07-06 — thresholds may be ratified later from
+  // pilot data). Units: territories, and player-turns at exactly 1 territory before the kill.
+  'killVictimTerr',
+  'killVictimOneTerrTurns',
 ];
 
 /**
@@ -285,6 +338,10 @@ export function reduceRun(profiles) {
     truncationRate: defined('truncated'),
     nearCapDeathRate: defined('nearCapDeath'),
     lateGameAggressionSpike: defined('lateGameAggressionSpike'),
+    // §10.3: populated only for games where the bot killed an observed victim (null otherwise,
+    // dropped by `defined`'s finite filter — a no-kill game must not dilute the mean).
+    killVictimTerr: defined('killVictimTerr'),
+    killVictimOneTerrTurns: defined('killVictimOneTerrTurns'),
   };
 }
 

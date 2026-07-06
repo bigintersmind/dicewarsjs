@@ -376,6 +376,20 @@ const report = {
       signature,
       // §10.4 clock-hack tripwire panel vs the control (KILL-gate for placement arms, §10.8).
       clockHack: vsControl ? evaluateClockHack(vsControl) : null,
+      // §10.3 scavenge co-read — per-kill victim context (vulture detection for the Predator
+      // arms), addressable like clockHack but DESCRIPTIVE: no verdict field, operator-judged
+      // at grading (Ivan, 2026-07-06). `kills` rides along as the context the co-read reads
+      // against ("kills higher" means little if they're all 1-territory snipes).
+      scavenge: vsControl
+        ? {
+            kills: metrics.kills,
+            killVictimTerr: { own: metrics.killVictimTerr, vsControl: vsControl.killVictimTerr },
+            killVictimOneTerrTurns: {
+              own: metrics.killVictimOneTerrTurns,
+              vsControl: vsControl.killVictimOneTerrTurns,
+            },
+          }
+        : null,
       liveRuns: liveRunCount(perRun),
       // The raw per-run axis scalars — what behavior:separation pairs across reports.
       perRun,
@@ -522,5 +536,30 @@ if (clockHacked.length) {
     const verdict = ch.kill ? 'KILL ✗' : 'clear ✓';
     const co = ch.coSignal ? ' +co-signal' : '';
     log(`  ${b.name}: ${verdict}${co} — ${rowStr}`);
+  }
+}
+
+// --- §10.3 scavenge co-read (descriptive — vulture detection for Predator grading) ---
+// One line per non-control bot: own mean + paired Δ vs control on the two per-kill victim axes,
+// with the kills mean for context. Deliberately NO verdict: the co-read is operator-judged
+// ("kills of long-doomed 1-territory victims" = vulture), per Ivan's 2026-07-06 call.
+const scavenged = report.bots.filter(b => b.scavenge);
+if (scavenged.length) {
+  log('');
+  log(
+    `Scavenge co-read (§10.3) vs ${controlName} — per-kill victim context ` +
+      `(descriptive, operator-judged):`
+  );
+  for (const b of scavenged) {
+    const rowStr = ['killVictimTerr', 'killVictimOneTerrTurns']
+      .map(axis => {
+        const { own, vsControl } = b.scavenge[axis];
+        const cmp = vsControl
+          ? `Δ${vsControl.delta.toFixed(2)} [${vsControl.lo.toFixed(2)},${vsControl.hi.toFixed(2)}]`
+          : 'Δ no data';
+        return `${axis} ${fmt(own)} ${cmp}`;
+      })
+      .join('; ');
+    log(`  ${b.name}: kills ${fmt(b.scavenge.kills)} — ${rowStr}`);
   }
 }

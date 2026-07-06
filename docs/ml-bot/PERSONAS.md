@@ -468,6 +468,17 @@ descriptive **scavenge co-read** (victim's territory count / time-at-one-territo
 killing blow) as a ship-blocking sanity check. Also noted: the aggregate bounty ceiling (6 kills ×
 0.25 = 1.5) exceeds the placement range [0,1] — accepted explicitly rather than hidden.
 
+_(As built — landed 2026-07-06, pre-Wave-2. Two descriptive axes in `behavior-core.mjs` `AXES`:
+**`killVictimTerr`** (victim's territory count as of the end of the player-turn before the killing
+blow — a bot that softens a 3-territory victim itself that turn reads 3, never the post-kill 0)
+and **`killVictimOneTerrTurns`** (victim's consecutive player-turns at exactly 1 territory before
+the kill). Means over the profiled bot's observed kill victims per game, `null` on no-kill games;
+units are player-turns. Excluded from signatures/separation/Holm; the CLI prints a "Scavenge
+co-read (§10.3)" panel and `--json` carries `bots[].scavenge`. **Deliberately NO auto-tripwire**
+(Ivan, 2026-07-06): the co-read stays descriptive and the vulture judgment is the operator's at
+pilot grading — thresholds may be ratified later from real pilot data, as the §10.4 numbers were.
+See EVAL_HARNESS §2.2.)_
+
 **Threshold provenance (red-team catch).** The +0.25 kills bar was [D-30]'s _interim_ bar; the
 pre-registered MDE was 0.5. On a closure-grade gate, don't silently keep the lower number:
 **confirmatory bar = kills ≥ 15% of the realized comparator's kills** (≈ +0.28 vs Survivor-v3's

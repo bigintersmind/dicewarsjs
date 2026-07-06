@@ -432,3 +432,76 @@ env-sim is not the bottleneck at this footprint (GPU/latency then set the realiz
 regime); commit N_ENVS. Target defaults to **175 fps/arm** — batch-1's figure, and the wall the
 Wave-1 estimate assumes (3 × 3M steps / ~5 h ≈ 167 steps/s per arm). Exit code: 0/GREEN|YELLOW,
 2/RED, 1/usage. Re-probe after any change to N_ENVS, the arm count, or the encoder.
+
+### 8f. v3 Wave-1 persona retrain — the verified launch recipe ([D-31], PERSONAS §10.2/§10.7)
+
+Wave 1 is **3 concurrent PPO fine-tunes, 3M steps each**, all warm-started from the completed
+encoding-v3 base `ml/runs/ppo-v3-scratch/ppo.pt` (step 20,004,864, `encodingVersion 3`): the
+**Conqueror-control** (win, γ0.999 — matched control, never ships), **Blitz-v3** (win, **γ0.99**),
+and **Survivor-v3** (**placement**, γ0.999). Source of truth is
+[docs/ml-bot/PERSONAS.md](../../docs/ml-bot/PERSONAS.md) §10.2 (the slate) + §10.7 (sequencing).
+**§8/§8a is NOT the recipe for this wave** — that is the v2 (bite-F) batch: its `PERSONA` presets
+warm-start from the v2 `runs/ppo-long/ppo.pt` under v2 run names (`ppo-conqueror`/`ppo-blitz`/
+`ppo-survivor`, ppo-train.sh:57-59), so following it verbatim silently produces the WRONG run.
+The launcher supports Wave 1 via env overrides, but its defaults are the 20M BEAT-run production
+values — you must override the silent traps below explicitly.
+
+**Pre-flight (BLOCKING, in this order):**
+
+1. **Fast-forward shodan `464a2ee` → master.** The box is pinned at `464a2ee`, which predates the
+   §8e 3-arm throughput probe (#116); §8e can't run there until it advances. The fast-forward is
+   **verified safe**: `git diff 464a2ee..master` is byte-identical for `ml/dicewars_ppo`, the
+   launcher, the obs-frame wire, the env-server, and `src/arena/encodeObservation.js` — the
+   training env cannot change under the warm start; only JS eval tooling is added.
+2. **Confirm `ml/runs/ppo-v3-scratch/ppo.pt` exists** on this box (the preset warm-start; the v3
+   loader HALTs loudly if it's missing — see below).
+3. **Run §8e and take `N_ENVS` from its GREEN/RED verdict** — the default 12/arm → 3 × 12 = 36
+   servers on 16 cores is 2.25× oversubscribed and unproven. Do NOT launch until §8e greenlights a
+   footprint.
+
+**Launch (PERSONA-preset path — every silent-trap knob set explicitly):**
+
+```bash
+cd /home/ilay/dicewarsjs && source ml/.venv/bin/activate
+# ⚠ set N_ENVS=<§8e result> on each arm before launching (default 12/arm → 36 servers on 16 cores).
+for spec in "conqueror ppo-v3-conq-ctl" "blitz ppo-v3-blitz" "survivor ppo-v3-survivor"; do
+  set -- $spec
+  PERSONA=$1 RUN_NAME=$2 \
+    CHECKPOINT=runs/ppo-v3-scratch/ppo.pt EXPECTED_ENCODING_VERSION=3 \
+    TIMESTEPS=3000000 LR=1e-4 ENT_COEF=0.01 RESERVE_BASELINES=3 EVAL_EVERY=500000 \
+    nohup bash scripts/shodan/ppo-train.sh > ml/runs/$2.boot.log 2>&1 &
+done
+jobs -l
+```
+
+| Knob                        | Value                        | Why override / fail-loud-or-silent                                                                                                                                                       |
+| --------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PERSONA`                   | conqueror/blitz/survivor     | Selects the preset that supplies `REWARD_MODE` + `GAMMA` for free (ppo-train.sh:57-59) — do NOT hand-set γ/reward on this path.                                                          |
+| `RUN_NAME`                  | `ppo-v3-*` (fresh)           | Overrides the preset's v2 default (`ppo-conqueror` etc.). **Fresh name = fresh `--state-dir`** (SB3 resume silently restores old γ). Collision w/ an old v2 dir → **FAIL-LOUD** (below). |
+| `CHECKPOINT`                | `runs/ppo-v3-scratch/ppo.pt` | Overrides the preset default (v2 `runs/ppo-long/ppo.pt`). **FAIL-LOUD**: the v3 loader (`load_bc_checkpoint`/policy.py) rejects a non-v3 checkpoint.                                     |
+| `EXPECTED_ENCODING_VERSION` | `3`                          | Asserts the warm start is encoding-v3. **FAIL-LOUD** backstop on a stale checkpoint.                                                                                                     |
+| `TIMESTEPS`                 | `3000000`                    | **SILENT trap** — default `20000000` is a ~6.7× / ~31h-vs-5h GPU overrun. No guard.                                                                                                      |
+| `LR`                        | `1e-4`                       | **SILENT trap** — default `2.5e-4` (the BEAT LR) over-nudges the warm start. No guard.                                                                                                   |
+| `EVAL_EVERY`                | `500000`                     | **SILENT trap** — default `1000000` halves strength-curve resolution AND drops the 0.5M tripwire-probe checkpoint the §10.5 panel needs. No guard.                                       |
+| `ENT_COEF`                  | `0.01`                       | Matched-recipe provenance (PERSONAS §10.2); equals the launcher default, so it's a no-op set explicitly to pin the control on every axis.                                                |
+| `RESERVE_BASELINES`         | `3`                          | R=3 LOCKED ([D-24]); equals the default — explicit for the same matched-control reason.                                                                                                  |
+| `N_ENVS`                    | **§8e result**               | **SILENT trap** — NOT in the loop above; set per-arm from §8e first. Default 12/arm → 36 servers on 16 cores (2.25× oversubscribed). No guard.                                           |
+
+**What each PERSONA preset supplies for free (ppo-train.sh:57-59):** `REWARD_MODE` (`win` for
+conqueror/blitz, `placement` for survivor), `GAMMA` (0.999, or **0.99 for blitz** — the one tempo
+lever), and a **default `RUN_NAME` we override**. Because γ + reward-mode come correctly from the
+preset, they need no overriding on this path — but a no-PERSONA hand-roll would have to set
+`GAMMA`/`REWARD_MODE` explicitly. **Why some mistakes are caught and some aren't:** leaving
+`CHECKPOINT` at the v2 default fails loud (the v3 loader rejects it) and a `RUN_NAME` collision
+with an old v2 dir is caught by the commit-pin drift HALT + the POINTER_ENCODING_SKEW HALT in this
+v2→v3 transition — but `TIMESTEPS`/`EVAL_EVERY`/`LR` have **no guard**, so an unset one burns GPU
+silently. That asymmetry is exactly why the block sets all three explicitly.
+
+**After the runs:** gate + profile each arm per **§8c** (the persona gate/profile recipe — export to
+the `.weights.js`/sibling `.fixture.json` convention, then `ppo:gate` for strength and
+`behavior:profile` for style). The §10.4 clock-hack kill-gate (a placement arm forcing an early
+decisive death near the now-visible turn cap to bank rank rather than truncate to 0) is now
+**instrumented and operational** — `behavior:profile` prints a "Clock-hack tripwire (§10.4)" panel
+and `evaluateClockHack()` returns `kill`. Its drafted 50/0.05/0.3 thresholds should be **ratified /
+recalibrated from the Conqueror-control's own 0.5M/1M near-cap probes before enforcing on
+Survivor-v3** — see [docs/ml-bot/PERSONAS.md](../../docs/ml-bot/PERSONAS.md) §10.4.

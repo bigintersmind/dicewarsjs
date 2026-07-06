@@ -240,6 +240,7 @@ describe('profileGameFromCapture', () => {
       dice: [3],
       largestGroup: [1],
       kills: 0,
+      killVictims: [],
       eliminatedAtTurn: 2,
       zeroAttackTurns: 1,
       attacksByTurn: [{ turn: 1, attacks: 0 }],
@@ -276,6 +277,7 @@ describe('profileGameFromCapture', () => {
       dice: [],
       largestGroup: [],
       kills: 0,
+      killVictims: [],
       eliminatedAtTurn: 1,
       zeroAttackTurns: 0,
       attacksByTurn: [],
@@ -312,6 +314,7 @@ describe('profileGameFromCapture', () => {
       dice: [10],
       largestGroup: [4],
       kills: 0,
+      killVictims: [],
       eliminatedAtTurn: null,
       zeroAttackTurns: 0,
       attacksByTurn: [{ turn: 1, attacks: 0 }],
@@ -340,6 +343,7 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
     dice: [10, 10],
     largestGroup: [4, 4],
     kills: 0,
+    killVictims: [],
     eliminatedAtTurn: null,
     zeroAttackTurns: 0,
     attacksByTurn: [
@@ -629,6 +633,14 @@ describe('§10.3 scavenge co-read — victim trackers, per-game means, aggregati
     expect(() =>
       profileGameFromCapture(scavResult, 0, scavCap({ kills: 1, killVictims: [] }))
     ).toThrow(/killVictims/);
+  });
+
+  it('throws when killVictims is missing entirely — the field is required, like the other arrays', () => {
+    // A capture producer that drops the field (e.g. a rebuild-via-spread refactor) must fail on
+    // the FIRST profiled game, not surface mid-sweep on the first game with a kill.
+    const noField = scavCap();
+    delete noField.killVictims;
+    expect(() => profileGameFromCapture(scavResult, 0, noField)).toThrow(/killVictims/);
   });
 
   it('reduceRun means the axes over kill-carrying games only; an all-null run reduces to null', () => {
@@ -1566,6 +1578,29 @@ describe('assertPairableReports — the §10.5 identical-field/seeds contract', 
     delete r.config.opponentSpecs;
     expect(() => assertPairableReports([{ path: 'a.json', report: r }])).toThrow(
       /opponentSpecs missing/
+    );
+  });
+
+  it('throws on a perRun axis-set drift across reports (harness-version mismatch)', () => {
+    // A report generated before an axis existed (e.g. pre-§10.3 scavenge axes) must not pair
+    // with a current one: the missing axes would silently read as "no data" downstream (every
+    // pair dropped by alignDropNull) instead of failing loud like the other format drifts.
+    const older = mkReport(['X']);
+    for (const rec of older.bots[0].perRun) {
+      delete rec.killVictimTerr;
+      delete rec.killVictimOneTerrTurns;
+    }
+    expect(() =>
+      assertPairableReports([
+        { path: 'old.json', report: older },
+        { path: 'new.json', report: mkReport(['Y']) },
+      ])
+    ).toThrow(/different perRun axes/);
+    // Same drift within ONE report's bots is equally unpairable.
+    const mixed = mkReport(['X', 'Y']);
+    delete mixed.bots[1].perRun[0].killVictimTerr;
+    expect(() => assertPairableReports([{ path: 'a.json', report: mixed }])).toThrow(
+      /different perRun axes/
     );
   });
 

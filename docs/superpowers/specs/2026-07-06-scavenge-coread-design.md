@@ -111,3 +111,16 @@ carries the two axes in `metrics`/`perRun` and the `scavenge` block exists for n
 - Auto-kill thresholds (Ivan's call — descriptive only; revisit post-pilot).
 - `oneTerrKillFrac` third axis (redundant with `killVictimTerr`; add later if pilot reading wants).
 - The optional §10.3 advantage-mass-near-kill-frames trainer diagnostic (Python side, separate).
+
+## Deviation from this spec (post-review, 2026-07-06)
+
+An 8-angle review of the implementation branch dropped the `bots[].scavenge` JSON block: unlike
+`clockHack` (which computes fired/kill verdicts), it computed nothing — a pure re-projection of
+`metrics`/`vsControl` whose second serialized copy could only drift, and whose nested `compareAxis`
+objects smuggled `verdict` fields into a block specified as verdict-free. The axes remain fully
+addressable via `bots[].metrics`/`vsControl`/`perRun`; the printed panel reads those directly.
+Also added beyond spec: `assertPairableReports` fails loud on perRun axis-set drift across reports
+(a pre-§10.3 report can no longer pair as silent "no data" under `--allow-sha-drift`), the
+`killVictims` capture field is required (no `?? []` leniency), and two operator reading caveats
+(third-party softening → low streak; streak unit scales with field size) are documented in
+PERSONAS §10.3 / EVAL_HARNESS §2.2.

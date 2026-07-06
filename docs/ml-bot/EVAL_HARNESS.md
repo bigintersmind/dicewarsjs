@@ -172,9 +172,15 @@ turns and adds nothing over the turn-normalized axis. Derive on demand if ever n
 > winners-only sparsity pattern; a kill on the game's first observed turn records nulls and is
 > excluded). Like the §10.4 cluster they are excluded from `SIGNATURE_AXES`/`SEPARATION_AXES`/Holm/
 > the A/A noise floor — but unlike it there is **no auto-tripwire**: the CLI prints a "Scavenge
-> co-read (§10.3)" panel (own mean + paired Δ vs control, with the `kills` mean as context) and
-> `--json` carries `bots[].scavenge`; the ship-blocking judgment is the **operator's** at Predator
-> grading (Ivan, 2026-07-06 — thresholds may be ratified later from pilot data).
+> co-read (§10.3)" panel (own mean + paired Δ vs control, with the `kills` mean as context), the
+> axes ride `bots[].metrics`/`vsControl`/`perRun` in `--json` (no separate serialized block), and
+> the ship-blocking judgment is the **operator's** at Predator grading (Ivan, 2026-07-06 —
+> thresholds may be ratified later from pilot data). Operator caveats: read the two axes jointly
+> (third-party softening the turn before the kill reads victimTerr ≈ 1 with a LOW streak; true
+> vulture prey reads a HIGH streak), and the streak's raw magnitude scales with live-seat count
+> (paired Δ on an identical field cancels it; absolute thresholds must be field-size-calibrated).
+> `assertPairableReports` also now fails loud on a perRun **axis-set drift** across reports, so a
+> pre-§10.3 report can't silently pair as "no data" even under `--allow-sha-drift`.
 
 ---
 

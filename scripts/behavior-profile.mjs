@@ -375,21 +375,10 @@ const report = {
       vsControl,
       signature,
       // §10.4 clock-hack tripwire panel vs the control (KILL-gate for placement arms, §10.8).
+      // (The §10.3 scavenge co-read deliberately gets NO such block: unlike clockHack it would
+      // compute nothing — its axes are already addressable in metrics/vsControl/perRun, and a
+      // second serialized copy could only drift. The panel below reads those directly.)
       clockHack: vsControl ? evaluateClockHack(vsControl) : null,
-      // §10.3 scavenge co-read — per-kill victim context (vulture detection for the Predator
-      // arms), addressable like clockHack but DESCRIPTIVE: no verdict field, operator-judged
-      // at grading (Ivan, 2026-07-06). `kills` rides along as the context the co-read reads
-      // against ("kills higher" means little if they're all 1-territory snipes).
-      scavenge: vsControl
-        ? {
-            kills: metrics.kills,
-            killVictimTerr: { own: metrics.killVictimTerr, vsControl: vsControl.killVictimTerr },
-            killVictimOneTerrTurns: {
-              own: metrics.killVictimOneTerrTurns,
-              vsControl: vsControl.killVictimOneTerrTurns,
-            },
-          }
-        : null,
       liveRuns: liveRunCount(perRun),
       // The raw per-run axis scalars — what behavior:separation pairs across reports.
       perRun,
@@ -418,6 +407,8 @@ const fmt = m =>
     : m.ci == null
       ? `${m.mean.toFixed(2)} n${m.n}`
       : `${m.mean.toFixed(2)}±${m.ci.toFixed(2)}`;
+// Paired Δ [lo,hi] — the shared comparison renderer for the §10.4 and §10.3 panels.
+const fmtDelta = c => `Δ${c.delta.toFixed(2)} [${c.lo.toFixed(2)},${c.hi.toFixed(2)}]`;
 const headline = ['winPct', 'aggression', 'avgDiceReserve', 'kills', 'turnsToWin', 'avgPlacement'];
 
 // Flag any bot whose sample was reduced by quarantine, so a low-n result isn't read as robust.
@@ -529,8 +520,7 @@ if (clockHacked.length) {
         const dir = r.direction === 'HIGHER' ? '↑' : '↓';
         const tag = r.role === 'cosignal' ? ' (co)' : '';
         if (r.delta == null) return `${r.axis}${dir}${tag} no data`;
-        const ci = `[${r.lo.toFixed(2)},${r.hi.toFixed(2)}]`;
-        return `${r.axis}${dir}${tag} Δ${r.delta.toFixed(2)} ${ci} ${r.fired ? 'FIRED' : 'clear'}`;
+        return `${r.axis}${dir}${tag} ${fmtDelta(r)} ${r.fired ? 'FIRED' : 'clear'}`;
       })
       .join('; ');
     const verdict = ch.kill ? 'KILL ✗' : 'clear ✓';
@@ -541,9 +531,12 @@ if (clockHacked.length) {
 
 // --- §10.3 scavenge co-read (descriptive — vulture detection for Predator grading) ---
 // One line per non-control bot: own mean + paired Δ vs control on the two per-kill victim axes,
-// with the kills mean for context. Deliberately NO verdict: the co-read is operator-judged
-// ("kills of long-doomed 1-territory victims" = vulture), per Ivan's 2026-07-06 call.
-const scavenged = report.bots.filter(b => b.scavenge);
+// with the kills mean for context ("kills higher" means little if they're all 1-territory
+// snipes). Reads metrics/vsControl directly — the axes' only copies — and deliberately renders
+// NO verdict: the co-read is operator-judged, per Ivan's 2026-07-06 call. Read the two axes
+// JOINTLY: a victim softened by a third party the turn before reads victimTerr≈1 but a LOW
+// streak; true vulture prey reads a HIGH streak (long-doomed).
+const scavenged = report.bots.filter(b => b.vsControl);
 if (scavenged.length) {
   log('');
   log(
@@ -553,13 +546,10 @@ if (scavenged.length) {
   for (const b of scavenged) {
     const rowStr = ['killVictimTerr', 'killVictimOneTerrTurns']
       .map(axis => {
-        const { own, vsControl } = b.scavenge[axis];
-        const cmp = vsControl
-          ? `Δ${vsControl.delta.toFixed(2)} [${vsControl.lo.toFixed(2)},${vsControl.hi.toFixed(2)}]`
-          : 'Δ no data';
-        return `${axis} ${fmt(own)} ${cmp}`;
+        const cmp = b.vsControl[axis];
+        return `${axis} ${fmt(b.metrics[axis])} ${cmp ? fmtDelta(cmp) : 'Δ no data'}`;
       })
       .join('; ');
-    log(`  ${b.name}: kills ${fmt(b.scavenge.kills)} — ${rowStr}`);
+    log(`  ${b.name}: kills ${fmt(b.metrics.kills)} — ${rowStr}`);
   }
 }

@@ -100,6 +100,13 @@ describe('makeCapture — onTurn/onStep accumulation', () => {
     expect(capture.territory).toEqual([5, 9]);
     expect(capture.dice).toEqual([10, 15]);
     expect(capture.largestGroup).toEqual([4, 7]);
+    // §10.4 per-turn attacks: diffed off the monotonic `_ownAttacks` counter, NOT `_sinceStop`
+    // (which the turn-1 STOP already zeroed before `onTurn` fires). So the normal turn records its
+    // 2 attacks and the no-STOP victory turn records its 1 — the raw signal for lateGameAggressionSpike.
+    expect(capture.attacksByTurn).toEqual([
+      { turn: 1, attacks: 2 },
+      { turn: 3, attacks: 1 },
+    ]);
   });
 
   it('records the bot being eliminated and a zero-attack (pass) turn', () => {
@@ -124,6 +131,8 @@ describe('makeCapture — onTurn/onStep accumulation', () => {
     expect(capture.zeroAttackTurns).toBe(1);
     expect(capture.eliminatedAtTurn).toBe(2);
     expect(capture.kills).toBe(0);
+    // A pass turn (STOP, no attacks) records a 0 in attacksByTurn — the diff is 0, not skipped.
+    expect(capture.attacksByTurn).toEqual([{ turn: 1, attacks: 0 }]);
   });
 
   it('ignores steps and turns for other seats', () => {
@@ -382,6 +391,10 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
     expect(
       profileGameFromCapture(res({ winner: 1 }), 0, cap({ eliminatedAtTurn: 40 }), 100).nearCapDeath
     ).toBe(0);
+    // Boundary is inclusive at exactly maxTurns - NEAR_CAP_WINDOW (50) — guards a > vs >= off-by-one.
+    expect(
+      profileGameFromCapture(res({ winner: 1 }), 0, cap({ eliminatedAtTurn: 50 }), 100).nearCapDeath
+    ).toBe(1);
     // Survived ⇒ never a near-cap death, regardless of cap.
     expect(
       profileGameFromCapture(res(), 0, cap({ eliminatedAtTurn: null }), 100).nearCapDeath
@@ -432,6 +445,41 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
     expect(noKill.coSignal).toBe(true);
     expect(noKill.rows.find(r => r.axis === 'lateGameAggressionSpike').verdict).toBe('NO DATA');
   });
+
+  it('fires the lateGameAggressionSpike primary on a ≥0.3 in-direction Δ (the second kill path)', () => {
+    const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
+    // The OTHER primary: spike +0.5 with CI [0.3,0.7] clears the 0.3 threshold AND excludes 0.
+    const spike = evaluateClockHack({
+      nearCapDeathRate: dat(0.0, -0.02, 0.02), // clear
+      lateGameAggressionSpike: dat(0.5, 0.3, 0.7), // primary FIRES on its own
+      truncationRate: dat(0.0, -0.02, 0.02), // co-signal clear
+    });
+    expect(spike.kill).toBe(true);
+    expect(spike.rows.find(r => r.axis === 'lateGameAggressionSpike').fired).toBe(true);
+    expect(spike.coSignal).toBe(false);
+    // Both primaries firing at once still reads as a single kill (the any-primary rule).
+    const both = evaluateClockHack({
+      nearCapDeathRate: dat(0.08, 0.03, 0.13),
+      lateGameAggressionSpike: dat(0.5, 0.3, 0.7),
+      truncationRate: null,
+    });
+    expect(both.kill).toBe(true);
+    expect(both.rows.filter(r => r.role === 'primary' && r.fired)).toHaveLength(2);
+  });
+
+  it('the magnitude threshold is binding: a significant but sub-threshold Δ does NOT fire', () => {
+    const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
+    // Both Δs exclude 0 (statistically significant) but fall short of their thresholds ⇒ no fire.
+    // Guards against dropping the `cmp.delta >= threshold` half of the predicate.
+    const sub = evaluateClockHack({
+      nearCapDeathRate: dat(0.02, 0.01, 0.03), // significant, but < 0.05 ⇒ clear
+      lateGameAggressionSpike: dat(0.2, 0.1, 0.3), // significant, but < 0.3 ⇒ clear
+      truncationRate: dat(-0.02, -0.03, -0.01), // co-signal significant but < 0.05 ⇒ clear
+    });
+    expect(sub.kill).toBe(false);
+    expect(sub.primaryFired).toBe(false);
+    expect(sub.coSignal).toBe(false);
+  });
 });
 
 describe('reduceRun', () => {
@@ -474,6 +522,21 @@ describe('reduceRun', () => {
 
   it('turnsToWin is null for a run with no wins (the null-run case)', () => {
     expect(reduceRun([lost, lost]).turnsToWin).toBeNull();
+  });
+
+  it('reduces the §10.4 clock-hack axes: full-sample rates, spike drops null (short) games', () => {
+    const g = over => ({ ...won, ...over });
+    const r = reduceRun([
+      g({ truncated: 1, nearCapDeath: 0, lateGameAggressionSpike: null }), // short ⇒ no spike
+      g({ truncated: 0, nearCapDeath: 1, lateGameAggressionSpike: 2 }),
+      g({ truncated: 0, nearCapDeath: 0, lateGameAggressionSpike: 4 }),
+      g({ truncated: 0, nearCapDeath: 0, lateGameAggressionSpike: null }), // short ⇒ no spike
+    ]);
+    // truncated/nearCapDeath are 0/1 on EVERY game ⇒ full-sample rates (unlike winners-only axes).
+    expect(r.truncationRate).toBe(0.25); // 1 of 4 games truncated
+    expect(r.nearCapDeathRate).toBe(0.25); // 1 of 4 near-cap deaths
+    // The spike is null on the two short games ⇒ dropped by the finite filter, mean over {2,4} only.
+    expect(r.lateGameAggressionSpike).toBe(3);
   });
 });
 

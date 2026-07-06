@@ -163,10 +163,10 @@ export function profileGameFromCapture(result, playerIndex, capture, maxTurns = 
   const { attacksMade, attacksWon } = stat;
   const at = capture.activeTurns;
 
-  // The three board-shape arrays are pushed together once per the bot's own turn, so each must
-  // have exactly `activeTurns` entries. Assert it: a drift would index past the end (e.g.
-  // dice[i] === undefined ⇒ NaN), and NaN slips past every `!= null` guard downstream and reads
-  // as a TIE/SAME verdict rather than erroring. Fail loud here instead, per the file's contract.
+  // The three board-shape arrays AND `attacksByTurn` are all pushed together once per the bot's own
+  // turn, so each must have exactly `activeTurns` entries. Assert it: a drift would index past the
+  // end (e.g. dice[i] === undefined ⇒ NaN), and NaN slips past every `!= null` guard downstream and
+  // reads as a TIE/SAME verdict rather than erroring. Fail loud here instead, per the file's contract.
   if (
     capture.territory.length !== at ||
     capture.dice.length !== at ||
@@ -280,7 +280,8 @@ export function reduceRun(profiles) {
     zeroAttackTurnFrac: defined('zeroAttackTurnFrac'),
     avgPlacement: defined('placement'),
     // §10.4: truncated/nearCapDeath are 0/1 on EVERY game ⇒ full-sample rates; the spike is
-    // winners-of-the-late-window-only (null on short games, dropped by `defined`'s finite filter).
+    // populated only for games that reached the late window (null on short games — regardless of
+    // win/loss — dropped by `defined`'s finite filter).
     truncationRate: defined('truncated'),
     nearCapDeathRate: defined('nearCapDeath'),
     lateGameAggressionSpike: defined('lateGameAggressionSpike'),

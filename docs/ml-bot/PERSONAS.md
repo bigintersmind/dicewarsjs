@@ -484,6 +484,32 @@ tripwires only watch the stall basin. New tripwire on Survivor-v3 and both Preda
 (Magnitude is bounded by how rarely the 500-turn cap binds, but Survivor-style play lengthens
 games toward the cap — exactly where the gradient lives.)
 
+_(**As built — landed 2026-07-05; the 50/0.05/0.3 numbers are DRAFTED for Ivan's ratification.**
+`behavior:profile` now measures three clock-hack axes per game vs the pinned comparator — added to
+`AXES` in `behavior-core.mjs`, so they auto-carry the paired Δ machinery, but deliberately kept OUT
+of `PERSONA_SIGNATURES`/`SIGNATURE_AXES`/Holm (a kill-gate, not a "distinct persona" PASS). Windows
+are **player-turns**, the `runMatch` cap unit:_
+
+- _**`nearCapDeathRate`** — fraction of the arm's games where it is eliminated within
+  `NEAR_CAP_WINDOW = 50` turns of the 500-cap (the "dies at rank 2–4 to bank ~0.5 rather than
+  truncate to 0" tell)._
+- _**`lateGameAggressionSpike`** — mean attacks/turn in the arm's own turns within `LATE_WINDOW = 50`
+  of the cap MINUS its whole-game per-turn mean (the "suddenly attacks to force a decisive end"
+  tell); **null** on games that never reach the late window, so short games don't dilute it._
+- _**`truncationRate`** — fraction of the arm's games that hit the cap (`winner === null`); the
+  CO-SIGNAL, since a clock-hacker AVOIDS truncations (they pay 0) by forcing decisive ends._
+
+_**Firing (`CLOCK_HACK_TRIPWIRES`):** a primary FIRES when its paired Δ vs the comparator clears the
+magnitude AND its 95% CI excludes 0 in-direction — `nearCapDeathRate` HIGHER ≥ **0.05** (the
+`zeroAttackTurnFrac` +0.05 style), `lateGameAggressionSpike` HIGHER ≥ **0.3** (the aggression MDE);
+`truncationRate` LOWER ≥ **0.05** is the co-signal (corroborates, never kills alone). **KILL rule
+(§10.8): any primary fires.** `evaluateClockHack(vsControl)` returns the panel + a `kill` boolean;
+the CLI prints a "Clock-hack tripwire (§10.4)" panel and `--json` carries `bots[].clockHack`.
+**Power caveat:** the late window only populates in games approaching the cap, so on short decisive
+games the spike is `null` and the near-cap-death primary + truncation co-signal carry the monitor —
+recalibrate the three numbers from the Wave-1 control's own 0.5M/1M near-cap probes (§10.5 pins the
+comparator = raw v3 base) before enforcing them, exactly as the §10.5 winPct floor is recalibrated.)_
+
 ### 10.5 Evaluation methodology
 
 - **Dual-control signatures (red-team catch).** The control arm is _expected_ to drift (the −7.6
@@ -620,8 +646,10 @@ a 20M placement scratch run as a v4 candidate.** No automatic reship this wave.
 - **Blitz-v3:** killed by the tripwire panel; or BEHIND v2 Blitz at 3M (fresh re-gate); or
   Holm-adjusted signature fail including the one escalation. Consequence: ship v2 Blitz unchanged.
 - **Survivor-v3:** killed by the tripwire panel; or BEHIND v2 Survivor; or signature fail; or the
-  10.4 clock-hack monitor firing (a Survivor that games the now-visible clock is a reward hack —
-  keep v2, and log the finding as a v3-encoding hazard note).
+  §10.4 clock-hack monitor firing — now operational: `evaluateClockHack()` returns `kill=true` when
+  either primary tripwire fires (`nearCapDeathRate` +0.05 or `lateGameAggressionSpike` +0.3, each
+  CI-excludes-0 vs the raw v3 base). A Survivor that games the now-visible clock is a reward hack —
+  keep v2, and log the finding as a v3-encoding hazard note.
 - **Predator:** killed by the tripwire panel; or failing the Lookahead floor; or neither pilot
   clearing the 10.3 confirmatory bar; or passing kills but failing to separate from Survivor on
   the matrix; or the scavenge co-read showing vulture behavior. Consequence per Ivan's ruling:

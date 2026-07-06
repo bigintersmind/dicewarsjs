@@ -35,6 +35,10 @@ import {
   SEPARATION_AXES,
   KILLS_MDE_FRACTION,
   DEFAULT_MDE,
+  evaluateClockHack,
+  CLOCK_HACK_TRIPWIRES,
+  NEAR_CAP_WINDOW,
+  LATE_WINDOW,
 } from '../scripts/lib/behavior-core.mjs';
 import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
@@ -196,6 +200,10 @@ describe('profileGameFromCapture', () => {
       kills: 1,
       eliminatedAtTurn: null,
       zeroAttackTurns: 0,
+      attacksByTurn: [
+        { turn: 1, attacks: 2 },
+        { turn: 2, attacks: 1 },
+      ],
     };
     const p = profileGameFromCapture(baseResult(), 0, capture);
     expect(p.won).toBe(true);
@@ -208,6 +216,10 @@ describe('profileGameFromCapture', () => {
     expect(p.largestGroup).toBe(5.5);
     expect(p.kills).toBe(1);
     expect(p.survivalTurn).toBe(3); // survived ⇒ full game length
+    // §10.4: decisive win, no death, all turns far from the 500-cap ⇒ no clock-hack signal.
+    expect(p.truncated).toBe(0);
+    expect(p.nearCapDeath).toBe(0);
+    expect(p.lateGameAggressionSpike).toBeNull(); // no own turn in the late window
   });
 
   it('turnsToWin is null when the bot did not win; survivalTurn is the death turn', () => {
@@ -220,6 +232,7 @@ describe('profileGameFromCapture', () => {
       kills: 0,
       eliminatedAtTurn: 2,
       zeroAttackTurns: 1,
+      attacksByTurn: [{ turn: 1, attacks: 0 }],
     };
     const result = baseResult({
       winner: 1,
@@ -255,6 +268,7 @@ describe('profileGameFromCapture', () => {
       kills: 0,
       eliminatedAtTurn: 1,
       zeroAttackTurns: 0,
+      attacksByTurn: [],
     };
     const result = baseResult({
       winner: 1,
@@ -290,6 +304,7 @@ describe('profileGameFromCapture', () => {
       kills: 0,
       eliminatedAtTurn: null,
       zeroAttackTurns: 0,
+      attacksByTurn: [{ turn: 1, attacks: 0 }],
     };
     // No botStats for seat 5.
     expect(() => profileGameFromCapture(baseResult(), 5, aligned)).toThrow(
@@ -300,6 +315,122 @@ describe('profileGameFromCapture', () => {
     // territory/dice/largestGroup lengths disagree with activeTurns ⇒ would index past end → NaN.
     const misaligned = { ...aligned, dice: [10, 99] }; // length 2 vs activeTurns 1
     expect(() => profileGameFromCapture(baseResult(), 0, misaligned)).toThrow(/misaligned capture/);
+    // attacksByTurn is pushed in the same own-turn branch, so a drift there is caught too.
+    const misAttacks = { ...aligned, attacksByTurn: [] }; // length 0 vs activeTurns 1
+    expect(() => profileGameFromCapture(baseResult(), 0, misAttacks)).toThrow(/misaligned capture/);
+  });
+});
+
+describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack', () => {
+  // A capture whose own turns are all far from a small cap, wins, no death.
+  const cap = (over = {}) => ({
+    playerIndex: 0,
+    activeTurns: 2,
+    territory: [5, 5],
+    dice: [10, 10],
+    largestGroup: [4, 4],
+    kills: 0,
+    eliminatedAtTurn: null,
+    zeroAttackTurns: 0,
+    attacksByTurn: [
+      { turn: 10, attacks: 1 },
+      { turn: 20, attacks: 1 },
+    ],
+    ...over,
+  });
+  const res = (over = {}) => ({
+    winner: 0,
+    turnCount: 20,
+    botStats: [
+      {
+        playerIndex: 0,
+        placement: 1,
+        attacksMade: 2,
+        attacksWon: 2,
+        errors: 0,
+        invalidMoves: 0,
+        maxMovesHit: 0,
+      },
+    ],
+    ...over,
+  });
+
+  it('pins the pre-registered §10.4 windows and tripwire panel (drafted values)', () => {
+    expect(NEAR_CAP_WINDOW).toBe(50);
+    expect(LATE_WINDOW).toBe(50);
+    // Exactly two primaries (death, aggression) + one co-signal (truncation), all clock-hack axes.
+    expect(CLOCK_HACK_TRIPWIRES.filter(t => t.role === 'primary').map(t => t.axis)).toEqual([
+      'nearCapDeathRate',
+      'lateGameAggressionSpike',
+    ]);
+    expect(CLOCK_HACK_TRIPWIRES.filter(t => t.role === 'cosignal').map(t => t.axis)).toEqual([
+      'truncationRate',
+    ]);
+    for (const t of CLOCK_HACK_TRIPWIRES) expect(AXES).toContain(t.axis);
+  });
+
+  it('truncated=1 exactly when the game has no winner (winner === null)', () => {
+    expect(profileGameFromCapture(res({ winner: null }), 0, cap(), 100).truncated).toBe(1);
+    expect(profileGameFromCapture(res({ winner: 0 }), 0, cap(), 100).truncated).toBe(0);
+  });
+
+  it('nearCapDeath fires only for a self-elimination within NEAR_CAP_WINDOW of the passed cap', () => {
+    // cap=100, window=50 ⇒ death at turn ≥ 50 is "near cap".
+    expect(
+      profileGameFromCapture(res({ winner: 1 }), 0, cap({ eliminatedAtTurn: 60 }), 100).nearCapDeath
+    ).toBe(1);
+    expect(
+      profileGameFromCapture(res({ winner: 1 }), 0, cap({ eliminatedAtTurn: 40 }), 100).nearCapDeath
+    ).toBe(0);
+    // Survived ⇒ never a near-cap death, regardless of cap.
+    expect(
+      profileGameFromCapture(res(), 0, cap({ eliminatedAtTurn: null }), 100).nearCapDeath
+    ).toBe(0);
+  });
+
+  it('lateGameAggressionSpike = late-window mean attacks − whole-game mean; null with no late turn', () => {
+    // cap=100, LATE_WINDOW=50 ⇒ late window is turn ≥ 50. Two early quiet turns, two late loud ones.
+    const spikey = cap({
+      activeTurns: 4,
+      territory: [5, 5, 5, 5],
+      dice: [10, 10, 10, 10],
+      largestGroup: [4, 4, 4, 4],
+      attacksByTurn: [
+        { turn: 10, attacks: 0 },
+        { turn: 20, attacks: 0 },
+        { turn: 90, attacks: 5 },
+        { turn: 95, attacks: 5 },
+      ],
+    });
+    const p = profileGameFromCapture(res({ turnCount: 95 }), 0, spikey, 100);
+    expect(p.lateGameAggressionSpike).toBeCloseTo(5 - 10 / 4); // lateMean 5 − overallMean 2.5 = 2.5
+    // A game that never reaches the late window contributes no spike signal (null, not 0).
+    expect(profileGameFromCapture(res(), 0, cap(), 100).lateGameAggressionSpike).toBeNull();
+  });
+
+  it('evaluateClockHack fires a primary only on a threshold-clearing, CI-excludes-0 Δ', () => {
+    const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
+    // nearCapDeathRate +0.08 with CI [0.03,0.13] ⇒ primary FIRES ⇒ kill.
+    const hit = evaluateClockHack({
+      nearCapDeathRate: dat(0.08, 0.03, 0.13),
+      lateGameAggressionSpike: dat(0.1, -0.2, 0.4), // below 0.3 threshold & CI∋0 ⇒ clear
+      truncationRate: dat(-0.09, -0.15, -0.03), // co-signal LOWER fires
+    });
+    expect(hit.kill).toBe(true);
+    expect(hit.primaryFired).toBe(true);
+    expect(hit.coSignal).toBe(true);
+    expect(hit.rows.find(r => r.axis === 'nearCapDeathRate').fired).toBe(true);
+    expect(hit.rows.find(r => r.axis === 'lateGameAggressionSpike').fired).toBe(false);
+
+    // Same magnitude but CI touches 0 ⇒ does NOT fire (no kill). Co-signal alone never kills.
+    const noKill = evaluateClockHack({
+      nearCapDeathRate: dat(0.08, -0.01, 0.17), // CI∋0 ⇒ clear despite Δ≥threshold
+      lateGameAggressionSpike: null, // no data
+      truncationRate: dat(-0.09, -0.15, -0.03), // co-signal fires but is not primary
+    });
+    expect(noKill.kill).toBe(false);
+    expect(noKill.coSignal).toBe(true);
+    expect(noKill.rows.find(r => r.axis === 'lateGameAggressionSpike').verdict).toBe('NO DATA');
   });
 });
 

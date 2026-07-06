@@ -61,6 +61,9 @@ const perRunOf = (over = {}) => {
     survivalTurn: [60, 62, 58, 60],
     zeroAttackTurnFrac: [0.1, 0.11, 0.09, 0.1],
     avgPlacement: [2.5, 2.55, 2.45, 2.5],
+    truncationRate: [0.05, 0.06, 0.04, 0.05],
+    nearCapDeathRate: [0.02, 0.03, 0.01, 0.02],
+    lateGameAggressionSpike: [0.1, 0.15, 0.05, 0.1],
     ...over,
   };
   return Array.from({ length: CONFIG.runs }, (_, i) =>

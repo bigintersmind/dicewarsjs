@@ -58,6 +58,8 @@ import {
   PERSONA_SIGNATURES,
   SIGNATURE_FAMILY_SIZE,
   DEFAULT_MDE,
+  evaluateClockHack,
+  NEAR_CAP_WINDOW,
 } from './lib/behavior-core.mjs';
 
 const args = process.argv.slice(2);
@@ -372,6 +374,8 @@ const report = {
       metrics,
       vsControl,
       signature,
+      // §10.4 clock-hack tripwire panel vs the control (KILL-gate for placement arms, §10.8).
+      clockHack: vsControl ? evaluateClockHack(vsControl) : null,
       liveRuns: liveRunCount(perRun),
       // The raw per-run axis scalars — what behavior:separation pairs across reports.
       perRun,
@@ -493,5 +497,30 @@ if (signed.length) {
         `single-test ${r.unadjustedPass ? '✓' : '✗'} → ` +
         `${r.confirmatoryPass ? 'CONFIRMED ✓' : 'NOT CONFIRMED ✗'}`
     );
+  }
+}
+
+// --- §10.4 clock-hack tripwire panel (the placement-arm near-cap reward-hack KILL-gate, §10.8) ---
+// Printed for every non-control bot: a Δ-vs-control panel on truncationRate / nearCapDeathRate /
+// lateGameAggressionSpike. A "primary" fire is a ship-blocking kill for a placement arm (Survivor,
+// Predator); benign for a win-objective arm but still informative context.
+const clockHacked = report.bots.filter(b => b.clockHack);
+if (clockHacked.length) {
+  log('');
+  log(`Clock-hack tripwire (§10.4) vs ${controlName} — near-cap window ${NEAR_CAP_WINDOW} turns:`);
+  for (const b of clockHacked) {
+    const ch = b.clockHack;
+    const rowStr = ch.rows
+      .map(r => {
+        const dir = r.direction === 'HIGHER' ? '↑' : '↓';
+        const tag = r.role === 'cosignal' ? ' (co)' : '';
+        if (r.delta == null) return `${r.axis}${dir}${tag} no data`;
+        const ci = `[${r.lo.toFixed(2)},${r.hi.toFixed(2)}]`;
+        return `${r.axis}${dir}${tag} Δ${r.delta.toFixed(2)} ${ci} ${r.fired ? 'FIRED' : 'clear'}`;
+      })
+      .join('; ');
+    const verdict = ch.kill ? 'KILL ✗' : 'clear ✓';
+    const co = ch.coSignal ? ' +co-signal' : '';
+    log(`  ${b.name}: ${verdict}${co} — ${rowStr}`);
   }
 }

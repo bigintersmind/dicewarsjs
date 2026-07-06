@@ -153,6 +153,14 @@ turns and adds nothing over the turn-normalized axis. Derive on demand if ever n
 > a separate `territoryAuc`, and **(k) border exposure** — these are Phase-2 / future axes, not part of
 > the shipped profiler.
 
+> **Added 2026-07-05 — the §10.4 clock-hack cluster** (PERSONAS.md §10.4): three descriptive
+> tripwire axes in `AXES` — `truncationRate` (games hitting the cap, `winner === null`),
+> `nearCapDeathRate` (self-elimination within `NEAR_CAP_WINDOW = 50` player-turns of the cap), and
+> `lateGameAggressionSpike` (late-window vs whole-game per-turn attacks; `null` when the game never
+> nears the cap). They ride the paired-Δ machinery like any axis but are **excluded from
+> `SIGNATURE_AXES`/Holm/the A/A noise floor** — they gate the placement-arm reward hack via
+> `evaluateClockHack()`/`CLOCK_HACK_TRIPWIRES` (a KILL-gate, §10.8), not a persona signature.
+
 ---
 
 ## 3. Statistical design — the part that makes "distinct" mean something

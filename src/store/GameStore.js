@@ -23,6 +23,9 @@
  * @property {AwaitingInput} awaitingInput
  * @property {number | null} humanPlayerIndex
  * @property {boolean} humanEliminated
+ * @property {'turnLimit' | null} gameOverReason - Why a game ended without a conqueror.
+ *   'turnLimit' when the browser turn cap (GameController MAX_GAME_TURNS) drew a stalled
+ *   AI-vs-AI board; null for a normal conquest win or a still-running game.
  * @property {number} aiSpeed
  * @property {boolean} soundEnabled
  * @property {string | null} error
@@ -42,6 +45,7 @@ const DEFAULT_STATE = {
   awaitingInput: null,
   humanPlayerIndex: 0,
   humanEliminated: false,
+  gameOverReason: null,
   aiSpeed: 1,
   soundEnabled: true,
   error: null,

@@ -57,34 +57,6 @@ export const COLORBLIND_PLAYER_COLORS = [
   0x000000, // Black
 ];
 
-/**
- * Pip (dot) color for each player's dice, indexed like PLAYER_COLORS.
- * Matches the legacy sprite art: black pips on light dice, white pips on
- * dark dice.
- */
-export const PLAYER_PIP_COLORS = [
-  0xffffff, // 0: Lavender → white
-  0x000000, // 1: Lime green → black
-  0xffffff, // 2: Dark green → white
-  0xffffff, // 3: Magenta/pink → white
-  0x000000, // 4: Orange → black
-  0x000000, // 5: Cyan → black
-  0x000000, // 6: Yellow → black
-  0xffffff, // 7: Red → white
-];
-
-/** Pip colors for the color-blind palette, chosen by face luminance. */
-export const COLORBLIND_PIP_COLORS = [
-  0xffffff, // Blue → white
-  0x000000, // Orange → black
-  0xffffff, // Teal → white
-  0x000000, // Yellow → black
-  0x000000, // Pink → black
-  0x000000, // Sky blue → black
-  0xffffff, // Vermillion → white
-  0xffffff, // Black → white
-];
-
 /** Color-blind safe palette as CSS hex strings. */
 export const COLORBLIND_PLAYER_COLORS_CSS = [
   '#0072b2',

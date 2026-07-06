@@ -482,8 +482,9 @@ that judgment** (branch review, 2026-07-06): (1) read the axes JOINTLY — a vic
 softened to 1 the turn before reads victimTerr ≈ 1 but a LOW streak, while true vulture prey reads
 a HIGH streak (long-doomed); (2) the streak unit is observed player-turns across ALL live seats,
 so its raw magnitude scales with field size — the paired Δ vs a control on the identical field
-cancels this, but any future ratified absolute threshold must be calibrated per field size. See
-EVAL_HARNESS §2.2.)_
+cancels this, but any future ratified absolute threshold must be calibrated per field size. A
+third `oneTerrKillFrac` axis was weighed and dropped as redundant with `killVictimTerr` — revisit
+only if a pilot reading wants it. See EVAL_HARNESS §2.2.)_
 
 **Threshold provenance (red-team catch).** The +0.25 kills bar was [D-30]'s _interim_ bar; the
 pre-registered MDE was 0.5. On a closure-grade gate, don't silently keep the lower number:

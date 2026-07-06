@@ -2,20 +2,27 @@
  * Dice Renderer
  *
  * Draws stacked dice on each territory, recreating the classic Dice Wars
- * look. Geometry, colors, stack layout, and shadow are decoded from the
- * legacy Flash vector art (`areadice.js` lib.dice0-7, removed in the
- * modernization; see git history commit 376c7c7^) so the modern renderer
- * matches the original sprites:
+ * look. Every shape here is the legacy Flash vector art itself
+ * (`areadice.js` lib.dice0-7, removed in the modernization; see git history
+ * commit 376c7c7^): the compact-encoded CreateJS paths were decoded to
+ * absolute coordinates at the on-map die scale (0.085) and are replayed
+ * verbatim, so the die matches the original sprites curve for curve:
  *
- * - Each die is a corner-forward isometric cube — a large diamond top face,
- *   a mid-tone left wall, and a near-black silhouette that doubles as the
- *   right wall. No outlines; edge definition comes from face contrast.
+ * - Each die is a corner-forward isometric cube — a plump cushion-like top
+ *   face (short straight edges, huge shallow corner arcs), a mid-tone left
+ *   wall, and a near-black silhouette that doubles as the right wall. No
+ *   outlines; edge definition comes from face contrast.
+ * - Rim wedges at the east/west corners and a bottom crescent tuck between
+ *   the faces; a four-pointed glint star sits at the front corner junction.
  * - Every player has a hand-tuned face-color set (the originals were baked
  *   into the art, far more vivid than the pale territory fills).
+ * - Pip positions and sizes are the measured legacy values per face and
+ *   value; wall pips are narrow ellipses tilted ~55 deg into the wall plane.
  * - Dice in a column overlap deeply (14px pitch on a ~30px die); stacks of
  *   5+ split into a second column behind and to the LEFT of the first.
  * - The drop shadow is a hard-edged, near-solid black blob spilling to the
- *   lower right of the stack.
+ *   lower right of the stack (four decoded variants, one per front-column
+ *   count).
  *
  * All coordinates are in the unscaled 27x18 hex-cell system.
  *
@@ -25,26 +32,33 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import { COLORBLIND_PLAYER_COLORS, BORDER_COLOR } from './constants.js';
 import { computeCellPositions } from './HexGridRenderer.js';
-import { getPipPositions } from './dicePips.js';
 
 /* ------------------------------------------------------------------ *
- * Die geometry (origin = die center, y down), from the legacy art at
- * its on-map scale: silhouette 27.8 wide x 30.4 tall — one full hex
- * cell wide, unlike the old 13px box dice.
+ * Die geometry (origin = die center, y down): flat command arrays
+ * decoded from the legacy art. 'M' x y | 'L' x y | 'Q' cx cy x y | 'Z'.
+ * Silhouette 27.9 wide x 30.5 tall — one full hex cell wide.
  * ------------------------------------------------------------------ */
 
-/** Silhouette half-width; side edges run vertically at +/- this x. */
-const HALF_W = 13.9;
-/** Silhouette top / bottom vertices. */
-const TOP_Y = -15.6;
-const BOTTOM_Y = 14.8;
-/** Vertical extent of the flat side edges. */
-const SIDE_Y = 3.4;
-/** Top-face diamond corners (N shares the silhouette top vertex). */
-const DIAMOND_E = 12.4;
-const DIAMOND_S = 2.1;
-/** Top-face center, midpoint of the diamond's vertical diagonal. */
-const TOP_FACE_CY = (TOP_Y + DIAMOND_S) / 2;
+/** Silhouette: rounded corner-forward hexagon; also the right wall. */
+// prettier-ignore
+const CUBE_PATH = ['M', -3.05, 14.52, 'L', -10.53, 9.08, 'Q', -12.76, 6.59, -13.92, 3.3, 'L', -13.92, -3.49, 'Q', -12.46, -7.08, -10.18, -9.61, 'L', -3.73, -14.37, 'Q', -0.26, -15.67, 3.74, -14.37, 'L', 10.54, -9.27, 'Q', 12.64, -7.08, 13.93, -3.83, 'L', 13.93, 3.3, 'Q', 13.1, 6.11, 11.22, 8.4, 'L', 3.06, 14.52, 'Q', 1.52, 14.79, 0, 14.79, 'Q', -1.51, 14.79, -3.05, 14.52, 'Z'];
+/** Left wall, from the silhouette's lower-left edge up to the top face. */
+// prettier-ignore
+const SIDE_PATH = ['M', -3.07, 14.52, 'L', -10.53, 9.08, 'Q', -12.76, 6.59, -13.92, 3.32, 'L', -13.92, -3.48, 'Q', -12.19, -4.6, -10.18, -3.82, 'L', -3.4, 1.28, 'Q', -1.05, 3.48, 0, 6.7, 'L', 0, 13.5, 'Q', -0.85, 14.54, -2.62, 14.54, 'Q', -2.84, 14.54, -3.07, 14.52, 'Z'];
+/** Top face: fat rounded diamond (the legacy "cushion" face). */
+// prettier-ignore
+const TOP_PATH = ['M', -3.38, 1.26, 'L', -10.18, -3.84, 'Q', -12.61, -6.23, -10.18, -9.6, 'L', -3.72, -14.36, 'Q', -0.25, -15.67, 3.74, -14.36, 'L', 10.54, -9.27, 'Q', 12.21, -6.45, 10.54, -4.18, 'L', 3.4, 1.26, 'Q', 1.74, 2.14, 0.04, 2.14, 'Q', -1.64, 2.14, -3.38, 1.26, 'Z'];
+/** Specular glint: four-pointed star at the front corner junction. */
+// prettier-ignore
+const GLINT_PATH = ['M', -3.38, 1.28, 'Q', 0, 1.96, 3.39, 1.28, 'Q', 0.88, 3.72, 0, 6.7, 'Q', -1.04, 3.48, -3.38, 1.28, 'Z'];
+/** Rim wedges between top face and silhouette at the west/east corners. */
+// prettier-ignore
+const LEFT_RIM_PATH = ['M', -10.2, -9.6, 'Q', -11.53, -6.39, -10.2, -3.84, 'Q', -12.19, -4.61, -13.92, -3.49, 'Q', -12.46, -7.08, -10.2, -9.6, 'Z'];
+// prettier-ignore
+const RIGHT_RIM_PATH = ['M', 10.56, -4.17, 'Q', 11.53, -6.47, 10.56, -9.26, 'Q', 12.64, -7.08, 13.93, -3.84, 'Q', 12.3, -5.01, 10.56, -4.17, 'Z'];
+/** Thin crescent hugging the silhouette's bottom vertex. */
+// prettier-ignore
+const BOTTOM_RIM_PATH = ['M', -3.05, 14.52, 'Q', -0.93, 14.65, 0, 13.52, 'Q', 1.07, 14.53, 3.06, 14.52, 'Q', 1.52, 14.78, 0, 14.78, 'Q', -1.51, 14.78, -3.05, 14.52, 'Z'];
 
 /** Vertical distance between stacked dice — 46% of the die height, so each die nests deep into the one above. */
 const STACK_PITCH = 14;
@@ -169,21 +183,77 @@ export const DICE_COLORS = [
 ];
 
 /**
- * Visible face values per player: [top, left, right]. Fixed like the
- * baked legacy art (every die in a stack shows the same faces), and each
- * triple avoids opposite-face pairs (which sum to 7) so the die is
- * physically possible.
+ * Visible face values per player: [top, left, right], counted straight off
+ * the legacy sprites (every die in a stack shows the same faces). The art
+ * reuses triples — violet and yellow share [1, 4, 2], orange and red share
+ * [5, 3, 6] — and each triple avoids opposite-face pairs (which sum to 7)
+ * so the die is physically possible.
  */
 export const DIE_FACES = [
-  [1, 4, 2], // lavender — giant white top pip, like the original
-  [6, 2, 4], // lime
+  [1, 4, 2], // lavender — giant white top pip
+  [4, 6, 2], // lime
   [3, 5, 1], // dark green
   [2, 3, 1], // magenta
-  [4, 2, 6], // orange
-  [2, 6, 3], // cyan
-  [1, 5, 3], // yellow — giant black top pip, like the original
+  [5, 3, 6], // orange
+  [6, 2, 4], // cyan
+  [1, 4, 2], // yellow — giant black top pip
   [5, 3, 6], // red
 ];
+
+/* ------------------------------------------------------------------ *
+ * Pip tables, decoded from the legacy sprites. Positions are
+ * die-center-relative; the art hand-places each face's pips (bigger pips
+ * and tighter spacing on low values), so a parametric grid can't match.
+ * Top pips are axis-aligned ellipses; wall pips replay a canonical
+ * decoded pip path (centered on its bounds) at each position.
+ * ------------------------------------------------------------------ */
+
+// prettier-ignore
+const TOP_PIPS = {
+  1: { rx: 6.07, ry: 4.63, pts: [[0.05, -6.7]] },
+  2: { rx: 2.93, ry: 2.21, pts: [[0.02, -2.46], [0.06, -10.57]] },
+  3: { rx: 2.23, ry: 1.62, pts: [[-7.06, -6.78], [-0.14, -6.75], [6.83, -6.79]] },
+  4: { rx: 1.96, ry: 1.42, pts: [[-0.17, -1.44], [6.8, -6.58], [-7.17, -6.58], [-0.17, -11.71]] },
+  5: { rx: 1.95, ry: 1.44, pts: [[-0.02, -1.38], [6.87, -6.61], [-0.02, -6.61], [-6.95, -6.61], [-0.06, -11.73]] },
+  6: { rx: 1.96, ry: 1.47, pts: [[-0.83, -1.11], [3.35, -4.23], [-7.72, -6.23], [7.57, -7.28], [-3.57, -9.29], [0.54, -12.32]] },
+};
+
+/* Canonical wall pip shapes (one per face value; the art stamps copies). */
+// prettier-ignore
+const PIP_L2 = ['M', 0.42, 2.35, 'Q', -0.44, 1.94, -1.16, 0.99, 'Q', -1.89, 0.03, -2.07, -0.91, 'Q', -2.24, -1.84, -1.76, -2.21, 'Q', -1.28, -2.58, -0.43, -2.16, 'Q', 0.43, -1.74, 1.16, -0.78, 'Q', 1.88, 0.17, 2.06, 1.11, 'Q', 2.24, 2.04, 1.76, 2.41, 'Q', 1.53, 2.58, 1.23, 2.58, 'Q', 0.88, 2.58, 0.42, 2.35, 'Z'];
+// prettier-ignore
+const PIP_L3 = ['M', 0.28, 1.71, 'Q', -0.34, 1.39, -0.86, 0.7, 'Q', -1.38, -0.01, -1.5, -0.67, 'Q', -1.61, -1.35, -1.26, -1.62, 'Q', -0.91, -1.88, -0.28, -1.57, 'Q', 0.34, -1.26, 0.85, -0.58, 'Q', 1.37, 0.13, 1.49, 0.81, 'Q', 1.61, 1.5, 1.25, 1.76, 'Q', 1.09, 1.88, 0.87, 1.88, 'Q', 0.62, 1.88, 0.28, 1.71, 'Z'];
+// prettier-ignore
+const PIP_L4 = ['M', 0.23, 1.6, 'Q', -0.37, 1.36, -0.86, 0.74, 'Q', -1.35, 0.11, -1.44, -0.52, 'Q', -1.54, -1.17, -1.18, -1.44, 'Q', -0.83, -1.72, -0.23, -1.48, 'Q', 0.37, -1.24, 0.86, -0.61, 'Q', 1.35, 0.01, 1.44, 0.65, 'Q', 1.54, 1.3, 1.18, 1.58, 'Q', 0.99, 1.72, 0.74, 1.72, 'Q', 0.51, 1.72, 0.23, 1.6, 'Z'];
+// prettier-ignore
+const PIP_L5 = ['M', 0.29, 1.57, 'Q', -0.28, 1.28, -0.77, 0.64, 'Q', -1.26, 0, -1.39, -0.62, 'Q', -1.5, -1.24, -1.19, -1.48, 'Q', -0.87, -1.72, -0.3, -1.44, 'Q', 0.27, -1.15, 0.77, -0.53, 'Q', 1.26, 0.11, 1.38, 0.74, 'Q', 1.5, 1.36, 1.18, 1.61, 'Q', 1.04, 1.72, 0.83, 1.72, 'Q', 0.6, 1.72, 0.29, 1.57, 'Z'];
+// prettier-ignore
+const PIP_L6 = ['M', 0.23, 1.52, 'Q', -0.32, 1.25, -0.77, 0.64, 'Q', -1.23, 0.03, -1.33, -0.58, 'Q', -1.42, -1.18, -1.1, -1.42, 'Q', -0.79, -1.66, -0.23, -1.39, 'Q', 0.32, -1.12, 0.77, -0.51, 'Q', 1.23, 0.1, 1.32, 0.71, 'Q', 1.42, 1.31, 1.1, 1.55, 'Q', 0.96, 1.66, 0.75, 1.66, 'Q', 0.52, 1.66, 0.23, 1.52, 'Z'];
+// prettier-ignore
+const PIP_R1 = ['M', -3.59, 5.13, 'Q', -4.59, 4.41, -4.23, 2.45, 'Q', -3.87, 0.49, -2.38, -1.53, 'Q', -0.89, -3.57, 0.85, -4.51, 'Q', 2.6, -5.44, 3.59, -4.72, 'Q', 4.59, -4, 4.23, -2.04, 'Q', 3.88, -0.08, 2.38, 1.94, 'Q', 0.9, 3.98, -0.85, 4.92, 'Q', -1.83, 5.44, -2.58, 5.44, 'Q', -3.16, 5.44, -3.59, 5.13, 'Z'];
+// prettier-ignore
+const PIP_R2 = ['M', -1.65, 2.5, 'Q', -2.15, 2.16, -2.01, 1.22, 'Q', -1.87, 0.27, -1.19, -0.72, 'Q', -0.5, -1.72, 0.33, -2.18, 'Q', 1.16, -2.64, 1.65, -2.3, 'Q', 2.15, -1.96, 2.01, -1.02, 'Q', 1.87, -0.08, 1.19, 0.92, 'Q', 0.51, 1.91, -0.33, 2.37, 'Q', -0.81, 2.64, -1.18, 2.64, 'Q', -1.44, 2.64, -1.65, 2.5, 'Z'];
+// prettier-ignore
+const PIP_R4 = ['M', -1.16, 1.72, 'Q', -1.48, 1.5, -1.36, 0.86, 'Q', -1.25, 0.21, -0.77, -0.48, 'Q', -0.28, -1.16, 0.28, -1.49, 'Q', 0.85, -1.81, 1.16, -1.59, 'Q', 1.48, -1.36, 1.36, -0.72, 'Q', 1.25, -0.08, 0.77, 0.6, 'Q', 0.28, 1.29, -0.28, 1.61, 'Q', -0.62, 1.81, -0.86, 1.81, 'Q', -1.03, 1.81, -1.16, 1.72, 'Z'];
+// prettier-ignore
+const PIP_R6 = ['M', -1.23, 1.66, 'Q', -1.54, 1.42, -1.41, 0.78, 'Q', -1.27, 0.15, -0.76, -0.51, 'Q', -0.25, -1.18, 0.34, -1.48, 'Q', 0.91, -1.77, 1.23, -1.53, 'Q', 1.54, -1.29, 1.41, -0.65, 'Q', 1.27, 0, 0.76, 0.65, 'Q', 0.25, 1.31, -0.33, 1.61, 'Q', -0.65, 1.77, -0.89, 1.77, 'Q', -1.08, 1.77, -1.23, 1.66, 'Z'];
+
+// prettier-ignore
+const LEFT_PIPS = {
+  2: { path: PIP_L2, pts: [[-9.84, 5.42], [-4.23, 4.34]] },
+  3: { path: PIP_L3, pts: [[-10.43, 5.83], [-6.99, 5.08], [-3.46, 4.36]] },
+  4: { path: PIP_L4, pts: [[-3.42, 10.81], [-10.29, 5.59], [-3.5, 4.27], [-10.33, -0.95]] },
+  5: { path: PIP_L5, pts: [[-3.63, 10.72], [-10.55, 5.64], [-7.1, 4.93], [-3.6, 4.18], [-10.52, -0.86]] },
+  6: { path: PIP_L6, pts: [[-3.01, 11.45], [-7.21, 8.37], [-11.34, 5.29], [-3.01, 4.93], [-7.17, 1.85], [-11.34, -1.33]] },
+};
+
+// prettier-ignore
+const RIGHT_PIPS = {
+  1: { path: PIP_R1, pts: [[6.85, 5.04]] },
+  2: { path: PIP_R2, pts: [[4.31, 9.5], [9.73, 0.15]] },
+  4: { path: PIP_R4, pts: [[3.39, 10.86], [10.33, 5.59], [3.36, 4.29], [10.26, -0.91]] },
+  6: { path: PIP_R6, pts: [[3.47, 11.5], [3.42, 7.59], [10.47, 6.37], [3.47, 3.65], [10.47, 2.43], [10.43, -1.39]] },
+};
 
 /**
  * Darken a color by a factor (0-1).
@@ -265,51 +335,28 @@ export const COLORBLIND_DICE_COLORS = COLORBLIND_PLAYER_COLORS.map(deriveDieColo
  * ------------------------------------------------------------------ */
 
 /**
- * Append a rotated-ellipse polygon (PixiJS ellipse() is axis-aligned only).
+ * Replay a decoded path command array into a Graphics, offset by (dx, dy).
  * @param {Graphics} gfx
- * @param {number} cx
- * @param {number} cy
- * @param {number} rx
- * @param {number} ry
- * @param {number} angle - Rotation in radians
+ * @param {Array<string | number>} path - Flat 'M'/'L'/'Q'/'Z' command array
+ * @param {number} dx
+ * @param {number} dy
+ * @param {number} sx - X sign/scale (-1 mirrors the path across x = 0)
  */
-function tiltedEllipse(gfx, cx, cy, rx, ry, angle) {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const pts = [];
-  for (let i = 0; i < 16; i++) {
-    const t = (i / 16) * Math.PI * 2;
-    const ex = Math.cos(t) * rx;
-    const ey = Math.sin(t) * ry;
-    pts.push(cx + ex * cos - ey * sin, cy + ex * sin + ey * cos);
+function drawPath(gfx, path, dx = 0, dy = 0, sx = 1) {
+  let i = 0;
+  const X = () => path[i++] * sx + dx;
+  const Y = () => path[i++] + dy;
+  while (i < path.length) {
+    const op = path[i++];
+    if (op === 'M') gfx.moveTo(X(), Y());
+    else if (op === 'L') gfx.lineTo(X(), Y());
+    else if (op === 'Q') gfx.quadraticCurveTo(X(), Y(), X(), Y());
+    else gfx.closePath();
   }
-  gfx.poly(pts, true);
 }
 
 /**
- * Append a thin quad along a segment — used for the rim edge accents.
- * @param {Graphics} gfx
- * @param {number} x1
- * @param {number} y1
- * @param {number} x2
- * @param {number} y2
- * @param {number} w - Strip width
- */
-function strip(gfx, x1, y1, x2, y2, w) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = Math.hypot(dx, dy) || 1;
-  const px = (-dy / len) * (w / 2);
-  const py = (dx / len) * (w / 2);
-  gfx.poly([x1 + px, y1 + py, x2 + px, y2 + py, x2 - px, y2 - py, x1 - px, y1 - py], true);
-}
-
-/**
- * Draw the pips of one visible face.
- *
- * The pip grid follows the face plane: unit grid offsets from
- * getPipPositions are mapped through the face's two edge vectors, so pips
- * foreshorten like the original art.
+ * Draw the pips of one visible face from the measured legacy tables.
  *
  * @param {Graphics} gfx
  * @param {number} value - Face value (1-6)
@@ -320,51 +367,33 @@ function strip(gfx, x1, y1, x2, y2, w) {
  */
 function drawFacePips(gfx, value, x, y, face, color) {
   if (face === 'top') {
-    const cy = y + TOP_FACE_CY;
-    if (value === 1) {
-      // Signature oversized single pip on a "1" top face
-      gfx.ellipse(x, cy, 5.0, 3.8);
-      gfx.fill(color);
-      return;
-    }
-    // Chunky pips like the original; slightly smaller when six must fit
-    const rx = value <= 3 ? 2.35 : 2.0;
-    const ry = value <= 3 ? 1.75 : 1.5;
-    for (const [gx, gy] of getPipPositions(value, 1)) {
-      gfx.ellipse(x + (gx - gy) * 3.45, cy + (gx + gy) * 2.6, rx, ry);
+    const t = TOP_PIPS[value] || TOP_PIPS[1];
+    for (const [px, py] of t.pts) {
+      gfx.ellipse(x + px, y + py, t.rx, t.ry);
       gfx.fill(color);
     }
     return;
   }
 
   /*
-   * Wall faces: grid axes along the wall's top edge and downward edge,
-   * pips drawn as portrait ovals tilted ~34 deg into the wall plane (a
-   * circle on the wall foreshortens across, not down). The right wall
-   * mirrors the left.
+   * Wall faces. The art composes each wall's pips by hand (the two walls
+   * are NOT mirror images — e.g. a 6 runs 3x2 on the left wall but 2x3 on
+   * the right), so each wall has its own table; values the art never put
+   * on a wall fall back to the other wall's layout, mirrored.
    */
-  const mirror = face === 'right' ? -1 : 1;
-  const cx = x - 6.95 * mirror;
-  const cy = y + 5.15;
-  const angle = 0.6 * mirror;
-  if (value === 1) {
-    // Oversized "1" pip covering half the wall, like the original
-    tiltedEllipse(gfx, cx, cy, 3.1, 4.1, angle);
-    gfx.fill(color);
-    return;
-  }
-  const rx = value <= 3 ? 1.6 : 1.45;
-  const ry = value <= 3 ? 2.1 : 1.9;
-  for (const [gx, gy] of getPipPositions(value, 1)) {
-    const ox = gx * 2.85 + gy * -0.5;
-    const oy = gx * 1.93 + gy * 3.3;
-    tiltedEllipse(gfx, cx + ox * mirror, cy + oy, rx, ry, angle);
+  const own = face === 'left' ? LEFT_PIPS : RIGHT_PIPS;
+  const other = face === 'left' ? RIGHT_PIPS : LEFT_PIPS;
+  const src = own[value] ? { ...own[value], m: 1 } : { ...(other[value] || other[1]), m: -1 };
+  for (const [px, py] of src.pts) {
+    drawPath(gfx, src.path, x + px * src.m, y + py, src.m);
     gfx.fill(color);
   }
 }
 
 /**
- * Draw a single die (corner-forward isometric cube) centered at (x, y).
+ * Draw a single die (corner-forward isometric cube) centered at (x, y),
+ * replaying the decoded legacy paths in the original layer order:
+ * silhouette, left wall, top face, rim accents, glint, pips.
  *
  * @param {Graphics} gfx
  * @param {number} x - Die center x
@@ -373,65 +402,19 @@ function drawFacePips(gfx, value, x, y, face, color) {
  * @param {number[]} faces - [top, left, right] face values
  */
 function drawDie(gfx, x, y, c, faces) {
-  // Silhouette: rounded hexagon in the darkest color — also the right wall
-  gfx.roundShape(
-    [
-      { x, y: y + TOP_Y },
-      { x: x + HALF_W, y: y - SIDE_Y },
-      { x: x + HALF_W, y: y + SIDE_Y },
-      { x, y: y + BOTTOM_Y },
-      { x: x - HALF_W, y: y + SIDE_Y },
-      { x: x - HALF_W, y: y - SIDE_Y },
-    ],
-    3
-  );
+  drawPath(gfx, CUBE_PATH, x, y);
   gfx.fill(c.base);
-
-  // Left wall (mid tone), inset a touch so it stays inside the rounded silhouette
-  gfx.poly(
-    [
-      x - DIAMOND_E,
-      y - 6.3,
-      x,
-      y + DIAMOND_S,
-      x,
-      y + BOTTOM_Y - 0.6,
-      x - HALF_W + 0.2,
-      y + SIDE_Y,
-      x - HALF_W + 0.2,
-      y - SIDE_Y + 0.2,
-    ],
-    true
-  );
+  drawPath(gfx, SIDE_PATH, x, y);
   gfx.fill(c.side);
-
-  // Top face: rounded diamond in the bright identity color
-  gfx.roundShape(
-    [
-      { x, y: y + TOP_Y },
-      { x: x + DIAMOND_E, y: y - 6.3 },
-      { x, y: y + DIAMOND_S },
-      { x: x - DIAMOND_E, y: y - 6.3 },
-    ],
-    2.5
-  );
+  drawPath(gfx, TOP_PATH, x, y);
   gfx.fill(c.top);
-
-  // Rim accents along the upper silhouette slopes and the bottom vertex
-  strip(gfx, x - 13.3, y - 4.1, x - 10.9, y - 9.2, 1.4);
+  drawPath(gfx, LEFT_RIM_PATH, x, y);
   gfx.fill(c.leftRim);
-  strip(gfx, x + 13.3, y - 4.1, x + 10.9, y - 9.2, 1.4);
+  drawPath(gfx, RIGHT_RIM_PATH, x, y);
   gfx.fill(c.rightRim);
-  strip(gfx, x - 3, y + 14, x + 3, y + 14, 1.3);
+  drawPath(gfx, BOTTOM_RIM_PATH, x, y);
   gfx.fill(c.bottomRim);
-
-  // Specular glint: three-pointed star at the front corner junction
-  gfx
-    .moveTo(x - 3.3, y + 2.0)
-    .quadraticCurveTo(x, y + 4.4, x + 3.3, y + 2.0)
-    .quadraticCurveTo(x + 0.6, y + 4.1, x, y + 6.8)
-    .quadraticCurveTo(x - 0.6, y + 4.1, x - 3.3, y + 2.0)
-    .closePath();
+  drawPath(gfx, GLINT_PATH, x, y);
   gfx.fill(c.glint);
 
   drawFacePips(gfx, faces[0], x, y, 'top', c.pips.top);
@@ -440,27 +423,27 @@ function drawDie(gfx, x, y, c, faces) {
 }
 
 /**
- * Draw the stack's cast shadow: a hard-edged, near-solid black lozenge
- * spilling to the lower right of the front column (legacy fill was
- * rgba(0,0,0,0.914)). Grows a little with the front-column count; the
- * back column casts no shadow, matching the original sprites.
- *
+ * Cast shadows decoded from the legacy stage: a hard-edged, near-solid
+ * black blob (legacy fill rgba(0,0,0,0.914)) spilling to the lower right
+ * of the front column, one variant per front-column count. Coordinates
+ * are relative to the front column's base die center. The back column
+ * casts no shadow, matching the original sprites.
+ */
+// prettier-ignore
+const SHADOW_PATHS = [
+  ['M', 2.6, 16.8, 'L', 2.4, 16.8, 'L', -3.6, 14.7, 'L', -3.7, 14.6, 'L', -10.7, 9.7, 'L', -10.8, 9.6, 'L', -11.8, 8.6, 'L', -11.9, 8.3, 'L', -11.6, 7.8, 'L', 3.1, 0.7, 'L', 3.1, -2.4, 'L', 4.4, -3, 'L', 4.6, -3.1, 'L', 14.9, -3.1, 'L', 14.9, -2.9, 'Q', 17.6, -2.6, 20.8, -1.1, 'Q', 24, 1.6, 26.6, 4.7, 'Q', 27.5, 6.7, 26.6, 8.6, 'Q', 24.4, 11.4, 21.4, 13.8, 'Q', 19.2, 15.6, 14.9, 16.6, 'L', 14.9, 16.8, 'Z'],
+  ['M', 2.6, 16.8, 'L', 2.4, 16.8, 'L', -3.6, 14.7, 'L', -3.7, 14.6, 'L', -10.7, 9.7, 'L', -10.8, 9.6, 'L', -11.8, 8.6, 'L', -11.9, 8.3, 'L', -11.6, 7.8, 'L', 10.2, -3, 'L', 10.4, -3.1, 'L', 20.9, -3.1, 'L', 20.9, -2.3, 'Q', 22.3, -1.8, 23.8, -1.1, 'Q', 27, 1.6, 29.6, 4.7, 'Q', 30.5, 6.7, 29.6, 8.6, 'Q', 27.4, 11.4, 24.4, 13.8, 'Q', 23, 14.9, 20.9, 15.7, 'L', 20.9, 16.8, 'Z'],
+  ['M', 2.6, 16.8, 'L', 2.4, 16.8, 'L', -3.6, 14.7, 'L', -3.7, 14.6, 'L', -10.7, 9.7, 'L', -10.8, 9.6, 'L', -11.8, 8.6, 'L', -11.9, 8.3, 'L', -11.6, 7.8, 'L', 10.4, -3, 'L', 10.5, -3.1, 'L', 20.9, -3.1, 'L', 20.9, -2.9, 'Q', 23.6, -2.6, 26.8, -1.1, 'Q', 30, 1.6, 32.6, 4.7, 'Q', 33.5, 6.7, 32.6, 8.6, 'Q', 30.4, 11.4, 27.4, 13.8, 'Q', 25.2, 15.6, 20.9, 16.6, 'L', 20.9, 16.8, 'Z'],
+  ['M', 2.6, 16.8, 'L', 2.4, 16.8, 'L', -3.6, 14.7, 'L', -3.7, 14.6, 'L', -10.7, 9.7, 'L', -10.8, 9.6, 'L', -11.8, 8.6, 'L', -11.9, 8.3, 'L', -11.6, 7.8, 'L', 10.4, -3, 'L', 10.6, -3.1, 'L', 22.7, -3.1, 'Q', 26, -2.9, 29.8, -1.1, 'Q', 33, 1.6, 35.6, 4.7, 'Q', 36.5, 6.7, 35.6, 8.6, 'Q', 33.4, 11.4, 30.4, 13.8, 'Q', 28, 15.7, 23, 16.8, 'Z'],
+];
+
+/**
+ * Draw the stack's cast shadow.
  * @param {Graphics} gfx
  * @param {number} frontCount - Dice in the front column (1-4)
  */
 function drawShadow(gfx, frontCount) {
-  const w = 39.4 + 3 * (frontCount - 1);
-  const cx = 7.5 + 1.5 * (frontCount - 1);
-  const cy = 6.9;
-  const h = 9.95;
-  const l = cx - w / 2;
-  const r = cx + w / 2;
-  gfx
-    .moveTo(l, cy + 3)
-    .lineTo(l + w * 0.3, cy - h)
-    .quadraticCurveTo(r + 2, cy - h, r - w * 0.1, cy + h * 0.55)
-    .quadraticCurveTo(r - w * 0.3, cy + h, l + w * 0.22, cy + h * 0.5)
-    .closePath();
+  drawPath(gfx, SHADOW_PATHS[Math.min(Math.max(frontCount, 1), 4) - 1]);
   gfx.fill({ color: 0x000000, alpha: 0.914 });
 }
 

@@ -162,25 +162,56 @@ turns and adds nothing over the turn-normalized axis. Derive on demand if ever n
 > `evaluateClockHack()`/`CLOCK_HACK_TRIPWIRES` (a KILL-gate, §10.8), not a persona signature.
 
 > **Added 2026-07-06 — the §10.3 scavenge co-read cluster** (PERSONAS.md §10.3, the vulture-hack
-> guard): two descriptive per-kill axes in `AXES` — `killVictimTerr` (the victim's territory count
-> as of the end of the player-turn immediately before the killing blow) and `killVictimOneTerrTurns`
-> (the victim's consecutive observed player-turns at exactly 1 territory before it). Captured via
-> per-player trackers in `makeCapture` that ingest every post-turn state AFTER kill detection reads
-> them, so a bot that softens a 3-territory victim itself during the killing turn reads 3 (hunter),
-> never the post-kill 0 — while a vulture's kills read as long-doomed 1-territory snipes. Per-game
-> scalars are means over the game's observed kill victims (`null` on no-kill games, the
-> winners-only sparsity pattern; a kill on the game's first observed turn records nulls and is
-> excluded). Like the §10.4 cluster they are excluded from `SIGNATURE_AXES`/`SEPARATION_AXES`/Holm/
-> the A/A noise floor — but unlike it there is **no auto-tripwire**: the CLI prints a "Scavenge
-> co-read (§10.3)" panel (own mean + paired Δ vs control, with the `kills` mean as context), the
-> axes ride `bots[].metrics`/`vsControl`/`perRun` in `--json` (no separate serialized block), and
-> the ship-blocking judgment is the **operator's** at Predator grading (Ivan, 2026-07-06 —
-> thresholds may be ratified later from pilot data). Operator caveats: read the two axes jointly
-> (third-party softening the turn before the kill reads victimTerr ≈ 1 with a LOW streak; true
-> vulture prey reads a HIGH streak), and the streak's raw magnitude scales with live-seat count
-> (paired Δ on an identical field cancels it; absolute thresholds must be field-size-calibrated).
-> `assertPairableReports` also now fails loud on a perRun **axis-set drift** across reports, so a
-> pre-§10.3 report can't silently pair as "no data" even under `--allow-sha-drift`.
+> guard): three per-kill axes in `AXES` — `killVictimTerr` (the victim's territory count as of the
+> end of the player-turn immediately before the killing blow), `killVictimOneTerrTurns` (the
+> victim's consecutive observed player-turns at exactly 1 territory before it), and — added by
+> #126 — the derived `killVictimOneTerrFrac` (the kill-steal rate: the fraction of the game's
+> observed kill victims that entered the killing turn at exactly 1 territory; unobserved victims
+> are excluded from numerator AND denominator). Captured via per-player trackers in `makeCapture`
+> that ingest every post-turn state AFTER kill detection reads them, so a bot that softens a
+> 3-territory victim itself during the killing turn reads 3 (hunter), never the post-kill 0 —
+> while a vulture's kills read as long-doomed 1-territory snipes. Per-game scalars are
+> means/fractions over the game's observed kill victims (`null` on no-kill games, the winners-only
+> sparsity pattern; a kill on the game's first observed turn records nulls and is excluded). Like
+> the §10.4 cluster they are excluded from `SIGNATURE_AXES`/`SEPARATION_AXES`/Holm/the A/A noise
+> floor. Reading caveats: read the axes jointly (third-party softening the turn before the kill
+> reads victimTerr ≈ 1 with a LOW streak; true vulture prey reads a HIGH streak), and the streak's
+> raw magnitude scales with live-seat count (paired Δ on an identical field cancels it; absolute
+> thresholds must be field-size-calibrated). `assertPairableReports` also now fails loud on a
+> perRun **axis-set drift** across reports, so a pre-§10.3 report can't silently pair as "no data"
+> even under `--allow-sha-drift`.
+
+> **Added 2026-07-06 (#126) — the §10.3 scavenge tripwire panel, as built.** The cluster is gated
+> mechanically, superseding #123's descriptive-only panel (reconciled maintainer ruling — tripwires
+> ARE the pre-committed §10.8 Predator kill condition, with thresholds calibrated from innocent-bot
+> profile data rather than guessed). `evaluateClockHack`'s body is now the generic
+> `evaluateTripwirePanel(vsComparator, tripwires)` (a behavior-identical refactor; the §10.4
+> wrapper defaults `CLOCK_HACK_TRIPWIRES`), and `evaluateScavenge` runs the same evaluator over
+> `SCAVENGE_TRIPWIRES`: `killVictimOneTerrFrac` HIGHER ≥ 0.31 (primary), `killVictimOneTerrTurns`
+> HIGHER ≥ 5.64 (primary), `killVictimTerr` LOWER ≥ 0.91 (co-signal — corroborates, never kills
+> alone). The joint-reading caveat is handled per-tripwire, not globally: third-party softening on
+> the player-turn immediately before the kill reads streak = 1 (earlier same-round softening can
+> read up to fieldSize − 1 player-turns, so the streak primary's residual false-fire defense is
+> the calibrated threshold too) and `killVictimTerr` only corroborates, while the frac primary —
+> which innocent opportunistic finishing DOES reach — takes its false-fire defense from the
+> innocent-bot-calibrated threshold (Survivor, the kill-stealing-adjacent negative control, is
+> exactly what it is bounded against). Same firing semantics as §10.4: paired Δ vs the run's
+> `--control` clears the threshold AND the 95% CI excludes 0 in-direction; KILL = any primary,
+> protocol-binding for Predator arms only (printed as context for every other bot; no exit-code
+> change). The CLI prints a "Scavenge tripwire (§10.3)" panel (verdict + `kills` mean as context +
+> own mean, Δ [CI], FIRED/clear per tripwire) and `--json` carries `bots[].scavenge` (a
+> `clockHack`-shaped block, re-added now that it holds computed verdicts; `null` for the control).
+> **Thresholds RATIFIED 2026-07-06 (Ivan)** from the #126 calibration run — v2 Survivor + Lookahead
+> vs the Conqueror base at 10×30×6 (5400 matches, 0 quarantined, exit 0), both innocents **clear**
+> on the drafts (no false fire). Rule per axis: max(draft, largest innocent-bot |Δ| + its CI
+> half-width), rounded up to 2 decimals → **0.31** (Lookahead |−0.274| + 0.032), **5.64** (Lookahead
+> |−4.888| + 0.744), **0.91** (Lookahead 0.825 + 0.081) — every binding extreme was Lookahead's, in
+> the opposite (innocent) direction, so the ratified bars kill only on unambiguous vulture behavior.
+> Field note: Lookahead is a profiled bot here, so its default-field seat went to **Strategist**
+> (`--opponents Default,Adaptive,Example,Expectimax,Strategist --reference Expectimax`) — **Wave-2
+> Predator grading must profile in this same field** to pair against the calibration report
+> (`assertPairableReports` hard-checks `opponents`/`opponentSpecs`). The [D-32] Predator kills bar,
+> recomputed in this field: 15% × v2 Survivor's realized 1.725 mean kills = **+0.26**.
 
 ---
 

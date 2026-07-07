@@ -59,6 +59,8 @@ import {
   SIGNATURE_FAMILY_SIZE,
   DEFAULT_MDE,
   evaluateClockHack,
+  evaluateScavenge,
+  panelVerdict,
   NEAR_CAP_WINDOW,
 } from './lib/behavior-core.mjs';
 
@@ -375,10 +377,12 @@ const report = {
       vsControl,
       signature,
       // §10.4 clock-hack tripwire panel vs the control (KILL-gate for placement arms, §10.8).
-      // (The §10.3 scavenge co-read deliberately gets NO such block: unlike clockHack it would
-      // compute nothing — its axes are already addressable in metrics/vsControl/perRun, and a
-      // second serialized copy could only drift. The panel below reads those directly.)
       clockHack: vsControl ? evaluateClockHack(vsControl) : null,
+      // §10.3 scavenge tripwire panel vs the control (KILL-gate for Predator arms, §10.8).
+      // #123 dropped this block when it computed nothing (a pure re-projection of metrics/
+      // vsControl); the tripwire evaluator changes that — like clockHack it now carries computed
+      // verdicts, while the raw axes still ride metrics/vsControl/perRun.
+      scavenge: vsControl ? evaluateScavenge(vsControl) : null,
       liveRuns: liveRunCount(perRun),
       // The raw per-run axis scalars — what behavior:separation pairs across reports.
       perRun,
@@ -505,51 +509,49 @@ if (signed.length) {
   }
 }
 
-// --- §10.4 clock-hack tripwire panel (the placement-arm near-cap reward-hack KILL-gate, §10.8) ---
-// Printed for every non-control bot: a Δ-vs-control panel on truncationRate / nearCapDeathRate /
-// lateGameAggressionSpike. A "primary" fire is a ship-blocking kill for a placement arm (Survivor,
-// Predator); benign for a win-objective arm but still informative context.
-const clockHacked = report.bots.filter(b => b.clockHack);
-if (clockHacked.length) {
+// --- The §10.4 / §10.3 tripwire panels (the pre-committed §10.8 KILL-gates) ---
+// One shared renderer (the print-side sibling of the core's generic evaluateTripwirePanel), so
+// the two kill-gate panels can never drift apart in format. One line per non-control bot:
+// verdict + optional context + per-tripwire row (direction arrow, (co) tag, own mean where the
+// panel wants it, paired Δ [CI] vs control, FIRED/clear). A panel whose rows ALL lack comparable
+// data renders a NO DATA verdict, never "clear ✓" — a kill-gate that measured nothing must not
+// print a pass. Kills are ship-blocking only for the arms each gate binds (§10.8: clock-hack →
+// placement arms; scavenge → Predator arms); context for every other bot, never an exit-code
+// change.
+const printTripwirePanel = (key, header, { showOwnMean = false, context = null } = {}) => {
+  const panelBots = report.bots.filter(b => b[key]);
+  if (!panelBots.length) return;
   log('');
-  log(`Clock-hack tripwire (§10.4) vs ${controlName} — near-cap window ${NEAR_CAP_WINDOW} turns:`);
-  for (const b of clockHacked) {
-    const ch = b.clockHack;
-    const rowStr = ch.rows
+  log(header);
+  for (const b of panelBots) {
+    const panel = b[key];
+    const rowStr = panel.rows
       .map(r => {
         const dir = r.direction === 'HIGHER' ? '↑' : '↓';
         const tag = r.role === 'cosignal' ? ' (co)' : '';
-        if (r.delta == null) return `${r.axis}${dir}${tag} no data`;
-        return `${r.axis}${dir}${tag} ${fmtDelta(r)} ${r.fired ? 'FIRED' : 'clear'}`;
+        const own = showOwnMean ? ` ${fmt(b.metrics[r.axis])}` : '';
+        if (r.delta == null) return `${r.axis}${dir}${tag}${own} Δ no data`;
+        return `${r.axis}${dir}${tag}${own} ${fmtDelta(r)} ${r.fired ? 'FIRED' : 'clear'}`;
       })
       .join('; ');
-    const verdict = ch.kill ? 'KILL ✗' : 'clear ✓';
-    const co = ch.coSignal ? ' +co-signal' : '';
-    log(`  ${b.name}: ${verdict}${co} — ${rowStr}`);
+    const verdict = panelVerdict(panel);
+    const co = panel.coSignal ? ' +co-signal' : '';
+    const ctx = context ? `${context(b)} — ` : '';
+    log(`  ${b.name}: ${verdict}${co} — ${ctx}${rowStr}`);
   }
-}
+};
 
-// --- §10.3 scavenge co-read (descriptive — vulture detection for Predator grading) ---
-// One line per non-control bot: own mean + paired Δ vs control on the two per-kill victim axes,
-// with the kills mean for context ("kills higher" means little if they're all 1-territory
-// snipes). Reads metrics/vsControl directly — the axes' only copies — and deliberately renders
-// NO verdict: the co-read is operator-judged, per Ivan's 2026-07-06 call. Read the two axes
-// JOINTLY: a victim softened by a third party the turn before reads victimTerr≈1 but a LOW
-// streak; true vulture prey reads a HIGH streak (long-doomed).
-const scavenged = report.bots.filter(b => b.vsControl);
-if (scavenged.length) {
-  log('');
-  log(
-    `Scavenge co-read (§10.3) vs ${controlName} — per-kill victim context ` +
-      `(descriptive, operator-judged):`
-  );
-  for (const b of scavenged) {
-    const rowStr = ['killVictimTerr', 'killVictimOneTerrTurns']
-      .map(axis => {
-        const cmp = b.vsControl[axis];
-        return `${axis} ${fmt(b.metrics[axis])} ${cmp ? fmtDelta(cmp) : 'Δ no data'}`;
-      })
-      .join('; ');
-    log(`  ${b.name}: kills ${fmt(b.metrics.kills)} — ${rowStr}`);
-  }
-}
+// §10.4: truncationRate / nearCapDeathRate / lateGameAggressionSpike (placement-arm near-cap hack).
+printTripwirePanel(
+  'clockHack',
+  `Clock-hack tripwire (§10.4) vs ${controlName} — near-cap window ${NEAR_CAP_WINDOW} turns:`
+);
+
+// §10.3: per-kill victim context (vulture hack). Own means printed per row, plus the kills mean
+// as context — "kills higher" means little if they're all 1-territory snipes.
+printTripwirePanel(
+  'scavenge',
+  `Scavenge tripwire (§10.3) vs ${controlName} — per-kill victim context ` +
+    `(KILL-gate for Predator arms, §10.8):`,
+  { showOwnMean: true, context: b => `kills ${fmt(b.metrics.kills)}` }
+);

@@ -228,6 +228,9 @@ export function profileGameFromCapture(result, playerIndex, capture, maxTurns = 
   // Per-kill victim context, unobserved (null) victims excluded — a no-kill game (or an
   // all-unobserved one) yields null, the turnsToWin-style sparsity, never a diluting 0.
   const victimField = field => killVictims.map(k => k[field]).filter(v => Number.isFinite(v));
+  // The derived kill-steal rate shares killVictimTerr's observed-victim base, so the same
+  // exclusions apply to its numerator AND denominator.
+  const victimTerrs = victimField('victimTerr');
 
   // Per-turn dice density, then averaged below: a mean of per-turn (dice/territory) ratios — NOT
   // aggregate totalDice/totalTerritory. Both are defensible; this one weights each turn equally.
@@ -270,8 +273,14 @@ export function profileGameFromCapture(result, playerIndex, capture, maxTurns = 
     truncated,
     nearCapDeath,
     lateGameAggressionSpike,
-    killVictimTerr: meanOrNull(victimField('victimTerr')),
+    killVictimTerr: meanOrNull(victimTerrs),
     killVictimOneTerrTurns: meanOrNull(victimField('victimOneTerrTurns')),
+    // §10.3 derived "kill-steal rate": the fraction of this game's OBSERVED kill victims that
+    // entered the killing turn at exactly 1 territory — the mean of a per-victim indicator, so
+    // meanOrNull carries the same no-observed-victims ⇒ null (never 0/0) sparsity as the sibling
+    // axes. A per-GAME scalar like every axis (reduceRun then game-weights kill-carrying games,
+    // NOT victim-pools the run) — the same aggregation both comparison sides get.
+    killVictimOneTerrFrac: meanOrNull(victimTerrs.map(t => (t === 1 ? 1 : 0))),
   };
 }
 
@@ -294,13 +303,15 @@ export const AXES = [
   'truncationRate',
   'nearCapDeathRate',
   'lateGameAggressionSpike',
-  // §10.3 scavenge co-read cluster — descriptive per-kill victim context (the vulture-hack guard
-  // for the Predator arms). Like the §10.4 cluster it is absent from PERSONA_SIGNATURES/
-  // SIGNATURE_AXES/SEPARATION_AXES/Holm, but unlike it there is NO auto-tripwire: the co-read is
-  // operator-judged at Predator grading (Ivan, 2026-07-06 — thresholds may be ratified later from
-  // pilot data). Units: territories, and player-turns at exactly 1 territory before the kill.
+  // §10.3 scavenge co-read cluster — per-kill victim context (the vulture-hack guard for the
+  // Predator arms). Like the §10.4 cluster it is absent from PERSONA_SIGNATURES/SIGNATURE_AXES/
+  // SEPARATION_AXES/Holm and gated by its own tripwire panel instead ({@link SCAVENGE_TRIPWIRES}
+  // — the mechanical, pre-committed §10.8 Predator kill condition; reconciled ruling 2026-07-06,
+  // superseding the earlier descriptive-only call). Units: territories, player-turns at exactly
+  // 1 territory before the kill, and the fraction of observed victims at exactly 1 territory.
   'killVictimTerr',
   'killVictimOneTerrTurns',
+  'killVictimOneTerrFrac',
 ];
 
 /**
@@ -346,6 +357,7 @@ export function reduceRun(profiles) {
     // dropped by `defined`'s finite filter — a no-kill game must not dilute the mean).
     killVictimTerr: defined('killVictimTerr'),
     killVictimOneTerrTurns: defined('killVictimOneTerrTurns'),
+    killVictimOneTerrFrac: defined('killVictimOneTerrFrac'),
   };
 }
 
@@ -866,7 +878,7 @@ export const KILLS_MDE_FRACTION = 0.15;
  * operator's judgment (a Survivor whose deaths/aggression climb near the cap AND whose truncations
  * fall is unambiguously gaming the now-visible clock).
  *
- * @type {Array<{axis:string, direction:'HIGHER'|'LOWER', threshold:number, role:'primary'|'cosignal'}>}
+ * @type {Tripwire[]}
  */
 export const CLOCK_HACK_TRIPWIRES = [
   { axis: 'nearCapDeathRate', direction: 'HIGHER', threshold: 0.05, role: 'primary' },
@@ -875,18 +887,70 @@ export const CLOCK_HACK_TRIPWIRES = [
 ];
 
 /**
- * Evaluate the §10.4 clock-hack tripwire panel from a paired comparison ({@link compareToControl}
- * output — persona vs the pinned comparator). Pure: no arena, unit-tested on synthetic Δ maps.
+ * One row of a §10.8 tripwire table: the panel fires it when the paired Δ vs the comparator
+ * clears `threshold` in `direction` AND the 95% CI excludes 0 that way; any fired `primary`
+ * KILLs, a fired `cosignal` only corroborates.
+ *
+ * @typedef {{ axis:string, direction:'HIGHER'|'LOWER', threshold:number,
+ *   role:'primary'|'cosignal' }} Tripwire
+ */
+
+/**
+ * PERSONAS §10.3 — the scavenge (vulture-hack) tripwire panel for the Predator arms, the
+ * mechanical form of the pre-committed §10.8 kill condition (reconciled maintainer ruling,
+ * 2026-07-06, superseding #123's descriptive-only call: tripwires ARE the pre-commitment, with
+ * thresholds calibrated from innocent-bot profile data rather than guessed). Comparator = the
+ * profile run's `--control` (the raw v3 base for Wave-2 grading, matching the Wave-1 protocol).
+ * The KILL is protocol-binding for Predator arms only; printed as context for every other bot.
+ *
+ * **Thresholds RATIFIED 2026-07-06 (Ivan)** from the #126 calibration run — 10×30×6, innocents
+ * v2 Survivor + Lookahead vs the Conqueror base, both clear (no false fire on the drafts). Rule,
+ * per axis: final threshold = max(draft, largest innocent-bot |Δ| observed on that axis + that
+ * Δ's CI half-width), rounded UP to 2 decimals (round-up = harder to fire = conservative for a
+ * kill-gate). Every binding extreme was Lookahead's, in the OPPOSITE (innocent) direction — so
+ * the calibrated bars sit well above the 0.15 / 2.0 / 0.75 drafts and the gate kills only on
+ * unambiguous vulture behavior (a weak-but-not-hacking Predator still faces the Lookahead floor,
+ * the §10.3 kills bar, and the Survivor-separation bar):
+ *   - `killVictimOneTerrFrac` HIGHER by ≥ 0.31 (rule: |−0.274| + 0.032) — the crisp kill-steal
+ *     rate: the fraction of the bot's observed kill victims that entered the killing turn at
+ *     exactly 1 territory. Innocent opportunistic finishing (victims a third party softened that
+ *     round) DOES count here, so this primary takes its false-fire defense from the calibrated
+ *     threshold — Survivor, the kill-stealing-adjacent negative control, is what the calibration
+ *     bounds it against.
+ *   - `killVictimOneTerrTurns` HIGHER by ≥ 5.64 (rule: |−4.888| + 0.744) — victims long-doomed
+ *     before the blow (the true vulture tell; third-party softening on the player-turn
+ *     immediately before the kill reads streak = 1, but the streak counts player-turns across
+ *     ALL live seats, so earlier same-round softening can read up to fieldSize − 1 — this
+ *     primary's residual false-fire defense is the same calibrated threshold as the frac's).
+ *   - `killVictimTerr` LOWER by ≥ 0.91 (rule: 0.825 + 0.081) — smaller victims overall; the
+ *     CO-SIGNAL (victimTerr ≈ 1 alone is ambiguous per the joint-reading caveat, so it
+ *     corroborates, never kills alone).
+ * Field-size dependence is cancelled by construction: every tripwire is a paired Δ vs a control
+ * measured in the identical field (an absolute threshold reading would need field-size calibration).
+ *
+ * @type {Tripwire[]}
+ */
+export const SCAVENGE_TRIPWIRES = [
+  { axis: 'killVictimOneTerrFrac', direction: 'HIGHER', threshold: 0.31, role: 'primary' },
+  { axis: 'killVictimOneTerrTurns', direction: 'HIGHER', threshold: 5.64, role: 'primary' },
+  { axis: 'killVictimTerr', direction: 'LOWER', threshold: 0.91, role: 'cosignal' },
+];
+
+/**
+ * Evaluate a tripwire panel from a paired comparison ({@link compareToControl} output — persona
+ * vs the pinned comparator). Pure: no arena, unit-tested on synthetic Δ maps. The generic
+ * evaluator behind {@link evaluateClockHack} (§10.4) and {@link evaluateScavenge} (§10.3).
  *
  * A tripwire FIRES only when BOTH its signed magnitude clears the threshold AND its 95% CI excludes
  * 0 in the flagged direction (HIGHER ⇒ `lo > 0`; LOWER ⇒ `hi < 0`). An axis with no comparable data
- * (null) never fires. `kill` is true iff any `primary` tripwire fires (§10.8).
+ * (null) never fires. `kill` is true iff any `primary` tripwire fires (§10.8); a `cosignal`
+ * corroborates but never kills alone.
  *
  * @param {Record<string, {delta:number, lo:number, hi:number, ci:number, verdict:string, n:number}|null>} vsComparator
- * @param {typeof CLOCK_HACK_TRIPWIRES} [tripwires=CLOCK_HACK_TRIPWIRES]
+ * @param {Tripwire[]} tripwires
  * @returns {{ rows: Array<object>, primaryFired: boolean, coSignal: boolean, kill: boolean }}
  */
-export function evaluateClockHack(vsComparator, tripwires = CLOCK_HACK_TRIPWIRES) {
+export function evaluateTripwirePanel(vsComparator, tripwires) {
   const rows = tripwires.map(tw => {
     const cmp = vsComparator?.[tw.axis] ?? null;
     if (!cmp) {
@@ -910,6 +974,25 @@ export function evaluateClockHack(vsComparator, tripwires = CLOCK_HACK_TRIPWIRES
   const coSignal = rows.some(r => r.role === 'cosignal' && r.fired);
   return { rows, primaryFired, coSignal, kill: primaryFired };
 }
+
+/** The §10.4 clock-hack panel ({@link CLOCK_HACK_TRIPWIRES}) via the generic evaluator. */
+export const evaluateClockHack = (vsComparator, tripwires = CLOCK_HACK_TRIPWIRES) =>
+  evaluateTripwirePanel(vsComparator, tripwires);
+
+/** The §10.3 scavenge panel ({@link SCAVENGE_TRIPWIRES}) via the generic evaluator. */
+export const evaluateScavenge = (vsComparator, tripwires = SCAVENGE_TRIPWIRES) =>
+  evaluateTripwirePanel(vsComparator, tripwires);
+
+/**
+ * Human verdict for a tripwire panel ({@link evaluateTripwirePanel} output). KILL beats
+ * everything; a panel whose rows ALL lack comparable data is NO DATA, never a pass-looking
+ * "clear ✓" — a kill-gate that measured nothing must not print a pass.
+ *
+ * @param {{ rows: Array<{delta: number|null}>, kill: boolean }} panel
+ * @returns {'KILL ✗'|'clear ✓'|'NO DATA'}
+ */
+export const panelVerdict = panel =>
+  panel.kill ? 'KILL ✗' : panel.rows.every(r => r.delta == null) ? 'NO DATA' : 'clear ✓';
 
 /**
  * Resolve the §10.3 relative kills MDE for one pair from their per-run kills arrays:

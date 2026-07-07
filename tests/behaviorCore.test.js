@@ -36,7 +36,11 @@ import {
   KILLS_MDE_FRACTION,
   DEFAULT_MDE,
   evaluateClockHack,
+  evaluateScavenge,
+  evaluateTripwirePanel,
+  panelVerdict,
   CLOCK_HACK_TRIPWIRES,
+  SCAVENGE_TRIPWIRES,
   NEAR_CAP_WINDOW,
   LATE_WINDOW,
 } from '../scripts/lib/behavior-core.mjs';
@@ -59,6 +63,9 @@ const stateOf = specs => ({ players: specs.map((s, i) => player(i, s)) });
 
 /** A full per-run reduced record (every AXES key finite); override specific axes per test. */
 const reduceShape = (over = {}) => ({ ...Object.fromEntries(AXES.map(a => [a, 1])), ...over });
+
+/** A synthetic compareAxis-shaped Δ row for the tripwire-panel tests (§10.4 + §10.3). */
+const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
 
 describe('makeCapture — onTurn/onStep accumulation', () => {
   it('counts the victory turn as an active turn (the aggression-bias fix)', () => {
@@ -427,7 +434,6 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
   });
 
   it('evaluateClockHack fires a primary only on a threshold-clearing, CI-excludes-0 Δ', () => {
-    const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
     // nearCapDeathRate +0.08 with CI [0.03,0.13] ⇒ primary FIRES ⇒ kill.
     const hit = evaluateClockHack({
       nearCapDeathRate: dat(0.08, 0.03, 0.13),
@@ -452,7 +458,6 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
   });
 
   it('fires the lateGameAggressionSpike primary on a ≥0.3 in-direction Δ (the second kill path)', () => {
-    const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
     // The OTHER primary: spike +0.5 with CI [0.3,0.7] clears the 0.3 threshold AND excludes 0.
     const spike = evaluateClockHack({
       nearCapDeathRate: dat(0.0, -0.02, 0.02), // clear
@@ -473,7 +478,6 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
   });
 
   it('the magnitude threshold is binding: a significant but sub-threshold Δ does NOT fire', () => {
-    const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
     // Both Δs exclude 0 (statistically significant) but fall short of their thresholds ⇒ no fire.
     // Guards against dropping the `cmp.delta >= threshold` half of the predicate.
     const sub = evaluateClockHack({
@@ -655,22 +659,24 @@ describe('§10.3 scavenge co-read — victim trackers, per-game means, aggregati
     expect(() => profileGameFromCapture(scavResult, 0, noField)).toThrow(/killVictims/);
   });
 
+  // A minimal kill-carrying GameProfile for the reduceRun cases; override per test.
+  const g = (over = {}) => ({
+    won: true,
+    placement: 1,
+    turnsToWin: 20,
+    aggression: 4,
+    captureEfficiency: 0.7,
+    avgDiceReserve: 9,
+    avgTerritory: 8,
+    dicePerTerritory: 1.2,
+    largestGroup: 6,
+    kills: 1,
+    survivalTurn: 20,
+    zeroAttackTurnFrac: 0.1,
+    ...over,
+  });
+
   it('reduceRun means the axes over kill-carrying games only; an all-null run reduces to null', () => {
-    const g = (over = {}) => ({
-      won: true,
-      placement: 1,
-      turnsToWin: 20,
-      aggression: 4,
-      captureEfficiency: 0.7,
-      avgDiceReserve: 9,
-      avgTerritory: 8,
-      dicePerTerritory: 1.2,
-      largestGroup: 6,
-      kills: 1,
-      survivalTurn: 20,
-      zeroAttackTurnFrac: 0.1,
-      ...over,
-    });
     const r = reduceRun([
       g({ kills: 2, killVictimTerr: 1, killVictimOneTerrTurns: 4 }),
       g({ kills: 0, killVictimTerr: null, killVictimOneTerrTurns: null }), // no-kill game dropped
@@ -683,12 +689,160 @@ describe('§10.3 scavenge co-read — victim trackers, per-game means, aggregati
     expect(empty.killVictimOneTerrTurns).toBeNull();
   });
 
-  it('both axes are registered as descriptive only — in AXES, never signature/separation', () => {
-    for (const axis of ['killVictimTerr', 'killVictimOneTerrTurns']) {
+  it('killVictimOneTerrFrac is the fraction of observed victims at exactly 1 territory (the kill-steal rate)', () => {
+    const p = profileGameFromCapture(
+      scavResult,
+      0,
+      scavCap({
+        kills: 3,
+        killVictims: [
+          { victimTerr: 1, victimOneTerrTurns: 4 },
+          { victimTerr: 3, victimOneTerrTurns: 0 },
+          { victimTerr: 1, victimOneTerrTurns: 2 },
+        ],
+      })
+    );
+    expect(p.killVictimOneTerrFrac).toBeCloseTo(2 / 3, 12);
+  });
+
+  it('killVictimOneTerrFrac excludes unobserved victims from numerator AND denominator', () => {
+    // One unobserved kill + one 3-territory kill ⇒ 0/1 = 0 (a real "no snipes" reading), not 0/2.
+    const p = profileGameFromCapture(
+      scavResult,
+      0,
+      scavCap({
+        kills: 2,
+        killVictims: [
+          { victimTerr: null, victimOneTerrTurns: null },
+          { victimTerr: 3, victimOneTerrTurns: 1 },
+        ],
+      })
+    );
+    expect(p.killVictimOneTerrFrac).toBe(0);
+    // ALL kills unobserved ⇒ null (no data), never a 0/0 NaN or a fake 0.
+    const unobserved = profileGameFromCapture(
+      scavResult,
+      0,
+      scavCap({ kills: 1, killVictims: [{ victimTerr: null, victimOneTerrTurns: null }] })
+    );
+    expect(unobserved.killVictimOneTerrFrac).toBeNull();
+  });
+
+  it('killVictimOneTerrFrac is null on a no-kill game (sparsity, not a diluting 0)', () => {
+    expect(profileGameFromCapture(scavResult, 0, scavCap()).killVictimOneTerrFrac).toBeNull();
+  });
+
+  it('reduceRun means killVictimOneTerrFrac over kill-carrying games; an all-null run reduces to null', () => {
+    const r = reduceRun([
+      g({ kills: 2, killVictimOneTerrFrac: 1 }),
+      g({ kills: 0, killVictimOneTerrFrac: null }), // no-kill game dropped, not averaged as 0
+      g({ kills: 1, killVictimOneTerrFrac: 0.5 }),
+    ]);
+    expect(r.killVictimOneTerrFrac).toBe(0.75); // mean(1, 0.5)
+    const empty = reduceRun([g({ kills: 0, killVictimOneTerrFrac: null })]);
+    expect(empty.killVictimOneTerrFrac).toBeNull();
+  });
+
+  it('all three axes are registered as descriptive only — in AXES, never signature/separation', () => {
+    for (const axis of ['killVictimTerr', 'killVictimOneTerrTurns', 'killVictimOneTerrFrac']) {
       expect(AXES).toContain(axis);
       expect(SIGNATURE_AXES).not.toContain(axis);
       expect(SEPARATION_AXES).not.toContain(axis);
     }
+  });
+});
+
+describe('§10.3 scavenge tripwire panel — evaluateTripwirePanel / evaluateScavenge', () => {
+  // Every other fixture below derives from the table, so this pin stays the ONLY
+  // threshold-literal test — a table edit fails exactly one change-detector, not a noisy bundle.
+  const [FRAC, TURNS, TERR] = SCAVENGE_TRIPWIRES.map(t => t.threshold);
+
+  it('pins the RATIFIED SCAVENGE_TRIPWIRES table (2026-07-06 calibration: max(draft, innocent |Δ| + CI half-width))', () => {
+    expect(SCAVENGE_TRIPWIRES).toEqual([
+      { axis: 'killVictimOneTerrFrac', direction: 'HIGHER', threshold: 0.31, role: 'primary' },
+      { axis: 'killVictimOneTerrTurns', direction: 'HIGHER', threshold: 5.64, role: 'primary' },
+      { axis: 'killVictimTerr', direction: 'LOWER', threshold: 0.91, role: 'cosignal' },
+    ]);
+    for (const t of SCAVENGE_TRIPWIRES) expect(AXES).toContain(t.axis);
+  });
+
+  it('evaluateScavenge fires a primary only on a threshold-clearing, CI-excludes-0 Δ; kill = any primary', () => {
+    // A true vulture: every Δ clears its bar with the whole CI on the firing side of 0.
+    const vulture = evaluateScavenge({
+      killVictimOneTerrFrac: dat(FRAC + 0.1, FRAC, FRAC + 0.2),
+      killVictimOneTerrTurns: dat(TURNS + 1, TURNS - 1, TURNS + 3),
+      killVictimTerr: dat(-(TERR + 0.1), -(TERR + 0.5), -(TERR - 0.3)),
+    });
+    expect(vulture.kill).toBe(true);
+    expect(vulture.primaryFired).toBe(true);
+    expect(vulture.coSignal).toBe(true);
+    expect(vulture.rows.filter(r => r.role === 'primary' && r.fired)).toHaveLength(2);
+
+    // Sub-threshold or CI∋0 primaries stay clear — and the co-signal alone never kills.
+    const innocent = evaluateScavenge({
+      killVictimOneTerrFrac: dat(FRAC - 0.05, FRAC - 0.13, FRAC + 0.03), // significant but sub-threshold ⇒ clear
+      killVictimOneTerrTurns: dat(TURNS + 0.5, -0.5, 2 * TURNS + 1.5), // clears the bar but CI∋0 ⇒ clear
+      killVictimTerr: dat(-(TERR + 0.1), -(TERR + 0.5), -(TERR - 0.3)), // co-signal fires
+    });
+    expect(innocent.kill).toBe(false);
+    expect(innocent.primaryFired).toBe(false);
+    expect(innocent.coSignal).toBe(true);
+  });
+
+  it('the Δ bound is inclusive (delta === threshold fires) but the CI bound is strict (lo === 0 clears)', () => {
+    const at = evaluateScavenge({ killVictimOneTerrFrac: dat(FRAC, FRAC / 2, FRAC * 1.5) });
+    expect(at.rows[0].fired).toBe(true); // Δ exactly at the bar fires (>=, not >)
+    const ciTouch = evaluateScavenge({ killVictimOneTerrFrac: dat(FRAC + 0.05, 0, FRAC + 0.5) });
+    expect(ciTouch.rows[0].fired).toBe(false); // lo === 0 does NOT exclude 0 (strict >)
+  });
+
+  it('panelVerdict: KILL beats all; an all-no-data panel reads NO DATA, never a pass-looking clear', () => {
+    expect(panelVerdict(evaluateScavenge({}))).toBe('NO DATA'); // measured nothing ⇒ not a pass
+    expect(
+      panelVerdict(evaluateScavenge({ killVictimOneTerrFrac: dat(FRAC + 0.1, FRAC, FRAC + 0.2) }))
+    ).toBe('KILL ✗');
+    // One comparable-but-clear row is a genuine clear, even with the other rows data-less.
+    expect(panelVerdict(evaluateScavenge({ killVictimOneTerrFrac: dat(0.01, -0.02, 0.04) }))).toBe(
+      'clear ✓'
+    );
+  });
+
+  it('the killVictimTerr co-signal is direction LOWER and a NO-DATA axis never fires', () => {
+    const low = evaluateScavenge({
+      killVictimOneTerrFrac: null,
+      killVictimOneTerrTurns: null,
+      killVictimTerr: dat(-(TERR + 0.1), -(TERR + 0.5), -(TERR - 0.3)),
+    });
+    expect(low.rows.find(r => r.axis === 'killVictimTerr').fired).toBe(true);
+    expect(low.kill).toBe(false); // co-signal never kills alone
+    expect(low.rows.filter(r => r.verdict === 'NO DATA')).toHaveLength(2);
+    // An in-magnitude but WRONG-direction Δ (victims BIGGER than the control's) must not fire.
+    const high = evaluateScavenge({ killVictimTerr: dat(TERR + 0.1, TERR - 0.3, TERR + 0.5) });
+    expect(high.rows.find(r => r.axis === 'killVictimTerr').fired).toBe(false);
+    expect(high.coSignal).toBe(false);
+  });
+
+  it('evaluateClockHack is unchanged post-rename: default table, explicit table, and panel equality', () => {
+    const vs = {
+      nearCapDeathRate: dat(0.08, 0.03, 0.13),
+      lateGameAggressionSpike: dat(0.1, -0.2, 0.4),
+      truncationRate: dat(-0.09, -0.15, -0.03),
+    };
+    expect(evaluateClockHack(vs)).toEqual(evaluateTripwirePanel(vs, CLOCK_HACK_TRIPWIRES));
+    // The explicit-tripwires parameter still flows through the wrapper.
+    const custom = [
+      { axis: 'truncationRate', direction: 'LOWER', threshold: 0.05, role: 'primary' },
+    ];
+    expect(evaluateClockHack(vs, custom)).toEqual(evaluateTripwirePanel(vs, custom));
+    expect(evaluateClockHack(vs, custom).kill).toBe(true);
+    // evaluateScavenge is the same generic panel over SCAVENGE_TRIPWIRES.
+    const svs = {
+      killVictimOneTerrFrac: dat(FRAC + 0.1, FRAC, FRAC + 0.2),
+      killVictimOneTerrTurns: null,
+      killVictimTerr: null,
+    };
+    expect(evaluateScavenge(svs)).toEqual(evaluateTripwirePanel(svs, SCAVENGE_TRIPWIRES));
+    expect(evaluateScavenge(svs).kill).toBe(true); // the frac primary alone kills
   });
 });
 

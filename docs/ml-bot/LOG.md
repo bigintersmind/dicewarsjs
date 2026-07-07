@@ -21,6 +21,46 @@ Entry template:
 
 ---
 
+## 2026-07-06 — §10.3 scavenge tripwires calibrated + RATIFIED (0.31 / 5.64 / 0.91); kills bar +0.26 (PR #127)
+
+**Phase:** pre-Wave-2 (PERSONAS §10.3/§10.8) · **Who:** Claude (build + calibration + review + merge flow); Ivan (ratification)
+
+**Did:**
+
+- Landed the re-scoped #126 remainder on PR #127: `killVictimOneTerrFrac` (derived kill-steal
+  rate), `evaluateTripwirePanel` extraction (+ `evaluateClockHack`/`evaluateScavenge` wrappers),
+  `SCAVENGE_TRIPWIRES`, shared `printTripwirePanel` renderer, `bots[].scavenge` JSON block,
+  9 unit cases + e2e pins.
+- Calibration run on the mini (10×30×6, 5400 matches, exit 0): report
+  `ml/runs/behavior-calibration/scavenge-calibration-2026-07-06.profile.json` (local pairing
+  artifact, gitignored; copies on mini + MacBook; gitSha `6f91185`). **Both innocents
+  (v2 Survivor, Lookahead) clear on the drafts — no false fire.**
+- Three-agent PR review (correctness / test coverage / comment accuracy): 0 critical; fixed the
+  overstated "same-round softening cannot fire the streak primary" claim (streak counts
+  player-turns across ALL live seats — up to fieldSize−1 same-round) and extracted a unit-testable
+  `panelVerdict()` (the NO DATA fail-open guard was previously untestable in its closure).
+- **Ivan ratified the literal pre-committed rule** (max(draft, largest innocent |Δ| + CI
+  half-width), rounded up): **0.31 / 5.64 / 0.91** — every binding extreme was Lookahead's
+  opposite-direction |Δ|. Kills bar recomputed per [D-32]: 15% × v2 Survivor's realized 1.725 =
+  **+0.26**. Numbers → RESULTS.md 2026-07-06 §10.3 section; docs finalized in PERSONAS §10.3/§10.8
+  - EVAL_HARNESS §2.2.
+
+**Learned / decided:**
+
+- All innocent Δs sat OPPOSITE the fire directions, so the literal |Δ| rule raises the bars well
+  past the drafts — the ratified gate kills only on unambiguous vulture behavior (all-snipe kills /
+  ≈12-turn-doomed victims); weak-but-honest Predators still face the Lookahead floor, the +0.26
+  kills bar, and Survivor separation.
+- **Field-pairing constraint (durable):** the calibration field swaps Strategist into Lookahead's
+  seat (`--opponents Default,Adaptive,Example,Expectimax,Strategist --reference Expectimax`) —
+  Wave-2 Predator grading must profile in this exact field or `assertPairableReports` fails.
+
+**Next:**
+
+- Wave-0 items 5–6 (#97 probe pre-flight + negative controls, then throughput probe), then the
+  Wave-1-warm-started persona retrains per PERSONAS §10; Predator arms graded against the ratified
+  panel + +0.26 bar in the calibration field.
+
 ## 2026-07-06 — v3 Wave-1 persona grading: Blitz-v3 ships (upgrade), Survivor-v3 killed
 
 **Phase:** Wave-1 (PERSONAS §10) · **Who:** Claude (grading + ship PR + shodan ops; merge Ivan-gated)

@@ -468,23 +468,37 @@ descriptive **scavenge co-read** (victim's territory count / time-at-one-territo
 killing blow) as a ship-blocking sanity check. Also noted: the aggregate bounty ceiling (6 kills ×
 0.25 = 1.5) exceeds the placement range [0,1] — accepted explicitly rather than hidden.
 
-_(As built — landed 2026-07-06, pre-Wave-2. Two descriptive axes in `behavior-core.mjs` `AXES`:
-**`killVictimTerr`** (victim's territory count as of the end of the player-turn before the killing
-blow — a bot that softens a 3-territory victim itself that turn reads 3, never the post-kill 0)
-and **`killVictimOneTerrTurns`** (victim's consecutive player-turns at exactly 1 territory before
-the kill). Means over the profiled bot's observed kill victims per game, `null` on no-kill games.
-Excluded from signatures/separation/Holm; the CLI prints a "Scavenge co-read (§10.3)" panel and
-the axes ride `bots[].metrics`/`vsControl`/`perRun` in `--json` (no separate block — a second
-serialized copy could only drift). **Deliberately NO auto-tripwire** (Ivan, 2026-07-06): the
-co-read stays descriptive and the vulture judgment is the operator's at pilot grading — thresholds
-may be ratified later from real pilot data, as the §10.4 numbers were. **Two reading caveats for
-that judgment** (branch review, 2026-07-06): (1) read the axes JOINTLY — a victim a third party
-softened to 1 the turn before reads victimTerr ≈ 1 but a LOW streak, while true vulture prey reads
-a HIGH streak (long-doomed); (2) the streak unit is observed player-turns across ALL live seats,
-so its raw magnitude scales with field size — the paired Δ vs a control on the identical field
-cancels this, but any future ratified absolute threshold must be calibrated per field size. A
-third `oneTerrKillFrac` axis was weighed and dropped as redundant with `killVictimTerr` — revisit
-only if a pilot reading wants it. See EVAL_HARNESS §2.2.)_
+_(As built — measurement layer 2026-07-06 (#123), tripwire panel + third axis 2026-07-06 (#126),
+pre-Wave-2. Three axes in `behavior-core.mjs` `AXES`: **`killVictimTerr`** (victim's territory
+count as of the end of the player-turn before the killing blow — a bot that softens a 3-territory
+victim itself that turn reads 3, never the post-kill 0), **`killVictimOneTerrTurns`** (victim's
+consecutive player-turns at exactly 1 territory before the kill), and the derived
+**`killVictimOneTerrFrac`** (the crisp kill-steal rate: fraction of the bot's observed kill
+victims that entered the killing turn at exactly 1 territory — unobserved victims excluded from
+numerator AND denominator). Per-game means/fractions over observed kill victims, `null` on
+no-kill games. Excluded from signatures/separation/Holm — gated instead by
+**`SCAVENGE_TRIPWIRES`/`evaluateScavenge()`** (the generic `evaluateTripwirePanel` shared with
+§10.4): a tripwire fires only when its paired Δ vs the comparator clears the threshold AND the
+95% CI excludes 0 in-direction; **KILL = any `primary` fires** — `killVictimOneTerrFrac` HIGHER
+and `killVictimOneTerrTurns` HIGHER are the primaries, `killVictimTerr` LOWER only corroborates
+(`cosignal`). The CLI prints a "Scavenge tripwire (§10.3)" panel with FIRED/clear rows + a
+KILL/clear verdict and `--json` carries `bots[].scavenge` (re-added in #126 now that it holds
+computed verdicts, exactly like `clockHack`; #123 had dropped it as a verdict-free
+re-projection). **Judgment model — reconciled ruling (Ivan, 2026-07-06, superseding #123's
+descriptive-only call):** mechanical tripwires ARE the pre-committed §10.8 Predator kill
+condition, with thresholds **calibrated from innocent-bot profile data rather than guessed**
+(rule, per axis: final threshold = max(draft, largest innocent-bot |Δ| observed on that axis +
+that Δ's CI half-width); innocent bots = v2 Survivor — placement-styled, kill-stealing-adjacent,
+NOT a vulture — and Lookahead, vs the Conqueror base). The KILL is protocol-binding for Predator
+arms only; printed as context for every other bot. #123's two operator caveats are absorbed into
+the design: (1) joint reading is built in — third-party same-round softening reads victimTerr ≈ 1
+with a LOW streak, so it cannot fire the streak primary, and victimTerr alone is only a
+co-signal; (2) field-size dependence is cancelled — every tripwire is a paired Δ vs a control in
+the identical field (a future absolute threshold would still need field-size calibration). The
+drafted numbers (0.15 / 2.0 / 0.75) await the #126 calibration run + ratification. (#123's "a
+third `oneTerrKillFrac` axis was weighed and dropped as redundant" call was reversed by the
+re-scoped #126 — as a fraction it is the crisp rate the thresholds want, and it now leads the
+panel.) See EVAL_HARNESS §2.2.)_
 
 **Threshold provenance (red-team catch).** The +0.25 kills bar was [D-30]'s _interim_ bar; the
 pre-registered MDE was 0.5. On a closure-grade gate, don't silently keep the lower number:
@@ -689,9 +703,13 @@ flagship objective" v4 question closed unfired. [D-32].)_
   fails both comparators; §10.4 stayed clean (a genuine turtle). Keep v2. [D-32].)_
 - **Predator:** killed by the tripwire panel; or failing the Lookahead floor; or neither pilot
   clearing the 10.3 confirmatory bar; or passing kills but failing to separate from Survivor on
-  the matrix; or the scavenge co-read showing vulture behavior. Consequence per Ivan's ruling:
-  **closed under the current wire** (revisitable only with a frame-level kill-attribution fix;
-  no coef re-sweeps under this wire).
+  the matrix; or the scavenge tripwire panel firing — now mechanical (#126, reconciled ruling
+  2026-07-06): `evaluateScavenge()` returns `kill=true` when either primary fires
+  (`killVictimOneTerrFrac` HIGHER or `killVictimOneTerrTurns` HIGHER vs the raw v3 base, each
+  threshold-clearing AND CI-excludes-0; `killVictimTerr` LOWER only corroborates). Thresholds
+  calibrated from innocent-bot profile data (§10.3), ratified before pilot grading. Consequence
+  per Ivan's ruling: **closed under the current wire** (revisitable only with a frame-level
+  kill-attribution fix; no coef re-sweeps under this wire).
 - **Slate-level:** the shipped trio (Conqueror + Blitz + Survivor, v3 or retained v2 checkpoints)
   is a complete product regardless — every conditional arm is upside, not gap-fill. If a negative
   control fails, grading halts for the whole batch until the harness issue is fixed.

@@ -59,6 +59,7 @@ import {
   SIGNATURE_FAMILY_SIZE,
   DEFAULT_MDE,
   evaluateClockHack,
+  evaluateScavenge,
   NEAR_CAP_WINDOW,
 } from './lib/behavior-core.mjs';
 
@@ -375,10 +376,12 @@ const report = {
       vsControl,
       signature,
       // §10.4 clock-hack tripwire panel vs the control (KILL-gate for placement arms, §10.8).
-      // (The §10.3 scavenge co-read deliberately gets NO such block: unlike clockHack it would
-      // compute nothing — its axes are already addressable in metrics/vsControl/perRun, and a
-      // second serialized copy could only drift. The panel below reads those directly.)
       clockHack: vsControl ? evaluateClockHack(vsControl) : null,
+      // §10.3 scavenge tripwire panel vs the control (KILL-gate for Predator arms, §10.8).
+      // #123 dropped this block when it computed nothing (a pure re-projection of metrics/
+      // vsControl); the tripwire evaluator changes that — like clockHack it now carries computed
+      // verdicts, while the raw axes still ride metrics/vsControl/perRun.
+      scavenge: vsControl ? evaluateScavenge(vsControl) : null,
       liveRuns: liveRunCount(perRun),
       // The raw per-run axis scalars — what behavior:separation pairs across reports.
       perRun,
@@ -529,27 +532,32 @@ if (clockHacked.length) {
   }
 }
 
-// --- §10.3 scavenge co-read (descriptive — vulture detection for Predator grading) ---
-// One line per non-control bot: own mean + paired Δ vs control on the two per-kill victim axes,
-// with the kills mean for context ("kills higher" means little if they're all 1-territory
-// snipes). Reads metrics/vsControl directly — the axes' only copies — and deliberately renders
-// NO verdict: the co-read is operator-judged, per Ivan's 2026-07-06 call. Read the two axes
-// JOINTLY: a victim softened by a third party the turn before reads victimTerr≈1 but a LOW
-// streak; true vulture prey reads a HIGH streak (long-doomed).
-const scavenged = report.bots.filter(b => b.vsControl);
+// --- §10.3 scavenge tripwire panel (the vulture-hack KILL-gate for Predator arms, §10.8) ---
+// One line per non-control bot: verdict + kills context ("kills higher" means little if they're
+// all 1-territory snipes) + per-tripwire own mean, paired Δ vs control, and FIRED/clear. The
+// KILL is protocol-binding for Predator arms only (reconciled ruling, 2026-07-06 — mechanical
+// tripwires with calibration-grounded thresholds supersede #123's descriptive-only panel);
+// printed as context for every other bot, and never an exit-code change.
+const scavenged = report.bots.filter(b => b.scavenge);
 if (scavenged.length) {
   log('');
   log(
-    `Scavenge co-read (§10.3) vs ${controlName} — per-kill victim context ` +
-      `(descriptive, operator-judged):`
+    `Scavenge tripwire (§10.3) vs ${controlName} — per-kill victim context ` +
+      `(KILL-gate for Predator arms, §10.8):`
   );
   for (const b of scavenged) {
-    const rowStr = ['killVictimTerr', 'killVictimOneTerrTurns']
-      .map(axis => {
-        const cmp = b.vsControl[axis];
-        return `${axis} ${fmt(b.metrics[axis])} ${cmp ? fmtDelta(cmp) : 'Δ no data'}`;
+    const sc = b.scavenge;
+    const rowStr = sc.rows
+      .map(r => {
+        const dir = r.direction === 'HIGHER' ? '↑' : '↓';
+        const tag = r.role === 'cosignal' ? ' (co)' : '';
+        const own = fmt(b.metrics[r.axis]);
+        if (r.delta == null) return `${r.axis}${dir}${tag} ${own} no data`;
+        return `${r.axis}${dir}${tag} ${own} ${fmtDelta(r)} ${r.fired ? 'FIRED' : 'clear'}`;
       })
       .join('; ');
-    log(`  ${b.name}: kills ${fmt(b.metrics.kills)} — ${rowStr}`);
+    const verdict = sc.kill ? 'KILL ✗' : 'clear ✓';
+    const co = sc.coSignal ? ' +co-signal' : '';
+    log(`  ${b.name}: ${verdict}${co} — kills ${fmt(b.metrics.kills)} — ${rowStr}`);
   }
 }

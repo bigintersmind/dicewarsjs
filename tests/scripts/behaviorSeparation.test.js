@@ -66,6 +66,7 @@ const perRunOf = (over = {}) => {
     lateGameAggressionSpike: [0.1, 0.15, 0.05, 0.1],
     killVictimTerr: [2.0, 2.1, 1.9, 2.0],
     killVictimOneTerrTurns: [1.0, 1.1, 0.9, 1.0],
+    killVictimOneTerrFrac: [0.1, 0.12, 0.08, 0.1],
     ...over,
   };
   return Array.from({ length: CONFIG.runs }, (_, i) =>

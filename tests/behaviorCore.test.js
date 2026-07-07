@@ -38,6 +38,7 @@ import {
   evaluateClockHack,
   evaluateScavenge,
   evaluateTripwirePanel,
+  panelVerdict,
   CLOCK_HACK_TRIPWIRES,
   SCAVENGE_TRIPWIRES,
   NEAR_CAP_WINDOW,
@@ -784,6 +785,27 @@ describe('§10.3 scavenge tripwire panel — evaluateTripwirePanel / evaluateSca
     expect(innocent.coSignal).toBe(true);
   });
 
+  it('the Δ bound is inclusive (delta === threshold fires) but the CI bound is strict (lo === 0 clears)', () => {
+    // Threshold-relative fixtures so the :755 table pin stays the only threshold-literal test.
+    const T = SCAVENGE_TRIPWIRES[0].threshold;
+    const at = evaluateScavenge({ killVictimOneTerrFrac: dat(T, T / 2, T * 1.5) });
+    expect(at.rows[0].fired).toBe(true); // Δ exactly at the bar fires (>=, not >)
+    const ciTouch = evaluateScavenge({ killVictimOneTerrFrac: dat(T + 0.05, 0, T + 0.5) });
+    expect(ciTouch.rows[0].fired).toBe(false); // lo === 0 does NOT exclude 0 (strict >)
+  });
+
+  it('panelVerdict: KILL beats all; an all-no-data panel reads NO DATA, never a pass-looking clear', () => {
+    expect(panelVerdict(evaluateScavenge({}))).toBe('NO DATA'); // measured nothing ⇒ not a pass
+    const T = SCAVENGE_TRIPWIRES[0].threshold;
+    expect(
+      panelVerdict(evaluateScavenge({ killVictimOneTerrFrac: dat(T + 0.1, T, T + 0.2) }))
+    ).toBe('KILL ✗');
+    // One comparable-but-clear row is a genuine clear, even with the other rows data-less.
+    expect(panelVerdict(evaluateScavenge({ killVictimOneTerrFrac: dat(0.01, -0.02, 0.04) }))).toBe(
+      'clear ✓'
+    );
+  });
+
   it('the killVictimTerr co-signal is direction LOWER and a NO-DATA axis never fires', () => {
     const low = evaluateScavenge({
       killVictimOneTerrFrac: null,
@@ -819,6 +841,7 @@ describe('§10.3 scavenge tripwire panel — evaluateTripwirePanel / evaluateSca
       killVictimTerr: null,
     };
     expect(evaluateScavenge(svs)).toEqual(evaluateTripwirePanel(svs, SCAVENGE_TRIPWIRES));
+    expect(evaluateScavenge(svs).kill).toBe(true); // the frac primary alone kills
   });
 });
 

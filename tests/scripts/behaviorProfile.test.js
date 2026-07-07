@@ -162,6 +162,12 @@ describe('behavior-profile CLI — Holm end-to-end (small real sweep)', () => {
     expect(res.stderr).toMatch(
       /Blitz: (KILL ✗|clear ✓|NO DATA).* — kills [\d.]+.* — killVictimOneTerrFrac↑.*; killVictimOneTerrTurns↑.*; killVictimTerr↓ \(co\)/
     );
+    // The §10.4 panel renders through the SAME shared renderer — pin its header + row skeleton
+    // too, so a renderer regression can't land while only the scavenge pin is watching.
+    expect(res.stderr).toMatch(/Clock-hack tripwire \(§10\.4\)/);
+    expect(res.stderr).toMatch(
+      /Blitz: (KILL ✗|clear ✓|NO DATA).* — nearCapDeathRate↑.*; lateGameAggressionSpike↑.*; truncationRate↓ \(co\)/
+    );
     // The separation-script contract (§10.5 profile pairing): per-run arrays + provenance.
     // Pinned here so a report-shape refactor can't silently strand behavior:separation.
     expect(report.config.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);

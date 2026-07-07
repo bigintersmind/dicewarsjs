@@ -189,8 +189,10 @@ turns and adds nothing over the turn-normalized axis. Derive on demand if ever n
 > wrapper defaults `CLOCK_HACK_TRIPWIRES`), and `evaluateScavenge` runs the same evaluator over
 > `SCAVENGE_TRIPWIRES`: `killVictimOneTerrFrac` HIGHER ≥ 0.15 (primary), `killVictimOneTerrTurns`
 > HIGHER ≥ 2.0 (primary), `killVictimTerr` LOWER ≥ 0.75 (co-signal — corroborates, never kills
-> alone). The joint-reading caveat is handled per-tripwire, not globally: third-party softening
-> cannot fire the streak primary and `killVictimTerr` only corroborates, while the frac primary —
+> alone). The joint-reading caveat is handled per-tripwire, not globally: third-party softening on
+> the player-turn immediately before the kill reads streak = 1 (earlier same-round softening can
+> read up to fieldSize − 1 player-turns, so the streak primary's residual false-fire defense is
+> the calibrated threshold too) and `killVictimTerr` only corroborates, while the frac primary —
 > which innocent opportunistic finishing DOES reach — takes its false-fire defense from the
 > innocent-bot-calibrated threshold (Survivor, the kill-stealing-adjacent negative control, is
 > exactly what it is bounded against). Same firing semantics as §10.4: paired Δ vs the run's

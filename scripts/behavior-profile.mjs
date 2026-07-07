@@ -60,6 +60,7 @@ import {
   DEFAULT_MDE,
   evaluateClockHack,
   evaluateScavenge,
+  panelVerdict,
   NEAR_CAP_WINDOW,
 } from './lib/behavior-core.mjs';
 
@@ -533,8 +534,7 @@ const printTripwirePanel = (key, header, { showOwnMean = false, context = null }
         return `${r.axis}${dir}${tag}${own} ${fmtDelta(r)} ${r.fired ? 'FIRED' : 'clear'}`;
       })
       .join('; ');
-    const allNoData = panel.rows.every(r => r.delta == null);
-    const verdict = panel.kill ? 'KILL ✗' : allNoData ? 'NO DATA' : 'clear ✓';
+    const verdict = panelVerdict(panel);
     const co = panel.coSignal ? ' +co-signal' : '';
     const ctx = context ? `${context(b)} — ` : '';
     log(`  ${b.name}: ${verdict}${co} — ${ctx}${rowStr}`);

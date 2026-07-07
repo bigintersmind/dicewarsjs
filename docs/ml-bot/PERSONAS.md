@@ -482,7 +482,7 @@ no-kill games. Excluded from signatures/separation/Holm — gated instead by
 95% CI excludes 0 in-direction; **KILL = any `primary` fires** — `killVictimOneTerrFrac` HIGHER
 and `killVictimOneTerrTurns` HIGHER are the primaries, `killVictimTerr` LOWER only corroborates
 (`cosignal`). The CLI prints a "Scavenge tripwire (§10.3)" panel with FIRED/clear rows + a
-KILL/clear verdict and `--json` carries `bots[].scavenge` (re-added in #126 now that it holds
+KILL/clear/NO-DATA verdict and `--json` carries `bots[].scavenge` (re-added in #126 now that it holds
 computed verdicts, exactly like `clockHack`; #123 had dropped it as a verdict-free
 re-projection). **Judgment model — reconciled ruling (Ivan, 2026-07-06, superseding #123's
 descriptive-only call):** mechanical tripwires ARE the pre-committed §10.8 Predator kill
@@ -491,9 +491,10 @@ condition, with thresholds **calibrated from innocent-bot profile data rather th
 that Δ's CI half-width); innocent bots = v2 Survivor — placement-styled, kill-stealing-adjacent,
 NOT a vulture — and Lookahead, vs the Conqueror base). The KILL is protocol-binding for Predator
 arms only; printed as context for every other bot. #123's two operator caveats are absorbed into
-the design: (1) joint reading is built in — third-party same-round softening reads victimTerr ≈ 1
-with a LOW streak, so it cannot fire the streak primary, and victimTerr alone is only a
-co-signal; (2) field-size dependence is cancelled — every tripwire is a paired Δ vs a control in
+the design: (1) joint reading is built in — third-party softening on the player-turn immediately
+before the kill reads victimTerr ≈ 1 with streak = 1 (earlier same-round softening reads at most
+fieldSize − 1 player-turns, so the streak primary's residual false-fire defense is the calibrated
+threshold too), and victimTerr alone is only a co-signal; (2) field-size dependence is cancelled — every tripwire is a paired Δ vs a control in
 the identical field (a future absolute threshold would still need field-size calibration). The
 drafted numbers (0.15 / 2.0 / 0.75) await the #126 calibration run + ratification. (#123's "a
 third `oneTerrKillFrac` axis was weighed and dropped as redundant" call was reversed by the

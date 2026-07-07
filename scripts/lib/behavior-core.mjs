@@ -912,8 +912,10 @@ export const CLOCK_HACK_TRIPWIRES = [
  *     this primary takes its false-fire defense from the calibrated threshold — Survivor, the
  *     kill-stealing-adjacent negative control, is what the calibration bounds it against.
  *   - `killVictimOneTerrTurns` HIGHER by ≥ 2.0 — victims long-doomed before the blow (the true
- *     vulture tell; third-party same-round softening yields victimTerr ≈ 1 with a LOW streak, so
- *     it cannot fire this primary).
+ *     vulture tell; third-party softening on the player-turn immediately before the kill reads
+ *     streak = 1, but the streak counts player-turns across ALL live seats, so earlier same-round
+ *     softening can read up to fieldSize − 1 — this primary's residual false-fire defense is the
+ *     same calibrated threshold as the frac's).
  *   - `killVictimTerr` LOWER by ≥ 0.75 — smaller victims overall; the CO-SIGNAL (victimTerr ≈ 1
  *     alone is ambiguous per the joint-reading caveat, so it corroborates, never kills alone).
  * Field-size dependence is cancelled by construction: every tripwire is a paired Δ vs a control
@@ -973,6 +975,17 @@ export const evaluateClockHack = (vsComparator, tripwires = CLOCK_HACK_TRIPWIRES
 /** The §10.3 scavenge panel ({@link SCAVENGE_TRIPWIRES}) via the generic evaluator. */
 export const evaluateScavenge = (vsComparator, tripwires = SCAVENGE_TRIPWIRES) =>
   evaluateTripwirePanel(vsComparator, tripwires);
+
+/**
+ * Human verdict for a tripwire panel ({@link evaluateTripwirePanel} output). KILL beats
+ * everything; a panel whose rows ALL lack comparable data is NO DATA, never a pass-looking
+ * "clear ✓" — a kill-gate that measured nothing must not print a pass.
+ *
+ * @param {{ rows: Array<{delta: number|null}>, kill: boolean }} panel
+ * @returns {'KILL ✗'|'clear ✓'|'NO DATA'}
+ */
+export const panelVerdict = panel =>
+  panel.kill ? 'KILL ✗' : panel.rows.every(r => r.delta == null) ? 'NO DATA' : 'clear ✓';
 
 /**
  * Resolve the §10.3 relative kills MDE for one pair from their per-run kills arrays:

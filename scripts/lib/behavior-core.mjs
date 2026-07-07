@@ -276,11 +276,11 @@ export function profileGameFromCapture(result, playerIndex, capture, maxTurns = 
     killVictimTerr: meanOrNull(victimTerrs),
     killVictimOneTerrTurns: meanOrNull(victimField('victimOneTerrTurns')),
     // §10.3 derived "kill-steal rate": the fraction of this game's OBSERVED kill victims that
-    // entered the killing turn at exactly 1 territory. null (never 0/0) with no observed victim.
-    killVictimOneTerrFrac:
-      victimTerrs.length === 0
-        ? null
-        : victimTerrs.filter(t => t === 1).length / victimTerrs.length,
+    // entered the killing turn at exactly 1 territory — the mean of a per-victim indicator, so
+    // meanOrNull carries the same no-observed-victims ⇒ null (never 0/0) sparsity as the sibling
+    // axes. A per-GAME scalar like every axis (reduceRun then game-weights kill-carrying games,
+    // NOT victim-pools the run) — the same aggregation both comparison sides get.
+    killVictimOneTerrFrac: meanOrNull(victimTerrs.map(t => (t === 1 ? 1 : 0))),
   };
 }
 
@@ -878,13 +878,22 @@ export const KILLS_MDE_FRACTION = 0.15;
  * operator's judgment (a Survivor whose deaths/aggression climb near the cap AND whose truncations
  * fall is unambiguously gaming the now-visible clock).
  *
- * @type {Array<{axis:string, direction:'HIGHER'|'LOWER', threshold:number, role:'primary'|'cosignal'}>}
+ * @type {Tripwire[]}
  */
 export const CLOCK_HACK_TRIPWIRES = [
   { axis: 'nearCapDeathRate', direction: 'HIGHER', threshold: 0.05, role: 'primary' },
   { axis: 'lateGameAggressionSpike', direction: 'HIGHER', threshold: 0.3, role: 'primary' },
   { axis: 'truncationRate', direction: 'LOWER', threshold: 0.05, role: 'cosignal' },
 ];
+
+/**
+ * One row of a §10.8 tripwire table: the panel fires it when the paired Δ vs the comparator
+ * clears `threshold` in `direction` AND the 95% CI excludes 0 that way; any fired `primary`
+ * KILLs, a fired `cosignal` only corroborates.
+ *
+ * @typedef {{ axis:string, direction:'HIGHER'|'LOWER', threshold:number,
+ *   role:'primary'|'cosignal' }} Tripwire
+ */
 
 /**
  * PERSONAS §10.3 — the scavenge (vulture-hack) tripwire panel for the Predator arms, the
@@ -898,7 +907,10 @@ export const CLOCK_HACK_TRIPWIRES = [
  * threshold = max(draft, largest innocent-bot |Δ| observed on that axis + that Δ's CI half-width);
  * innocent bots = v2 Survivor and Lookahead vs the Conqueror base):
  *   - `killVictimOneTerrFrac` HIGHER by ≥ 0.15 — the crisp kill-steal rate: the fraction of the
- *     bot's observed kill victims that entered the killing turn at exactly 1 territory.
+ *     bot's observed kill victims that entered the killing turn at exactly 1 territory. Innocent
+ *     opportunistic finishing (victims a third party softened that round) DOES count here, so
+ *     this primary takes its false-fire defense from the calibrated threshold — Survivor, the
+ *     kill-stealing-adjacent negative control, is what the calibration bounds it against.
  *   - `killVictimOneTerrTurns` HIGHER by ≥ 2.0 — victims long-doomed before the blow (the true
  *     vulture tell; third-party same-round softening yields victimTerr ≈ 1 with a LOW streak, so
  *     it cannot fire this primary).
@@ -907,7 +919,7 @@ export const CLOCK_HACK_TRIPWIRES = [
  * Field-size dependence is cancelled by construction: every tripwire is a paired Δ vs a control
  * measured in the identical field (an absolute threshold reading would need field-size calibration).
  *
- * @type {Array<{axis:string, direction:'HIGHER'|'LOWER', threshold:number, role:'primary'|'cosignal'}>}
+ * @type {Tripwire[]}
  */
 export const SCAVENGE_TRIPWIRES = [
   { axis: 'killVictimOneTerrFrac', direction: 'HIGHER', threshold: 0.15, role: 'primary' },
@@ -926,7 +938,7 @@ export const SCAVENGE_TRIPWIRES = [
  * corroborates but never kills alone.
  *
  * @param {Record<string, {delta:number, lo:number, hi:number, ci:number, verdict:string, n:number}|null>} vsComparator
- * @param {typeof CLOCK_HACK_TRIPWIRES} tripwires
+ * @param {Tripwire[]} tripwires
  * @returns {{ rows: Array<object>, primaryFired: boolean, coSignal: boolean, kill: boolean }}
  */
 export function evaluateTripwirePanel(vsComparator, tripwires) {

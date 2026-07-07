@@ -508,56 +508,50 @@ if (signed.length) {
   }
 }
 
-// --- §10.4 clock-hack tripwire panel (the placement-arm near-cap reward-hack KILL-gate, §10.8) ---
-// Printed for every non-control bot: a Δ-vs-control panel on truncationRate / nearCapDeathRate /
-// lateGameAggressionSpike. A "primary" fire is a ship-blocking kill for a placement arm (Survivor,
-// Predator); benign for a win-objective arm but still informative context.
-const clockHacked = report.bots.filter(b => b.clockHack);
-if (clockHacked.length) {
+// --- The §10.4 / §10.3 tripwire panels (the pre-committed §10.8 KILL-gates) ---
+// One shared renderer (the print-side sibling of the core's generic evaluateTripwirePanel), so
+// the two kill-gate panels can never drift apart in format. One line per non-control bot:
+// verdict + optional context + per-tripwire row (direction arrow, (co) tag, own mean where the
+// panel wants it, paired Δ [CI] vs control, FIRED/clear). A panel whose rows ALL lack comparable
+// data renders a NO DATA verdict, never "clear ✓" — a kill-gate that measured nothing must not
+// print a pass. Kills are ship-blocking only for the arms each gate binds (§10.8: clock-hack →
+// placement arms; scavenge → Predator arms); context for every other bot, never an exit-code
+// change.
+const printTripwirePanel = (key, header, { showOwnMean = false, context = null } = {}) => {
+  const panelBots = report.bots.filter(b => b[key]);
+  if (!panelBots.length) return;
   log('');
-  log(`Clock-hack tripwire (§10.4) vs ${controlName} — near-cap window ${NEAR_CAP_WINDOW} turns:`);
-  for (const b of clockHacked) {
-    const ch = b.clockHack;
-    const rowStr = ch.rows
+  log(header);
+  for (const b of panelBots) {
+    const panel = b[key];
+    const rowStr = panel.rows
       .map(r => {
         const dir = r.direction === 'HIGHER' ? '↑' : '↓';
         const tag = r.role === 'cosignal' ? ' (co)' : '';
-        if (r.delta == null) return `${r.axis}${dir}${tag} no data`;
-        return `${r.axis}${dir}${tag} ${fmtDelta(r)} ${r.fired ? 'FIRED' : 'clear'}`;
+        const own = showOwnMean ? ` ${fmt(b.metrics[r.axis])}` : '';
+        if (r.delta == null) return `${r.axis}${dir}${tag}${own} Δ no data`;
+        return `${r.axis}${dir}${tag}${own} ${fmtDelta(r)} ${r.fired ? 'FIRED' : 'clear'}`;
       })
       .join('; ');
-    const verdict = ch.kill ? 'KILL ✗' : 'clear ✓';
-    const co = ch.coSignal ? ' +co-signal' : '';
-    log(`  ${b.name}: ${verdict}${co} — ${rowStr}`);
+    const allNoData = panel.rows.every(r => r.delta == null);
+    const verdict = panel.kill ? 'KILL ✗' : allNoData ? 'NO DATA' : 'clear ✓';
+    const co = panel.coSignal ? ' +co-signal' : '';
+    const ctx = context ? `${context(b)} — ` : '';
+    log(`  ${b.name}: ${verdict}${co} — ${ctx}${rowStr}`);
   }
-}
+};
 
-// --- §10.3 scavenge tripwire panel (the vulture-hack KILL-gate for Predator arms, §10.8) ---
-// One line per non-control bot: verdict + kills context ("kills higher" means little if they're
-// all 1-territory snipes) + per-tripwire own mean, paired Δ vs control, and FIRED/clear. The
-// KILL is protocol-binding for Predator arms only (reconciled ruling, 2026-07-06 — mechanical
-// tripwires with calibration-grounded thresholds supersede #123's descriptive-only panel);
-// printed as context for every other bot, and never an exit-code change.
-const scavenged = report.bots.filter(b => b.scavenge);
-if (scavenged.length) {
-  log('');
-  log(
-    `Scavenge tripwire (§10.3) vs ${controlName} — per-kill victim context ` +
-      `(KILL-gate for Predator arms, §10.8):`
-  );
-  for (const b of scavenged) {
-    const sc = b.scavenge;
-    const rowStr = sc.rows
-      .map(r => {
-        const dir = r.direction === 'HIGHER' ? '↑' : '↓';
-        const tag = r.role === 'cosignal' ? ' (co)' : '';
-        const own = fmt(b.metrics[r.axis]);
-        if (r.delta == null) return `${r.axis}${dir}${tag} ${own} no data`;
-        return `${r.axis}${dir}${tag} ${own} ${fmtDelta(r)} ${r.fired ? 'FIRED' : 'clear'}`;
-      })
-      .join('; ');
-    const verdict = sc.kill ? 'KILL ✗' : 'clear ✓';
-    const co = sc.coSignal ? ' +co-signal' : '';
-    log(`  ${b.name}: ${verdict}${co} — kills ${fmt(b.metrics.kills)} — ${rowStr}`);
-  }
-}
+// §10.4: truncationRate / nearCapDeathRate / lateGameAggressionSpike (placement-arm near-cap hack).
+printTripwirePanel(
+  'clockHack',
+  `Clock-hack tripwire (§10.4) vs ${controlName} — near-cap window ${NEAR_CAP_WINDOW} turns:`
+);
+
+// §10.3: per-kill victim context (vulture hack). Own means printed per row, plus the kills mean
+// as context — "kills higher" means little if they're all 1-territory snipes.
+printTripwirePanel(
+  'scavenge',
+  `Scavenge tripwire (§10.3) vs ${controlName} — per-kill victim context ` +
+    `(KILL-gate for Predator arms, §10.8):`,
+  { showOwnMean: true, context: b => `kills ${fmt(b.metrics.kills)}` }
+);

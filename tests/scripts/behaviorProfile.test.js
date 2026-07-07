@@ -143,14 +143,24 @@ describe('behavior-profile CLI — Holm end-to-end (small real sweep)', () => {
     ]);
     expect(typeof blitz.scavenge.kill).toBe('boolean');
     expect(blitz.scavenge.kill).toBe(blitz.scavenge.primaryFired); // any-primary KILL rule
+    // The block's Δs must MIRROR vsControl (the axes' one source of truth) — the anti-drift
+    // guarantee that replaced #123's "no second serialized copy" invariant when the block was
+    // re-added carrying verdicts. A row with no comparison carries nulls, exactly like vsControl.
+    for (const row of blitz.scavenge.rows) {
+      const cmp = blitz.vsControl[row.axis];
+      expect(row.delta).toBe(cmp ? cmp.delta : null);
+      expect(row.lo).toBe(cmp ? cmp.lo : null);
+      expect(row.hi).toBe(cmp ? cmp.hi : null);
+    }
     expect(report.bots.find(b => b.name === 'Defensive').scavenge).toBeNull();
     expect(res.stderr).toMatch(/Scavenge tripwire \(§10\.3\)/);
     // Pin the rendered ROW, not just the header: verdict + kills context + all three axes in
     // table order (primaries then the co-signal). Skeleton only (labels + order), so it holds
-    // whether or not Blitz recorded kills in this small sweep (a no-kill row renders "no data",
-    // never FIRED, and the verdict stays "clear ✓").
+    // whether or not Blitz recorded kills in this small sweep — a data-less row renders
+    // "Δ no data", never FIRED, and a panel with NO comparable row at all says "NO DATA"
+    // instead of a pass-looking "clear ✓" (the fail-open guard).
     expect(res.stderr).toMatch(
-      /Blitz: (KILL ✗|clear ✓).* — kills [\d.]+.* — killVictimOneTerrFrac↑.*; killVictimOneTerrTurns↑.*; killVictimTerr↓ \(co\)/
+      /Blitz: (KILL ✗|clear ✓|NO DATA).* — kills [\d.]+.* — killVictimOneTerrFrac↑.*; killVictimOneTerrTurns↑.*; killVictimTerr↓ \(co\)/
     );
     // The separation-script contract (§10.5 profile pairing): per-run arrays + provenance.
     // Pinned here so a report-shape refactor can't silently strand behavior:separation.

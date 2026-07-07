@@ -189,8 +189,11 @@ turns and adds nothing over the turn-normalized axis. Derive on demand if ever n
 > wrapper defaults `CLOCK_HACK_TRIPWIRES`), and `evaluateScavenge` runs the same evaluator over
 > `SCAVENGE_TRIPWIRES`: `killVictimOneTerrFrac` HIGHER ≥ 0.15 (primary), `killVictimOneTerrTurns`
 > HIGHER ≥ 2.0 (primary), `killVictimTerr` LOWER ≥ 0.75 (co-signal — corroborates, never kills
-> alone; the joint-reading caveat is thereby built into the kill rule, since third-party softening
-> cannot fire the streak primary). Same firing semantics as §10.4: paired Δ vs the run's
+> alone). The joint-reading caveat is handled per-tripwire, not globally: third-party softening
+> cannot fire the streak primary and `killVictimTerr` only corroborates, while the frac primary —
+> which innocent opportunistic finishing DOES reach — takes its false-fire defense from the
+> innocent-bot-calibrated threshold (Survivor, the kill-stealing-adjacent negative control, is
+> exactly what it is bounded against). Same firing semantics as §10.4: paired Δ vs the run's
 > `--control` clears the threshold AND the 95% CI excludes 0 in-direction; KILL = any primary,
 > protocol-binding for Predator arms only (printed as context for every other bot; no exit-code
 > change). The CLI prints a "Scavenge tripwire (§10.3)" panel (verdict + `kills` mean as context +

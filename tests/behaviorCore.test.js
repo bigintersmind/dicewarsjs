@@ -63,6 +63,9 @@ const stateOf = specs => ({ players: specs.map((s, i) => player(i, s)) });
 /** A full per-run reduced record (every AXES key finite); override specific axes per test. */
 const reduceShape = (over = {}) => ({ ...Object.fromEntries(AXES.map(a => [a, 1])), ...over });
 
+/** A synthetic compareAxis-shaped Δ row for the tripwire-panel tests (§10.4 + §10.3). */
+const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
+
 describe('makeCapture — onTurn/onStep accumulation', () => {
   it('counts the victory turn as an active turn (the aggression-bias fix)', () => {
     const { capture, onTurn, onStep } = makeCapture(0);
@@ -430,7 +433,6 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
   });
 
   it('evaluateClockHack fires a primary only on a threshold-clearing, CI-excludes-0 Δ', () => {
-    const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
     // nearCapDeathRate +0.08 with CI [0.03,0.13] ⇒ primary FIRES ⇒ kill.
     const hit = evaluateClockHack({
       nearCapDeathRate: dat(0.08, 0.03, 0.13),
@@ -455,7 +457,6 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
   });
 
   it('fires the lateGameAggressionSpike primary on a ≥0.3 in-direction Δ (the second kill path)', () => {
-    const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
     // The OTHER primary: spike +0.5 with CI [0.3,0.7] clears the 0.3 threshold AND excludes 0.
     const spike = evaluateClockHack({
       nearCapDeathRate: dat(0.0, -0.02, 0.02), // clear
@@ -476,7 +477,6 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
   });
 
   it('the magnitude threshold is binding: a significant but sub-threshold Δ does NOT fire', () => {
-    const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
     // Both Δs exclude 0 (statistically significant) but fall short of their thresholds ⇒ no fire.
     // Guards against dropping the `cmp.delta >= threshold` half of the predicate.
     const sub = evaluateClockHack({
@@ -658,22 +658,24 @@ describe('§10.3 scavenge co-read — victim trackers, per-game means, aggregati
     expect(() => profileGameFromCapture(scavResult, 0, noField)).toThrow(/killVictims/);
   });
 
+  // A minimal kill-carrying GameProfile for the reduceRun cases; override per test.
+  const g = (over = {}) => ({
+    won: true,
+    placement: 1,
+    turnsToWin: 20,
+    aggression: 4,
+    captureEfficiency: 0.7,
+    avgDiceReserve: 9,
+    avgTerritory: 8,
+    dicePerTerritory: 1.2,
+    largestGroup: 6,
+    kills: 1,
+    survivalTurn: 20,
+    zeroAttackTurnFrac: 0.1,
+    ...over,
+  });
+
   it('reduceRun means the axes over kill-carrying games only; an all-null run reduces to null', () => {
-    const g = (over = {}) => ({
-      won: true,
-      placement: 1,
-      turnsToWin: 20,
-      aggression: 4,
-      captureEfficiency: 0.7,
-      avgDiceReserve: 9,
-      avgTerritory: 8,
-      dicePerTerritory: 1.2,
-      largestGroup: 6,
-      kills: 1,
-      survivalTurn: 20,
-      zeroAttackTurnFrac: 0.1,
-      ...over,
-    });
     const r = reduceRun([
       g({ kills: 2, killVictimTerr: 1, killVictimOneTerrTurns: 4 }),
       g({ kills: 0, killVictimTerr: null, killVictimOneTerrTurns: null }), // no-kill game dropped
@@ -730,21 +732,6 @@ describe('§10.3 scavenge co-read — victim trackers, per-game means, aggregati
   });
 
   it('reduceRun means killVictimOneTerrFrac over kill-carrying games; an all-null run reduces to null', () => {
-    const g = (over = {}) => ({
-      won: true,
-      placement: 1,
-      turnsToWin: 20,
-      aggression: 4,
-      captureEfficiency: 0.7,
-      avgDiceReserve: 9,
-      avgTerritory: 8,
-      dicePerTerritory: 1.2,
-      largestGroup: 6,
-      kills: 1,
-      survivalTurn: 20,
-      zeroAttackTurnFrac: 0.1,
-      ...over,
-    });
     const r = reduceRun([
       g({ kills: 2, killVictimOneTerrFrac: 1 }),
       g({ kills: 0, killVictimOneTerrFrac: null }), // no-kill game dropped, not averaged as 0
@@ -765,8 +752,6 @@ describe('§10.3 scavenge co-read — victim trackers, per-game means, aggregati
 });
 
 describe('§10.3 scavenge tripwire panel — evaluateTripwirePanel / evaluateScavenge', () => {
-  const dat = (delta, lo, hi) => ({ delta, lo, hi, ci: (hi - lo) / 2, verdict: 'X', n: 5 });
-
   it('pins the pre-registered SCAVENGE_TRIPWIRES table (DRAFT thresholds until the §3 calibration run)', () => {
     expect(SCAVENGE_TRIPWIRES).toEqual([
       { axis: 'killVictimOneTerrFrac', direction: 'HIGHER', threshold: 0.15, role: 'primary' },

@@ -187,8 +187,8 @@ turns and adds nothing over the turn-normalized axis. Derive on demand if ever n
 > profile data rather than guessed). `evaluateClockHack`'s body is now the generic
 > `evaluateTripwirePanel(vsComparator, tripwires)` (a behavior-identical refactor; the §10.4
 > wrapper defaults `CLOCK_HACK_TRIPWIRES`), and `evaluateScavenge` runs the same evaluator over
-> `SCAVENGE_TRIPWIRES`: `killVictimOneTerrFrac` HIGHER ≥ 0.15 (primary), `killVictimOneTerrTurns`
-> HIGHER ≥ 2.0 (primary), `killVictimTerr` LOWER ≥ 0.75 (co-signal — corroborates, never kills
+> `SCAVENGE_TRIPWIRES`: `killVictimOneTerrFrac` HIGHER ≥ 0.31 (primary), `killVictimOneTerrTurns`
+> HIGHER ≥ 5.64 (primary), `killVictimTerr` LOWER ≥ 0.91 (co-signal — corroborates, never kills
 > alone). The joint-reading caveat is handled per-tripwire, not globally: third-party softening on
 > the player-turn immediately before the kill reads streak = 1 (earlier same-round softening can
 > read up to fieldSize − 1 player-turns, so the streak primary's residual false-fire defense is
@@ -201,9 +201,17 @@ turns and adds nothing over the turn-normalized axis. Derive on demand if ever n
 > change). The CLI prints a "Scavenge tripwire (§10.3)" panel (verdict + `kills` mean as context +
 > own mean, Δ [CI], FIRED/clear per tripwire) and `--json` carries `bots[].scavenge` (a
 > `clockHack`-shaped block, re-added now that it holds computed verdicts; `null` for the control).
-> **The 0.15 / 2.0 / 0.75 numbers are DRAFTS** pending the #126 calibration run (v2 Survivor +
-> Lookahead vs the Conqueror base at 10×30×6; final threshold per axis = max(draft, largest
-> innocent-bot |Δ| + its CI half-width)) and Ivan's ratification.
+> **Thresholds RATIFIED 2026-07-06 (Ivan)** from the #126 calibration run — v2 Survivor + Lookahead
+> vs the Conqueror base at 10×30×6 (5400 matches, 0 quarantined, exit 0), both innocents **clear**
+> on the drafts (no false fire). Rule per axis: max(draft, largest innocent-bot |Δ| + its CI
+> half-width), rounded up to 2 decimals → **0.31** (Lookahead |−0.274| + 0.032), **5.64** (Lookahead
+> |−4.888| + 0.744), **0.91** (Lookahead 0.825 + 0.081) — every binding extreme was Lookahead's, in
+> the opposite (innocent) direction, so the ratified bars kill only on unambiguous vulture behavior.
+> Field note: Lookahead is a profiled bot here, so its default-field seat went to **Strategist**
+> (`--opponents Default,Adaptive,Example,Expectimax,Strategist --reference Expectimax`) — **Wave-2
+> Predator grading must profile in this same field** to pair against the calibration report
+> (`assertPairableReports` hard-checks `opponents`/`opponentSpecs`). The [D-32] Predator kills bar,
+> recomputed in this field: 15% × v2 Survivor's realized 1.725 mean kills = **+0.26**.
 
 ---
 

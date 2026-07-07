@@ -753,21 +753,25 @@ describe('§10.3 scavenge co-read — victim trackers, per-game means, aggregati
 });
 
 describe('§10.3 scavenge tripwire panel — evaluateTripwirePanel / evaluateScavenge', () => {
-  it('pins the pre-registered SCAVENGE_TRIPWIRES table (DRAFT thresholds until the §3 calibration run)', () => {
+  // Every other fixture below derives from the table, so this pin stays the ONLY
+  // threshold-literal test — a table edit fails exactly one change-detector, not a noisy bundle.
+  const [FRAC, TURNS, TERR] = SCAVENGE_TRIPWIRES.map(t => t.threshold);
+
+  it('pins the RATIFIED SCAVENGE_TRIPWIRES table (2026-07-06 calibration: max(draft, innocent |Δ| + CI half-width))', () => {
     expect(SCAVENGE_TRIPWIRES).toEqual([
-      { axis: 'killVictimOneTerrFrac', direction: 'HIGHER', threshold: 0.15, role: 'primary' },
-      { axis: 'killVictimOneTerrTurns', direction: 'HIGHER', threshold: 2.0, role: 'primary' },
-      { axis: 'killVictimTerr', direction: 'LOWER', threshold: 0.75, role: 'cosignal' },
+      { axis: 'killVictimOneTerrFrac', direction: 'HIGHER', threshold: 0.31, role: 'primary' },
+      { axis: 'killVictimOneTerrTurns', direction: 'HIGHER', threshold: 5.64, role: 'primary' },
+      { axis: 'killVictimTerr', direction: 'LOWER', threshold: 0.91, role: 'cosignal' },
     ]);
     for (const t of SCAVENGE_TRIPWIRES) expect(AXES).toContain(t.axis);
   });
 
   it('evaluateScavenge fires a primary only on a threshold-clearing, CI-excludes-0 Δ; kill = any primary', () => {
-    // A true vulture: 40% of kills are 1-territory snipes, victims long-doomed, both CIs clear 0.
+    // A true vulture: every Δ clears its bar with the whole CI on the firing side of 0.
     const vulture = evaluateScavenge({
-      killVictimOneTerrFrac: dat(0.4, 0.25, 0.55),
-      killVictimOneTerrTurns: dat(2.5, 1.0, 4.0),
-      killVictimTerr: dat(-0.9, -1.3, -0.5),
+      killVictimOneTerrFrac: dat(FRAC + 0.1, FRAC, FRAC + 0.2),
+      killVictimOneTerrTurns: dat(TURNS + 1, TURNS - 1, TURNS + 3),
+      killVictimTerr: dat(-(TERR + 0.1), -(TERR + 0.5), -(TERR - 0.3)),
     });
     expect(vulture.kill).toBe(true);
     expect(vulture.primaryFired).toBe(true);
@@ -776,9 +780,9 @@ describe('§10.3 scavenge tripwire panel — evaluateTripwirePanel / evaluateSca
 
     // Sub-threshold or CI∋0 primaries stay clear — and the co-signal alone never kills.
     const innocent = evaluateScavenge({
-      killVictimOneTerrFrac: dat(0.1, 0.02, 0.18), // significant but < 0.15 ⇒ clear
-      killVictimOneTerrTurns: dat(2.5, -0.5, 5.5), // ≥ 2.0 but CI∋0 ⇒ clear
-      killVictimTerr: dat(-0.9, -1.3, -0.5), // co-signal fires
+      killVictimOneTerrFrac: dat(FRAC - 0.05, FRAC - 0.13, FRAC + 0.03), // significant but sub-threshold ⇒ clear
+      killVictimOneTerrTurns: dat(TURNS + 0.5, -0.5, 2 * TURNS + 1.5), // clears the bar but CI∋0 ⇒ clear
+      killVictimTerr: dat(-(TERR + 0.1), -(TERR + 0.5), -(TERR - 0.3)), // co-signal fires
     });
     expect(innocent.kill).toBe(false);
     expect(innocent.primaryFired).toBe(false);
@@ -786,19 +790,16 @@ describe('§10.3 scavenge tripwire panel — evaluateTripwirePanel / evaluateSca
   });
 
   it('the Δ bound is inclusive (delta === threshold fires) but the CI bound is strict (lo === 0 clears)', () => {
-    // Threshold-relative fixtures so the :755 table pin stays the only threshold-literal test.
-    const T = SCAVENGE_TRIPWIRES[0].threshold;
-    const at = evaluateScavenge({ killVictimOneTerrFrac: dat(T, T / 2, T * 1.5) });
+    const at = evaluateScavenge({ killVictimOneTerrFrac: dat(FRAC, FRAC / 2, FRAC * 1.5) });
     expect(at.rows[0].fired).toBe(true); // Δ exactly at the bar fires (>=, not >)
-    const ciTouch = evaluateScavenge({ killVictimOneTerrFrac: dat(T + 0.05, 0, T + 0.5) });
+    const ciTouch = evaluateScavenge({ killVictimOneTerrFrac: dat(FRAC + 0.05, 0, FRAC + 0.5) });
     expect(ciTouch.rows[0].fired).toBe(false); // lo === 0 does NOT exclude 0 (strict >)
   });
 
   it('panelVerdict: KILL beats all; an all-no-data panel reads NO DATA, never a pass-looking clear', () => {
     expect(panelVerdict(evaluateScavenge({}))).toBe('NO DATA'); // measured nothing ⇒ not a pass
-    const T = SCAVENGE_TRIPWIRES[0].threshold;
     expect(
-      panelVerdict(evaluateScavenge({ killVictimOneTerrFrac: dat(T + 0.1, T, T + 0.2) }))
+      panelVerdict(evaluateScavenge({ killVictimOneTerrFrac: dat(FRAC + 0.1, FRAC, FRAC + 0.2) }))
     ).toBe('KILL ✗');
     // One comparable-but-clear row is a genuine clear, even with the other rows data-less.
     expect(panelVerdict(evaluateScavenge({ killVictimOneTerrFrac: dat(0.01, -0.02, 0.04) }))).toBe(
@@ -810,13 +811,13 @@ describe('§10.3 scavenge tripwire panel — evaluateTripwirePanel / evaluateSca
     const low = evaluateScavenge({
       killVictimOneTerrFrac: null,
       killVictimOneTerrTurns: null,
-      killVictimTerr: dat(-0.8, -1.2, -0.4),
+      killVictimTerr: dat(-(TERR + 0.1), -(TERR + 0.5), -(TERR - 0.3)),
     });
     expect(low.rows.find(r => r.axis === 'killVictimTerr').fired).toBe(true);
     expect(low.kill).toBe(false); // co-signal never kills alone
     expect(low.rows.filter(r => r.verdict === 'NO DATA')).toHaveLength(2);
     // An in-magnitude but WRONG-direction Δ (victims BIGGER than the control's) must not fire.
-    const high = evaluateScavenge({ killVictimTerr: dat(0.8, 0.4, 1.2) });
+    const high = evaluateScavenge({ killVictimTerr: dat(TERR + 0.1, TERR - 0.3, TERR + 0.5) });
     expect(high.rows.find(r => r.axis === 'killVictimTerr').fired).toBe(false);
     expect(high.coSignal).toBe(false);
   });
@@ -836,7 +837,7 @@ describe('§10.3 scavenge tripwire panel — evaluateTripwirePanel / evaluateSca
     expect(evaluateClockHack(vs, custom).kill).toBe(true);
     // evaluateScavenge is the same generic panel over SCAVENGE_TRIPWIRES.
     const svs = {
-      killVictimOneTerrFrac: dat(0.4, 0.25, 0.55),
+      killVictimOneTerrFrac: dat(FRAC + 0.1, FRAC, FRAC + 0.2),
       killVictimOneTerrTurns: null,
       killVictimTerr: null,
     };

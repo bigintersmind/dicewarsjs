@@ -496,7 +496,10 @@ before the kill reads victimTerr ≈ 1 with streak = 1 (earlier same-round softe
 fieldSize − 1 player-turns, so the streak primary's residual false-fire defense is the calibrated
 threshold too), and victimTerr alone is only a co-signal; (2) field-size dependence is cancelled — every tripwire is a paired Δ vs a control in
 the identical field (a future absolute threshold would still need field-size calibration). The
-drafted numbers (0.15 / 2.0 / 0.75) await the #126 calibration run + ratification. (#123's "a
+thresholds were **ratified 2026-07-06** from the #126 calibration run at **0.31 / 5.64 / 0.91**
+(both innocents clear on the drafts — no false fire; every binding extreme was Lookahead's
+opposite-direction |Δ|, so the gate kills only on unambiguous vulture behavior; run details,
+field-pairing constraint, and the recomputed +0.26 kills bar in EVAL_HARNESS §2.2). (#123's "a
 third `oneTerrKillFrac` axis was weighed and dropped as redundant" call was reversed by the
 re-scoped #126 — as a fraction it is the crisp rate the thresholds want, and it now leads the
 panel.) See EVAL_HARNESS §2.2.)_
@@ -510,6 +513,9 @@ fired — Survivor-v3 was killed, so the comparator is **v2 Survivor**. The ≈+
 the "Survivor-v3's 1.86–1.92" attribution above is a pre-registration mislabel — those kills are v2
 Survivor's, from the v2-era Batch-2B profile field (no v3 net existed yet). Recompute the 15% bar
 from v2 Survivor's realized kills in the v3-era profile field before pilot grading. [D-32].)_
+_(Recomputed 2026-07-06, #126 calibration field: 15% × v2 Survivor's realized 1.725 mean kills =
+**+0.26** — the confirmatory bar for Predator pilot grading. Wave-2 must profile in the same field
+to keep this bar and the ratified tripwires pairable; field spec in EVAL_HARNESS §2.2.)_
 
 ### 10.4 New v3 hazard class — the clock cuts both ways (pre-register before Wave 1)
 
@@ -708,7 +714,8 @@ flagship objective" v4 question closed unfired. [D-32].)_
   2026-07-06): `evaluateScavenge()` returns `kill=true` when either primary fires
   (`killVictimOneTerrFrac` HIGHER or `killVictimOneTerrTurns` HIGHER vs the raw v3 base, each
   threshold-clearing AND CI-excludes-0; `killVictimTerr` LOWER only corroborates). Thresholds
-  calibrated from innocent-bot profile data (§10.3), ratified before pilot grading. Consequence
+  calibrated from innocent-bot profile data and **ratified 2026-07-06: 0.31 / 5.64 / 0.91**
+  (§10.3), with the recomputed **+0.26** kills bar. Consequence
   per Ivan's ruling: **closed under the current wire** (revisitable only with a frame-level
   kill-attribution fix; no coef re-sweeps under this wire).
 - **Slate-level:** the shipped trio (Conqueror + Blitz + Survivor, v3 or retained v2 checkpoints)

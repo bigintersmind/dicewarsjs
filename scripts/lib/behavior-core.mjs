@@ -903,30 +903,37 @@ export const CLOCK_HACK_TRIPWIRES = [
  * profile run's `--control` (the raw v3 base for Wave-2 grading, matching the Wave-1 protocol).
  * The KILL is protocol-binding for Predator arms only; printed as context for every other bot.
  *
- * **Thresholds are DRAFTS pending the issue-#126 calibration run** (rule, per axis: final
- * threshold = max(draft, largest innocent-bot |Δ| observed on that axis + that Δ's CI half-width);
- * innocent bots = v2 Survivor and Lookahead vs the Conqueror base):
- *   - `killVictimOneTerrFrac` HIGHER by ≥ 0.15 — the crisp kill-steal rate: the fraction of the
- *     bot's observed kill victims that entered the killing turn at exactly 1 territory. Innocent
- *     opportunistic finishing (victims a third party softened that round) DOES count here, so
- *     this primary takes its false-fire defense from the calibrated threshold — Survivor, the
- *     kill-stealing-adjacent negative control, is what the calibration bounds it against.
- *   - `killVictimOneTerrTurns` HIGHER by ≥ 2.0 — victims long-doomed before the blow (the true
- *     vulture tell; third-party softening on the player-turn immediately before the kill reads
- *     streak = 1, but the streak counts player-turns across ALL live seats, so earlier same-round
- *     softening can read up to fieldSize − 1 — this primary's residual false-fire defense is the
- *     same calibrated threshold as the frac's).
- *   - `killVictimTerr` LOWER by ≥ 0.75 — smaller victims overall; the CO-SIGNAL (victimTerr ≈ 1
- *     alone is ambiguous per the joint-reading caveat, so it corroborates, never kills alone).
+ * **Thresholds RATIFIED 2026-07-06 (Ivan)** from the #126 calibration run — 10×30×6, innocents
+ * v2 Survivor + Lookahead vs the Conqueror base, both clear (no false fire on the drafts). Rule,
+ * per axis: final threshold = max(draft, largest innocent-bot |Δ| observed on that axis + that
+ * Δ's CI half-width), rounded UP to 2 decimals (round-up = harder to fire = conservative for a
+ * kill-gate). Every binding extreme was Lookahead's, in the OPPOSITE (innocent) direction — so
+ * the calibrated bars sit well above the 0.15 / 2.0 / 0.75 drafts and the gate kills only on
+ * unambiguous vulture behavior (a weak-but-not-hacking Predator still faces the Lookahead floor,
+ * the §10.3 kills bar, and the Survivor-separation bar):
+ *   - `killVictimOneTerrFrac` HIGHER by ≥ 0.31 (rule: |−0.274| + 0.032) — the crisp kill-steal
+ *     rate: the fraction of the bot's observed kill victims that entered the killing turn at
+ *     exactly 1 territory. Innocent opportunistic finishing (victims a third party softened that
+ *     round) DOES count here, so this primary takes its false-fire defense from the calibrated
+ *     threshold — Survivor, the kill-stealing-adjacent negative control, is what the calibration
+ *     bounds it against.
+ *   - `killVictimOneTerrTurns` HIGHER by ≥ 5.64 (rule: |−4.888| + 0.744) — victims long-doomed
+ *     before the blow (the true vulture tell; third-party softening on the player-turn
+ *     immediately before the kill reads streak = 1, but the streak counts player-turns across
+ *     ALL live seats, so earlier same-round softening can read up to fieldSize − 1 — this
+ *     primary's residual false-fire defense is the same calibrated threshold as the frac's).
+ *   - `killVictimTerr` LOWER by ≥ 0.91 (rule: 0.825 + 0.081) — smaller victims overall; the
+ *     CO-SIGNAL (victimTerr ≈ 1 alone is ambiguous per the joint-reading caveat, so it
+ *     corroborates, never kills alone).
  * Field-size dependence is cancelled by construction: every tripwire is a paired Δ vs a control
  * measured in the identical field (an absolute threshold reading would need field-size calibration).
  *
  * @type {Tripwire[]}
  */
 export const SCAVENGE_TRIPWIRES = [
-  { axis: 'killVictimOneTerrFrac', direction: 'HIGHER', threshold: 0.15, role: 'primary' },
-  { axis: 'killVictimOneTerrTurns', direction: 'HIGHER', threshold: 2.0, role: 'primary' },
-  { axis: 'killVictimTerr', direction: 'LOWER', threshold: 0.75, role: 'cosignal' },
+  { axis: 'killVictimOneTerrFrac', direction: 'HIGHER', threshold: 0.31, role: 'primary' },
+  { axis: 'killVictimOneTerrTurns', direction: 'HIGHER', threshold: 5.64, role: 'primary' },
+  { axis: 'killVictimTerr', direction: 'LOWER', threshold: 0.91, role: 'cosignal' },
 ];
 
 /**

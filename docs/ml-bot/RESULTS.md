@@ -1121,3 +1121,34 @@ base), no "halt & investigate." (Judge the control on head-to-head, never in-fie
 **Artifacts:** each arm's `{ppo.pt, eval/, state}` backed up to `mini:~/dicewarsjs/ml/runs/`
 (sha256-verified end-to-end, `fc9b8735…`); shodan cleanup done (schtasks `dicewars-ppo-v3-wave` +
 supervisor `launch-v3-wave.sh` removed). Run commit `a10f405`; Lookahead pin `596f781`.
+
+## §10.3 scavenge tripwire calibration — innocents clear, thresholds RATIFIED · 2026-07-06
+
+**Setup** (#126 §3, minimally adapted): `behavior:profile` 10 runs × 30 games × 6-seat field,
+`--bots Survivor,Lookahead --control Conqueror`. Because Lookahead is profiled, its default-field
+seat went to Strategist: `--opponents Default,Adaptive,Example,Expectimax,Strategist
+--reference Expectimax`. 5400 matches, 0 quarantined, 10/10 live runs per bot, exit 0. Report:
+`ml/runs/behavior-calibration/scavenge-calibration-2026-07-06.profile.json` (local, gitignored;
+copy on `mini:~/dicewarsjs/ml/runs/behavior-calibration/`; gitSha `6f91185`, clean).
+**Wave-2 Predator grading must profile in this same field to pair** (`assertPairableReports`
+hard-checks `opponents`/`opponentSpecs`).
+
+**Innocent panels vs Conqueror (draft thresholds): both clear ✓, no false fire.**
+
+| Axis (direction)                      | Survivor Δ [CI]         | Lookahead Δ [CI]        | Draft | Rule output | **Ratified** |
+| ------------------------------------- | ----------------------- | ----------------------- | ----- | ----------- | ------------ |
+| `killVictimOneTerrFrac` (↑, primary)  | −0.074 [−0.106, −0.042] | −0.274 [−0.306, −0.243] | 0.15  | 0.306       | **0.31**     |
+| `killVictimOneTerrTurns` (↑, primary) | −2.311 [−3.144, −1.478] | −4.888 [−5.632, −4.145] | 2.0   | 5.632       | **5.64**     |
+| `killVictimTerr` (↓, co-signal)       | +0.232 [+0.195, +0.268] | +0.825 [+0.744, +0.906] | 0.75  | 0.906       | **0.91**     |
+
+Rule: per axis, max(draft, largest innocent |Δ| + that Δ's CI half-width), rounded up to 2
+decimals (Ivan ratified 2026-07-06). Every binding extreme is Lookahead's, in the **opposite**
+(innocent) direction — the ratified bars therefore kill only on unambiguous vulture behavior
+(base ≈ 0.69 frac / 6.3-turn streaks / 1.9-terr victims ⇒ a fire needs ≈ all-snipe kills,
+≈ 11.9-turn-doomed victims, or ≈ 1.0-terr victims). A weak-but-not-hacking Predator is still
+screened by the Lookahead floor, the kills bar, and Survivor separation. Innocents re-verified
+clear under the ratified table.
+
+**Kills bar recomputed ([D-32]):** 15% × v2 Survivor's realized mean kills in this field
+(1.725 ± 0.07) = **+0.26** (vs the void ≈+0.28 and [D-30]'s +0.25 interim). Context means:
+Lookahead 1.40 ± 0.09, Conqueror 1.46 ± 0.10.

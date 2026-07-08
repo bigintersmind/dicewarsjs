@@ -49,15 +49,18 @@ const DOMINANCE_SHARE = 0.4;
 /*
  * Press-to-close override (issue #115): a bot that clearly holds a winning
  * position must keep attacking even when every remaining move is a penalized
- * near-even coinflip (a maxed 8v8 frontier scores ~-2, below even
- * PRESS_THRESHOLD), or AI-vs-AI games freeze into turn-cap stalemates.
+ * near-even coinflip, or AI-vs-AI games freeze into turn-cap stalemates.
  * "Clearly winning" = strict territory lead AND (dominant dice share OR the
  * field has narrowed to PRESS_CLOSE_PLAYERS or fewer while holding at least
- * DOMINANCE_SHARE of the dice — issue #132). The override lowers the EV bar
- * to CLOSEOUT_FLOOR instead of bypassing it (issue #132): the press exists to
- * admit the near-even full-stack coinflip that breaks a stalemate (a maxed
- * 8v8 scores ~-1), not to force a genuinely suicidal only-move (a 4v8 scores
- * ~-4, a 6v8 ~-3). The searched best move is still the move played.
+ * DOMINANCE_SHARE of the dice — issue #132). The override lowers the EV bar to
+ * CLOSEOUT_FLOOR instead of bypassing it (issue #132): it admits the near-even
+ * full-stack coinflip that breaks a stalemate but not a genuinely suicidal
+ * only-move. On the issue-#132 fixtures a maxed 8v8 (win prob ~0.47) scores
+ * roughly -1 to -2 depending on frontier exposure and clears the floor, while
+ * a ~12%-odds 6v8 (~-3) and a ~0.6%-odds 4v8 (~-4) fall below it and are
+ * declined. Those scores are board-dependent point estimates from the #132
+ * tests — re-measure after any weight retune. The searched best move is still
+ * the move played.
  */
 const PRESS_CLOSE_PLAYERS = 3;
 const CLOSEOUT_FLOOR = -2.5;

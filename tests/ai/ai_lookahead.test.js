@@ -548,14 +548,16 @@ describe('Lookahead AI', () => {
    * Press-to-close override (issue #115): a clear winner must keep attacking
    * even when every remaining move is a penalized near-even coinflip, or
    * AI-vs-AI games freeze into turn-cap stalemates. "Clearly winning" =
-   * strict territory lead AND (dominant dice share OR ≤3 players alive).
+   * strict territory lead AND (dominant dice share OR ≤3 players alive with
+   * at least the DOMINANCE_SHARE dice floor — issue #132). The press lowers
+   * the EV bar to CLOSEOUT_FLOOR rather than bypassing it (issue #132).
    */
   describe('press-to-close override (issue #115)', () => {
     test('plays the searched best move from a clearly-winning maxed position even below the EV bar', () => {
       /*
        * me (player 1): 4 territories vs 2 and 1 (strict lead) and 32/56 dice
        * (dominant share). The only legal attack is an 8v8 border coinflip
-       * whose score (~-2, driven by the low-odds penalty) sits far below even
+       * whose score (~-1, dragged down by the low-odds penalty) sits below even
        * the PRESS threshold — pre-#115 the bot passed here forever.
        */
       territory(1, 1, 8);
@@ -612,6 +614,204 @@ describe('Lookahead AI', () => {
       const decision = evaluateLookaheadTurn(mockGame);
 
       expect(decision.pressToClose).toBe(false);
+      expect(decision.chosenMove).toBeNull();
+      expect(ai_lookahead(mockGame)).toBe(0);
+    });
+
+    test('does not fire in a narrow field while weak on dice (issue #132)', () => {
+      /*
+       * me (player 1): 4 territories vs 3 and 1 — a strict territory lead in a
+       * 3-player field — but only 7/39 dice (~18% share, far below the
+       * DOMINANCE_SHARE floor). My only legal attack is a ~0.6%-odds 4v8
+       * (winProbability(4,8) ≈ 0.006). Pre-#132 the bare ≤3-players disjunct
+       * pressed anyway, burning the one
+       * stack I needed for defense; with the dice floor the bot passes.
+       */
+      territory(1, 1, 4); // my only stack able to attack
+      territory(2, 1, 1);
+      territory(3, 1, 1);
+      territory(4, 1, 1);
+      territory(5, 2, 8); // the lopsided border defender
+      territory(6, 2, 8);
+      territory(7, 2, 8);
+      territory(8, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(3, 4);
+      link(1, 5); // my only enemy border: the 4v8
+      link(5, 6);
+      link(6, 7);
+      link(7, 8);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.bestMove).toEqual({ from: 1, to: 5 }); // the search still sees the move
+      expect(decision.pressToClose).toBe(false); // but the override must not force it
+      expect(decision.chosenMove).toBeNull();
+      expect(ai_lookahead(mockGame)).toBe(0);
+      expect(mockGame.area_from).toBe(0);
+      expect(mockGame.area_to).toBe(0);
+    });
+
+    test('press declines a move below CLOSEOUT_FLOOR even from a dominant position (issue #132)', () => {
+      /*
+       * me (player 1): 4 territories vs 2 and 1 and 28/52 dice (~54%, clearly
+       * dominant — pressToClose fires). But my only enemy border is a
+       * ~0.6%-odds 4v8 scoring ~-4, far below CLOSEOUT_FLOOR: the press is
+       * meant to admit near-even full-stack coinflips (an 8v8 scores ~-1),
+       * not to force whatever the search coughs up. The bounded bypass
+       * declines it; pre-#132 the unbounded bypass attacked here.
+       */
+      territory(1, 1, 4); // my only stack on an enemy border
+      territory(2, 1, 8);
+      territory(3, 1, 8);
+      territory(4, 1, 8);
+      territory(5, 2, 8); // the lopsided border defender
+      territory(6, 2, 8);
+      territory(7, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(3, 4);
+      link(1, 5); // my only enemy border: the 4v8
+      link(5, 6);
+      link(6, 7);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.pressToClose).toBe(true); // clearly winning, the override is armed
+      expect(decision.bestMove).toEqual({ from: 1, to: 5 });
+      expect(decision.bestScore).toBeLessThan(-2.5); // = CLOSEOUT_FLOOR; the only move is suicidal
+      expect(decision.chosenMove).toBeNull();
+      expect(ai_lookahead(mockGame)).toBe(0);
+    });
+
+    test('narrow-field press still fires at exactly the DOMINANCE_SHARE floor', () => {
+      /*
+       * me (player 1): 3 territories vs 2 and 1 (strict lead) holding exactly
+       * 16/40 = 40% of the dice in a 3-player field. The dominant-dice trigger
+       * is strict (> 0.4) so it stays off; the narrow-field trigger's floor is
+       * >= (mirroring Strategist), so the press fires and takes the 8v8 the
+       * plain EV gate would decline.
+       */
+      territory(1, 1, 8);
+      territory(2, 1, 7);
+      territory(3, 1, 1);
+      territory(4, 2, 8);
+      territory(5, 2, 8);
+      territory(6, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(1, 4); // my only enemy border: the 8v8
+      link(4, 5);
+      link(5, 6);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.pressToClose).toBe(true);
+      expect(decision.bestMove).toEqual({ from: 1, to: 4 });
+      expect(decision.bestScore).toBeLessThan(decision.threshold); // the plain EV gate would decline
+      expect(decision.chosenMove).toEqual(decision.bestMove);
+    });
+
+    test('presses via dominant dice share when the field is wider than PRESS_CLOSE_PLAYERS (issue #132)', () => {
+      /*
+       * The dice floor (#132) must not disarm the dominant-share trigger the
+       * #115 override exists for. Four players alive, so the narrow-field
+       * disjunct is off (rivals + 1 = 4 > PRESS_CLOSE_PLAYERS); me (player 1)
+       * leading 4 territories to 2, 1, and 2, holding 32/72 dice (~44%, over
+       * DOMINANCE_SHARE). My only legal attack is a maxed 8v8 scoring ~-1.9 —
+       * below the PRESS threshold but above CLOSEOUT_FLOOR — so only the
+       * dominant-share press can admit it. Drop the dominantDice disjunct and
+       * the bot passes in exactly the winning-but-wide position it targets.
+       */
+      territory(1, 1, 8);
+      territory(2, 1, 8);
+      territory(3, 1, 8);
+      territory(4, 1, 8);
+      territory(5, 2, 8);
+      territory(6, 2, 8);
+      territory(7, 3, 8);
+      territory(8, 4, 8); // fourth player -> the narrow-field disjunct cannot fire
+      territory(9, 4, 8);
+      link(1, 2);
+      link(2, 3);
+      link(3, 4);
+      link(4, 5); // my only enemy border: the 8v8
+      link(5, 6);
+      link(6, 7);
+      link(7, 8);
+      link(8, 9);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.pressToClose).toBe(true); // via dominant dice share, not the narrow field
+      expect(decision.bestMove).toEqual({ from: 4, to: 5 });
+      expect(decision.bestScore).toBeLessThan(decision.threshold); // the plain EV gate would decline
+      expect(decision.bestScore).toBeGreaterThan(-2.5); // = CLOSEOUT_FLOOR; the 8v8 clears it
+      expect(decision.chosenMove).toEqual(decision.bestMove);
+    });
+
+    test('does not fire just below the DOMINANCE_SHARE floor in a narrow field (issue #132)', () => {
+      /*
+       * me (player 1): a strict territory lead (5 vs 2 and 1) in a 3-player
+       * field, but only 12/36 dice (~33%, under the floor). My one attacking
+       * stack faces a maxed 8v8 scoring ~-0.8 — above CLOSEOUT_FLOOR, so a
+       * loosened floor would press it, but under the real floor the narrow-field
+       * disjunct stays off and the bot passes. Pins the floor from below; the
+       * boundary test above pins the >= edge from exactly 40%.
+       */
+      territory(1, 1, 8); // my only stack able to attack
+      territory(2, 1, 1);
+      territory(3, 1, 1);
+      territory(4, 1, 1);
+      territory(5, 1, 1);
+      territory(6, 2, 8); // the 8v8 defender
+      territory(7, 2, 8);
+      territory(8, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(3, 4);
+      link(4, 5);
+      link(1, 6); // my only enemy border: the 8v8
+      link(6, 7);
+      link(7, 8);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.bestMove).toEqual({ from: 1, to: 6 }); // the search still sees it
+      expect(decision.bestScore).toBeGreaterThan(-2.5); // = CLOSEOUT_FLOOR; the move clears it...
+      expect(decision.pressToClose).toBe(false); // ...but the share is under DOMINANCE_SHARE
+      expect(decision.chosenMove).toBeNull();
+      expect(ai_lookahead(mockGame)).toBe(0);
+    });
+
+    test('press declines a 6v8 that falls below CLOSEOUT_FLOOR (issue #132)', () => {
+      /*
+       * Same dominant position as the 4v8 case but the attacking stack is 6
+       * dice: a ~12%-odds 6v8 scoring ~-3.2, still below CLOSEOUT_FLOOR. The
+       * press is armed (30/54 dice, ~56% share) yet the move is declined —
+       * tightening the floor's lower bracket against a retune that would let a
+       * 6v8 through.
+       */
+      territory(1, 1, 6); // 6-die border stack
+      territory(2, 1, 8);
+      territory(3, 1, 8);
+      territory(4, 1, 8);
+      territory(5, 2, 8);
+      territory(6, 2, 8);
+      territory(7, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(3, 4);
+      link(1, 5); // my only enemy border: the 6v8
+      link(5, 6);
+      link(6, 7);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.pressToClose).toBe(true);
+      expect(decision.bestMove).toEqual({ from: 1, to: 5 });
+      expect(decision.bestScore).toBeLessThan(-2.5); // = CLOSEOUT_FLOOR; below it, so declined
       expect(decision.chosenMove).toBeNull();
       expect(ai_lookahead(mockGame)).toBe(0);
     });

@@ -49,13 +49,21 @@ const DOMINANCE_SHARE = 0.4;
 /*
  * Press-to-close override (issue #115): a bot that clearly holds a winning
  * position must keep attacking even when every remaining move is a penalized
- * near-even coinflip (a maxed 8v8 frontier scores ~-2, below even
- * PRESS_THRESHOLD), or AI-vs-AI games freeze into turn-cap stalemates.
+ * near-even coinflip, or AI-vs-AI games freeze into turn-cap stalemates.
  * "Clearly winning" = strict territory lead AND (dominant dice share OR the
- * field has narrowed to PRESS_CLOSE_PLAYERS or fewer). The override bypasses
- * the EV bar entirely; the searched best move is still the move played.
+ * field has narrowed to PRESS_CLOSE_PLAYERS or fewer while holding at least
+ * DOMINANCE_SHARE of the dice — issue #132). The override lowers the EV bar to
+ * CLOSEOUT_FLOOR instead of bypassing it (issue #132): it admits the near-even
+ * full-stack coinflip that breaks a stalemate but not a genuinely suicidal
+ * only-move. On the issue-#132 fixtures a maxed 8v8 (win prob ~0.47) scores
+ * roughly -1 to -2 depending on frontier exposure and clears the floor, while
+ * a ~12%-odds 6v8 (~-3) and a ~0.6%-odds 4v8 (~-4) fall below it and are
+ * declined. Those scores are board-dependent point estimates from the #132
+ * tests — re-measure after any weight retune. The searched best move is still
+ * the move played.
  */
 const PRESS_CLOSE_PLAYERS = 3;
+const CLOSEOUT_FLOOR = -2.5;
 /*
  * Posture thresholds form a U: the bot is decisive at both extremes and
  * patient in the middle. PRESS (winning) accepts even slightly-negative moves
@@ -396,7 +404,16 @@ function pressToClose(board, player) {
 
   const totalDice = stats.reduce((sum, candidate) => sum + candidate.dice, 0);
   const dominantDice = totalDice > 0 && me.dice > totalDice * DOMINANCE_SHARE;
-  return dominantDice || rivals.length + 1 <= PRESS_CLOSE_PLAYERS;
+  /*
+   * Dice floor on the narrow-field trigger (issue #132): ≤3 players alive is
+   * not by itself a winning signal — a leader on territories but badly behind
+   * on dice would burn its best stack on a lopsided coinflip it should
+   * decline. Mirror Strategist's floor (>= DOMINANCE_SHARE of the board's
+   * dice) so the override cannot fire from a dice-poor position.
+   */
+  const myShare = totalDice > 0 ? me.dice / totalDice : 0;
+  const narrowField = rivals.length + 1 <= PRESS_CLOSE_PLAYERS && myShare >= DOMINANCE_SHARE;
+  return dominantDice || narrowField;
 }
 
 function strategicAdjustment(board, player, to, winChance) {
@@ -465,8 +482,8 @@ function isBetterMove(score, move, bestScore, bestMove) {
  * game's chosen move. Returns the searched best move, its score, the active
  * attack threshold, and the move Lookahead would play (the best move when it
  * clears the threshold, otherwise null). pressToClose reports the issue-#115
- * clearly-winning override that lets the best move through regardless of the
- * threshold. Exported so the search and posture logic can be tested directly;
+ * clearly-winning override that lowers the bar for the best move to
+ * CLOSEOUT_FLOOR. Exported so the search and posture logic can be tested directly;
  * `ai_lookahead` itself is a thin wrapper that applies `chosenMove`.
  *
  * @param {Object} game - Legacy mutable game view.
@@ -504,7 +521,8 @@ export const evaluateLookaheadTurn = game => {
 
   const threshold = attackThreshold(board, player);
   const press = pressToClose(board, player);
-  const chosenMove = bestMove && (bestScore > threshold || press) ? bestMove : null;
+  const chosenMove =
+    bestMove && (bestScore > threshold || (press && bestScore > CLOSEOUT_FLOOR)) ? bestMove : null;
 
   return { player, bestMove, bestScore, threshold, pressToClose: press, chosenMove };
 };

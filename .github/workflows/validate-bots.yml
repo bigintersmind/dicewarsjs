@@ -2,10 +2,13 @@ name: Validate Community Bots
 
 # Untrusted half of the split validation pipeline (#142).
 #
-# This workflow EXECUTES PR-supplied bot code, so it runs under the fork-safe
-# `pull_request` event: a read-only GITHUB_TOKEN and no secrets. The PR comment
-# (which needs `pull-requests: write`) is posted by validate-bots-comment.yml,
-# a `workflow_run` workflow that never checks out or runs PR code.
+# This workflow EXECUTES PR-supplied bot code. Fork PRs get a read-only
+# GITHUB_TOKEN and no secrets — GitHub enforces that for `pull_request` events
+# from forks regardless of this file's contents. Same-repo PRs are capped only
+# by the `permissions:` block below, and the PR's own copy of this file is
+# what runs — so never reference secrets anywhere in this workflow.
+# The PR comment (which needs `pull-requests: write`) is posted by
+# validate-bots-comment.yml, a `workflow_run` workflow that never runs PR code.
 on:
   pull_request:
     paths:
@@ -46,6 +49,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bot-validation-results
+          # Fail loud if a refactor breaks these paths — a silently empty
+          # artifact would degrade every PR comment to the fallback text.
+          if-no-files-found: error
           path: |
             validation-output.txt
             validation-outcome.txt

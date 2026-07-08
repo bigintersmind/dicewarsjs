@@ -21,6 +21,56 @@ Entry template:
 
 ---
 
+## 2026-07-08 — [D-30] winPct floor RATIFIED at 35 + §10.4 clock-hack RATIFIED (0.05 / 0.31 / 0.18) — Wave-2 prep complete
+
+**Phase:** pre-Wave-2 (PERSONAS §10.4/§10.5, the last prep item) · **Who:** Claude (calibration + rule application); Ivan (ratification)
+
+**Did:**
+
+- Ran the pre-registered recalibration source: the Wave-1 control's (`ppo-v3-conq-ctl`) 0.5M/1M
+  fixtured eval checkpoints, profiled 10×30×6 vs `--control Conqueror` (the pinned raw v3 base) in
+  the exact §10.3 calibration field. 5400 matches, 0 quarantined, exit 0; probe path pre-flighted
+  with a 2×2 smoke first ([D-30] lesson). Report:
+  `ml/runs/behavior-calibration/winpct-clockhack-calibration-2026-07-08.profile.json` (gitignored;
+  gitSha `489f058`, clean).
+- **winPct floor:** control runs 50.1 ± 2.1 (0.5M) / 49.7 ± 2.0 (1M); base 48.6 ± 3.2. Rule
+  min(35, ⌊44.3⌋) → **Ivan ratified 35 unchanged** (false-fire ≈ 10⁻⁷ on a healthy arm).
+- **§10.4 clock-hack:** scavenge rule over the widened innocent pool (checkpoints + the 2026-07-06
+  scavenge innocents, same field/seeds) → **Ivan ratified 0.05 / 0.31 / 0.18** (window 50
+  unchanged). Binding extremes: spike = v2 Survivor +0.189 + 0.117 (n=9); truncation = Lookahead's
+  opposite-direction |+0.145| + 0.029 (scavenge-precedent |Δ| treatment, Ivan's call between the
+  literal and direction-respecting variants).
+- Landed the numbers: `CLOCK_HACK_TRIPWIRES` in `behavior-core.mjs` (0.3→0.31, 0.05→0.18 +
+  ratification docstring), test pins updated to the full ratified-table form (mirrors the scavenge
+  pin), PERSONAS §10.4/§10.5 drafted→ratified, RESULTS.md 2026-07-08 section, README status.
+
+**Learned / decided:**
+
+- The §10.5 red-team worry (v2 control at 34.5 under the 35 floor) was a **field property, not a
+  floor property** — in the calibration field even the placement backbone (v2 Survivor) wins 65.9%,
+  and warm-started arms sit ~50%. Absolute thresholds must always name their field.
+- `lateGameAggressionSpike` is **unmeasurable on win-mode arms in this field** (n=2/10 runs had any
+  game near the cap — the pre-acknowledged §10.4 power caveat, now with numbers). The ratification
+  rule gained an explicit qualifier: innocent rows with < 5 live runs are excluded as no-power
+  (else the n=2 CIs of ±4 degenerate the threshold to 4.52 and neuter the tripwire).
+- A 3×10×6 probe totals 30 games, so its winPct SE equals the 10×30 calibration's per-run SD
+  (~2.9 pp here) — a handy identity for translating calibration spread into probe false-fire odds.
+- [D-30] basin tripwires co-read clear on all innocents, but pure continuation drift moves
+  |ΔturnsToWin| past 20 (opposite direction) — that axis's direction gate is load-bearing.
+
+**Dead ends / surprises:**
+
+- `npm run behavior:profile -- ... --json > file` contaminates the report with the npm banner on
+  stdout — the scavenge run invoked `node scripts/behavior-profile.mjs` directly. Stripped
+  post-hoc; invoke the script directly (or strip to the first `{`) when capturing `--json`.
+
+**Next:**
+
+- **Wave 2 is unblocked.** Launch the two 1M Predator pilots on shodan (Ivan-gated, durable
+  supervisor per RUNBOOK §8a/§8e), with `behavior:preflight` + `ppo:arm-throughput` at launch
+  time; grade in the calibration field against the ratified panels (+0.26 kills bar, Lookahead
+  floor, v2-Survivor separation).
+
 ## 2026-07-06 — §10.3 scavenge tripwires calibrated + RATIFIED (0.31 / 5.64 / 0.91); kills bar +0.26 (PR #127)
 
 **Phase:** pre-Wave-2 (PERSONAS §10.3/§10.8) · **Who:** Claude (build + calibration + review + merge flow); Ivan (ratification)

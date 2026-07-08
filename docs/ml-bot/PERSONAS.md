@@ -527,11 +527,12 @@ tripwires only watch the stall basin. New tripwire on Survivor-v3 and both Preda
 (Magnitude is bounded by how rarely the 500-turn cap binds, but Survivor-style play lengthens
 games toward the cap — exactly where the gradient lives.)
 
-_(**As built — landed 2026-07-05; the 50/0.05/0.3 numbers are DRAFTED for Ivan's ratification.**
-`behavior:profile` now measures three clock-hack axes per game vs the pinned comparator — added to
-`AXES` in `behavior-core.mjs`, so they auto-carry the paired Δ machinery, but deliberately kept OUT
-of `PERSONA_SIGNATURES`/`SIGNATURE_AXES`/Holm (a kill-gate, not a "distinct persona" PASS). Windows
-are **player-turns**, the `runMatch` cap unit:_
+_(**As built — landed 2026-07-05; thresholds RATIFIED 2026-07-08 (Ivan): window 50 /
+nearCapDeathRate 0.05 / lateGameAggressionSpike 0.31 / truncationRate 0.18** — see the firing
+paragraph below for the calibration. `behavior:profile` measures three clock-hack axes per game vs
+the pinned comparator — added to `AXES` in `behavior-core.mjs`, so they auto-carry the paired Δ
+machinery, but deliberately kept OUT of `PERSONA_SIGNATURES`/`SIGNATURE_AXES`/Holm (a kill-gate,
+not a "distinct persona" PASS). Windows are **player-turns**, the `runMatch` cap unit:_
 
 - _**`nearCapDeathRate`** — fraction of the arm's games where it is eliminated within
   `NEAR_CAP_WINDOW = 50` turns of the 500-cap (the "dies at rank 2–4 to bank ~0.5 rather than
@@ -543,15 +544,22 @@ are **player-turns**, the `runMatch` cap unit:_
   CO-SIGNAL, since a clock-hacker AVOIDS truncations (they pay 0) by forcing decisive ends._
 
 _**Firing (`CLOCK_HACK_TRIPWIRES`):** a primary FIRES when its paired Δ vs the comparator clears the
-magnitude AND its 95% CI excludes 0 in-direction — `nearCapDeathRate` HIGHER ≥ **0.05** (the
-`zeroAttackTurnFrac` +0.05 style), `lateGameAggressionSpike` HIGHER ≥ **0.3** (the aggression MDE);
-`truncationRate` LOWER ≥ **0.05** is the co-signal (corroborates, never kills alone). **KILL rule
-(§10.8): any primary fires.** `evaluateClockHack(vsControl)` returns the panel + a `kill` boolean;
-the CLI prints a "Clock-hack tripwire (§10.4)" panel and `--json` carries `bots[].clockHack`.
+magnitude AND its 95% CI excludes 0 in-direction — `nearCapDeathRate` HIGHER ≥ **0.05**,
+`lateGameAggressionSpike` HIGHER ≥ **0.31**; `truncationRate` LOWER ≥ **0.18** is the co-signal
+(corroborates, never kills alone). **KILL rule (§10.8): any primary fires.**
+`evaluateClockHack(vsControl)` returns the panel + a `kill` boolean; the CLI prints a "Clock-hack
+tripwire (§10.4)" panel and `--json` carries `bots[].clockHack`.
 **Power caveat:** the late window only populates in games approaching the cap, so on short decisive
-games the spike is `null` and the near-cap-death primary + truncation co-signal carry the monitor —
-recalibrate the three numbers from the Wave-1 control's own 0.5M/1M near-cap probes (§10.5 pins the
-comparator = raw v3 base) before enforcing them, exactly as the §10.5 winPct floor is recalibrated.)_
+games the spike is `null` and the near-cap-death primary + truncation co-signal carry the monitor.
+**Ratified 2026-07-08** from the pre-registered source — the Wave-1 control's 0.5M/1M eval
+checkpoints profiled 10×30×6 vs the Conqueror base in the §10.3 calibration field, pooled with the
+2026-07-06 scavenge-calibration innocents (v2 Survivor + Lookahead, same field/config/seeds) —
+under the scavenge rule (max(draft, largest innocent |Δ| + CI half-width), rounded up), with one
+qualifier: innocent rows under 5 live runs are excluded as no-power (the win-mode checkpoints'
+spike rows had n=2 with ±4 CIs — exactly this power caveat; the NO-DATA fail-open guard already
+keeps such rows from firing at enforcement). Binding extremes: spike = Survivor's |+0.189| + 0.117
+(n=9); truncation = Lookahead's opposite-direction |+0.145| + 0.029, per the scavenge precedent.
+Numbers: RESULTS.md 2026-07-08.)_
 
 ### 10.5 Evaluation methodology
 
@@ -629,6 +637,14 @@ behavior:preflight` — see EVAL_HARNESS §3.9. NC1 profiles the base against it
   43–58%, but the v2 control itself profiled 34.5 ± 2.6 — recalibrate the floor from the Wave-1
   control's own 0.5M/1M probes before enforcing it on Wave 2. Wave-1 probes diff against the raw
   v3 base weights (the control is still training concurrently — comparator pinned now).
+  _(**Resolved — floor RATIFIED at 35 unchanged, 2026-07-08 (Ivan).** The Wave-1 control's
+  0.5M/1M checkpoints run 50.1 ± 2.1 / 49.7 ± 2.0 in the §10.3 calibration field (base 48.6,
+  v2 Survivor 65.9, Lookahead 26.5) — the v2-era 34.5 reading was a property of the old, stronger
+  field, and even the placement backbone wins big here. Rule, mirroring the scavenge one for a
+  LOWER-fires floor: min(draft, ⌊lowest healthy checkpoint mean − 1.96 × probe SE⌋) = min(35, 44)
+  = 35, where the [D-30] 3×10×6 probe's SE equals the calibration per-run SD (≈ 2.9). False-fire
+  on a healthy arm ≈ 10⁻⁷; the [D-30] basin tripwires were co-read and sit safely opposite on
+  every innocent. Numbers: RESULTS.md 2026-07-08.)_
 
 ### 10.6 Fine-tune vs. more scratch runs
 

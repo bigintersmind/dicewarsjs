@@ -320,8 +320,8 @@ export function shouldRunEpisode(ep, episodes) {
 export function makeShapedEmission({ shapingTracker, maxAreas, learnerSeat }) {
   return {
     /** Clear the per-episode dense-reward cursors (territory baseline + kill count). No-op when off. */
-    reset() {
-      if (shapingTracker) shapingTracker.reset();
+    reset(initialState) {
+      if (shapingTracker) shapingTracker.reset(initialState);
     },
 
     /**
@@ -663,7 +663,7 @@ async function main() {
       const seed = seedBase + ep;
       decisionsThisEpisode = 0;
       // Clear the per-episode dense-reward cursors (territory baseline + kill count). No-op when off.
-      shapedEmission.reset();
+      shapedEmission.reset(initialState);
       // Draw this episode's opponent field from the league (B1: the empty-pool baseline field).
       const { opponents, drawn } = league.draw(seed);
       let result;

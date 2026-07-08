@@ -28,7 +28,7 @@
 /**
  * @param {number} learnerSeat - the seat (player id) the learner occupies.
  * @returns {{
- *   reset: () => void,
+ *   reset: (initialState: {players: Array<{id:number, eliminated:boolean}>}) => void,
  *   recordTurn: (state: {players: Array<{id:number, eliminated:boolean}>}, currentPlayerId: number) => void,
  *   frameSignals: (currentTerritories: number) => {deltaTerritory: number, elimsByLearner: number},
  * }}
@@ -44,11 +44,19 @@ export function createRewardShapingTracker(learnerSeat) {
   const eliminated = new Set();
 
   return {
-    reset() {
+    reset(initialState) {
       prevTerritories = null;
       killsTotal = 0;
       prevKills = 0;
       eliminated.clear();
+
+      if (initialState?.players) {
+        for (const player of initialState.players) {
+          if (player.eliminated) {
+            eliminated.add(player.id);
+          }
+        }
+      }
     },
 
     /**

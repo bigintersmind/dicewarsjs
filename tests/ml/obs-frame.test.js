@@ -15,11 +15,7 @@ import {
   BOARD_FEATURES,
   EDGE_FEATURES,
 } from '../../src/arena/encodeObservation.js';
-import {
-  serializeObsFrame,
-  parseObsFrame,
-  OBS_FRAME_MAGIC,
-} from '../../scripts/lib/obs-frame.mjs';
+import { serializeObsFrame, parseObsFrame, OBS_FRAME_MAGIC } from '../../scripts/lib/obs-frame.mjs';
 
 const NODE_W = NODE_FEATURES.length;
 const PLAYER_W = PLAYER_FEATURES.length;

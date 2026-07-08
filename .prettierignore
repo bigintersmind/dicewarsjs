@@ -28,4 +28,6 @@ tests/fixtures/bc/
 
 # Python BC-trainer subproject (ml-bot Phase 2) — owns its own tooling (ruff).
 # Keep Prettier out so it doesn't reformat the Python-adjacent docs/JSON/TOML.
-ml/
+# Anchored with a leading slash: a bare "ml/" matches a dir named ml at ANY depth
+# (gitignore semantics), which silently also excluded tests/ml/ from format:check.
+/ml/

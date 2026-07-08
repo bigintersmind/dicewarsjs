@@ -48,7 +48,9 @@ describe('ppo-env-server — PFSP flag bridge (Node side)', () => {
   });
 
   it('rejects a non-finite numeric knob', () => {
-    expect(() => numArg(parseArgs(['--pfsp-k=notnum']), 'pfsp-k', 2)).toThrow(/not a finite number/);
+    expect(() => numArg(parseArgs(['--pfsp-k=notnum']), 'pfsp-k', 2)).toThrow(
+      /not a finite number/
+    );
   });
 
   it('knows the B6 persistence flags', () => {

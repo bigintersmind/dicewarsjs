@@ -58,7 +58,9 @@ describe('makeCheckpointDumper — HOLE-B write order', () => {
     // the shard. Shard-first would let a crash leave the shard ahead of the cursor → resume replays
     // and double-counts those seeds into the win-rate book.
     expect(order).toEqual(['state', 'write', 'flush']);
-    expect(writes).toEqual([{ path: '/run/league-state.json', obj: { version: 2, episodeCount: 7 } }]);
+    expect(writes).toEqual([
+      { path: '/run/league-state.json', obj: { version: 2, episodeCount: 7 } },
+    ]);
     expect(dumper.getDumpFailures()).toBe(0);
   });
 

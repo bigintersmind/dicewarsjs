@@ -122,7 +122,10 @@ describe('runSelfPlayEpisode — integration oracle vs pure runMatch', () => {
 
     const ep = runSelfPlayEpisode({
       seed,
-      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
+      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+        name: `bc${i}`,
+        fn: ai_bc,
+      })),
       learnerSeat: seat,
       maxAreas: MAX_AREAS,
       maxTurns: SHORT_TURNS,
@@ -141,7 +144,10 @@ describe('runSelfPlayEpisode — STOP and reward semantics', () => {
     let decisions = 0;
     const ep = runSelfPlayEpisode({
       seed: 777,
-      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
+      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+        name: `bc${i}`,
+        fn: ai_bc,
+      })),
       learnerSeat: 2,
       maxAreas: MAX_AREAS,
       maxTurns: MAX_TURNS,
@@ -168,7 +174,10 @@ describe('runSelfPlayEpisode — STOP and reward semantics', () => {
      */
     const ep = runSelfPlayEpisode({
       seed: 777,
-      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
+      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+        name: `bc${i}`,
+        fn: ai_bc,
+      })),
       learnerSeat: 2,
       maxAreas: MAX_AREAS,
       maxTurns: 3, // far below any elimination → the game can't finish
@@ -187,7 +196,10 @@ describe('runSelfPlayEpisode — STOP and reward semantics', () => {
     // Coherence (won/winner/placement) holds regardless of length → cap to bound the sync block.
     const ep = runSelfPlayEpisode({
       seed: 4242,
-      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
+      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+        name: `bc${i}`,
+        fn: ai_bc,
+      })),
       learnerSeat: 1,
       maxAreas: MAX_AREAS,
       maxTurns: SHORT_TURNS,
@@ -254,7 +266,10 @@ describe('runSelfPlayEpisode — determinism (RNG threaded correctly)', () => {
     // Determinism is length-independent → cap turns; yield between the two runs to free the worker.
     const cfg = {
       seed: 90210,
-      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc })),
+      opponents: Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+        name: `bc${i}`,
+        fn: ai_bc,
+      })),
       learnerSeat: 4,
       maxAreas: MAX_AREAS,
       maxTurns: SHORT_TURNS,
@@ -273,7 +288,10 @@ describe('runSelfPlayEpisode — determinism (RNG threaded correctly)', () => {
 });
 
 describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
-  const sixAiBc = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
+  const sixAiBc = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+    name: `bc${i}`,
+    fn: ai_bc,
+  }));
 
   it('ends the episode at the learner elimination, not at game-over', async () => {
     const cfg = {
@@ -341,51 +359,57 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
     [0, 23], // seat 0 — co-eliminee higher-id, game still undecided
     [3, 37], // seat 3 — non-zero seat, mixed-id co-elimination
     [1, 20], // seat 1 — non-zero seat, eliminating turn also ends the game
-  ])('co-elimination placement matches calculatePlacements (seat %i, seed %i)', async (seat, seed) => {
-    const opponents = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
-    let deathElims = 0;
-    let prevElim = 0;
-    let sawDeath = false;
-    const full = runSelfPlayEpisode({
-      seed,
-      opponents,
-      learnerSeat: seat,
-      maxAreas: MAX_AREAS,
-      maxTurns: MAX_TURNS,
-      chooseAction: alwaysStop,
-      onTurn: (_t, s) => {
-        const e = s.players.filter(p => p.eliminated).length;
-        if (!sawDeath && s.players[seat].eliminated) {
-          deathElims = e - prevElim;
-          sawDeath = true;
-        }
-        prevElim = e;
-      },
-    });
-    await tick();
-    const early = runSelfPlayEpisode({
-      seed,
-      opponents,
-      learnerSeat: seat,
-      maxAreas: MAX_AREAS,
-      maxTurns: MAX_TURNS,
-      chooseAction: alwaysStop,
-      terminateOnElimination: true,
-    });
+  ])(
+    'co-elimination placement matches calculatePlacements (seat %i, seed %i)',
+    async (seat, seed) => {
+      const opponents = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+        name: `bc${i}`,
+        fn: ai_bc,
+      }));
+      let deathElims = 0;
+      let prevElim = 0;
+      let sawDeath = false;
+      const full = runSelfPlayEpisode({
+        seed,
+        opponents,
+        learnerSeat: seat,
+        maxAreas: MAX_AREAS,
+        maxTurns: MAX_TURNS,
+        chooseAction: alwaysStop,
+        onTurn: (_t, s) => {
+          const e = s.players.filter(p => p.eliminated).length;
+          if (!sawDeath && s.players[seat].eliminated) {
+            deathElims = e - prevElim;
+            sawDeath = true;
+          }
+          prevElim = e;
+        },
+      });
+      await tick();
+      const early = runSelfPlayEpisode({
+        seed,
+        opponents,
+        learnerSeat: seat,
+        maxAreas: MAX_AREAS,
+        maxTurns: MAX_TURNS,
+        chooseAction: alwaysStop,
+        terminateOnElimination: true,
+      });
 
-    expect(deathElims).toBeGreaterThan(1); // precondition: this seed really IS a co-elimination turn
-    expect(early.eliminated).toBe(true);
-    expect(early.placement).toBe(scaledPlacement(full.placements, seat, PLAYER_COUNT));
-    /*
-     * The win-rate `seatBeat[]` from BOTH shapers agrees with the engine's placement order even on a
-     * multi-elimination turn — the early path synthesizes it from alive/co-elim with the seat-id
-     * tie-break (higher-id co-eliminee placed above the learner), the full path reads placements, and
-     * both equal the independent oracle. This is the load-bearing B2 attribution correctness check.
-     */
-    const oracle = seatBeatOracle(full.placements, seat, PLAYER_COUNT);
-    expect(early.seatBeat).toEqual(oracle);
-    expect(full.seatBeat).toEqual(oracle);
-  });
+      expect(deathElims).toBeGreaterThan(1); // precondition: this seed really IS a co-elimination turn
+      expect(early.eliminated).toBe(true);
+      expect(early.placement).toBe(scaledPlacement(full.placements, seat, PLAYER_COUNT));
+      /*
+       * The win-rate `seatBeat[]` from BOTH shapers agrees with the engine's placement order even on a
+       * multi-elimination turn — the early path synthesizes it from alive/co-elim with the seat-id
+       * tie-break (higher-id co-eliminee placed above the learner), the full path reads placements, and
+       * both equal the independent oracle. This is the load-bearing B2 attribution correctness check.
+       */
+      const oracle = seatBeatOracle(full.placements, seat, PLAYER_COUNT);
+      expect(early.seatBeat).toEqual(oracle);
+      expect(full.seatBeat).toEqual(oracle);
+    }
+  );
 
   it('an elimination that also ends the game reports the engine winner with won=0 (runner-up)', async () => {
     /*
@@ -394,7 +418,10 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
      * the runner-up). This is the wire combo the env-server forwards as `winner != -1, won = 0`.
      */
     const seat = 0;
-    const opponents = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
+    const opponents = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+      name: `bc${i}`,
+      fn: ai_bc,
+    }));
     const full = runSelfPlayEpisode({
       seed: 60,
       opponents,
@@ -460,7 +487,10 @@ describe('runSelfPlayEpisode — terminateOnElimination (PPO terminal)', () => {
 });
 
 describe('runSelfPlayEpisode — onTurn is the abort seam (env-server disconnect contract)', () => {
-  const sixAiBc = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
+  const sixAiBc = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+    name: `bc${i}`,
+    fn: ai_bc,
+  }));
 
   it('a throw from onTurn unwinds the episode and is not mistaken for the elimination sentinel', () => {
     /*
@@ -585,7 +615,10 @@ describe('makeLearnerBot — input validation', () => {
 });
 
 describe('runSelfPlayEpisode — input validation', () => {
-  const baseOpponents = [{ name: 'bc', fn: ai_bc }, { name: 'bc2', fn: ai_bc }];
+  const baseOpponents = [
+    { name: 'bc', fn: ai_bc },
+    { name: 'bc2', fn: ai_bc },
+  ];
 
   it('uniquifies duplicate opponent names so runMatch does not reject the roster', () => {
     /*

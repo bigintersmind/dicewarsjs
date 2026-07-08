@@ -6,7 +6,7 @@
  * the frontend publishes. Extracted from `run-online-tournament.mjs` so the broken-bot
  * exclusion — the part that keeps a mis-registered bot's meaningless ELO out of the public
  * leaderboard (and out of next-day `initialRatings` seeding) — is unit-testable without the
- * script's file IO, map generation, and community-bot loading. (#53, #92 item 1)
+ * script's file IO, arena run (map generation + games), and community-bot loading. (#53, #92 item 1)
  *
  * @module scripts/lib/online-tournament
  */
@@ -18,11 +18,24 @@ import { DEFAULT_RATING } from '../../src/arena/elo.js';
  * turns, so its win%/ELO is noise — {@link module:arena/botErrorReport.reportBotErrors} has
  * already warned about it and surfaced it here as `result.flagged`.
  *
- * @param {{ flagged?: Array<{name: string}> }} result
+ * `result.flagged` is REQUIRED. A run with no broken bots reports `flagged: []`, so a missing
+ * field is a contract violation, not "zero broken bots" — and defaulting it away is exactly
+ * the silent republish this module exists to prevent (#53). So we throw rather than tolerate
+ * it: "no flag pass" must be an explicit decision by the caller, never an accident.
+ *
+ * @param {{ flagged: Array<{name: string}> }} result
  * @returns {Set<string>}
+ * @throws {Error} if `result.flagged` is not an array
  */
 export function flaggedNameSet(result) {
-  return new Set((result.flagged || []).map(f => f.name));
+  if (!Array.isArray(result.flagged)) {
+    throw new Error(
+      'online-tournament: result.flagged is missing — refusing to build durable outputs ' +
+        'without the broken-bot pass. A missing flag list would silently republish a broken ' +
+        "bot's ELO (the #53 masquerade). Pass flagged: [] to assert a clean run."
+    );
+  }
+  return new Set(result.flagged.map(f => f.name));
 }
 
 /**
@@ -94,7 +107,7 @@ export function buildLeaderboard({
  * @returns {Object} History entry ready to append
  */
 export function buildHistoryEntry({ result, date, botCount }) {
-  const flagged = flaggedNameSet(result);
+  const flagged = flaggedNameSet(result); // throws if result.flagged is absent
 
   const standings = result.bots
     .filter(b => !flagged.has(b.name))
@@ -113,7 +126,7 @@ export function buildHistoryEntry({ result, date, botCount }) {
     // Champion is the top surviving bot: a flagged bot can't legitimately hold the crown.
     champion: standings.length > 0 ? standings[0].name : null,
     standings,
-    flagged: (result.flagged || []).map(f => ({
+    flagged: result.flagged.map(f => ({
       name: f.name,
       errors: f.errors,
       invalidMoves: f.invalidMoves,

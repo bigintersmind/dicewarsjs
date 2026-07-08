@@ -219,9 +219,10 @@ export function TournamentScreen({ onBack, onViewReplay }) {
     }, 50);
   }, [canRun, selectedBots, tournamentType, gamesPerRound]);
 
-  // Map standings to leaderboard format. Forward the forced-end counts so a bot flagged
-  // by result.flagged renders its badge (errored N turns) instead of silently dropping
-  // the signal the standings already carry. (#92 item 2)
+  // Map standings to the Leaderboard row shape. The broken-bot badge is NOT driven by these
+  // rows — it comes from the separate `flagged={result.flagged}` prop below, which Leaderboard
+  // matches to rows by name. Leaderboard has no error column, so the standings' error counts
+  // aren't carried here (they live durably in the tournament result / history). (#92 item 2)
   const leaderboardBots = result
     ? result.standings.map(s => ({
         name: s.name,
@@ -232,9 +233,6 @@ export function TournamentScreen({ onBack, onViewReplay }) {
         avgAttacks: 0,
         attackWinRate: 0,
         elo: s.elo,
-        errors: s.errors,
-        invalidMoves: s.invalidMoves,
-        maxMovesHit: s.maxMovesHit,
       }))
     : null;
 

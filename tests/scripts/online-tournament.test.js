@@ -132,4 +132,68 @@ describe('buildHistoryEntry', () => {
     expect(entry.champion).toBe('Top');
     expect(entry.standings).toHaveLength(2);
   });
+
+  it('crowns the top SURVIVING bot when the flagged bot is the ELO leader', () => {
+    /*
+     * The distinguishing case: the flagged bot sits at result.bots[0] (highest ELO). The old
+     * script logic (`champion: result.bots[0]?.name`) would have crowned it; the fix filters
+     * flagged bots first and takes standings[0]. Only this arrangement fails under the old code.
+     */
+    const result = {
+      totalGames: 100,
+      failedGames: 0,
+      flagged: [{ name: 'Broken', errors: 40, invalidMoves: 0, maxMovesHit: 0, errorFraction: 1 }],
+      bots: [
+        bot('Broken', { elo: 1500, wins: 0, errors: 40 }), // top ELO but broken → index 0
+        bot('Healthy', { elo: 1200, wins: 30, errors: 0 }),
+      ],
+    };
+
+    const entry = buildHistoryEntry({ result, date: '2026-07-08', botCount: 2 });
+
+    expect(entry.champion).toBe('Healthy');
+    expect(entry.standings.map(s => s.name)).toEqual(['Healthy']);
+  });
+
+  it('records a null champion (and empty standings) when every bot is flagged', () => {
+    const result = {
+      totalGames: 20,
+      failedGames: 0,
+      flagged: [
+        { name: 'A', errors: 20, invalidMoves: 0, maxMovesHit: 0, errorFraction: 1 },
+        { name: 'B', errors: 20, invalidMoves: 0, maxMovesHit: 0, errorFraction: 1 },
+      ],
+      bots: [bot('A', { elo: 1000, wins: 0 }), bot('B', { elo: 990, wins: 0 })],
+    };
+
+    const entry = buildHistoryEntry({ result, date: '2026-07-08', botCount: 2 });
+
+    expect(entry.champion).toBeNull();
+    expect(entry.standings).toEqual([]);
+    expect(entry.flagged.map(f => f.name)).toEqual(['A', 'B']);
+  });
+});
+
+describe('missing-flagged contract (#53)', () => {
+  // A result without a `flagged` field is a contract violation, not "zero broken bots" —
+  // both builders must refuse rather than silently republish. See flaggedNameSet.
+  const resultWithoutFlagged = { totalGames: 10, failedGames: 0, bots: [bot('Healthy')] };
+
+  it('buildLeaderboard throws instead of defaulting a missing flagged to []', () => {
+    expect(() =>
+      buildLeaderboard({
+        result: resultWithoutFlagged,
+        previousLeaderboard,
+        authorByName,
+        replayFiles: [],
+        updatedAt: 'x',
+      })
+    ).toThrow(/flagged/);
+  });
+
+  it('buildHistoryEntry throws instead of defaulting a missing flagged to []', () => {
+    expect(() =>
+      buildHistoryEntry({ result: resultWithoutFlagged, date: '2026-07-08', botCount: 1 })
+    ).toThrow(/flagged/);
+  });
 });

@@ -133,9 +133,12 @@ describe('unpackPolicy', () => {
     expect(() => unpackPolicy(bad)).toThrow(/valid base64/);
   });
 
-  it('throws on a non-finite (NaN/Inf) weight blob (issue #93)', () => {
+  it.each([
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+  ])('throws on a non-finite (%s) weight blob (issue #93)', (_label, bad) => {
     // A divergent checkpoint would otherwise decode into a silent all-NaN-logits bot.
-    const data = floatsToBase64([1.0, NaN]); // w[1x1]=1.0, b[1]=NaN
+    const data = floatsToBase64([1.0, bad]); // w[1x1]=1.0, b[1]=NaN/Inf
     expect(() => unpackPolicy({ config: {}, layers: { h: [[1, 1, false]] }, data })).toThrow(
       /non-finite/
     );

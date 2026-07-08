@@ -76,6 +76,8 @@ describe('ErrorBoundary', () => {
     renderBoundary(h(Boom, { error: new Error('kaboom') }));
     expect(container.textContent).toContain('Something went wrong');
     expect(container.querySelector('button').textContent).toBe('Try Again');
+    // ...and does NOT cross-contaminate with the chunk-load reload affordance.
+    expect(container.textContent).not.toContain('Reload');
   });
 
   it('recovers via Try Again once the child stops throwing', () => {

@@ -42,8 +42,9 @@ const STYLE = {
 /*
  * Signatures of a failed dynamic import across bundlers/browsers: Vite emits "Failed to
  * fetch dynamically imported module", Chrome/Firefox "error loading dynamically imported
- * module", Safari "Importing a module script failed", and webpack tags a `ChunkLoadError`.
- * Any of these means the JS never arrived — re-rendering can't help; only a reload can.
+ * module", Safari "Importing a module script failed", and webpack throws a `ChunkLoadError`
+ * with a "Loading chunk N failed" message. Any of these means the JS never arrived —
+ * re-rendering can't help; only a reload can.
  */
 const CHUNK_LOAD_RE =
   /dynamically imported module|Importing a module script failed|Loading chunk|ChunkLoadError/i;

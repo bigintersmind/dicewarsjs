@@ -85,10 +85,10 @@ export function unpackPolicy(packed) {
   }
   /*
    * `config` (net dims: maxAreas, presentCol, feature widths) is reconstructed verbatim
-   * into the materialized object and read straight away by the bots (`BC_POLICY.config
-   * .maxAreas` in ai_bc.js / ai_ppo.js). Without it those reads throw an opaque
-   * `Cannot read properties of undefined` far from here — name the failure at the source
-   * (issue #93). encodingVersion is separately defended by makeBC's compatibility guard.
+   * into the materialized object and read straight away by the bots (`policy.config.maxAreas`
+   * in makeBC / ai_bc.js, and likewise for the ppo/persona bots). Without it those reads throw
+   * an opaque `Cannot read properties of undefined` far from here — name the failure at the
+   * source (issue #93). encodingVersion is separately defended by makeBC's compatibility guard.
    */
   if (!meta.config) {
     throw new Error('unpackPolicy: packed payload missing `config` (net dims the bots read).');

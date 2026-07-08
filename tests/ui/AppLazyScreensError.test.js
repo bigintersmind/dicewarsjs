@@ -3,9 +3,9 @@
  * App lazy-screen FAILURE path (issue #93) — sibling to AppLazyScreens.test.js (happy path).
  *
  * When a code-split screen chunk (Arena/Tournament, issue #51) fails to fetch — a deploy
- * rotating chunk hashes, or a persistent network failure — the retries exhaust, preact's
- * `lazy` caches the rejection, and the ErrorBoundary must surface a *reload* affordance
- * (not the useless "Try Again", which would re-throw the cached error forever).
+ * rotating chunk hashes, or a persistent network failure — preact's `lazy` caches the
+ * rejection, and the ErrorBoundary must surface a *reload* affordance (not the useless
+ * "Try Again", which would re-throw the cached error forever).
  *
  * `vi.mock` is hoisted + file-scoped, so mocking ArenaScreen to throw lives in its own file
  * rather than breaking the happy-path Arena render in AppLazyScreens.test.js.
@@ -49,10 +49,10 @@ describe('App lazy-screen chunk-load failure', () => {
       render(h(App, { store, controller }), container);
     });
 
-    // The Suspense fallback shows while the (doomed) import + retries are in flight.
+    // The Suspense fallback shows for the tick before the (doomed) import rejects.
     expect(container.textContent).toContain('Loading');
 
-    // Once the retries exhaust, the ErrorBoundary swaps in the reload affordance.
+    // Then the rejection propagates and the ErrorBoundary swaps in the reload affordance.
     await vi.waitFor(() => expect(container.querySelector('button')?.textContent).toBe('Reload'), {
       timeout: 5000,
     });

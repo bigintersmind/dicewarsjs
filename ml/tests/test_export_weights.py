@@ -199,7 +199,8 @@ def test_export_rejects_encoding_version_skew(tmp_path):
         export(ckpt_path, tmp_path / "out.js", fixture_path=None)
 
 
-def test_export_rejects_non_finite_weights(tmp_path):
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_export_rejects_non_finite_weights(tmp_path, bad):
     """A NaN/Inf checkpoint (training divergence) is refused at export, not silently shipped.
 
     Without the guard it would decode into a legal but degenerate all-NaN-logits bot that
@@ -207,17 +208,17 @@ def test_export_rejects_non_finite_weights(tmp_path):
     config = ModelConfig(max_areas=8, player_count=7, **_V3)
     model = EdgePolicyNet(config)
     sd = model.state_dict()
-    # Poison one weight with NaN — the training-divergence signature.
+    # Poison one weight with NaN/Inf — the training-divergence signature.
     key = next(k for k in sd if k.endswith("weight"))
     sd[key] = sd[key].clone()
-    sd[key].view(-1)[0] = float("nan")
+    sd[key].view(-1)[0] = bad
     ckpt = {
         "state_dict": sd,
         "config": config.to_dict(),
         "encoding_version": 3,
         "teacher": "nan-test",
     }
-    ckpt_path = tmp_path / "nan.pt"
+    ckpt_path = tmp_path / "bad.pt"
     torch.save(ckpt, ckpt_path)
 
     # packed=False avoids the decoder-sibling requirement; the guard runs before either branch.

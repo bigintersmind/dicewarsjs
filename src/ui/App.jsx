@@ -20,30 +20,6 @@ import { ReplayViewer } from './ReplayViewer.jsx';
 import { SettingsPanel } from './SettingsPanel.jsx';
 import { ScreenReaderAnnouncer } from './ScreenReaderAnnouncer.jsx';
 
-/**
- * Retry a dynamic-import factory a few times before giving up, so a transient chunk-fetch
- * blip (a flaky network moment) recovers on its own instead of failing the screen's first
- * open permanently. `lazy` calls its factory once and caches the result, so the retries
- * have to live inside the factory. This does NOT cover a deploy rotating chunk hashes —
- * the rotated URL keeps 404ing no matter how often we re-fetch — that case is handled by
- * ErrorBoundary offering a full reload once the retries are exhausted (issue #93).
- *
- * @param {() => Promise<any>} factory - the `() => import(...)` loader
- * @param {number} [retries=2] - extra attempts after the first
- * @param {number} [delayMs=350] - backoff between attempts
- */
-function importWithRetry(factory, retries = 2, delayMs = 350) {
-  return new Promise((resolve, reject) => {
-    const attempt = remaining => {
-      factory().then(resolve, err => {
-        if (remaining <= 0) reject(err);
-        else setTimeout(() => attempt(remaining - 1), delayMs);
-      });
-    };
-    attempt(retries);
-  });
-}
-
 /*
  * Arena & Tournament are the only screens that pull in the bot registry
  * (builtInBots → ai_bc/ai_ppo → the packed policy-weight modules, ~0.5 MB each).
@@ -52,14 +28,15 @@ function importWithRetry(factory, retries = 2, delayMs = 350) {
  * (issue #51). Code-split each behind a dynamic import() so the weights land in a lazy
  * chunk fetched only when the screen is actually opened. (`lazy` wants a default export;
  * both screens are named exports, hence the `.then` remap.)
+ *
+ * A failed chunk fetch (deploy skew rotating chunk hashes, or a network drop) rejects here
+ * and is caught by ErrorBoundary, which offers a full page reload — the only real recovery,
+ * since a browser caches a failed module in its module map and re-`import()`ing the same URL
+ * just replays the cached rejection (issue #93).
  */
-const ArenaScreen = lazy(() =>
-  importWithRetry(() => import('./ArenaScreen.jsx')).then(m => ({ default: m.ArenaScreen }))
-);
+const ArenaScreen = lazy(() => import('./ArenaScreen.jsx').then(m => ({ default: m.ArenaScreen })));
 const TournamentScreen = lazy(() =>
-  importWithRetry(() => import('./TournamentScreen.jsx')).then(m => ({
-    default: m.TournamentScreen,
-  }))
+  import('./TournamentScreen.jsx').then(m => ({ default: m.TournamentScreen }))
 );
 
 /** Brief full-screen placeholder shown while a code-split screen chunk loads. */

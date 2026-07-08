@@ -1,5 +1,4 @@
 // Throwaway bot for the post-merge e2e test of the #142 validation split.
-// `await` at the top level is valid module syntax (so prettier parses this
-// file) but invalid inside the sandbox's function wrapper — so compilation
-// FAILS deterministically and the workflow_run commenter must post ❌.
-await Promise.resolve();
+// Second revision: a valid (if maximally passive) bot that always ends its
+// turn, so the validation run PASSES and the commenter posts ✅.
+return null;

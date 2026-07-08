@@ -35,6 +35,16 @@
  * @returns {Float32Array}
  */
 function base64ToFloat32Array(b64) {
+  /*
+   * Node's `Buffer.from(b64, 'base64')` silently DROPS chars outside the base64 alphabet
+   * (a truncated/corrupt blob decodes to garbage of a plausible length), whereas the
+   * browser's `atob` throws — a behavior gap that would let corruption pass on the server
+   * path only. Validate the (standard, unwrapped) alphabet up front so both paths reject
+   * malformed input identically and loudly (issue #93).
+   */
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64) || b64.length % 4 !== 0) {
+    throw new Error('unpackPolicy: `data` is not valid base64 (corrupt weight blob).');
+  }
   let bytes;
   if (typeof Buffer !== 'undefined') {
     bytes = Buffer.from(b64, 'base64');
@@ -73,7 +83,29 @@ export function unpackPolicy(packed) {
   if (typeof data !== 'string' || !shape) {
     throw new Error('unpackPolicy: packed payload missing `data` (base64) or `layers` (shape).');
   }
+  /*
+   * `config` (net dims: maxAreas, presentCol, feature widths) is reconstructed verbatim
+   * into the materialized object and read straight away by the bots (`policy.config.maxAreas`
+   * in makeBC / ai_bc.js, and likewise for the ppo/persona bots). Without it those reads throw
+   * an opaque `Cannot read properties of undefined` far from here — name the failure at the
+   * source (issue #93). encodingVersion is separately defended by makeBC's compatibility guard.
+   */
+  if (!meta.config) {
+    throw new Error('unpackPolicy: packed payload missing `config` (net dims the bots read).');
+  }
   const f32 = base64ToFloat32Array(data);
+  /*
+   * Defense-in-depth against a NaN/Inf blob (training divergence or corruption): those
+   * decode cleanly into a silent all-NaN-logits bot that argmaxes to index 0 every turn.
+   * The producer already refuses to export non-finite weights (export_weights.py
+   * `_assert_finite_weights`); this catches a blob that went bad after export. O(n) over
+   * ~100k floats — negligible at the one-time module load.
+   */
+  for (let i = 0; i < f32.length; i++) {
+    if (!Number.isFinite(f32[i])) {
+      throw new Error(`unpackPolicy: non-finite weight at float index ${i} (corrupt weights).`);
+    }
+  }
 
   let off = 0;
   const layers = {};

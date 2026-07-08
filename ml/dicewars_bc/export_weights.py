@@ -170,8 +170,30 @@ def _decode_packed(compact: dict) -> dict:
     return {**meta, "layers": layers}
 
 
+def _assert_finite_weights(payload: dict) -> None:
+    """Reject a NaN/Inf checkpoint at the producer, before any JS module is written.
+
+    A divergent-training checkpoint (or a length-preserving corruption) can carry NaN/Inf
+    weights that decode *cleanly* into a silent degenerate bot: ``forward()`` yields
+    all-NaN logits, and argmax (``NaN > x`` is always false) returns index 0 every turn —
+    a legal, non-throwing, very weak bot with nothing pointing at the corrupt weights. Fail
+    loud here, in the shared emit path so it covers packed, no-packed, and repack alike,
+    mirroring the intent of the encoding-version guard (issue #93)."""
+    for head, layers in payload["layers"].items():
+        for i, layer in enumerate(layers):
+            for key in ("w", "b"):
+                arr = np.asarray(layer[key], dtype=np.float64)
+                if not np.isfinite(arr).all():
+                    n_bad = int((~np.isfinite(arr)).sum())
+                    raise ValueError(
+                        f"non-finite weight in {head}[{i}].{key}: {n_bad} NaN/Inf value(s). "
+                        "Refusing to export a degenerate checkpoint (training likely diverged)."
+                    )
+
+
 def _emit_js(payload: dict, out_path: str | Path, *, packed: bool) -> Path:
     """Write a materialized payload to a JS weights module in the chosen format."""
+    _assert_finite_weights(payload)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     n_params = _count_params(payload)
@@ -336,7 +358,15 @@ def repack_js(in_path: str | Path, out_path: str | Path, *, packed: bool = True)
 
     Reads the materialized weights back out of a generated module (either format) and
     writes them again. The float values are bit-identical across the round-trip, so any
-    sibling parity fixture stays valid and is intentionally left untouched."""
+    sibling parity fixture stays valid and is intentionally left untouched.
+
+    Unlike ``export`` this deliberately does NOT re-assert the current encoding version
+    (issue #93): repack shrinks weights that ALREADY shipped and were validated when first
+    exported, and since encoding-v3 is append-only ([D-31]) an older, narrower net (a
+    v2-stamped module) is a legitimate — still supported — repack target that a strict
+    current-version check would wrongly reject. An unsupported version is still caught at
+    JS load by ``assertPolicyEncodingCompatible`` (ai_bc.js / ai_ppo.js). The finiteness
+    guard in ``_emit_js`` DOES run on repack, since NaN/Inf is never valid at any version."""
     payload = _read_js_payload(Path(in_path).read_text())
     return _emit_js(payload, out_path, packed=packed)
 

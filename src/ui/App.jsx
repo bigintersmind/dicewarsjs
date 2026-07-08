@@ -28,6 +28,11 @@ import { ScreenReaderAnnouncer } from './ScreenReaderAnnouncer.jsx';
  * (issue #51). Code-split each behind a dynamic import() so the weights land in a lazy
  * chunk fetched only when the screen is actually opened. (`lazy` wants a default export;
  * both screens are named exports, hence the `.then` remap.)
+ *
+ * A failed chunk fetch (deploy skew rotating chunk hashes, or a network drop) rejects here
+ * and is caught by ErrorBoundary, which offers a full page reload — the only real recovery,
+ * since a browser caches a failed module in its module map and re-`import()`ing the same URL
+ * just replays the cached rejection (issue #93).
  */
 const ArenaScreen = lazy(() => import('./ArenaScreen.jsx').then(m => ({ default: m.ArenaScreen })));
 const TournamentScreen = lazy(() =>

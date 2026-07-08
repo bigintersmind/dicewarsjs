@@ -337,4 +337,69 @@ describe('Strategist AI', () => {
       expect(from.join[mockGame.area_to]).toBe(1); // That is adjacent
     }
   });
+
+  describe('press-to-close refill for a dominant wide-field leader (issue #115)', () => {
+    /*
+     * All-8s frontier with FIVE players alive — the ≤3-player endgame gate
+     * (PR #35) is closed. Me (player 1): strict dice lead, ≥40% share, full
+     * reserve; my only legal attack is an 8v8 whose target is backed by two
+     * rival 8-stacks. Without the dominance refund the burned-dice cost prices
+     * that swing below PRESS_THRESHOLD and the leader turtles; with the
+     * refund, the reserve makes it affordable.
+     */
+    const buildDominantStalemate = () => {
+      // My chain: 5 cells, all 8s (40 dice) — vacancy 0, so the refill covers a swing fully.
+      territory(4, 1, 8);
+      territory(5, 1, 8);
+      territory(10, 1, 8);
+      territory(11, 1, 8);
+      territory(12, 1, 8);
+      link(4, 5);
+      link(5, 10);
+      link(10, 11);
+      link(11, 12);
+      // Best rival (player 0): a triangle of 8s (24 dice); cells 2 and 3 back cell 1.
+      territory(1, 0, 8);
+      territory(2, 0, 8);
+      territory(3, 0, 8);
+      link(1, 2);
+      link(2, 3);
+      link(1, 3);
+      // Filler rivals away from my border → 5 active players, endgame gate closed.
+      territory(6, 2, 8);
+      territory(7, 2, 8);
+      link(6, 7);
+      link(6, 3);
+      territory(8, 3, 8);
+      link(8, 3);
+      territory(9, 4, 8);
+      link(9, 3);
+      // My single enemy border: the 8v8 into the rival triangle.
+      link(4, 1);
+      mockGame.player[1].stock = 16; // a full reserve to spend
+    };
+
+    test('spends the reserve to press an 8v8 when dominant, even in a wide field', () => {
+      buildDominantStalemate();
+      // Census: me 40 dice (share ≈ 0.417 ≥ DOMINANCE_SHARE), best rival 24.
+
+      const result = ai_strategist(mockGame);
+
+      expect(result).not.toBe(0);
+      expect(mockGame.area_from).toBe(4);
+      expect(mockGame.area_to).toBe(1);
+    });
+
+    test('stays patient on the same board without the dominant share', () => {
+      buildDominantStalemate();
+      // Two extra far-rival stacks drop my share to 40/112 ≈ 0.357 < 0.4 while
+      // I still hold the strict dice lead (40 > 32) → the refund must stay off.
+      territory(13, 2, 8);
+      territory(14, 2, 8);
+      link(13, 14);
+      link(13, 6);
+
+      expect(ai_strategist(mockGame)).toBe(0);
+    });
+  });
 });

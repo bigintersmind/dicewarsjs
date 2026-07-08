@@ -219,7 +219,10 @@ export function TournamentScreen({ onBack, onViewReplay }) {
     }, 50);
   }, [canRun, selectedBots, tournamentType, gamesPerRound]);
 
-  // Map standings to leaderboard format
+  // Map standings to the Leaderboard row shape. The broken-bot badge is NOT driven by these
+  // rows — it comes from the separate `flagged={result.flagged}` prop below, which Leaderboard
+  // matches to rows by name. Leaderboard has no error column, so the standings' error counts
+  // aren't carried here (they live durably in the tournament result / history). (#92 item 2)
   const leaderboardBots = result
     ? result.standings.map(s => ({
         name: s.name,
@@ -322,7 +325,7 @@ export function TournamentScreen({ onBack, onViewReplay }) {
           <div style={STYLE.statsRow}>
             {result.type} — {result.totalGames} games played
           </div>
-          {leaderboardBots && <Leaderboard bots={leaderboardBots} />}
+          {leaderboardBots && <Leaderboard bots={leaderboardBots} flagged={result.flagged} />}
           {replays.length > 0 && onViewReplay && (
             <div style={{ textAlign: 'center', marginTop: '1rem' }}>
               <button

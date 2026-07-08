@@ -207,6 +207,8 @@ describe('tournament error observability (#53)', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringMatching(/\[Tournament\] bot "Broken".*error fraction 100\.0%/s)
     );
+    // The flagged list is threaded out so the Tournament screen can badge the row (#92).
+    expect(result.flagged.map(f => f.name)).toContain('Broken');
 
     warnSpy.mockRestore();
   });
@@ -225,6 +227,7 @@ describe('tournament error observability (#53)', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringMatching(/\[Tournament\] bot "Broken".*error fraction 100\.0%/s)
     );
+    expect(result.flagged.map(f => f.name)).toContain('Broken');
 
     warnSpy.mockRestore();
   });

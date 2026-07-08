@@ -9,6 +9,30 @@
 import { useState } from 'preact/hooks';
 import { PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
+/*
+ * Warning red for the broken-bot flag. The DOM theme (applyThemeVars) has no danger
+ * color — `--ui-accent` is the app's brand hue and is reused for error banners — so a
+ * flagged row uses a self-contained desaturated red that reads on both light and dark
+ * themes rather than colliding with the accent.
+ */
+const FLAG_COLOR = '#e5534b';
+const FLAG_ROW_BG = 'rgba(229, 83, 75, 0.1)';
+
+/**
+ * Short badge text for a flagged bot: lead with whichever forced-end signal actually
+ * fired so an author sees the failure mode (threw vs. submitted illegal moves), not a
+ * misleading "0 error turns" when the flag came from invalid moves.
+ *
+ * @param {import('../arena/botErrorReport.js').FlaggedBot} f
+ * @returns {string}
+ */
+function flagBadgeText(f) {
+  if (f.errors > 0) return `⚠ ${f.errors} error turn${f.errors === 1 ? '' : 's'}`;
+  if (f.invalidMoves > 0)
+    return `⚠ ${f.invalidMoves} invalid move${f.invalidMoves === 1 ? '' : 's'}`;
+  return '⚠ unreliable';
+}
+
 const STYLE = {
   table: {
     width: '100%',
@@ -48,6 +72,21 @@ const STYLE = {
     fontWeight: 'bold',
     color: 'var(--ui-accent)',
   },
+  flaggedRow: {
+    background: FLAG_ROW_BG,
+  },
+  badge: {
+    display: 'inline-block',
+    marginLeft: '0.4rem',
+    padding: '0 0.3rem',
+    borderRadius: '4px',
+    border: `1px solid ${FLAG_COLOR}`,
+    color: FLAG_COLOR,
+    fontSize: '0.7rem',
+    fontWeight: 'bold',
+    whiteSpace: 'nowrap',
+    verticalAlign: 'middle',
+  },
 };
 
 const COLUMNS = [
@@ -64,12 +103,18 @@ const COLUMNS = [
 /**
  * @param {Object} props
  * @param {import('../arena/arenaRunner.js').ArenaBotStat[]} props.bots - Bot statistics
+ * @param {import('../arena/botErrorReport.js').FlaggedBot[]} [props.flagged] - Bots whose
+ *   win%/ELO is not a meaningful measurement (errored on most of their turns). Rendered as
+ *   a per-row warning badge so a broken bot can't masquerade as a real ranking. The flag
+ *   decision stays in the JS layer (reportBotErrors) — this component only displays it.
  */
-export function Leaderboard({ bots }) {
+export function Leaderboard({ bots, flagged }) {
   const [sortKey, setSortKey] = useState('elo');
   const [sortAsc, setSortAsc] = useState(false);
 
   if (!bots || bots.length === 0) return null;
+
+  const flaggedByName = new Map((flagged || []).map(f => [f.name, f]));
 
   const handleSort = key => {
     if (key === sortKey) {
@@ -115,26 +160,41 @@ export function Leaderboard({ bots }) {
         </tr>
       </thead>
       <tbody>
-        {sorted.map((bot, i) => (
-          <tr key={bot.name}>
-            <td style={{ ...STYLE.td, ...STYLE.rank }}>{i + 1}</td>
-            <td style={STYLE.td}>
-              <span
-                style={{
-                  ...STYLE.colorDot,
-                  background: PLAYER_COLORS_CSS[i % PLAYER_COLORS_CSS.length],
-                }}
-              />
-              {bot.name}
-            </td>
-            <td style={STYLE.td}>{bot.elo}</td>
-            <td style={STYLE.td}>{bot.wins}</td>
-            <td style={STYLE.td}>{bot.gamesPlayed}</td>
-            <td style={STYLE.td}>{(bot.winRate * 100).toFixed(1)}%</td>
-            <td style={STYLE.td}>{bot.avgPlacement}</td>
-            <td style={STYLE.td}>{(bot.attackWinRate * 100).toFixed(1)}%</td>
-          </tr>
-        ))}
+        {sorted.map((bot, i) => {
+          const flag = flaggedByName.get(bot.name);
+          return (
+            <tr key={bot.name} style={flag ? STYLE.flaggedRow : undefined}>
+              <td style={{ ...STYLE.td, ...STYLE.rank }}>{i + 1}</td>
+              <td style={STYLE.td}>
+                <span
+                  style={{
+                    ...STYLE.colorDot,
+                    background: PLAYER_COLORS_CSS[i % PLAYER_COLORS_CSS.length],
+                  }}
+                />
+                {bot.name}
+                {flag && (
+                  <span
+                    style={STYLE.badge}
+                    title={
+                      "This bot's win% / ELO is not a meaningful measurement — it errored " +
+                      'on most of its turns, so it looks broken or mis-registered rather than ' +
+                      'legitimately losing.'
+                    }
+                  >
+                    {flagBadgeText(flag)}
+                  </span>
+                )}
+              </td>
+              <td style={STYLE.td}>{bot.elo}</td>
+              <td style={STYLE.td}>{bot.wins}</td>
+              <td style={STYLE.td}>{bot.gamesPlayed}</td>
+              <td style={STYLE.td}>{(bot.winRate * 100).toFixed(1)}%</td>
+              <td style={STYLE.td}>{bot.avgPlacement}</td>
+              <td style={STYLE.td}>{(bot.attackWinRate * 100).toFixed(1)}%</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

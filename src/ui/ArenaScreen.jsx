@@ -9,8 +9,11 @@
 
 import { useState, useCallback } from 'preact/hooks';
 import { runMatch } from '../arena/matchRunner.js';
-import { updateEloRatings, DEFAULT_RATING } from '../arena/elo.js';
-import { reportBotErrors } from '../arena/botErrorReport.js';
+import {
+  createArenaAccumulator,
+  accumulateMatch,
+  finalizeArenaStats,
+} from '../arena/arenaAccumulator.js';
 import { PLAYER_VISIBLE_BOTS } from '../arena/builtInBots.js';
 import { createReplay } from '../arena/replayFormat.js';
 import { Leaderboard } from './Leaderboard.jsx';
@@ -219,23 +222,13 @@ export function ArenaScreen({ onBack, onViewReplay }) {
       fn: b.fn,
     }));
 
-    // Per-bot accumulators
-    const ratings = {};
-    const accum = {};
-    for (const bot of bots) {
-      ratings[bot.name] = DEFAULT_RATING;
-      accum[bot.name] = {
-        wins: 0,
-        gamesPlayed: 0,
-        totalPlacement: 0,
-        totalTerritories: 0,
-        totalAttacks: 0,
-        totalAttackWins: 0,
-        errors: 0,
-        invalidMoves: 0,
-        maxMovesHit: 0,
-      };
-    }
+    /*
+     * ELO ratings + per-bot stat accumulators. This screen runs its own arena loop
+     * (one game per macrotask, so Preact can paint progress) rather than runArena, but
+     * the per-match bookkeeping + broken-bot flag pass are the shared arenaAccumulator
+     * helpers — so the two loops can't drift apart. (#53, #92 item 3)
+     */
+    const acc = createArenaAccumulator(bots);
 
     const matches = [];
     let totalTurns = 0;
@@ -243,43 +236,13 @@ export function ArenaScreen({ onBack, onViewReplay }) {
     const baseSeed = Date.now();
 
     const finalize = () => {
-      const botStats = bots.map(bot => {
-        const a = accum[bot.name];
-        return {
-          name: bot.name,
-          wins: a.wins,
-          gamesPlayed: a.gamesPlayed,
-          avgPlacement: a.gamesPlayed > 0 ? +(a.totalPlacement / a.gamesPlayed).toFixed(2) : 0,
-          avgTerritories: a.gamesPlayed > 0 ? +(a.totalTerritories / a.gamesPlayed).toFixed(1) : 0,
-          avgAttacks: a.gamesPlayed > 0 ? +(a.totalAttacks / a.gamesPlayed).toFixed(1) : 0,
-          attackWinRate: a.totalAttacks > 0 ? +(a.totalAttackWins / a.totalAttacks).toFixed(3) : 0,
-          elo: ratings[bot.name],
-          errors: a.errors,
-          invalidMoves: a.invalidMoves,
-          maxMovesHit: a.maxMovesHit,
-        };
-      });
-
-      /*
-       * Warn loudly if any bot errored on most of its turns — its win%/ELO in the table
-       * below is not a meaningful measurement, it's a broken/mis-registered bot. This
-       * screen runs its own arena loop (not runArena), so it must call this itself. (#53)
-       */
-      reportBotErrors(
-        bots.map(bot => ({
-          name: bot.name,
-          errors: accum[bot.name].errors,
-          attacks: accum[bot.name].totalAttacks,
-          invalidMoves: accum[bot.name].invalidMoves,
-          maxMovesHit: accum[bot.name].maxMovesHit,
-        })),
-        { label: '[Arena]' }
-      );
-
-      botStats.sort((a, b) => b.elo - a.elo);
+      // finalizeArenaStats warns loudly about any bot that errored on most of its turns
+      // and returns the flagged list, which we thread into the table below as a badge.
+      const { bots: botStats, flagged } = finalizeArenaStats(acc, bots, { label: '[Arena]' });
 
       setResult({
         bots: botStats,
+        flagged,
         totalGames: matches.length,
         failedGames,
         avgTurns: matches.length > 0 ? +(totalTurns / matches.length).toFixed(1) : 0,
@@ -318,29 +281,7 @@ export function ArenaScreen({ onBack, onViewReplay }) {
           console.warn(`[Arena] Replay creation failed for match ${i}:`, err.message);
         }
 
-        for (const stat of matchResult.botStats) {
-          const a = accum[stat.name];
-          a.gamesPlayed++;
-          a.totalPlacement += stat.placement;
-          a.totalTerritories += stat.finalTerritories;
-          a.totalAttacks += stat.attacksMade;
-          a.totalAttackWins += stat.attacksWon;
-          a.errors += stat.errors;
-          a.invalidMoves += stat.invalidMoves;
-          a.maxMovesHit += stat.maxMovesHit;
-          if (matchResult.winner === stat.playerIndex) {
-            a.wins++;
-          }
-        }
-
-        const eloPlayers = matchResult.placements.map(playerIdx => {
-          const botStat = matchResult.botStats.find(s => s.playerIndex === playerIdx);
-          return { name: botStat.name, elo: ratings[botStat.name] };
-        });
-        const updatedRatings = updateEloRatings(eloPlayers);
-        for (const r of updatedRatings) {
-          ratings[r.name] = r.elo;
-        }
+        accumulateMatch(acc, matchResult);
 
         setProgress((i + 1) / gameCount);
         setTimeout(() => runNextGame(i + 1), 0);
@@ -433,7 +374,7 @@ export function ArenaScreen({ onBack, onViewReplay }) {
             {result.failedGames > 0 && ` (${result.failedGames} failed)`} — avg {result.avgTurns}{' '}
             turns/game
           </div>
-          <Leaderboard bots={result.bots} />
+          <Leaderboard bots={result.bots} flagged={result.flagged} />
           {replays.length > 0 && onViewReplay && (
             <div style={{ textAlign: 'center', marginTop: '1rem' }}>
               <button

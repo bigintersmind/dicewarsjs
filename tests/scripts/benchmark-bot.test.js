@@ -1,4 +1,6 @@
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const projectRoot = path.resolve(import.meta.dirname, '../..');
@@ -34,6 +36,21 @@ describe('benchmark-bot CLI', () => {
     expect(stdout).toContain('Benchmarking');
     expect(stdout).toContain('(built-in)');
     expect(stdout).toContain('ELO');
+  }, 30000);
+
+  it('prints the "Forced ends" line for a bot that never makes a legal move (#92 item 3)', () => {
+    // A bot file is a bare function body. This one returns a valid-SHAPE but illegal move
+    // ({from,to} out of range), so it passes the compiler's shape smoke-test but every real
+    // move is rejected — matchRunner tallies invalidMoves, tripping the "Forced ends" branch.
+    const botPath = path.join(os.tmpdir(), `dwjs-forced-end-bot-${process.pid}.js`);
+    fs.writeFileSync(botPath, 'return { from: -1, to: -1 };\n');
+    try {
+      const { stdout } = run(`"${botPath}" --games 3`);
+      expect(stdout).toContain('Forced ends');
+      expect(stdout).toContain('invalid move(s)');
+    } finally {
+      fs.rmSync(botPath, { force: true });
+    }
   }, 30000);
 
   it('fails with no args', () => {

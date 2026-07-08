@@ -390,4 +390,41 @@ describe('runArena', () => {
 
     warnSpy.mockRestore();
   });
+
+  it('returns an empty flagged list for a healthy run (#92)', () => {
+    const result = runArena({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: defaultBot },
+      ],
+      gameCount: 2,
+      baseSeed: 1,
+    });
+
+    expect(Array.isArray(result.flagged)).toBe(true);
+    expect(result.flagged).toEqual([]);
+  });
+
+  it('surfaces a broken bot in result.flagged so callers can route it onward (#92)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const throwingBot = () => {
+      throw new Error('boom');
+    };
+
+    const result = runArena({
+      bots: [
+        { name: 'broken', fn: throwingBot },
+        { name: 'default', fn: defaultBot },
+      ],
+      gameCount: 3,
+      baseSeed: 1,
+    });
+
+    expect(result.flagged.map(f => f.name)).toContain('broken');
+    const broken = result.flagged.find(f => f.name === 'broken');
+    expect(broken.errorFraction).toBe(1);
+
+    warnSpy.mockRestore();
+  });
 });

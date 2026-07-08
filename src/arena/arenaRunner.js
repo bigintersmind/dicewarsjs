@@ -8,8 +8,7 @@
  */
 
 import { runMatch } from './matchRunner.js';
-import { updateEloRatings, DEFAULT_RATING } from './elo.js';
-import { reportBotErrors } from './botErrorReport.js';
+import { createArenaAccumulator, accumulateMatch, finalizeArenaStats } from './arenaAccumulator.js';
 
 /**
  * @typedef {Object} ArenaBotStat
@@ -30,8 +29,14 @@ import { reportBotErrors } from './botErrorReport.js';
 /**
  * @typedef {Object} ArenaResult
  * @property {ArenaBotStat[]}                   bots       - Aggregated bot stats
+ * @property {import('./botErrorReport.js').FlaggedBot[]} flagged - Bots whose turn-level
+ *   error fraction exceeded the threshold — their win%/ELO is not a meaningful measurement.
+ *   Empty in a clean run. Callers route this to durable leaderboards / UI badges so a broken
+ *   bot can't masquerade as a real result past `console.warn` (#53, #92).
  * @property {number}                           totalGames   - Total games completed
  * @property {number}                           failedGames  - Games that threw errors
+ * @property {boolean}                          aborted      - True if the run bailed after
+ *   the match failure rate exceeded 50%
  * @property {number}                           avgTurns     - Average turns per game
  * @property {import('./matchRunner.js').MatchResult[]} matches - Individual match results
  */
@@ -77,27 +82,8 @@ export function runArena(config) {
 
   const matches = [];
 
-  // Initialize ELO ratings (use provided initial ratings if available)
-  const ratings = {};
-  for (const bot of bots) {
-    ratings[bot.name] = initialRatings?.[bot.name] ?? DEFAULT_RATING;
-  }
-
-  // Per-bot accumulators
-  const accum = {};
-  for (const bot of bots) {
-    accum[bot.name] = {
-      wins: 0,
-      gamesPlayed: 0,
-      totalPlacement: 0,
-      totalTerritories: 0,
-      totalAttacks: 0,
-      totalAttackWins: 0,
-      errors: 0,
-      invalidMoves: 0,
-      maxMovesHit: 0,
-    };
-  }
+  // ELO ratings + per-bot stat accumulators (shared with ArenaScreen's loop).
+  const acc = createArenaAccumulator(bots, initialRatings);
 
   let totalTurns = 0;
 
@@ -135,73 +121,22 @@ export function runArena(config) {
     matches.push(result);
     totalTurns += result.turnCount;
 
-    for (const stat of result.botStats) {
-      const a = accum[stat.name];
-      a.gamesPlayed++;
-      a.totalPlacement += stat.placement;
-      a.totalTerritories += stat.finalTerritories;
-      a.totalAttacks += stat.attacksMade;
-      a.totalAttackWins += stat.attacksWon;
-      a.errors += stat.errors;
-      a.invalidMoves += stat.invalidMoves;
-      a.maxMovesHit += stat.maxMovesHit;
-      if (result.winner === stat.playerIndex) {
-        a.wins++;
-      }
-    }
-
-    const eloPlayers = result.placements.map(playerIdx => {
-      const botStat = result.botStats.find(s => s.playerIndex === playerIdx);
-      return { name: botStat.name, elo: ratings[botStat.name] };
-    });
-
-    const updatedRatings = updateEloRatings(eloPlayers);
-    for (const r of updatedRatings) {
-      ratings[r.name] = r.elo;
-    }
+    accumulateMatch(acc, result);
 
     if (onGameComplete) onGameComplete(i, result);
   }
 
-  // Build final stats
-  const botStats = bots.map(bot => {
-    const a = accum[bot.name];
-    return {
-      name: bot.name,
-      wins: a.wins,
-      gamesPlayed: a.gamesPlayed,
-      avgPlacement: a.gamesPlayed > 0 ? +(a.totalPlacement / a.gamesPlayed).toFixed(2) : 0,
-      avgTerritories: a.gamesPlayed > 0 ? +(a.totalTerritories / a.gamesPlayed).toFixed(1) : 0,
-      avgAttacks: a.gamesPlayed > 0 ? +(a.totalAttacks / a.gamesPlayed).toFixed(1) : 0,
-      attackWinRate: a.totalAttacks > 0 ? +(a.totalAttackWins / a.totalAttacks).toFixed(3) : 0,
-      elo: ratings[bot.name],
-      errors: a.errors,
-      invalidMoves: a.invalidMoves,
-      maxMovesHit: a.maxMovesHit,
-    };
-  });
-
   /*
-   * Turn a silent failure into a loud one: a bot that errors on most of its turns is
-   * broken, not losing, and its win%/ELO is meaningless. Warn before returning so every
-   * runArena consumer (benchmark-bot, bc-stopbias-sweep, the CLI sweeps) surfaces it. (#53)
+   * Build final stats + flag broken bots. finalizeArenaStats warns loudly about any bot
+   * that errored on most of its turns (broken, not losing — its win%/ELO is meaningless)
+   * so every runArena consumer (benchmark-bot, bc-stopbias-sweep, the CLI sweeps) surfaces
+   * it, and returns the `flagged[]` so the daily tournament / UI can route it onward. (#53)
    */
-  reportBotErrors(
-    bots.map(bot => ({
-      name: bot.name,
-      errors: accum[bot.name].errors,
-      attacks: accum[bot.name].totalAttacks,
-      invalidMoves: accum[bot.name].invalidMoves,
-      maxMovesHit: accum[bot.name].maxMovesHit,
-    })),
-    { label: '[Arena]' }
-  );
-
-  // Sort by ELO descending
-  botStats.sort((a, b) => b.elo - a.elo);
+  const { bots: botStats, flagged } = finalizeArenaStats(acc, bots, { label: '[Arena]' });
 
   return {
     bots: botStats,
+    flagged,
     totalGames: matches.length,
     failedGames,
     aborted,

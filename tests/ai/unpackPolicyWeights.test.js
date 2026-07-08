@@ -99,21 +99,45 @@ describe('unpackPolicy', () => {
   });
 
   it('throws when the blob byte length is not a multiple of 4', () => {
-    // 3 bytes → not a whole number of float32 values.
+    // 3 bytes → not a whole number of float32 values. ('AQID' is valid base64 for 3 bytes.)
     const data = Buffer.from([1, 2, 3]).toString('base64');
-    expect(() => unpackPolicy({ layers: { h: [[1, 1, false]] }, data })).toThrow(/multiple of 4/);
+    expect(() => unpackPolicy({ config: {}, layers: { h: [[1, 1, false]] }, data })).toThrow(
+      /multiple of 4/
+    );
   });
 
   it('throws when the shape describes more floats than the blob holds', () => {
     // Shape wants 2 floats (w[1x1] + b[1]); blob only has 1.
     const data = floatsToBase64([1.0]);
-    expect(() => unpackPolicy({ layers: { h: [[1, 1, false]] }, data })).toThrow(
+    expect(() => unpackPolicy({ config: {}, layers: { h: [[1, 1, false]] }, data })).toThrow(
       /shape\/data mismatch/
     );
   });
 
   it('throws on a malformed payload missing data or layers', () => {
-    expect(() => unpackPolicy({ layers: { h: [] } })).toThrow(/missing/);
-    expect(() => unpackPolicy({ data: floatsToBase64([]) })).toThrow(/missing/);
+    expect(() => unpackPolicy({ config: {}, layers: { h: [] } })).toThrow(/missing/);
+    expect(() => unpackPolicy({ config: {}, data: floatsToBase64([]) })).toThrow(/missing/);
+  });
+
+  it('throws a named error when `config` is missing (issue #93)', () => {
+    // Without config, downstream `BC_POLICY.config.maxAreas` reads throw far from here;
+    // the decoder names the failure at the source instead.
+    const data = floatsToBase64([1.0, 2.0, -0.5, 0.25, 10.0, -20.0]);
+    expect(() => unpackPolicy({ layers: { onlyHead: [[2, 2, true]] }, data })).toThrow(/config/);
+  });
+
+  it('rejects malformed base64 identically to the browser (Node/atob parity, issue #93)', () => {
+    // Node's Buffer.from silently drops non-alphabet chars where atob throws; the decoder
+    // validates the alphabet up front so both reject a corrupt blob loudly.
+    const bad = { config: {}, layers: { h: [[1, 1, false]] }, data: 'not valid base64!!' };
+    expect(() => unpackPolicy(bad)).toThrow(/valid base64/);
+  });
+
+  it('throws on a non-finite (NaN/Inf) weight blob (issue #93)', () => {
+    // A divergent checkpoint would otherwise decode into a silent all-NaN-logits bot.
+    const data = floatsToBase64([1.0, NaN]); // w[1x1]=1.0, b[1]=NaN
+    expect(() => unpackPolicy({ config: {}, layers: { h: [[1, 1, false]] }, data })).toThrow(
+      /non-finite/
+    );
   });
 });

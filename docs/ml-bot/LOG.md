@@ -1161,7 +1161,9 @@ runs/ppo-scratch-long/scratch.weights.js --fixture …/scratch.fixture.json`; NB
 - PPO-league snapshots keep the self-contained `--no-packed` JSON (they're written to a transient
   run dir with no decoder sibling). Updated `snapshot_callback.py`, `test_export_weights.py`, added
   `tests/ai/unpackPolicyWeights.test.js`.
-  **Learned / decided:**
+
+**Learned / decided:**
+
 - base64 inflates the 411 KB float32 binary to ~549 KB of text (the LOG's earlier "≈410 KB" was the
   raw binary). Still a big win raw + gzip, and the lazy split is what actually removes it from every
   page load. ES-module-friendly + keeps the synchronous-import contract; a raw `.bin` + `fetch()`
@@ -1169,7 +1171,9 @@ runs/ppo-scratch-long/scratch.weights.js --fixture …/scratch.fixture.json`; NB
 - A packed module `import`s its sibling decoder by relative path, so packed exports must land in
   `src/ai/`. The exporter fails loud (sibling-existence check) rather than emitting a module that
   would `Cannot find module` at load.
-  **Next:**
+
+**Next:**
+
 - Optional follow-up: split `makeBC` into a weight-free module so the in-game PPO lazy chunk doesn't
   also drag the BC weights (~0.5 MB). Deferred — it'd change `makeBC()`'s `BC_POLICY` default
   (asserted by `ai_bc.test.js`) and touch league-snapshot semantics; not worth it for a chunk that's

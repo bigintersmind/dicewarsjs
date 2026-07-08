@@ -199,6 +199,32 @@ def test_export_rejects_encoding_version_skew(tmp_path):
         export(ckpt_path, tmp_path / "out.js", fixture_path=None)
 
 
+def test_export_rejects_non_finite_weights(tmp_path):
+    """A NaN/Inf checkpoint (training divergence) is refused at export, not silently shipped.
+
+    Without the guard it would decode into a legal but degenerate all-NaN-logits bot that
+    argmaxes to index 0 every turn, with nothing pointing at the corrupt weights (issue #93)."""
+    config = ModelConfig(max_areas=8, player_count=7, **_V3)
+    model = EdgePolicyNet(config)
+    sd = model.state_dict()
+    # Poison one weight with NaN — the training-divergence signature.
+    key = next(k for k in sd if k.endswith("weight"))
+    sd[key] = sd[key].clone()
+    sd[key].view(-1)[0] = float("nan")
+    ckpt = {
+        "state_dict": sd,
+        "config": config.to_dict(),
+        "encoding_version": 3,
+        "teacher": "nan-test",
+    }
+    ckpt_path = tmp_path / "nan.pt"
+    torch.save(ckpt, ckpt_path)
+
+    # packed=False avoids the decoder-sibling requirement; the guard runs before either branch.
+    with pytest.raises(ValueError, match="non-finite"):
+        export(ckpt_path, tmp_path / "out.js", fixture_path=None, packed=False)
+
+
 def test_export_without_fixture_is_optional(tmp_path):
     """--fixture is optional; omitting it still writes a valid weights module."""
     ckpt_path = _save_repacked(tmp_path)

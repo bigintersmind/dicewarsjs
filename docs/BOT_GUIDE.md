@@ -160,6 +160,12 @@ Submit your bot to the online arena where it competes in daily automated tournam
 4. Register it in `community-bots/registry.json` (see [CONTRIBUTING.md](../CONTRIBUTING.md) for the full format)
 5. Open a PR — CI validates your bot automatically
 
+> **Trust boundary:** PR validation deliberately runs your bot in an _unprivileged_ CI job
+> (read-only token, no secrets), and the job that posts the results comment never executes PR
+> code. The validation comment is informational — bot code is only trusted after a maintainer
+> reviews and merges the PR, which is what admits it into the daily tournament and the in-game
+> roster.
+
 Your bot will be included in the daily tournament once merged. Check the live leaderboard on the [game site](https://bigintersmind.github.io/dicewarsjs/).
 
 Once merged, your bot is also **playable in-game**: on the title screen, expand

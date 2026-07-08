@@ -1,30 +1,25 @@
 name: Validate Community Bots
 
+# Untrusted half of the split validation pipeline (#142).
+#
+# This workflow EXECUTES PR-supplied bot code, so it runs under the fork-safe
+# `pull_request` event: a read-only GITHUB_TOKEN and no secrets. The PR comment
+# (which needs `pull-requests: write`) is posted by validate-bots-comment.yml,
+# a `workflow_run` workflow that never checks out or runs PR code.
 on:
-  pull_request_target:
+  pull_request:
     paths:
       - 'community-bots/**'
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout base
+      - name: Checkout PR
         uses: actions/checkout@v5
-
-      - name: Checkout PR community-bots only
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: pr-bots
-          sparse-checkout: community-bots
-
-      - name: Overlay PR bot files
-        run: cp -r pr-bots/community-bots/* community-bots/
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -36,23 +31,21 @@ jobs:
 
       - name: Validate community bots
         id: validate
+        # Explicit `shell: bash` enables pipefail, so the validator's exit code
+        # survives the pipe into tee (the default `bash -e {0}` shell would
+        # report tee's exit code and mark failed validation as success).
+        shell: bash
         run: node scripts/validate-community-bots.mjs 2>&1 | tee validation-output.txt
 
-      - name: Comment validation results on PR
+      - name: Record validation outcome
         if: always()
-        uses: actions/github-script@v8
+        run: echo "${{ steps.validate.outcome }}" > validation-outcome.txt
+
+      - name: Upload validation results
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          script: |
-            const fs = require('fs');
-            const output = fs.existsSync('validation-output.txt')
-              ? fs.readFileSync('validation-output.txt', 'utf-8')
-              : '(no validation output — an earlier step failed before validation ran; see the workflow logs)';
-            const status = '${{ steps.validate.outcome }}';
-            const icon = status === 'success' ? ':white_check_mark:' : ':x:';
-            const body = `## ${icon} Bot Validation ${status === 'success' ? 'Passed' : 'Failed'}\n\n\`\`\`\n${output}\n\`\`\``;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body
-            });
+          name: bot-validation-results
+          path: |
+            validation-output.txt
+            validation-outcome.txt

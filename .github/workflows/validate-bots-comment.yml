@@ -1,0 +1,135 @@
+name: Comment Bot Validation Results
+
+# Privileged half of the split validation pipeline (#142).
+#
+# `workflow_run` workflows always execute THIS file as it exists on the
+# default branch — a PR cannot alter what runs here. That asymmetry (the
+# `pull_request` half runs the PR's copy of its workflow; this half runs
+# ours) is the load-bearing guarantee of the split.
+#
+# This workflow holds the `pull-requests: write` token but never checks out
+# or executes PR code — it only relays the artifact produced by the untrusted
+# run in validate-bots.yml. Artifact contents are attacker-controlled (the
+# PR's own code runs in the workflow that produces them), so they are only
+# ever rendered as comment text — never used as commands or API parameters.
+# (One narrow exception: `unzip` consumes the archive's entry names, but
+# upload-artifact in the producing run fixes those to two literal filenames,
+# and extraction is confined to results/.) The target PR is resolved from the
+# run's head SHA, never from artifact contents. The resulting comment is
+# informational only — a PR can forge its own "Passed" text, so the comment
+# must never be treated as a merge gate (see docs/BOT_GUIDE.md).
+on:
+  workflow_run:
+    workflows: ['Validate Community Bots']
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  actions: read
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download validation artifact
+        id: download
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id,
+            });
+            const artifact = data.artifacts.find(a => a.name === 'bot-validation-results');
+            if (!artifact) {
+              core.setOutput('found', 'false');
+              core.warning('No bot-validation-results artifact on the triggering run.');
+              return;
+            }
+            const download = await github.rest.actions.downloadArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifact.id,
+              archive_format: 'zip',
+            });
+            require('fs').writeFileSync('results.zip', Buffer.from(download.data));
+            core.setOutput('found', 'true');
+
+      - name: Unzip artifact
+        if: steps.download.outputs.found == 'true'
+        run: unzip -o results.zip -d results
+
+      - name: Comment validation results on PR
+        if: always()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const run = context.payload.workflow_run;
+
+            // A cancelled run judged nothing — don't tell the author their bot failed.
+            if (run.conclusion === 'cancelled' || run.conclusion === 'skipped') {
+              core.info(`Validation run was ${run.conclusion}; skipping comment.`);
+              return;
+            }
+
+            // Resolve the PR from the run's head SHA — never from artifact
+            // contents, which the PR's own code can forge. workflow_run.pull_requests
+            // is empty for fork PRs (the main case), so the commits API is the
+            // lookup path. Deliberately no fallback: if the PR head has moved on
+            // (force-push), a newer run will comment — posting stale results
+            // here would be worse than staying silent.
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: run.head_sha,
+            });
+            const pr = prs.find(p => p.head.sha === run.head_sha);
+            if (!pr) {
+              core.warning(`No PR with current head ${run.head_sha} (superseded or closed); skipping comment.`);
+              return;
+            }
+
+            const readIfExists = f => (fs.existsSync(f) ? fs.readFileSync(f, 'utf-8') : null);
+            const outcome = (readIfExists('results/validation-outcome.txt') ?? '').trim();
+            let output = readIfExists('results/validation-output.txt');
+
+            const passed = run.conclusion === 'success' && outcome === 'success';
+            // Run green but artifact unreadable is a retrieval problem on our
+            // side, not a failing bot — say so instead of blaming the validation.
+            const retrievalFailed = run.conclusion === 'success' && output === null;
+
+            output ??= retrievalFailed
+              ? '(validation succeeded, but its results artifact could not be retrieved — see the workflow run)'
+              : '(no validation output — the validation run failed before producing results; see the workflow logs)';
+            const MAX = 60000; // stay under the 65536-char comment limit incl. wrapper
+            if (output.length > MAX) {
+              output = `${output.slice(0, MAX)}\n… (truncated — full output in the workflow run)`;
+            }
+            // Neutralize backticks (zero-width space after each) so untrusted
+            // output can't close the fence below and inject markdown (e.g. a
+            // fake "Passed" banner).
+            output = output.replace(/`/g, '`\u200b');
+
+            const [icon, verdict] = passed
+              ? [':white_check_mark:', 'Passed']
+              : retrievalFailed
+                ? [':warning:', 'Passed (results unavailable)']
+                : [':x:', 'Failed'];
+            const body = [
+              `## ${icon} Bot Validation ${verdict}`,
+              '',
+              '```',
+              output,
+              '```',
+              '',
+              `Commit ${run.head_sha} · [Full validation run](${run.html_url})`,
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body,
+            });

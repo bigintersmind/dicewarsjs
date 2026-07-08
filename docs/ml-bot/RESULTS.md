@@ -1277,3 +1277,8 @@ at both probes). No corner of the {0.15, 0.25} bounty sweep both out-kills Survi
 basin. Per §10.8 + Ivan's ruling: revisitable only with a frame-level kill-attribution fix, no coef
 re-sweeps. Shipped trio (Conqueror + Blitz + Survivor v2) unchanged; runs backed up to `~/wave2-backup/`
 (byte-exact), schtasks + supervisor removed.
+
+**Bar-provenance robustness:** the +0.26 bar is 15% of Survivor's realized kills in the 2026-07-06
+calibration profile (1.725); recomputed against Survivor's kills realized in _this_ field (1.62 → +0.24),
+b15 still misses — and its Δ+0.16 CI [0.00, 0.31] does not even exclude zero. The verdict is insensitive
+to which realized-kills snapshot defines the bar.

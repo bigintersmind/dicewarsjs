@@ -219,7 +219,9 @@ export function TournamentScreen({ onBack, onViewReplay }) {
     }, 50);
   }, [canRun, selectedBots, tournamentType, gamesPerRound]);
 
-  // Map standings to leaderboard format
+  // Map standings to leaderboard format. Forward the forced-end counts so a bot flagged
+  // by result.flagged renders its badge (errored N turns) instead of silently dropping
+  // the signal the standings already carry. (#92 item 2)
   const leaderboardBots = result
     ? result.standings.map(s => ({
         name: s.name,
@@ -230,6 +232,9 @@ export function TournamentScreen({ onBack, onViewReplay }) {
         avgAttacks: 0,
         attackWinRate: 0,
         elo: s.elo,
+        errors: s.errors,
+        invalidMoves: s.invalidMoves,
+        maxMovesHit: s.maxMovesHit,
       }))
     : null;
 
@@ -322,7 +327,7 @@ export function TournamentScreen({ onBack, onViewReplay }) {
           <div style={STYLE.statsRow}>
             {result.type} — {result.totalGames} games played
           </div>
-          {leaderboardBots && <Leaderboard bots={leaderboardBots} />}
+          {leaderboardBots && <Leaderboard bots={leaderboardBots} flagged={result.flagged} />}
           {replays.length > 0 && onViewReplay && (
             <div style={{ textAlign: 'center', marginTop: '1rem' }}>
               <button

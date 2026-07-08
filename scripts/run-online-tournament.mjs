@@ -15,9 +15,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runArena } from '../src/arena/arenaRunner.js';
 import { DEFAULT_MAX_TURNS } from '../src/arena/matchRunner.js';
-import { DEFAULT_RATING } from '../src/arena/elo.js';
 import { createReplay } from '../src/arena/replayFormat.js';
 import { buildTournamentField } from './lib/tournament-field.mjs';
+import { buildLeaderboard, buildHistoryEntry } from './lib/online-tournament.mjs';
 import { getArg, colors } from './lib/cli-utils.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -169,29 +169,33 @@ for (let i = 0; i < replayMatches.length; i++) {
   });
 }
 
+// --- Flag broken bots ---
+
+/*
+ * runArena already console.warned about any bot that errored on most of its turns. Exclude
+ * those flagged bots from the durable artifacts below: a broken bot's meaningless ELO must
+ * not reach the public leaderboard, and — since the next run seeds initialRatings from this
+ * file — it must not compound day-over-day. Loudly note the exclusion (the reportBotErrors
+ * warning explains why; this states the consequence). (#53, #92 item 1)
+ */
+if (result.flagged.length > 0) {
+  const names = result.flagged.map(f => f.name).join(', ');
+  console.warn(
+    `${colors.yellow}Excluding ${result.flagged.length} flagged bot(s) from the published ` +
+      `leaderboard + ELO seeding (broken/mis-registered — win%/ELO not a real measurement): ` +
+      `${names}${colors.reset}`
+  );
+}
+
 // --- Build leaderboard ---
 
-const leaderboard = {
+const leaderboard = buildLeaderboard({
+  result,
+  previousLeaderboard,
+  authorByName,
+  replayFiles,
   updatedAt: today.toISOString(),
-  tournamentCount: previousLeaderboard.tournamentCount + 1,
-  totalGamesPlayed: previousLeaderboard.totalGamesPlayed + result.totalGames,
-  bots: result.bots.map(bot => {
-    const prev = previousLeaderboard.bots.find(b => b.name === bot.name);
-    const previousElo = prev ? prev.elo : DEFAULT_RATING;
-    return {
-      name: bot.name,
-      author: authorByName.get(bot.name) ?? 'built-in',
-      elo: Math.round(bot.elo),
-      previousElo: Math.round(previousElo),
-      wins: bot.wins,
-      gamesPlayed: bot.gamesPlayed,
-      winRate: bot.gamesPlayed > 0 ? +(bot.wins / bot.gamesPlayed).toFixed(3) : 0,
-      avgPlacement: bot.avgPlacement,
-      attackWinRate: bot.attackWinRate,
-    };
-  }),
-  replays: replayFiles,
-};
+});
 
 // --- Build tournament history entry ---
 
@@ -207,18 +211,13 @@ if (fs.existsSync(HISTORY_PATH)) {
   }
 }
 
-history.push({
-  date: today.toISOString().split('T')[0],
-  gamesPlayed: result.totalGames,
-  failedGames: result.failedGames,
-  botCount: bots.length,
-  champion: result.bots[0]?.name || null,
-  standings: result.bots.map(b => ({
-    name: b.name,
-    elo: Math.round(b.elo),
-    wins: b.wins,
-  })),
-});
+history.push(
+  buildHistoryEntry({
+    result,
+    date: today.toISOString().split('T')[0],
+    botCount: bots.length,
+  })
+);
 
 // Keep last 90 days of history
 if (history.length > 90) {
@@ -238,11 +237,14 @@ console.log(
 );
 console.log('-'.repeat(76));
 
+// Mark flagged (excluded) bots in the operator table — the published leaderboard omits them.
+const flaggedNames = new Set(result.flagged.map(f => f.name));
 for (let i = 0; i < result.bots.length; i++) {
   const b = result.bots[i];
   const winPct = b.gamesPlayed > 0 ? ((b.wins / b.gamesPlayed) * 100).toFixed(1) : '0.0';
+  const name = flaggedNames.has(b.name) ? `${b.name} ⚠` : b.name;
   console.log(
-    `${String(i + 1).padEnd(6)}${b.name.padEnd(26)}${String(Math.round(b.elo)).padEnd(8)}${String(b.wins).padEnd(8)}${`${winPct}%`.padEnd(8)}${String(b.avgPlacement).padEnd(10)}${`${(b.attackWinRate * 100).toFixed(1)}%`.padEnd(10)}`
+    `${String(i + 1).padEnd(6)}${name.padEnd(26)}${String(Math.round(b.elo)).padEnd(8)}${String(b.wins).padEnd(8)}${`${winPct}%`.padEnd(8)}${String(b.avgPlacement).padEnd(10)}${`${(b.attackWinRate * 100).toFixed(1)}%`.padEnd(10)}`
   );
 }
 

@@ -42,6 +42,10 @@ import { reportBotErrors } from './botErrorReport.js';
  * @typedef {Object} TournamentResult
  * @property {'round-robin'|'single-elimination'} type
  * @property {TournamentStanding[]} standings - Ordered by points/ELO
+ * @property {import('./botErrorReport.js').FlaggedBot[]} flagged - Bots whose turn-level
+ *   error fraction exceeded the threshold — their standing is not a meaningful measurement.
+ *   Empty in a clean run; the UI renders it as a per-row badge so a broken bot can't
+ *   masquerade as a real result past `console.warn` (#53, #92).
  * @property {TournamentMatch[][]}  rounds    - Matches grouped by round
  * @property {number}               totalGames
  * @property {number}               failedGames - Games that threw errors
@@ -158,9 +162,10 @@ export function runRoundRobin(config) {
 
   /*
    * Surface broken bots loudly: a bot that errors on most of its turns isn't losing the
-   * tournament, it's failing to play — its standing is not a meaningful measurement. (#53)
+   * tournament, it's failing to play — its standing is not a meaningful measurement. Return
+   * the flagged list too so the Tournament screen can badge those rows. (#53, #92)
    */
-  reportBotErrors(
+  const flagged = reportBotErrors(
     bots.map(bot => ({
       name: bot.name,
       errors: stats[bot.name].errors,
@@ -174,6 +179,7 @@ export function runRoundRobin(config) {
   return {
     type: 'round-robin',
     standings,
+    flagged,
     rounds,
     totalGames,
     failedGames,
@@ -320,9 +326,10 @@ export function runSingleElimination(config) {
 
   /*
    * Surface broken bots loudly: a bot that errors on most of its turns isn't losing the
-   * tournament, it's failing to play — its standing is not a meaningful measurement. (#53)
+   * tournament, it's failing to play — its standing is not a meaningful measurement. Return
+   * the flagged list too so the Tournament screen can badge those rows. (#53, #92)
    */
-  reportBotErrors(
+  const flagged = reportBotErrors(
     bots.map(bot => ({
       name: bot.name,
       errors: stats[bot.name].errors,
@@ -338,6 +345,7 @@ export function runSingleElimination(config) {
   return {
     type: 'single-elimination',
     standings,
+    flagged,
     rounds,
     totalGames,
     failedGames,

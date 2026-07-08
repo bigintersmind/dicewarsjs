@@ -13,6 +13,7 @@ from dicewars_ppo.kill_attribution_probe import (
     aggregate,
     compute_gae,
     detect_kill_events,
+    format_report,
     mean_ci,
     paid_transition_for_kill,
     retime_rewards,
@@ -105,6 +106,19 @@ class TestRetimeRewards:
         assert shaping_component(2, bounty=0.25, clip=0.4) == pytest.approx(0.4)
         assert shaping_component(2, bounty=0.25, clip=None) == pytest.approx(0.5)
 
+    def test_folded_sum_clip_binding_does_not_conserve(self):
+        # The documented non-conservation case: two intra-turn kills fold to one paid
+        # transition whose SUM clips (0.15*2 = 0.30 > 0.20), but each re-timed single-kill
+        # payment (0.15) stays under the clip — so total reward is NOT conserved. The
+        # per-episode residual (retimed.sum() - rewards.sum()) is what surfaces this; the
+        # per-event clip_bound proxy would report 0 here (no single event's 0.15 clips).
+        rewards = np.array([0.0, 0.0, 0.0, 0.2])  # folded 0.30 clipped to 0.20 at the STOP
+        elims = np.array([0, 0, 0, 2])
+        events = [{"t": 0, "n_kills": 1}, {"t": 1, "n_kills": 1}]
+        out = retime_rewards(rewards, elims, events, bounty=0.15, clip=0.2)
+        np.testing.assert_allclose(out, [0.15, 0.15, 0.0, 0.0])
+        assert out.sum() - rewards.sum() == pytest.approx(0.1)  # the folded-sum clip artifact
+
 
 class TestScoreEpisode:
     def test_lag_sharpness_and_paid_contrast(self):
@@ -126,6 +140,32 @@ class TestScoreEpisode:
             np.array([0.5, 0.5]), [], np.array([False, True]), np.array([0, 0]), window=2
         )
         assert m.lags == [] and m.mass_ratio is None
+
+    def test_mass_ratio_none_when_window_covers_all(self):
+        # A window wide enough to blanket every transition makes the concentration ratio
+        # meaningless (everything is "near" a kill) -> the `not covered.all()` guard -> None.
+        stops = np.array([False, False, True])
+        elims = np.array([0, 0, 1])
+        adv = np.array([0.1, 0.2, 0.9])
+        m = score_episode(adv, [{"t": 0, "n_kills": 1}], stops, elims, window=5)
+        assert m.mass_ratio is None
+
+    def test_mass_ratio_none_when_total_mass_zero(self):
+        # A flat critic on a zero-advantage episode has no mass to concentrate -> the
+        # `total_mass > 0` guard returns None (and never divides by zero).
+        stops = np.array([False, False, True])
+        elims = np.array([0, 0, 1])
+        m = score_episode(np.zeros(3), [{"t": 0, "n_kills": 1}], stops, elims, window=0)
+        assert m.mass_ratio is None
+
+    def test_single_transition_turn_skips_sharpness(self):
+        # A game-ending one-attack turn: the kill is the turn's only transition, so it has
+        # no turn-mates -> sharpness/top_rank are skipped, but lag==0 is still recorded.
+        m = score_episode(
+            np.array([0.5]), [{"t": 0, "n_kills": 1}], np.array([False]), np.array([1]), window=0
+        )
+        assert m.lags == [0]
+        assert m.sharpness == [] and m.top_rank == []
 
 
 class TestRetimedMechanism:
@@ -171,3 +211,33 @@ class TestAggregation:
         assert agg["lagZeroFrac"] == pytest.approx(1 / 3)
         assert agg["sharpness"]["mean"] == pytest.approx(2.0)
         assert agg["massRatio"]["mean"] == pytest.approx(3.0)
+
+
+def _minimal_report(mismatch_frac: float, resid_max: float) -> dict:
+    """A synthetic collect_rollouts() report shaped just enough for format_report."""
+    empty = {"n": 0, "mean": None, "ci95": None}
+    axes = {k: empty for k in ("lag", "sharpness", "topRankFrac", "stopMinusKill", "massRatio")}
+    arm = {"killEvents": 20, "lagZeroFrac": 0.16, **axes}
+    return {
+        "runDir": "/x/ppo-v3-pred-b15",
+        "step": 1000,
+        "outcomes": {"episodes": 10, "wins": 3, "truncations": 1, "wire_kills": 20},
+        "mismatchedEpisodes": round(mismatch_frac * 10),
+        "mismatchFrac": mismatch_frac,
+        "clipBoundKillEvents": 0,
+        "retimedRewardResidual": {"n": 10, "maxAbs": resid_max, "sum": 0.0},
+        "real": arm,
+        "retimed": arm,
+    }
+
+
+class TestFormatReport:
+    def test_includes_residual_and_no_warning_when_clean(self):
+        out = format_report(_minimal_report(mismatch_frac=0.0, resid_max=0.1))
+        assert "retimeResidual(maxAbs)=1.000e-01" in out
+        assert "WARNING" not in out
+        assert "lag==0" in out  # the ternary branch (lagZeroFrac is not None) rendered
+
+    def test_warns_on_high_mismatch_fraction(self):
+        out = format_report(_minimal_report(mismatch_frac=0.4, resid_max=0.0))
+        assert "WARNING" in out and "40.0%" in out

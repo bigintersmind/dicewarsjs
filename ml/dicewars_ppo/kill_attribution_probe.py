@@ -56,7 +56,8 @@ import numpy as np
 PLAYER_COL_IS_ME = 0
 PLAYER_COL_ELIMINATED = 1
 
-# Reserve-baseline field used by every training run (_train_common.DEFAULT_OPPONENTS).
+# Fixed-baseline opponents field used by every training run (_train_common.DEFAULT_OPPONENTS).
+# Distinct from --reserve-baselines (the integer count R of baselines reserved per game).
 DEFAULT_OPPONENTS = "ai_lookahead,ai_strategist,ai_expectimax,ai_bc,ai_defensive"
 
 
@@ -169,7 +170,11 @@ def retime_rewards(
     Strips the realized bounty shaping from every paid transition (recoverable exactly
     from ``elims_stream`` + the arm's coefficients) and re-adds it at the detected killing
     transitions, re-applying the shaping clip per-step. Total bounty is conserved unless
-    the clip binds differently under the new timing (callers report ``clip_bound`` counts).
+    the clip binds differently under the new timing — e.g. two intra-turn kills fold to one
+    paid transition whose SUM clips, while the two re-timed single-kill payments each do
+    not. That folded-sum case is NOT what ``clip_bound`` counts (it flags only per-event
+    binding, ``bounty*n_kills > clip``), so callers measure conservation directly via the
+    per-episode reward residual (``retimed.sum() - rewards.sum()``; see ``collect_rollouts``).
     """
     out = rewards.astype(np.float64).copy()
     for t in range(len(out)):
@@ -281,6 +286,16 @@ def collect_rollouts(args: argparse.Namespace) -> dict:
 
     from .env import DiceWarsEnv
 
+    # env.py only guards elim_bounty >= 0, but a ZERO bounty leaves the env unshaped
+    # (env._shaped=False → elims_by_learner wired as 0 on every frame), so `wire` is 0
+    # while detection still finds real kills → EVERY episode is dropped as mismatched and
+    # the report reads a misconfig as "0 kills". Fail loud here instead.
+    if not (args.elim_bounty > 0):
+        raise ValueError(
+            f"--elim-bounty must be > 0 (got {args.elim_bounty}); a zero bounty leaves the "
+            "env unshaped, so no kills are wired and every episode is dropped as mismatched."
+        )
+
     run_dir = Path(args.run_dir)
     latest = json.loads((run_dir / "state" / "latest.json").read_text())
     ckpt_path = run_dir / "state" / latest["ckpt"]
@@ -307,6 +322,7 @@ def collect_rollouts(args: argparse.Namespace) -> dict:
 
     real_metrics: list[EpisodeMetrics] = []
     retimed_metrics: list[EpisodeMetrics] = []
+    retimed_residuals: list[float] = []
     mismatched = 0
     clip_bound = 0
     outcomes = {"episodes": 0, "wins": 0, "truncations": 0, "wire_kills": 0}
@@ -334,7 +350,16 @@ def collect_rollouts(args: argparse.Namespace) -> dict:
                 terminal_value = float(model.policy.predict_values(obs_t))
 
             elim_frames_arr = np.stack(elim_frames)
-            learner_row = int(np.argmax(obs["players"][:, PLAYER_COL_IS_ME]))
+            # The learner (self) is always present in the players tensor, eliminated or not,
+            # so exactly one is-me row must be set; assert it rather than let a silent all-zero
+            # frame make argmax return row 0 and mis-attribute every kill.
+            is_me = obs["players"][:, PLAYER_COL_IS_ME]
+            if int(is_me.sum()) != 1:
+                raise ValueError(
+                    f"terminal frame has {int(is_me.sum())} is-me rows, expected exactly 1 "
+                    "— wire/encoder corruption?"
+                )
+            learner_row = int(np.argmax(is_me))
             stop_arr = np.asarray(stop_flags, dtype=bool)
             elims_arr = np.asarray(elims_stream, dtype=np.int64)
             rewards_arr = np.asarray(rewards, dtype=np.float64)
@@ -365,6 +390,17 @@ def collect_rollouts(args: argparse.Namespace) -> dict:
             retimed = retime_rewards(
                 rewards_arr, elims_arr, kill_events, args.elim_bounty, args.shaping_clip
             )
+            # Directly measure whether re-timing conserved total reward. With no clip the
+            # strip/re-add is provably exact (the mismatch gate guarantees Σelims == Σn_kills),
+            # so a residual there is a real bug; with a clip a nonzero residual is the honest
+            # folded-sum artifact the retimed contrast should be read against (see retime_rewards).
+            resid = float(retimed.sum() - rewards_arr.sum())
+            retimed_residuals.append(resid)
+            if args.shaping_clip is None and abs(resid) > 1e-9:
+                raise AssertionError(
+                    f"unclipped re-timing changed total reward by {resid:.3e} — expected exact "
+                    "conservation; strip/re-add or mismatch-gate bug."
+                )
             # Under the counterfactual wire the bounty rides the killing transition itself.
             retimed_elims = np.zeros_like(elims_arr)
             for ev in kill_events:
@@ -395,7 +431,15 @@ def collect_rollouts(args: argparse.Namespace) -> dict:
         },
         "outcomes": outcomes,
         "mismatchedEpisodes": mismatched,
+        "mismatchFrac": (mismatched / outcomes["episodes"] if outcomes["episodes"] else 0.0),
         "clipBoundKillEvents": clip_bound,
+        # Direct re-timing conservation check (see retime_rewards); ~0 unless a clip binds
+        # differently on the folded sum. maxAbs is the worst single-episode reward shift.
+        "retimedRewardResidual": {
+            "n": len(retimed_residuals),
+            "maxAbs": (max(abs(r) for r in retimed_residuals) if retimed_residuals else 0.0),
+            "sum": float(sum(retimed_residuals)),
+        },
         "real": aggregate(real_metrics),
         "retimed": aggregate(retimed_metrics),
     }
@@ -413,11 +457,13 @@ def format_report(report: dict) -> str:
         return f"{entry['mean']:+.3f} [{lo:+.3f}, {hi:+.3f}] (n={entry['n']})"
 
     o = report["outcomes"]
+    resid = report["retimedRewardResidual"]
     lines = [
         f"== kill-attribution probe: {Path(report['runDir']).name} @ step {report['step']} ==",
         f"episodes={o['episodes']} wins={o['wins']} truncations={o['truncations']} "
         f"wireKills={o['wire_kills']} mismatched={report['mismatchedEpisodes']} "
-        f"clipBound={report['clipBoundKillEvents']}",
+        f"clipBound={report['clipBoundKillEvents']} "
+        f"retimeResidual(maxAbs)={resid['maxAbs']:.3e}",
         f"kill events scored: {report['real']['killEvents']} "
         f"(lag==0, i.e. game-ending & correctly attributed: "
         f"{report['real']['lagZeroFrac']:.1%})"
@@ -426,6 +472,14 @@ def format_report(report: dict) -> str:
         "",
         f"{'metric':<22} {'current wire':>34} {'retimed (frame-level fix)':>34}",
     ]
+    # A large dropped fraction means the retained aggregate is a biased subset, not a clean
+    # zero-kill result — warn loudly so a hurried reader can't mistake it for sound.
+    if report["mismatchFrac"] > 0.05:
+        lines.insert(
+            1,
+            f"WARNING: {report['mismatchFrac']:.1%} of episodes dropped as detection/wire "
+            "mismatches — aggregates below are a biased subset; treat as suspect.",
+        )
     for key, label in [
         ("lag", "lag (transitions)"),
         ("sharpness", "sharpness A_k-mean"),

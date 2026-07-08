@@ -32,8 +32,12 @@
  * once the field narrows to a few players, an attack's refundable cost is
  * discounted by how completely the reserve will cover it, and a player trailing
  * the leader with a real reserve will spend it chipping the leader down rather
- * than turtling into a slow loss. (Kept to the endgame on purpose: with many
- * players alive, patient play measured stronger in arena sweeps.)
+ * than turtling into a slow loss. (Kept to the endgame on purpose — with many
+ * level players alive, patient play measured stronger in arena sweeps — with
+ * one exception, issue #115: a dominant leader, holding a strict dice lead and
+ * at least DOMINANCE_SHARE of the board's dice, gets the refund at any player
+ * count, so a clearly-winning bot presses its maxed frontier instead of
+ * handing the game to the turn cap.)
  *
  * Fully deterministic: no randomness; ties break toward the lowest area index.
  */
@@ -254,15 +258,20 @@ export const ai_strategist = game => {
     if (exists(i) && adat[i].arm === pn) myVacancy += MAX_DICE - adat[i].dice;
   }
   /*
-   * Only relax into bank-aware aggression in the endgame. With many players
-   * still alive, patient play is genuinely strong — let rivals spend themselves
-   * fighting. Once the field narrows, turtling at all-8s just hands a slow win to
-   * the leader, so this is where spending the reserve to break the stalemate (and
-   * to chip the leader) pays off. ENDGAME_PLAYERS gates both behaviors.
+   * Relax into bank-aware aggression in the endgame — or, per issue #115, at
+   * any player count once I am the dominant leader (strict dice lead plus at
+   * least DOMINANCE_SHARE of the board's dice): a dominant leader that turtles
+   * at all-8s hands the game to the turn cap, not to patience. With many LEVEL
+   * players alive patient play is genuinely strong — let rivals spend
+   * themselves fighting — so the wide-field refund stays gated on dominance,
+   * and the refund self-limits (refillPool <= 0 still zeroes it).
+   * ENDGAME_PLAYERS still gates the trailing-leader disruption below.
    */
   const endgame = activePlayers <= ENDGAME_PLAYERS;
   const iAmTrailing = leader >= 0 && leaderDice > diceByPlayer[pn];
   const disruptActive = endgame && iAmTrailing && stock >= DISRUPT_MIN_BANK;
+  const pressToClose = diceByPlayer[pn] > bestRivalDice && myShare >= DOMINANCE_SHARE;
+  const allowRefill = endgame || pressToClose;
 
   // --- Evaluate every legal attack ---
   let bestFrom = -1;
@@ -313,7 +322,7 @@ export const ai_strategist = game => {
        * banked, then fortify as the reserve runs dry.
        */
       const refillFactor =
-        !endgame || refillPool <= 0
+        !allowRefill || refillPool <= 0
           ? 0
           : Math.min(1, refillPool / Math.max(1, myVacancy + (a - 1)));
       const refund = REFILL_EFFICIENCY * refillFactor;

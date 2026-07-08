@@ -21,6 +21,33 @@ Entry template:
 
 ---
 
+## 2026-07-08 — Wave-2 Predator revival: launched, graded, CLOSED under the current wire ([D-33])
+
+**Phase:** Wave 2 (PERSONAS §10.2/§10.8, the Predator slot) · **Who:** Claude (drive launch + grade); Ivan (standing ruling)
+
+**Did:**
+
+- Launched the two Predator pilots on shodan — `ppo-v3-pred-b15` (ELIM_BOUNTY 0.15) / `ppo-v3-pred-b25` (0.25), 2×1M concurrent, warm-started from `ppo-v3-scratch/ppo.pt`, placement + shaping-clip 1.0 + γ0.999. Ran the 4 pre-flight gates (FF to master, warm-start + no-stale-dir check, §8e throughput probe at 2×12 envs, `behavior:preflight`), then registered a Task-Scheduler-owned supervisor (`launch-v3-wave2.sh`, ends in `wait` to anchor the WSL2 VM) and verified boot. Both arms finished clean at step 1,001,472.
+- Held out [PR #134] (the #85 `elimsByLearner` tracker fix) per Ivan — it cannot fire in 8-FFA (MapGenerator guarantees every seat starts alive), so the realized reward stream is identical.
+- Graded 0.5M (tripwire probe) + 1M (full battery): `ppo:gate` + `ppo:curve` on shodan, `behavior:profile` 6×30×6 + `behavior:separation` on the mini, all in the §10.3 calibration field. Numbers in RESULTS.md 2026-07-08 (§10.2).
+- Post-run cleanup: backed up both run dirs to the mini (`~/wave2-backup/`, verified byte-exact by per-file content SHA — 57 + 55 files), deleted the schtasks task + supervisor script (AtStartup reboot-relaunch hazard).
+
+**Learned / decided:**
+
+- **Predator CLOSED under the current wire ([D-33]).** The pilots fail in complementary corners: **b15** BEAT Lookahead +24.7 [20.2, 29.2], no tripwire fires (it is the _anti_-turtle), separates from Survivor on turnsToWin + avgPlacement — but its kills edge over v2 Survivor is only Δ+0.16 [0.00, 0.31], short of the +0.26 confirmatory bar, so it does not earn the slot. **b25** clears the kills bar (Δ+0.39) but is KILLED by the [D-30] turtle-basin tripwire on `zeroAttackTurnFrac` (Δ+0.178 > 2× the +0.05 bar at 0.5M; still Δ+0.072 [0.046, 0.098] > bar at 1M). No corner of the bounty sweep both out-kills Survivor and stays out of the basin.
+- The failure _is_ the finding: on this wire, kills come only with basin-tripping passivity, or clean play comes without kill-margin. And the **dose-response sign flipped v2→v3** — kills fell as bounty rose in v2, they RISE with it in v3 (+0.16 → +0.39, scavenge-clean) — so `eliminatesDefender` fixed representability's _direction_; the credit _price_ is what stayed binding. Revisitable only with a frame-level kill-attribution fix (a [D-28]-pattern header/timing change landing kill credit on the killing-blow decision — NOT the parked #85/#134 guard, which changes nothing on this wire — plus a passivity metric that tells "waiting for a kill" from "stalling"), never a coefficient re-sweep — Ivan's standing ruling.
+- Shipped trio (Conqueror + Blitz + Survivor v2) is unchanged; Predator was always upside, not gap-fill.
+
+**Dead ends / surprises:**
+
+- b25's basin kill is on a _single_ axis while it is otherwise faster and better-placed than base — not a classic turtle. The 0.25 bounty taught it to sit and wait for kill windows on a fraction of turns, which trips the passive-turn proxy. Honest read: `zeroAttackTurnFrac` is a coarse proxy, which is exactly why the revisit is a wire-level attribution fix, not a threshold argument.
+- Operational: the PowerShell-over-SSH `-Confirm:\$false` mangles to a literal `\False` (the schtasks delete failed the first time); `schtasks /Delete /F` is the clean path. And the byte-exact backup's `cut -d" "` delimiter got eaten by nested quoting — verified integrity instead by comparing per-file content SHAs (gzip-timestamp-independent), which is the more robust check anyway.
+
+**Next:**
+
+- One PR records this (RESULTS + LOG + DECISIONS [D-33] + PERSONAS §10.8 outcome). No roster/code change ships. The ml-bot roster question is now settled for this wave; a future Predator needs the frame-level kill-attribution work first.
+- Open — run or explicitly decline before archiving the wave: the §10.3 pre-registered **advantage-mass-near-kill-frames diagnostic** on the frozen pilot checkpoints (`~/wave2-backup/`), the "which hypothesis actually bound?" probe. [D-33] asserts the frame-level fix is the ticket; this is the cheap test of exactly that claim — concentrated advantage mass at kill frames closes Predator _with evidence_, smeared mass gives the future card a mechanism. Scope note: SB3 doesn't persist rollout buffers, so it needs a small inference-only instrumented replay, not archived data. _(Resolved same day: **RUN** — probe built (PR #145) + run on both pilots, 400 eps/arm. **H2 confirmed, and inverted**: the killing attack's advantage sits significantly below its turn-mates' while the paid STOP collects the surplus, scaling with the bounty — the causal account of b25's basin; the offline re-timing counterfactual flips it decisively positive. The [D-33] revisit clause is now evidence-backed. See the [D-33] addendum + RESULTS §10.2 post-closure diagnostic.)_
+
 ## 2026-07-08 — [D-30] winPct floor RATIFIED at 35 + §10.4 clock-hack RATIFIED (0.05 / 0.31 / 0.18) — Wave-2 prep complete
 
 **Phase:** pre-Wave-2 (PERSONAS §10.4/§10.5, the last prep item) · **Who:** Claude (calibration + rule application); Ivan (ratification)

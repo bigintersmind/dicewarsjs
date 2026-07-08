@@ -391,4 +391,57 @@ describe('Adaptive AI', () => {
       expect(mockGame.area_to).toBe(2);
     });
   });
+
+  describe('Press-to-close (issue #115)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    test('attacks 8v8 as the clear leader of a 3-player field instead of passing', () => {
+      /*
+       * The measured worst case (~69% endgame-lead pass): me (player 1) is the
+       * strict territory leader of a 3-player field with a maxed frontier.
+       * determineStrategy hands the dominant leader aggression ≈ 0.5, and the
+       * old move filter required aggression > 0.7 for an even 8v8 outside the
+       * 2-player endgame — so generateMoves returned [] and the bot passed.
+       */
+      mockGame.createTerritory(1, 1, 8, { 4: 1 });
+      mockGame.createTerritory(2, 1, 8);
+      mockGame.createTerritory(3, 1, 8);
+      mockGame.createTerritory(4, 2, 8, { 1: 1 });
+      mockGame.createTerritory(5, 2, 8);
+      mockGame.createTerritory(6, 3, 8);
+      mockGame.recalculatePlayerStats();
+      mockGame.setPlayerRankings();
+
+      // Pin selectBestMove's RNG onto its deterministic moves[0] path.
+      vi.spyOn(Math, 'random').mockReturnValue(0.99);
+
+      const result = ai_adaptive(mockGame);
+
+      expect(result).not.toBe(0);
+      expect(mockGame.area_from).toBe(1);
+      expect(mockGame.area_to).toBe(4);
+    });
+
+    test('still passes the same frontier when not clearly winning (4 players, tied lead)', () => {
+      // Tied territories, dice share ≤ 0.35, four players alive: the press
+      // gate must NOT fire, pinning pre-#115 patience outside the winning case.
+      mockGame.createTerritory(1, 1, 8, { 4: 1 });
+      mockGame.createTerritory(2, 1, 8);
+      mockGame.createTerritory(3, 1, 8);
+      mockGame.createTerritory(4, 2, 8, { 1: 1 });
+      mockGame.createTerritory(5, 2, 8);
+      mockGame.createTerritory(6, 2, 8);
+      mockGame.createTerritory(7, 3, 8);
+      mockGame.createTerritory(8, 3, 8);
+      mockGame.createTerritory(9, 4, 8);
+      mockGame.recalculatePlayerStats();
+      mockGame.setPlayerRankings();
+
+      vi.spyOn(Math, 'random').mockReturnValue(0.99);
+
+      expect(ai_adaptive(mockGame)).toBe(0);
+    });
+  });
 });

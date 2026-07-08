@@ -12,6 +12,16 @@
  */
 import { getPlayerCount } from './playerCount.js';
 
+/*
+ * Press-to-close gate (issue #115): once the field has narrowed to this many
+ * active players, a clear leader — a strict territory lead, or holding more
+ * than PRESS_DICE_SHARE of all dice on the board — keeps its max-stack
+ * near-even attacks in the candidate list regardless of the aggression dial.
+ * 0.35 mirrors the dominant-player share analyzeGameState uses.
+ */
+const PRESS_PLAYER_COUNT = 3;
+const PRESS_DICE_SHARE = 0.35;
+
 export const ai_adaptive = game => {
   // Get current player number
   const pn = game.get_pn();
@@ -401,6 +411,32 @@ const generateMoves = (game, strategy, pn) => {
   const areaInfo = calculateAreaInfo(game);
   const { adat, AREA_MAX, dominantPlayer } = game;
 
+  /*
+   * Press-to-close (issue #115). determineStrategy caps a dominant leader's
+   * aggression at ~0.6, which the max-dice filter below (aggression > 0.7)
+   * never admits — so a winning bot generated zero even-odds moves and passed
+   * every turn, freezing all-8s boards into turn-cap stalemates. The signal is
+   * loop-invariant, so it is computed once here. (Dominance is recomputed from
+   * the live player census — the destructured game.dominantPlayer above is a
+   * legacy field that is undefined on this view.)
+   */
+  const activePlayersCount = Object.values(game.player).filter(p => p.area_c > 0).length;
+  const isEndgame = activePlayersCount <= 2;
+  let bestRivalTerritories = 0;
+  let totalDiceCount = 0;
+  for (let i = 0; i < game.player.length; i++) {
+    const p = game.player[i];
+    if (!p) continue;
+    totalDiceCount += p.dice_c || 0;
+    if (i !== pn && (p.area_c || 0) > bestRivalTerritories) {
+      bestRivalTerritories = p.area_c;
+    }
+  }
+  const myDiceShare = totalDiceCount > 0 ? (game.player[pn].dice_c || 0) / totalDiceCount : 0;
+  const pressToClose =
+    activePlayersCount <= PRESS_PLAYER_COUNT &&
+    ((game.player[pn].area_c || 0) > bestRivalTerritories || myDiceShare > PRESS_DICE_SHARE);
+
   // Finding valid attacking territories (our territories with > 1 dice)
   const attackingTerritories = [...Array(AREA_MAX).keys()]
     .slice(1)
@@ -423,18 +459,18 @@ const generateMoves = (game, strategy, pn) => {
       const diceAdvantage = attackerDice - defenderDice;
 
       /*
-       * Skip if we don't have an advantage, with special handling for endgame scenarios
-       * Count active players to determine if we're in endgame
-       * The remainingPlayers is stored in the analysis result rather than directly passed
+       * Skip if we don't have an advantage, with special handling for the
+       * press-to-close, endgame, and high-aggression max-dice scenarios.
+       * (activePlayersCount / isEndgame / pressToClose are hoisted above the
+       * loop — the player census does not change while generating this list.)
        */
-      const activePlayersCount = Object.values(game.player).filter(p => p.area_c > 0).length;
-      const isEndgame = activePlayersCount <= 2;
       const hasMaxDice = attackerDice === 8;
 
-      // In endgame with 2 players, be more aggressive with max dice territories
       if (diceAdvantage <= 0) {
-        // Allow attacking equal or slightly stronger territories in endgame if we have max dice
-        if (isEndgame && hasMaxDice && (diceAdvantage >= -1 || strategy.aggression > 0.6)) {
+        if (pressToClose && hasMaxDice && diceAdvantage >= -1) {
+          // Press to close (issue #115): a clear leader in a narrowed field keeps
+          // its near-even max-stack attacks no matter how low the aggression dial sits
+        } else if (isEndgame && hasMaxDice && (diceAdvantage >= -1 || strategy.aggression > 0.6)) {
           // Continue with attack evaluation in endgame
         } else if (hasMaxDice && strategy.aggression > 0.7) {
           // Continue with attack for non-endgame but highly aggressive with max dice

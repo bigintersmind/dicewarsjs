@@ -18,6 +18,15 @@
     "active": true
   },
   {
+    "id": "e2e-throwaway/e2e-bot",
+    "name": "E2E Throwaway",
+    "author": "bigintersmind",
+    "file": "e2e-throwaway/e2e-bot.js",
+    "description": "Throwaway bot for the post-merge e2e test of the #142 validation split. Do not merge.",
+    "submittedAt": "2026-07-08T00:00:00Z",
+    "active": true
+  },
+  {
     "id": "bigintersmind/giant-slayer",
     "name": "Giant Slayer",
     "author": "bigintersmind",

@@ -256,6 +256,29 @@ not want it to relaunch at next logon/boot).
 2. Update `docs/ml-bot/RESULTS.md` (win% table + the Lookahead pin) and `LOG.md`.
 3. Deferred test-hardening (env-server `main()` persistence integration test, live cross-worker
    `SharedDiskStore`, live forkserver two-half resume smoke) is **PR-7**, not part of this run.
+4. **Back up the finished run off-shodan** — the `ml/runs/<run>/` dir (`{ppo.pt, eval/, state, tb}`,
+   ~32 MB) is the only copy until you do. shodan→mini, byte-exact through the ASCII-safe base64 path
+   (PowerShell-over-SSH mangles raw bytes; base64 survives it):
+
+   ```bash
+   # on shodan: tar the run dir to /tmp first, then stream it decoded onto the mini
+   ssh shodan "wsl -d Ubuntu bash -lc 'cd ~/dicewarsjs && tar czf /tmp/<run>.tgz ml/runs/<run>'"
+   ssh shodan "wsl -d Ubuntu base64 -w0 /tmp/<run>.tgz" | tr -cd 'A-Za-z0-9+/=' \
+     | ssh mini "python3 -c 'import sys,base64; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))' > ~/backup/<run>.tgz"
+   ```
+
+   **Verify by per-file _content_ SHA, not the outer-tar SHA.** gzip embeds a timestamp, so re-tarring
+   the same bytes yields a different archive hash — and the naive `sha … | cut -d" "` gets its delimiter
+   eaten by the nested ssh→wsl→bash quoting (produces empty hashes, a silent false MISMATCH). Instead
+   compare the file trees: `find ml/runs/<run> -type f -print0 | xargs -0 sha256sum` on shodan vs. the
+   extracted tarball on the mini (`shasum -a 256`), each `sort`ed by path, then `diff`. Timestamp-
+   independent, and it catches real corruption (the new `unpackPolicyWeights.js` guard throws on a
+   corrupt base64 weight blob, so integrity matters).
+
+5. **Delete the schtasks task** that §4b registered: `ssh shodan 'schtasks /Delete /TN "<name>" /F'` —
+   NOT `Unregister-ScheduledTask -Confirm:$false` (the `$false` mangles to a literal `\False` through
+   PowerShell-over-SSH and the delete no-ops). Its **AtStartup** trigger otherwise relaunches the
+   _finished_ run on the next reboot. Also `rm` the supervisor script the task points at.
 
 ---
 

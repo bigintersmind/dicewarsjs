@@ -47,6 +47,16 @@ const LOW_ODDS_FLOOR = 0.76;
 const LOW_ODDS_PENALTY = 7.0;
 const DOMINANCE_SHARE = 0.4;
 /*
+ * Press-to-close override (issue #115): a bot that clearly holds a winning
+ * position must keep attacking even when every remaining move is a penalized
+ * near-even coinflip (a maxed 8v8 frontier scores ~-2, below even
+ * PRESS_THRESHOLD), or AI-vs-AI games freeze into turn-cap stalemates.
+ * "Clearly winning" = strict territory lead AND (dominant dice share OR the
+ * field has narrowed to PRESS_CLOSE_PLAYERS or fewer). The override bypasses
+ * the EV bar entirely; the searched best move is still the move played.
+ */
+const PRESS_CLOSE_PLAYERS = 3;
+/*
  * Posture thresholds form a U: the bot is decisive at both extremes and
  * patient in the middle. PRESS (winning) accepts even slightly-negative moves
  * to close out; WEAK (losing badly) still takes near-even fights to claw back;
@@ -373,6 +383,22 @@ function attackThreshold(board, player) {
   return BASE_THRESHOLD;
 }
 
+function pressToClose(board, player) {
+  const stats = computeStats(board);
+  const me = stats[player];
+  if (!me || me.territories === 0) return false;
+
+  const rivals = stats.filter(candidate => candidate.id !== player && candidate.territories > 0);
+  if (rivals.length === 0) return false;
+
+  const bestRivalTerritories = Math.max(...rivals.map(rival => rival.territories));
+  if (me.territories <= bestRivalTerritories) return false;
+
+  const totalDice = stats.reduce((sum, candidate) => sum + candidate.dice, 0);
+  const dominantDice = totalDice > 0 && me.dice > totalDice * DOMINANCE_SHARE;
+  return dominantDice || rivals.length + 1 <= PRESS_CLOSE_PLAYERS;
+}
+
 function strategicAdjustment(board, player, to, winChance) {
   const stats = computeStats(board);
   const defender = board.owner[to];
@@ -438,14 +464,15 @@ function isBetterMove(score, move, bestScore, bestMove) {
  * Run the full Lookahead decision for the current turn without mutating the
  * game's chosen move. Returns the searched best move, its score, the active
  * attack threshold, and the move Lookahead would play (the best move when it
- * clears the threshold, otherwise null). Exported so the search and posture
- * logic can be tested directly; `ai_lookahead` itself is a thin wrapper that
- * applies `chosenMove`.
+ * clears the threshold, otherwise null). pressToClose reports the issue-#115
+ * clearly-winning override that lets the best move through regardless of the
+ * threshold. Exported so the search and posture logic can be tested directly;
+ * `ai_lookahead` itself is a thin wrapper that applies `chosenMove`.
  *
  * @param {Object} game - Legacy mutable game view.
  * @returns {{
  *   player: number, bestMove: ?{from:number,to:number}, bestScore: number,
- *   threshold: number, chosenMove: ?{from:number,to:number}
+ *   threshold: number, pressToClose: boolean, chosenMove: ?{from:number,to:number}
  * }}
  */
 export const evaluateLookaheadTurn = game => {
@@ -457,6 +484,7 @@ export const evaluateLookaheadTurn = game => {
     bestMove: null,
     bestScore: -Infinity,
     threshold: BASE_THRESHOLD,
+    pressToClose: false,
     chosenMove: null,
   };
 
@@ -475,9 +503,10 @@ export const evaluateLookaheadTurn = game => {
   }
 
   const threshold = attackThreshold(board, player);
-  const chosenMove = bestMove && bestScore > threshold ? bestMove : null;
+  const press = pressToClose(board, player);
+  const chosenMove = bestMove && (bestScore > threshold || press) ? bestMove : null;
 
-  return { player, bestMove, bestScore, threshold, chosenMove };
+  return { player, bestMove, bestScore, threshold, pressToClose: press, chosenMove };
 };
 
 export const ai_lookahead = game => {

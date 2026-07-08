@@ -543,4 +543,77 @@ describe('Lookahead AI', () => {
       }
     }
   });
+
+  /*
+   * Press-to-close override (issue #115): a clear winner must keep attacking
+   * even when every remaining move is a penalized near-even coinflip, or
+   * AI-vs-AI games freeze into turn-cap stalemates. "Clearly winning" =
+   * strict territory lead AND (dominant dice share OR ≤3 players alive).
+   */
+  describe('press-to-close override (issue #115)', () => {
+    test('plays the searched best move from a clearly-winning maxed position even below the EV bar', () => {
+      /*
+       * me (player 1): 4 territories vs 2 and 1 (strict lead) and 32/56 dice
+       * (dominant share). The only legal attack is an 8v8 border coinflip
+       * whose score (~-2, driven by the low-odds penalty) sits far below even
+       * the PRESS threshold — pre-#115 the bot passed here forever.
+       */
+      territory(1, 1, 8);
+      territory(2, 1, 8);
+      territory(3, 1, 8);
+      territory(4, 1, 8);
+      territory(5, 2, 8);
+      territory(6, 2, 8);
+      territory(7, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(3, 4);
+      link(4, 5); // my only enemy border: the 8v8
+      link(5, 6);
+      link(6, 7);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.pressToClose).toBe(true);
+      expect(decision.bestMove).toEqual({ from: 4, to: 5 });
+      expect(decision.bestScore).toBeLessThan(decision.threshold); // the plain EV gate would decline
+      expect(decision.chosenMove).toEqual(decision.bestMove); // the override presses anyway
+
+      ai_lookahead(mockGame);
+      expect(mockGame.area_from).toBe(4);
+      expect(mockGame.area_to).toBe(5);
+    });
+
+    test('does not fire without a strict territory lead (all-8s parity stays patient)', () => {
+      /*
+       * Same maxed frontier but tied 3-vs-3 territories: not "clearly winning",
+       * so the normal EV gate applies and the bot still declines the coinflip.
+       * Player 3's off-board dice mass keeps my share at 24/64 (< the two-player
+       * PRESS cutoff) so the posture under test is the patient BASE bar — in a
+       * pure duel the pre-existing PRESS posture would take this coinflip on
+       * its own, with or without the #115 override.
+       */
+      territory(1, 1, 8);
+      territory(2, 1, 8);
+      territory(3, 1, 8);
+      territory(4, 2, 8);
+      territory(5, 2, 8);
+      territory(6, 2, 8);
+      territory(7, 3, 8); // third player's dice mass -> my share 0.375, BASE posture
+      territory(8, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(3, 4); // the 8v8 border
+      link(4, 5);
+      link(5, 6);
+      link(6, 7);
+      link(7, 8);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.pressToClose).toBe(false);
+      expect(decision.chosenMove).toBeNull();
+      expect(ai_lookahead(mockGame)).toBe(0);
+    });
+  });
 });

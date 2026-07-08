@@ -1408,12 +1408,16 @@ describe('§6 engine signal — runMatch passes actingPlayerId to onTurn', () =>
     // Math.random() so kills don't reproduce on seed alone; use a deterministic search field and
     // sweep a few seeds, so one shifting outcome can't strand the test (fail loud only if ALL go
     // killless).
+    // Re-pick (issue #115): the press-to-close override shifted these deterministic seeded games,
+    // stranding the old [4, 6, 8] sweep kill-less for seat 0 — the staleness mode this guard names.
+    // Seeds re-validated against the post-#115 field (this branch alone AND with the sibling
+    // Strategist/Expectimax press changes overlaid); each below yields ≥1 seat-0 kill in every world.
     const detField = ['Lookahead', 'Strategist', 'Expectimax'].map(name => {
       const b = BUILT_IN_BOTS.find(x => x.name === name);
       return { name: b.name, fn: b.fn };
     });
     let totalKills = 0;
-    for (const seed of [4, 6, 8]) {
+    for (const seed of [10, 20, 40]) {
       const { capture, onTurn, onStep } = makeCapture(0);
       const result = runMatch({ bots: detField, seed, onTurn, onStep });
       // The capture contract the guard enforces must hold on real engine data, not just fixtures,

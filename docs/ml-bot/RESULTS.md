@@ -1282,3 +1282,35 @@ re-sweeps. Shipped trio (Conqueror + Blitz + Survivor v2) unchanged; runs backed
 calibration profile (1.725); recomputed against Survivor's kills realized in _this_ field (1.62 → +0.24),
 b15 still misses — and its Δ+0.16 CI [0.00, 0.31] does not even exclude zero. The verdict is insensitive
 to which realized-kills snapshot defines the bar.
+
+### Post-closure diagnostic — the §10.3 kill-attribution probe (run same day) · 2026-07-08
+
+The pre-registered §10.3 **advantage-mass-near-kill-frames diagnostic** was RUN (not declined) against
+both frozen pilot checkpoints — `ml/dicewars_ppo/kill_attribution_probe.py` (PR #145): an
+inference-only replay through the real env stack (own PFSP league + R=3 reserves, exact reward flags,
+policy sampling like training), true kill decisions detected from the players-tensor `eliminated`
+column and cross-validated per episode against the wire's independent `elims_by_learner` totals
+(**0 mismatches in 800 episodes**), GAE advantages from the run's own critic/γ/λ, plus a
+**counterfactual re-timing** of the bounty onto the killing action (the proposed frame-level wire fix,
+simulated offline with the same critic). 400 episodes/arm, seeds 777001/888001, step 1001472.
+
+| Metric (per-episode mean ± 95% CI)      | PredB15 wire            | PredB15 re-timed        | PredB25 wire            | PredB25 re-timed        |
+| --------------------------------------- | ----------------------- | ----------------------- | ----------------------- | ----------------------- |
+| Kill→payment lag (transitions)          | +1.29 [+1.23, +1.35]    | 0 by construction       | +1.39 [+1.32, +1.47]    | 0 by construction       |
+| Sharpness: A_kill − mean(A_turn-mates)  | −0.016 [−0.022, −0.010] | +0.098 [+0.090, +0.106] | −0.030 [−0.037, −0.024] | +0.156 [+0.144, +0.168] |
+| Kill is its turn's max-advantage action | 26.8% [22.1, 31.5]      | 75.7% [71.4, 80.0]      | 18.3% [13.7, 23.0]      | 70.8% [66.0, 75.6]      |
+| A_paid − A_kill (STOP's surplus credit) | +0.029 [+0.021, +0.036] | n/a                     | +0.052 [+0.041, +0.062] | n/a                     |
+
+(565 + 501 kill events scored; lag==0 — game-ending kills, the correctly-attributed class — is only
+~16% of kills in both arms. The literal "mass in a ±2 window" formulation read ~1.1–1.26 under both
+wires — the payment lands inside the window too — so the within-turn rank/sharpness contrasts above
+are the discriminative form of the pre-registered question.)
+
+**Read: H2 (turn-boundary credit dilution) bound — and attribution is INVERTED, not merely diluted.**
+The killing attack's advantage sits significantly _below_ its turn-mates' under the current wire, while
+the STOP that carries the payment collects the surplus — and that surplus **scales with the bounty**
+(+0.029 → +0.052), which gives b25's `zeroAttackTurnFrac` basin a causal account: per kill, the wire
+reinforces stopping-after-kills harder than killing. The offline counterfactual demonstrates the fix's
+mechanism: same trajectories, same critic, payment timing alone moved → the killing action becomes the
+turn's clearest positive-credit action. The [D-33] revisit clause (frame-level kill-attribution fix) is
+now evidence-backed rather than assumed.

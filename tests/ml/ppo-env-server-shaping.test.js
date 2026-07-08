@@ -99,7 +99,10 @@ describe('makeShapedEmission — OFF (no tracker ⇒ byte-identical wire)', () =
 
   it('decisionFrame omits the shaped tail (base wire, no dense fields)', () => {
     const enc = stubEncoded({ maxAreas, playerCount });
-    const frame = emission.decisionFrame(enc, stubBotState({ myPlayer: 0, territoriesBySeat: [5, 4, 3] }));
+    const frame = emission.decisionFrame(
+      enc,
+      stubBotState({ myPlayer: 0, territoriesBySeat: [5, 4, 3] })
+    );
     expect(frame.shaped).toBe(false);
     const buf = serializeObsFrame(frame);
     // A base parse succeeds; a shaped parse hits the length guard ⇒ there is genuinely no tail.
@@ -109,17 +112,23 @@ describe('makeShapedEmission — OFF (no tracker ⇒ byte-identical wire)', () =
 
   it('terminalFrame omits the tail but still carries the terminal meta', () => {
     const enc = stubEncoded({ maxAreas, playerCount });
-    const frame = emission.terminalFrame(enc, stubBotState({ myPlayer: 0, territoriesBySeat: [5, 4, 3] }), {
-      terminal: 1,
-      winner: 1,
-      won: 0,
-      truncated: 0,
-      placement: 0.5,
-    });
+    const frame = emission.terminalFrame(
+      enc,
+      stubBotState({ myPlayer: 0, territoriesBySeat: [5, 4, 3] }),
+      {
+        terminal: 1,
+        winner: 1,
+        won: 0,
+        truncated: 0,
+        placement: 0.5,
+      }
+    );
     expect(frame.shaped).toBe(false);
     expect(frame.terminal).toBe(1);
     expect(frame.winner).toBe(1);
-    expect(() => parseObsFrame(serializeObsFrame(frame), { shaped: true })).toThrow(/bytes ≠ expected/);
+    expect(() => parseObsFrame(serializeObsFrame(frame), { shaped: true })).toThrow(
+      /bytes ≠ expected/
+    );
   });
 
   it('wrapOnTurn returns the failIfLost guard UNCHANGED (same reference)', () => {
@@ -148,7 +157,9 @@ describe('makeShapedEmission — per-decision shaped emission', () => {
     emission.reset();
 
     // Frame 1 (episode baseline): acting seat 2 owns 8 (decoy seat 0 owns 1) → delta 0.
-    const f1 = roundTripShaped(emission.decisionFrame(enc, stubBotState({ myPlayer: 2, territoriesBySeat: [1, 1, 8] })));
+    const f1 = roundTripShaped(
+      emission.decisionFrame(enc, stubBotState({ myPlayer: 2, territoriesBySeat: [1, 1, 8] }))
+    );
     expect(f1.shaped).toBe(true);
     expect(f1.activePlayerId).toBe(2);
     expect(f1.deltaTerritory).toBe(0);
@@ -156,11 +167,15 @@ describe('makeShapedEmission — per-decision shaped emission', () => {
 
     // Frame 2: acting seat 2 now owns 11 → +3 (NOT the decoy seat 0 = 99). A `.territories` rename
     // would read undefined ⇒ NaN; a learnerSeat/myPlayer swap would read 99 → a different delta.
-    const f2 = roundTripShaped(emission.decisionFrame(enc, stubBotState({ myPlayer: 2, territoriesBySeat: [99, 1, 11] })));
+    const f2 = roundTripShaped(
+      emission.decisionFrame(enc, stubBotState({ myPlayer: 2, territoriesBySeat: [99, 1, 11] }))
+    );
     expect(f2.deltaTerritory).toBe(3);
 
     // Frame 3: a net LOSS is honest (not floored): seat 2 11 → 6 = -5.
-    const f3 = roundTripShaped(emission.decisionFrame(enc, stubBotState({ myPlayer: 2, territoriesBySeat: [50, 1, 6] })));
+    const f3 = roundTripShaped(
+      emission.decisionFrame(enc, stubBotState({ myPlayer: 2, territoriesBySeat: [50, 1, 6] }))
+    );
     expect(f3.deltaTerritory).toBe(-5);
   });
 });
@@ -235,14 +250,18 @@ describe('makeShapedEmission — per-episode reset (no cross-episode leak)', () 
     // Episode 1: baseline 5, then 9 (+4); plus a learner kill of seat 1.
     emission.reset();
     emission.decisionFrame(enc, stubBotState({ myPlayer: 0, territoriesBySeat: [5, 1, 1] }));
-    const e1f2 = roundTripShaped(emission.decisionFrame(enc, stubBotState({ myPlayer: 0, territoriesBySeat: [9, 1, 1] })));
+    const e1f2 = roundTripShaped(
+      emission.decisionFrame(enc, stubBotState({ myPlayer: 0, territoriesBySeat: [9, 1, 1] }))
+    );
     expect(e1f2.deltaTerritory).toBe(4);
     emission.wrapOnTurn(() => {})(3, stateWith([1]), 0); // a kill banked in episode 1
 
     // Episode 2: reset ⇒ the FIRST frame is a fresh baseline. Dropping reset() would leak the
     // territory cursor (9 → 2 = -7) and the banked kill (elims 1) into the new episode.
     emission.reset();
-    const e2f1 = roundTripShaped(emission.decisionFrame(enc, stubBotState({ myPlayer: 0, territoriesBySeat: [2, 1, 1] })));
+    const e2f1 = roundTripShaped(
+      emission.decisionFrame(enc, stubBotState({ myPlayer: 0, territoriesBySeat: [2, 1, 1] }))
+    );
     expect(e2f1.deltaTerritory).toBe(0);
     expect(e2f1.elimsByLearner).toBe(0);
   });
@@ -250,12 +269,19 @@ describe('makeShapedEmission — per-episode reset (no cross-episode leak)', () 
 
 describe('makeShapedEmission — end-to-end through runSelfPlayEpisode (real engine + codec)', () => {
   const mimicAiBc = encoded => argmax(forward(BC_POLICY, encoded).logits);
-  const sixAiBc = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({ name: `bc${i}`, fn: ai_bc }));
+  const sixAiBc = Array.from({ length: PLAYER_COUNT - 1 }, (_, i) => ({
+    name: `bc${i}`,
+    fn: ai_bc,
+  }));
 
   it('emits shaped frames over a real winning episode and credits the game-ending kill', () => {
     const learnerSeat = 0;
     const tracker = createRewardShapingTracker(learnerSeat);
-    const emission = makeShapedEmission({ shapingTracker: tracker, maxAreas: MAX_AREAS, learnerSeat });
+    const emission = makeShapedEmission({
+      shapingTracker: tracker,
+      maxAreas: MAX_AREAS,
+      learnerSeat,
+    });
 
     const decisionFrames = [];
     emission.reset(); // main resets at the episode boundary

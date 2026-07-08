@@ -8,9 +8,7 @@
  * they're machine- and load-dependent; the probe reports them, the suite pins only invariants.
  */
 
-import {
-  resolveBotsByName,
-} from '../../scripts/lib/selfplay-core.mjs';
+import { resolveBotsByName } from '../../scripts/lib/selfplay-core.mjs';
 import {
   armSeedBase,
   validateArmProbeConfig,
@@ -31,7 +29,10 @@ function scriptedClock(times) {
 }
 
 const CHEAP_SEATS = () =>
-  resolveBotsByName(['Default', 'Defensive', 'Example', 'Adaptive']).map(b => ({ name: b.name, fn: b.fn }));
+  resolveBotsByName(['Default', 'Defensive', 'Example', 'Adaptive']).map(b => ({
+    name: b.name,
+    fn: b.fn,
+  }));
 
 describe('armSeedBase', () => {
   it('strides shards apart and is unique per (arm, worker)', () => {
@@ -70,26 +71,42 @@ describe('validateArmProbeConfig', () => {
   });
 
   it('rejects a non-positive-integer arms / envsPerArm', () => {
-    expect(() => validateArmProbeConfig({ ...base(), arms: 0 })).toThrow(/arms must be a positive integer/);
-    expect(() => validateArmProbeConfig({ ...base(), arms: 2.5 })).toThrow(/arms must be a positive integer/);
-    expect(() => validateArmProbeConfig({ ...base(), envsPerArm: -1 })).toThrow(/envsPerArm must be a positive integer/);
+    expect(() => validateArmProbeConfig({ ...base(), arms: 0 })).toThrow(
+      /arms must be a positive integer/
+    );
+    expect(() => validateArmProbeConfig({ ...base(), arms: 2.5 })).toThrow(
+      /arms must be a positive integer/
+    );
+    expect(() => validateArmProbeConfig({ ...base(), envsPerArm: -1 })).toThrow(
+      /envsPerArm must be a positive integer/
+    );
   });
 
   it('rejects a non-positive measure window and a negative warmup/cooldown', () => {
-    expect(() => validateArmProbeConfig({ ...base(), measureMs: 0 })).toThrow(/measureMs must be > 0/);
-    expect(() => validateArmProbeConfig({ ...base(), warmupMs: -1 })).toThrow(/warmupMs must be a non-negative number/);
-    expect(() => validateArmProbeConfig({ ...base(), cooldownMs: -5 })).toThrow(/cooldownMs must be a non-negative number/);
+    expect(() => validateArmProbeConfig({ ...base(), measureMs: 0 })).toThrow(
+      /measureMs must be > 0/
+    );
+    expect(() => validateArmProbeConfig({ ...base(), warmupMs: -1 })).toThrow(
+      /warmupMs must be a non-negative number/
+    );
+    expect(() => validateArmProbeConfig({ ...base(), cooldownMs: -5 })).toThrow(
+      /cooldownMs must be a non-negative number/
+    );
   });
 
   it('rejects a non-positive target-fps and a margin below 1', () => {
-    expect(() => validateArmProbeConfig({ ...base(), targetFps: 0 })).toThrow(/targetFps must be a positive number/);
+    expect(() => validateArmProbeConfig({ ...base(), targetFps: 0 })).toThrow(
+      /targetFps must be a positive number/
+    );
     expect(() => validateArmProbeConfig({ ...base(), margin: 0.9 })).toThrow(/margin must be ≥ 1/);
     // margin exactly 1 is allowed (no headroom demanded).
     expect(validateArmProbeConfig({ ...base(), margin: 1 }).margin).toBe(1);
   });
 
   it('rejects an unknown learner mode', () => {
-    expect(() => validateArmProbeConfig({ ...base(), learner: 'greedy' })).toThrow(/learner must be random\|stop/);
+    expect(() => validateArmProbeConfig({ ...base(), learner: 'greedy' })).toThrow(
+      /learner must be random\|stop/
+    );
   });
 });
 
@@ -172,10 +189,12 @@ describe('classifyThroughput', () => {
 describe('runTimedProbeShard (injected clock + fake episode — phase machine)', () => {
   // A deterministic episode that fires `perEpisode` learner observations and returns; lets the
   // phase-accounting/exclusion contract be pinned exactly (the real episode isn't bit-deterministic).
-  const fakeEpisodeFn = perEpisode => ({ onObservation }) => {
-    for (let i = 0; i < perEpisode; i++) onObservation({ moves: [] });
-    return { won: 0, eliminated: true, turnCount: 1 };
-  };
+  const fakeEpisodeFn =
+    perEpisode =>
+    ({ onObservation }) => {
+      for (let i = 0; i < perEpisode; i++) onObservation({ moves: [] });
+      return { won: 0, eliminated: true, turnCount: 1 };
+    };
   const STUB_SEATS = [{ name: 'x', fn: () => null }]; // unused by the fake episode
 
   const shardWith = (perEpisode, times, phases) =>

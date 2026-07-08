@@ -62,7 +62,13 @@ function snap(step, opts) {
 }
 
 const league = (snapshotManifest, extra = {}) =>
-  makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: COUNT, learnerSeat: 0, snapshotManifest, ...extra });
+  makeLeague({
+    baselineCsv: DEFAULT_OPPONENTS,
+    count: COUNT,
+    learnerSeat: 0,
+    snapshotManifest,
+    ...extra,
+  });
 
 /** A decisive game crediting the learner's pairwise result `beat` at each drawn opponent's seat. */
 function record(lg, drawn, beatBySeat) {
@@ -152,7 +158,13 @@ describe('toJSON / restore — pool reconstruction edge cases', () => {
     const rev = league(manifest, { reserveBaselines: 0 });
     await rev.restore({ ...state, pool: [...state.pool].reverse() }); // reversed order
 
-    const seq = lg => Array.from({ length: 60 }, (_, s) => lg.draw(s).drawn.map(d => d.id).join(',')).join('|');
+    const seq = lg =>
+      Array.from({ length: 60 }, (_, s) =>
+        lg
+          .draw(s)
+          .drawn.map(d => d.id)
+          .join(',')
+      ).join('|');
     expect(seq(b)).toBe(seq(a)); // same order ⇒ identical draws
     expect(seq(rev)).not.toBe(seq(a)); // reversed order ⇒ different draws (restore honored array order)
   });
@@ -381,7 +393,8 @@ describe('toJSON / restore — book integrity', () => {
 
     const b = league(null);
     await b.restore(a.toJSON()); // direct object, NO JSON round-trip → would share refs if not copied
-    for (const d of b.draw(3).drawn) record(b, [{ id: d.id, kind: d.kind, seat: d.seat }], { [d.seat]: 0 });
+    for (const d of b.draw(3).drawn)
+      record(b, [{ id: d.id, kind: d.kind, seat: d.seat }], { [d.seat]: 0 });
 
     for (const id of Object.keys(before)) expect(a.winRate(id)).toBe(before[id]); // A untouched
   });
@@ -433,7 +446,12 @@ describe('toJSON / restore — SharedDiskStore through makeLeague (the Task-E co
 
   it('folds a peer worker’s shard into a disk-backed league’s win-rate', () => {
     const store1 = makeSharedDiskStore({ dir, workerId: '1' });
-    const a = makeLeague({ baselineCsv: DEFAULT_OPPONENTS, count: COUNT, learnerSeat: 0, store: store1 });
+    const a = makeLeague({
+      baselineCsv: DEFAULT_OPPONENTS,
+      count: COUNT,
+      learnerSeat: 0,
+      store: store1,
+    });
     record(a, [{ id: 'snapX', kind: 'snapshot', seat: 1 }], { 1: 1 }); // a: 1/1
     const peer = makeSharedDiskStore({ dir, workerId: '2' });
     peer.record('snapX', 0);

@@ -103,7 +103,9 @@ describe('buildProxySpecs', () => {
   });
   it('rejects a bad mix token and a mixed counted/bare spec', () => {
     expect(() => buildProxySpecs({ poolSize: 4, mix: 'ppo4,xyz' })).toThrow(/bad mix token/);
-    expect(() => buildProxySpecs({ poolSize: 4, mix: 'ppo4,bc' })).toThrow(/all-counted .* all-bare/);
+    expect(() => buildProxySpecs({ poolSize: 4, mix: 'ppo4,bc' })).toThrow(
+      /all-counted .* all-bare/
+    );
   });
 });
 
@@ -174,9 +176,9 @@ describe('buildSnapshotManifest → real makeLeague.refresh()', () => {
   });
 
   it('throws on an unknown snapshot source', () => {
-    expect(() => buildSnapshotManifest(dir, { specs: [{ id: 'x', step: 1, source: 'zzz' }] })).toThrow(
-      /unknown snapshot source/
-    );
+    expect(() =>
+      buildSnapshotManifest(dir, { specs: [{ id: 'x', step: 1, source: 'zzz' }] })
+    ).toThrow(/unknown snapshot source/);
   });
 });
 
@@ -185,7 +187,9 @@ describe('runLeagueProbeShard — record/decisive semantics (small integration)'
   let manifestPath;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'b5-shard-'));
-    manifestPath = buildSnapshotManifest(dir, { specs: buildProxySpecs({ poolSize: 4, mix: 'ppo2,bc2' }) });
+    manifestPath = buildSnapshotManifest(dir, {
+      specs: buildProxySpecs({ poolSize: 4, mix: 'ppo2,bc2' }),
+    });
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
@@ -229,7 +233,13 @@ describe('runLeagueProbeShard — record/decisive semantics (small integration)'
   });
 
   it('throws loudly if the pool fails to load the expected snapshot count', async () => {
-    const cfg = { ...baseCfg, manifestPath, terminateOnElimination: true, record: true, expectedSnapshots: 99 };
+    const cfg = {
+      ...baseCfg,
+      manifestPath,
+      terminateOnElimination: true,
+      record: true,
+      expectedSnapshots: 99,
+    };
     await expect(runLeagueProbeShard(cfg)).rejects.toThrow(
       /loaded 4 snapshots \(live pool 4\), expected 99/
     );
@@ -280,9 +290,9 @@ describe('makePolicyChooseAction', () => {
   });
 
   it('fails loud on an encodingVersion mismatch', () => {
-    expect(() => makePolicyChooseAction({ encodingVersion: 999, config: { maxAreas: 32 } })).toThrow(
-      /encodingVersion/
-    );
+    expect(() =>
+      makePolicyChooseAction({ encodingVersion: 999, config: { maxAreas: 32 } })
+    ).toThrow(/encodingVersion/);
   });
 });
 

@@ -186,7 +186,12 @@ describe('PPO action-encoding parity (encoder index ↔ move)', () => {
      */
     const noStop = { moves: [{ from: 1, to: 2 }] };
     expect(() => decodeAction(noStop, 0)).toThrow(/trailing edge is not STOP/);
-    const twoAttacks = { moves: [{ from: 1, to: 2 }, { from: 3, to: 4 }] };
+    const twoAttacks = {
+      moves: [
+        { from: 1, to: 2 },
+        { from: 3, to: 4 },
+      ],
+    };
     expect(() => decodeAction(twoAttacks, 1)).toThrow(/trailing edge is not STOP/);
   });
 

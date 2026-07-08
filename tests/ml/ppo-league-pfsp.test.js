@@ -111,7 +111,10 @@ describe('ppo-league PFSP — field shape with a non-empty pool', () => {
 
   it('drawn seats are a permutation of the non-learner seats (player_count held constant)', async () => {
     const lg = await leagueWithPool([100, 200], { learnerSeat: 3 });
-    const seats = lg.draw(7).drawn.map(d => d.seat).sort((a, b) => a - b);
+    const seats = lg
+      .draw(7)
+      .drawn.map(d => d.seat)
+      .sort((a, b) => a - b);
     expect(seats).toEqual([0, 1, 2, 4, 5, 6]); // learnerSeat 3 skipped, every other seat once
   });
 
@@ -238,7 +241,8 @@ describe('ppo-league PFSP — win-rate-monotone weighting (the [D-19]/[D-22] sig
         seatBeat: [null, 1, null, null, null, null, null],
       });
       let won = 0;
-      for (let s = 0; s < 300; s++) for (const d of lg.draw(s).drawn) if (d.id === 'snap-200') won++;
+      for (let s = 0; s < 300; s++)
+        for (const d of lg.draw(s).drawn) if (d.id === 'snap-200') won++;
       return won;
     };
     expect(await countWonAtK(4)).toBeLessThan(await countWonAtK(1));
@@ -260,7 +264,8 @@ describe('ppo-league PFSP — win-rate-monotone weighting (the [D-19]/[D-22] sig
       });
       return lg;
     };
-    const seq = lg => Array.from({ length: 200 }, (_, s) => JSON.stringify(lg.draw(s).drawn)).join('|');
+    const seq = lg =>
+      Array.from({ length: 200 }, (_, s) => JSON.stringify(lg.draw(s).drawn)).join('|');
 
     const dflt = await masteredPool({});
     const explicit = await masteredPool({ pfspEpsilon: 0.05, pfspK: 2 });

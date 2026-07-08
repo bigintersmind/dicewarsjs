@@ -376,16 +376,14 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
     ...over,
   });
 
-  it('pins the pre-registered §10.4 windows and tripwire panel (drafted values)', () => {
+  it('pins the RATIFIED §10.4 windows and tripwire table (2026-07-08 calibration: max(draft, innocent |Δ| + CI half-width))', () => {
     expect(NEAR_CAP_WINDOW).toBe(50);
     expect(LATE_WINDOW).toBe(50);
     // Exactly two primaries (death, aggression) + one co-signal (truncation), all clock-hack axes.
-    expect(CLOCK_HACK_TRIPWIRES.filter(t => t.role === 'primary').map(t => t.axis)).toEqual([
-      'nearCapDeathRate',
-      'lateGameAggressionSpike',
-    ]);
-    expect(CLOCK_HACK_TRIPWIRES.filter(t => t.role === 'cosignal').map(t => t.axis)).toEqual([
-      'truncationRate',
+    expect(CLOCK_HACK_TRIPWIRES).toEqual([
+      { axis: 'nearCapDeathRate', direction: 'HIGHER', threshold: 0.05, role: 'primary' },
+      { axis: 'lateGameAggressionSpike', direction: 'HIGHER', threshold: 0.31, role: 'primary' },
+      { axis: 'truncationRate', direction: 'LOWER', threshold: 0.18, role: 'cosignal' },
     ]);
     for (const t of CLOCK_HACK_TRIPWIRES) expect(AXES).toContain(t.axis);
   });
@@ -437,8 +435,8 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
     // nearCapDeathRate +0.08 with CI [0.03,0.13] ⇒ primary FIRES ⇒ kill.
     const hit = evaluateClockHack({
       nearCapDeathRate: dat(0.08, 0.03, 0.13),
-      lateGameAggressionSpike: dat(0.1, -0.2, 0.4), // below 0.3 threshold & CI∋0 ⇒ clear
-      truncationRate: dat(-0.09, -0.15, -0.03), // co-signal LOWER fires
+      lateGameAggressionSpike: dat(0.1, -0.2, 0.4), // below 0.31 threshold & CI∋0 ⇒ clear
+      truncationRate: dat(-0.2, -0.3, -0.1), // co-signal LOWER fires
     });
     expect(hit.kill).toBe(true);
     expect(hit.primaryFired).toBe(true);
@@ -450,15 +448,15 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
     const noKill = evaluateClockHack({
       nearCapDeathRate: dat(0.08, -0.01, 0.17), // CI∋0 ⇒ clear despite Δ≥threshold
       lateGameAggressionSpike: null, // no data
-      truncationRate: dat(-0.09, -0.15, -0.03), // co-signal fires but is not primary
+      truncationRate: dat(-0.2, -0.3, -0.1), // co-signal fires but is not primary
     });
     expect(noKill.kill).toBe(false);
     expect(noKill.coSignal).toBe(true);
     expect(noKill.rows.find(r => r.axis === 'lateGameAggressionSpike').verdict).toBe('NO DATA');
   });
 
-  it('fires the lateGameAggressionSpike primary on a ≥0.3 in-direction Δ (the second kill path)', () => {
-    // The OTHER primary: spike +0.5 with CI [0.3,0.7] clears the 0.3 threshold AND excludes 0.
+  it('fires the lateGameAggressionSpike primary on a ≥0.31 in-direction Δ (the second kill path)', () => {
+    // The OTHER primary: spike +0.5 with CI [0.3,0.7] clears the 0.31 threshold AND excludes 0.
     const spike = evaluateClockHack({
       nearCapDeathRate: dat(0.0, -0.02, 0.02), // clear
       lateGameAggressionSpike: dat(0.5, 0.3, 0.7), // primary FIRES on its own
@@ -482,8 +480,8 @@ describe('§10.4 clock-hack signals (profileGameFromCapture) + evaluateClockHack
     // Guards against dropping the `cmp.delta >= threshold` half of the predicate.
     const sub = evaluateClockHack({
       nearCapDeathRate: dat(0.02, 0.01, 0.03), // significant, but < 0.05 ⇒ clear
-      lateGameAggressionSpike: dat(0.2, 0.1, 0.3), // significant, but < 0.3 ⇒ clear
-      truncationRate: dat(-0.02, -0.03, -0.01), // co-signal significant but < 0.05 ⇒ clear
+      lateGameAggressionSpike: dat(0.2, 0.1, 0.3), // significant, but < 0.31 ⇒ clear
+      truncationRate: dat(-0.02, -0.03, -0.01), // co-signal significant but < 0.18 ⇒ clear
     });
     expect(sub.kill).toBe(false);
     expect(sub.primaryFired).toBe(false);

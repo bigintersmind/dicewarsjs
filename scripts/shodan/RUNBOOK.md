@@ -538,6 +538,8 @@ the `.weights.js`/sibling `.fixture.json` convention, then `ppo:gate` for streng
 `behavior:profile` for style). The §10.4 clock-hack kill-gate (a placement arm forcing an early
 decisive death near the now-visible turn cap to bank rank rather than truncate to 0) is now
 **instrumented and operational** — `behavior:profile` prints a "Clock-hack tripwire (§10.4)" panel
-and `evaluateClockHack()` returns `kill`. Its drafted 50/0.05/0.3 thresholds should be **ratified /
-recalibrated from the Conqueror-control's own 0.5M/1M near-cap probes before enforcing on
-Survivor-v3** — see [docs/ml-bot/PERSONAS.md](../../docs/ml-bot/PERSONAS.md) §10.4.
+and `evaluateClockHack()` returns `kill`. Its thresholds are **RATIFIED (2026-07-08): window 50,
+nearCapDeathRate 0.05, lateGameAggressionSpike 0.31, truncationRate co-signal 0.18** — calibrated
+per the pre-registration from the Conqueror-control's 0.5M/1M eval checkpoints vs the base in the
+§10.3 calibration field — see [docs/ml-bot/PERSONAS.md](../../docs/ml-bot/PERSONAS.md) §10.4
+(calibration numbers: RESULTS.md 2026-07-08).

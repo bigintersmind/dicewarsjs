@@ -1152,3 +1152,66 @@ clear under the ratified table.
 **Kills bar recomputed ([D-32]):** 15% × v2 Survivor's realized mean kills in this field
 (1.725 ± 0.07) = **+0.26** (vs the void ≈+0.28 and [D-30]'s +0.25 interim). Context means:
 Lookahead 1.40 ± 0.09, Conqueror 1.46 ± 0.10.
+
+## §10.4 clock-hack thresholds + [D-30] winPct floor — calibrated off the Wave-1 control, RATIFIED · 2026-07-08
+
+The last Wave-2 prep item: the pre-registered recalibration of the two remaining drafted numbers,
+sourced (per §10.4/§10.5) from the Wave-1 control's own 0.5M/1M probes.
+
+**Setup:** `behavior:profile` 10 runs × 30 games × 6-seat field, the control arm's fixtured eval
+checkpoints `ppo-v3-conq-ctl/eval/eval-000500004` (0.5M) and `eval-001000008` (1M) as
+`Name=weights.js` specs (parity 1.3e-4 / 2.0e-4), `--control Conqueror` (= the pinned raw v3
+base), in the exact §10.3 calibration field (`--opponents
+Default,Adaptive,Example,Expectimax,Strategist --reference Expectimax`) so all reports pair.
+5400 matches, 0 quarantined, 10/10 live runs per bot, exit 0. Report:
+`ml/runs/behavior-calibration/winpct-clockhack-calibration-2026-07-08.profile.json` (local,
+gitignored; gitSha `489f058`, clean). Innocent pool for the rule = these two checkpoints + the
+2026-07-06 scavenge-calibration innocents (v2 Survivor, Lookahead — same field/config/seeds).
+
+**[D-30] absolute winPct floor — RATIFIED at 35, unchanged.**
+
+| Bot                     | winPct (mean ± 95% CI)  | per-run SD (= 3×10×6 probe SE) | low end @ 0.5M probe |
+| ----------------------- | ----------------------- | ------------------------------ | -------------------- |
+| Control @ 0.5M          | **50.1 ± 2.1**          | 2.87                           | 44.5                 |
+| Control @ 1M            | **49.7 ± 2.0**          | 2.75                           | 44.3                 |
+| Conqueror (base)        | 48.6 ± 3.2              | 4.54                           | (context)            |
+| v2 Survivor / Lookahead | 65.9 ± 2.2 / 26.5 ± 2.8 | — (scavenge report)            | (context)            |
+
+Rule (the scavenge rule mirrored for a LOWER-fires floor): min(draft, ⌊lowest healthy checkpoint
+mean − 1.96 × probe SE⌋) = min(35, 44) = **35**. The [D-30] 3×10×6 probe totals 30 games, so its
+SE equals the calibration per-run SD (~2.9); a healthy warm-started arm (~50%) false-fires at
+≈ 10⁻⁷, and the §10.5 red-team worry doesn't transfer — the v2 control's 34.5 was a property of
+the old, stronger field (even the placement backbone, v2 Survivor, wins 65.9% here). At the 1M
+kill tier the pilot grading config (6×30×6) shrinks the SE another √6, so the floor only binds on
+genuine collapse.
+
+**§10.4 clock-hack tripwires — RATIFIED 0.05 / 0.31 / 0.18** (window 50 unchanged). Rule: per
+axis, max(draft, largest innocent |Δ| + that Δ's CI half-width), rounded up to 2 decimals, with
+one qualifier — innocent rows with < 5 live runs are excluded as no-power (the win-mode
+checkpoints' spike rows had n=2 with ±4.1/±3.1 CIs: win-mode games rarely approach the cap, the
+pre-acknowledged §10.4 power caveat; the NO-DATA fail-open guard already keeps such rows from
+firing at enforcement time).
+
+| Axis (direction)                     | Ctl@0.5M Δ [CI]         | Ctl@1M Δ [CI]           | Scavenge innocents max       | Draft | **Ratified** |
+| ------------------------------------ | ----------------------- | ----------------------- | ---------------------------- | ----- | ------------ |
+| `nearCapDeathRate` (↑, primary)      | +0.001 [−0.001, +0.002] | 0.000 [0.000, 0.000]    | 0.002 (Survivor)             | 0.05  | **0.05**     |
+| `lateGameAggressionSpike` (↑, prim.) | n=2, no power           | n=2, no power           | 0.306 (Survivor, n=9)        | 0.3   | **0.31**     |
+| `truncationRate` (↓, co-signal)      | −0.016 [−0.028, −0.003] | −0.014 [−0.031, +0.003] | 0.174 (Lookahead, opp. dir.) | 0.05  | **0.18**     |
+
+Ivan ratified 2026-07-08, taking the literal opposite-direction-|Δ| treatment for the truncation
+co-signal for consistency with the scavenge precedent (it corroborates, never kills alone, so
+raising it costs little). Both checkpoints' full panels are clear under both the drafted and the
+ratified tables.
+
+**[D-30] basin tripwires co-read (no change proposed, none was in scope):** every innocent Δ sits
+on the safe (opposite) side — checkpoints vs base: avgDiceReserve −4.7/−2.4 (fires +10),
+zeroAttackTurnFrac −0.067/−0.099 (fires +0.05), turnsToWin −22.8/−26.7 (fires +20), survivalTurn
+−19.8/−22.5 (fires −60), avgPlacement +0.08/+0.07 (co-signal +0.3). One observation for the
+record: pure continuation drift moves |ΔturnsToWin| past 20 in the opposite direction, so that
+axis's +20 fire threshold is not generous relative to drift magnitudes — the direction gate is
+what protects it.
+
+**Wave-2 launch prep is now complete:** scavenge tripwires 0.31/5.64/0.91 (2026-07-06), kills bar
++0.26 (2026-07-06), winPct floor 35 + clock-hack 0.05/0.31/0.18 (this entry). Remaining before the
+Predator pilots: `behavior:preflight` + `ppo:arm-throughput` at launch time, Ivan-gated shodan
+launch per RUNBOOK.

@@ -2082,3 +2082,7 @@ count / time-at-one-territory before the killing blow) with no implementation in
 50/0.05/0.3 — behaved correctly in Wave 1: no false fire on a genuine turtle) from the control arm's
 0.5M/1M eval probes, per the §10.5 caveat; (c) picker/ladder copy (§10.5 "ladder honesty") stays
 deferred until the Predator slot resolves, so the fresh-seed `arena:ml` field is measured once.
+_(Outcome: (a) landed + ratified 2026-07-06 — PRs #123/#126/#127, tripwires 0.31/5.64/0.91, kills
+bar +0.26; (b) done 2026-07-08 — winPct floor ratified at 35 unchanged, clock-hack panel ratified
+at 0.05/0.31/0.18 off the control's 0.5M/1M checkpoints (RESULTS.md 2026-07-08) → Wave-2 pilot
+grading is unblocked; (c) still deferred.)_

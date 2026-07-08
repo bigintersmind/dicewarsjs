@@ -53,10 +53,14 @@ const DOMINANCE_SHARE = 0.4;
  * PRESS_THRESHOLD), or AI-vs-AI games freeze into turn-cap stalemates.
  * "Clearly winning" = strict territory lead AND (dominant dice share OR the
  * field has narrowed to PRESS_CLOSE_PLAYERS or fewer while holding at least
- * DOMINANCE_SHARE of the dice — issue #132). The override bypasses the EV bar
- * entirely; the searched best move is still the move played.
+ * DOMINANCE_SHARE of the dice — issue #132). The override lowers the EV bar
+ * to CLOSEOUT_FLOOR instead of bypassing it (issue #132): the press exists to
+ * admit the near-even full-stack coinflip that breaks a stalemate (a maxed
+ * 8v8 scores ~-1), not to force a genuinely suicidal only-move (a 4v8 scores
+ * ~-4, a 6v8 ~-3). The searched best move is still the move played.
  */
 const PRESS_CLOSE_PLAYERS = 3;
+const CLOSEOUT_FLOOR = -2.5;
 /*
  * Posture thresholds form a U: the bot is decisive at both extremes and
  * patient in the middle. PRESS (winning) accepts even slightly-negative moves
@@ -475,8 +479,8 @@ function isBetterMove(score, move, bestScore, bestMove) {
  * game's chosen move. Returns the searched best move, its score, the active
  * attack threshold, and the move Lookahead would play (the best move when it
  * clears the threshold, otherwise null). pressToClose reports the issue-#115
- * clearly-winning override that lets the best move through regardless of the
- * threshold. Exported so the search and posture logic can be tested directly;
+ * clearly-winning override that lowers the bar for the best move to
+ * CLOSEOUT_FLOOR. Exported so the search and posture logic can be tested directly;
  * `ai_lookahead` itself is a thin wrapper that applies `chosenMove`.
  *
  * @param {Object} game - Legacy mutable game view.
@@ -514,7 +518,8 @@ export const evaluateLookaheadTurn = game => {
 
   const threshold = attackThreshold(board, player);
   const press = pressToClose(board, player);
-  const chosenMove = bestMove && (bestScore > threshold || press) ? bestMove : null;
+  const chosenMove =
+    bestMove && (bestScore > threshold || (press && bestScore > CLOSEOUT_FLOOR)) ? bestMove : null;
 
   return { player, bestMove, bestScore, threshold, pressToClose: press, chosenMove };
 };

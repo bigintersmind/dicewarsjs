@@ -549,7 +549,8 @@ describe('Lookahead AI', () => {
    * even when every remaining move is a penalized near-even coinflip, or
    * AI-vs-AI games freeze into turn-cap stalemates. "Clearly winning" =
    * strict territory lead AND (dominant dice share OR ≤3 players alive with
-   * at least the DOMINANCE_SHARE dice floor — issue #132).
+   * at least the DOMINANCE_SHARE dice floor — issue #132). The press lowers
+   * the EV bar to CLOSEOUT_FLOOR rather than bypassing it (issue #132).
    */
   describe('press-to-close override (issue #115)', () => {
     test('plays the searched best move from a clearly-winning maxed position even below the EV bar', () => {
@@ -649,6 +650,38 @@ describe('Lookahead AI', () => {
       expect(ai_lookahead(mockGame)).toBe(0);
       expect(mockGame.area_from).toBe(0);
       expect(mockGame.area_to).toBe(0);
+    });
+
+    test('press declines a move below CLOSEOUT_FLOOR even from a dominant position (issue #132)', () => {
+      /*
+       * me (player 1): 4 territories vs 2 and 1 and 28/52 dice (~54%, clearly
+       * dominant — pressToClose fires). But my only enemy border is a
+       * ~10%-odds 4v8 scoring ~-4, far below CLOSEOUT_FLOOR: the press is
+       * meant to admit near-even full-stack coinflips (an 8v8 scores ~-1),
+       * not to force whatever the search coughs up. The bounded bypass
+       * declines it; pre-#132 the unbounded bypass attacked here.
+       */
+      territory(1, 1, 4); // my only stack on an enemy border
+      territory(2, 1, 8);
+      territory(3, 1, 8);
+      territory(4, 1, 8);
+      territory(5, 2, 8); // the lopsided border defender
+      territory(6, 2, 8);
+      territory(7, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(3, 4);
+      link(1, 5); // my only enemy border: the 4v8
+      link(5, 6);
+      link(6, 7);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.pressToClose).toBe(true); // clearly winning, the override is armed
+      expect(decision.bestMove).toEqual({ from: 1, to: 5 });
+      expect(decision.bestScore).toBeLessThan(-2.5); // ...but the only move is suicidal
+      expect(decision.chosenMove).toBeNull();
+      expect(ai_lookahead(mockGame)).toBe(0);
     });
 
     test('narrow-field press still fires at exactly the DOMINANCE_SHARE floor', () => {

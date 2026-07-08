@@ -548,7 +548,8 @@ describe('Lookahead AI', () => {
    * Press-to-close override (issue #115): a clear winner must keep attacking
    * even when every remaining move is a penalized near-even coinflip, or
    * AI-vs-AI games freeze into turn-cap stalemates. "Clearly winning" =
-   * strict territory lead AND (dominant dice share OR ≤3 players alive).
+   * strict territory lead AND (dominant dice share OR ≤3 players alive with
+   * at least the DOMINANCE_SHARE dice floor — issue #132).
    */
   describe('press-to-close override (issue #115)', () => {
     test('plays the searched best move from a clearly-winning maxed position even below the EV bar', () => {
@@ -614,6 +615,68 @@ describe('Lookahead AI', () => {
       expect(decision.pressToClose).toBe(false);
       expect(decision.chosenMove).toBeNull();
       expect(ai_lookahead(mockGame)).toBe(0);
+    });
+
+    test('does not fire in a narrow field while weak on dice (issue #132)', () => {
+      /*
+       * me (player 1): 4 territories vs 3 and 1 — a strict territory lead in a
+       * 3-player field — but only 7/39 dice (~18% share, far below the
+       * DOMINANCE_SHARE floor). My only legal attack is a ~10%-odds 4v8.
+       * Pre-#132 the bare ≤3-players disjunct pressed anyway, burning the one
+       * stack I needed for defense; with the dice floor the bot passes.
+       */
+      territory(1, 1, 4); // my only stack able to attack
+      territory(2, 1, 1);
+      territory(3, 1, 1);
+      territory(4, 1, 1);
+      territory(5, 2, 8); // the lopsided border defender
+      territory(6, 2, 8);
+      territory(7, 2, 8);
+      territory(8, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(3, 4);
+      link(1, 5); // my only enemy border: the 4v8
+      link(5, 6);
+      link(6, 7);
+      link(7, 8);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.bestMove).toEqual({ from: 1, to: 5 }); // the search still sees the move
+      expect(decision.pressToClose).toBe(false); // but the override must not force it
+      expect(decision.chosenMove).toBeNull();
+      expect(ai_lookahead(mockGame)).toBe(0);
+      expect(mockGame.area_from).toBe(0);
+      expect(mockGame.area_to).toBe(0);
+    });
+
+    test('narrow-field press still fires at exactly the DOMINANCE_SHARE floor', () => {
+      /*
+       * me (player 1): 3 territories vs 2 and 1 (strict lead) holding exactly
+       * 16/40 = 40% of the dice in a 3-player field. The dominant-dice trigger
+       * is strict (> 0.4) so it stays off; the narrow-field trigger's floor is
+       * >= (mirroring Strategist), so the press fires and takes the 8v8 the
+       * plain EV gate would decline.
+       */
+      territory(1, 1, 8);
+      territory(2, 1, 7);
+      territory(3, 1, 1);
+      territory(4, 2, 8);
+      territory(5, 2, 8);
+      territory(6, 3, 8);
+      link(1, 2);
+      link(2, 3);
+      link(1, 4); // my only enemy border: the 8v8
+      link(4, 5);
+      link(5, 6);
+
+      const decision = evaluateLookaheadTurn(mockGame);
+
+      expect(decision.pressToClose).toBe(true);
+      expect(decision.bestMove).toEqual({ from: 1, to: 4 });
+      expect(decision.bestScore).toBeLessThan(decision.threshold); // the plain EV gate would decline
+      expect(decision.chosenMove).toEqual(decision.bestMove);
     });
   });
 });

@@ -52,8 +52,9 @@ const DOMINANCE_SHARE = 0.4;
  * near-even coinflip (a maxed 8v8 frontier scores ~-2, below even
  * PRESS_THRESHOLD), or AI-vs-AI games freeze into turn-cap stalemates.
  * "Clearly winning" = strict territory lead AND (dominant dice share OR the
- * field has narrowed to PRESS_CLOSE_PLAYERS or fewer). The override bypasses
- * the EV bar entirely; the searched best move is still the move played.
+ * field has narrowed to PRESS_CLOSE_PLAYERS or fewer while holding at least
+ * DOMINANCE_SHARE of the dice — issue #132). The override bypasses the EV bar
+ * entirely; the searched best move is still the move played.
  */
 const PRESS_CLOSE_PLAYERS = 3;
 /*
@@ -396,7 +397,16 @@ function pressToClose(board, player) {
 
   const totalDice = stats.reduce((sum, candidate) => sum + candidate.dice, 0);
   const dominantDice = totalDice > 0 && me.dice > totalDice * DOMINANCE_SHARE;
-  return dominantDice || rivals.length + 1 <= PRESS_CLOSE_PLAYERS;
+  /*
+   * Dice floor on the narrow-field trigger (issue #132): ≤3 players alive is
+   * not by itself a winning signal — a leader on territories but badly behind
+   * on dice would burn its best stack on a lopsided coinflip it should
+   * decline. Mirror Strategist's floor (>= DOMINANCE_SHARE of the board's
+   * dice) so the override cannot fire from a dice-poor position.
+   */
+  const myShare = totalDice > 0 ? me.dice / totalDice : 0;
+  const narrowField = rivals.length + 1 <= PRESS_CLOSE_PLAYERS && myShare >= DOMINANCE_SHARE;
+  return dominantDice || narrowField;
 }
 
 function strategicAdjustment(board, player, to, winChance) {

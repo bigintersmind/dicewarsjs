@@ -1215,3 +1215,65 @@ what protects it.
 +0.26 (2026-07-06), winPct floor 35 + clock-hack 0.05/0.31/0.18 (this entry). Remaining before the
 Predator pilots: `behavior:preflight` + `ppo:arm-throughput` at launch time, Ivan-gated shodan
 launch per RUNBOOK.
+
+## §10.2 Wave-2 Predator pilots — CLOSED, neither pilot clears the §10.8 gate · 2026-07-08
+
+Two 1M placement + elim-bounty arms, warm-started from the encoding-v3 base (`ppo-v3-scratch/ppo.pt`),
+identical but for the bounty: **`ppo-v3-pred-b15`** (ELIM_BOUNTY 0.15) / **`ppo-v3-pred-b25`** (0.25),
+both SHAPING_CLIP 1.0, γ0.999. Launched via a Task-Scheduler-owned supervisor (RUNBOOK §launch); both
+finished clean at step 1,001,472. Graded at 0.5M (tripwire probe) and 1M (full battery). Provenance: git
+`7dd5720`, encoding v3, Lookahead `@596f781`. ([PR #134], the #85 `elimsByLearner` fix, deliberately left
+out — cannot fire in 8-FFA, realized reward stream identical.)
+
+### Strength — `ppo:gate` (paired Δ win%, seat-fair) + `ppo:curve` (eval stream)
+
+Gate: PredB15, 8 runs × 9 seeds × 9 rotations = 648 games, vs the Lookahead floor.
+
+| Metric                       | PredB15 @ 1M                           |
+| ---------------------------- | -------------------------------------- |
+| PredB15 win% (95% CI)        | 32.9 ± 2.6                             |
+| Lookahead win% (95% CI)      | 8.2 ± 2.5                              |
+| **Paired Δ win% (cand−bar)** | **+24.7 ± 4.5 [20.2, 29.2] → BEAT ✅** |
+| STOP% / attack-win%          | 42.7 / 73.9                            |
+
+Curve (8×80 off the eval stream, refs Lookahead + PPO): three BEAT points, statistically tied — **no
+[D-29] tail-regression kill**.
+
+| Checkpoint (step) | Δ vs Lookahead         | Δ vs PPO | win% | avgPlace |
+| ----------------- | ---------------------- | -------- | ---- | -------- |
+| 500004 (0.5M)     | +25.3 ± 5.6 BEAT       | +3.5 TIE | 35.0 | 3.33     |
+| 1000008 (1M)      | +25.9 ± 6.0 BEAT ⟵best | +4.3 TIE | 33.5 | 3.43     |
+| 1001472 (final)   | +22.8 ± 4.5 BEAT       | +0.8 TIE | 31.5 | 3.43     |
+
+### Style — `behavior:profile` 6×30×6, §10.3 calibration field (4320 matches/bot, 0 quarantined)
+
+Control = Conqueror (raw v3 base); field = Default, Adaptive, Example, Expectimax, Strategist; ref
+Expectimax. Parity: b15 1.9e-4, b25 2.0e-4.
+
+| Bot           | winPct       | aggression | avgDiceReserve | kills       | turnsToWin    | avgPlacement |
+| ------------- | ------------ | ---------- | -------------- | ----------- | ------------- | ------------ |
+| **PredB15**   | 46.20 ± 3.37 | 2.06       | 60.12          | 1.78 ± 0.08 | 108.86 ± 3.90 | 2.17         |
+| **PredB25**   | 46.57 ± 3.71 | 1.70       | 64.40          | 2.01 ± 0.16 | 121.91 ± 8.24 | 1.98         |
+| Survivor (v2) | 54.81 ± 2.92 | 1.80       | 70.31          | 1.62 ± 0.12 | 121.60        | 1.76         |
+| Conqueror     | 50.19 ± 2.85 | 1.83       | 68.15          | 1.42 ± 0.09 | 135.30        | 2.19         |
+
+### Tripwire panels (vs base) + separation matrix (paired vs Survivor)
+
+| Panel / gate                               | PredB15                                       | PredB25                                                                                             |
+| ------------------------------------------ | --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Scavenge (§10.3, KILL-gate)                | clear ✓ (0.5M + 1M)                           | clear ✓ (0.5M + 1M)                                                                                 |
+| Clock-hack (§10.4)                         | clear ✓                                       | clear ✓                                                                                             |
+| [D-30] turtle basin — `zeroAttackTurnFrac` | clear ✓ (Δ−0.007 vs base)                     | **FIRES ✗** — Δ+0.178 [0.110,…] @0.5M (>2× the +0.05 bar) · Δ+0.072 [0.046, 0.098] @1M (>bar, CI≠0) |
+| winPct floor ≥ 35                          | 46.2 ✓                                        | 46.6 ✓                                                                                              |
+| **+0.26 kills bar vs v2 Survivor**         | **Δ+0.16 [0.00, 0.31] — MISS ✗**              | Δ+0.39 [0.17, 0.61] — clears ✓                                                                      |
+| Separate from Survivor (≥1 axis @ MDE)     | ✓ turnsToWin (Δ−12.73), avgPlacement (Δ+0.41) | ✓ kills (Δ+0.39)                                                                                    |
+
+### Outcome
+
+**Predator CLOSED under the current wire ([D-33]).** The pilots fail in complementary corners: **PredB15** is
+strong, clean, and anti-turtle but never reaches the kills bar that defines the slot (Δ+0.16 < +0.26);
+**PredB25** _does_ out-kill Survivor (+0.39) but only by tripping the turtle-basin passivity tripwire (killed
+at both probes). No corner of the {0.15, 0.25} bounty sweep both out-kills Survivor and stays out of the
+basin. Per §10.8 + Ivan's ruling: revisitable only with a frame-level kill-attribution fix, no coef
+re-sweeps. Shipped trio (Conqueror + Blitz + Survivor v2) unchanged; runs backed up to `~/wave2-backup/`
+(byte-exact), schtasks + supervisor removed.

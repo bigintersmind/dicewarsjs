@@ -734,6 +734,13 @@ flagship objective" v4 question closed unfired. [D-32].)_
   (§10.3), with the recomputed **+0.26** kills bar. Consequence
   per Ivan's ruling: **closed under the current wire** (revisitable only with a frame-level
   kill-attribution fix; no coef re-sweeps under this wire).
+  _(Outcome 2026-07-08: **CLOSED** — neither pilot clears the gate. `ppo-v3-pred-b15` (bounty 0.15)
+  BEAT Lookahead +24.7 and trips no tripwire, but its kills edge over v2 Survivor is Δ+0.16 [0.00,
+  0.31], short of the +0.26 confirmatory bar; `ppo-v3-pred-b25` (bounty 0.25) clears the kills bar
+  (Δ+0.39) but is killed by the [D-30] turtle-basin tripwire on `zeroAttackTurnFrac` (Δ+0.178 > 2×
+  the +0.05 bar @0.5M, still Δ+0.072 [0.046, 0.098] @1M). Complementary corners — no bounty in
+  {0.15, 0.25} both out-kills Survivor and stays out of the basin. Keep the shipped trio; the revisit
+  is the frame-level fix, not a re-sweep. [D-33](./DECISIONS.md), RESULTS.md 2026-07-08 §10.2.)_
 - **Slate-level:** the shipped trio (Conqueror + Blitz + Survivor, v3 or retained v2 checkpoints)
   is a complete product regardless — every conditional arm is upside, not gap-fill. If a negative
   control fails, grading halts for the whole batch until the harness issue is fixed.

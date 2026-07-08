@@ -43,6 +43,13 @@ module.exports = {
     'no-useless-rename': 'error',
     'no-duplicate-imports': 'error',
 
+    // Flag references to undeclared variables. This is OFF by default here because we don't
+    // extend eslint:recommended; enabling it explicitly is the cheapest possible net for the
+    // "ReferenceError at runtime" bug class (e.g. a typo'd or un-threaded identifier that lints
+    // clean but throws on the first run). Test-file globals (describe/it/expect/vi/…) come from
+    // the vitest env in the `overrides` block below, so they are not false-positived.
+    'no-undef': 'error',
+
     // Allow console for game development
     'no-console': 'off',
 
@@ -98,6 +105,16 @@ module.exports = {
     // Allow func-names in test files
     'func-names': ['off'],
   },
+  overrides: [
+    {
+      // Vitest injects its globals (describe/it/expect/vi/beforeEach/afterEach/…) via
+      // `globals: true` in vite.config.js — ESLint can't see that, so with `no-undef` on it would
+      // false-positive every test. Scope the plugin's vitest env (supplied by eslint-plugin-vitest,
+      // already a dependency) to test files so those globals resolve without a hand-maintained list.
+      files: ['tests/**/*.{js,jsx,mjs}'],
+      env: { 'vitest/env': true },
+    },
+  ],
   globals: {
     // Global functions available in newer Node.js versions
     structuredClone: 'readonly',

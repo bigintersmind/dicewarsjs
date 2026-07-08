@@ -353,10 +353,12 @@ describe('Expectimax AI', () => {
   };
 
   /*
-   * Dominant board: my dice share ≈ 0.70 → PRESS posture. Two rivals on purpose,
+   * Dominant board: my dice share ≈ 0.68 → PRESS posture. Two rivals on purpose,
    * so the heads-up-duel press shortcut (activeRivals === 1) does NOT fire and the
    * press posture is selected by dice share alone — which the pressDiceShare-gating
-   * test below relies on to isolate the share cutoff.
+   * test below relies on to isolate the share cutoff. Player 2 holds a third
+   * (isolated, 1-die) cell so territories tie 3–3: the strict-lead CLOSEOUT
+   * posture (issue #115) outranks PRESS and would otherwise shadow it here.
    */
   const dominantBoard = () => {
     territory(1, 1, 3); // my attacker (a 3v3 coin-flip, marginal EV)
@@ -366,6 +368,7 @@ describe('Expectimax AI', () => {
     territory(5, 2, 2);
     territory(6, 3, 2);
     territory(7, 3, 1);
+    territory(8, 2, 1); // levels territories 3–3 so CLOSEOUT (strict lead) can't fire
     link(1, 4);
     link(4, 5);
     link(5, 6);
@@ -560,7 +563,7 @@ describe('Expectimax AI', () => {
    * diceByPlayer[me] > bestRivalDice` — the second half of the PRESS condition, which
    * none of the dominantBoard tests reach (that board uses two rivals on purpose). In a
    * true 1v1 a dice lead already pushes my share past pressDiceShare, so to isolate the
-   * shortcut these tests raise pressDiceShare to 0.99 — above my ~0.86 share — so the
+   * shortcut these tests raise pressDiceShare to 0.99 — above my ~0.79 share — so the
    * share clause CANNOT fire and only the duel shortcut can select PRESS. Note
    * `diceByPlayer`/`bestRivalDice` are per-player *totals*, not per-cell maxima.
    */
@@ -568,7 +571,9 @@ describe('Expectimax AI', () => {
     territory(1, 1, 3); // my attacker — a marginal 3v3 coin flip vs the rival
     territory(2, 2, 3); // rival defender
     territory(3, 1, 8); // my dice elsewhere
-    territory(4, iLead ? 1 : 2, 8); // mine ⇒ I lead the duel 19–3; rival's ⇒ totals tie 11–11
+    territory(4, iLead ? 1 : 2, iLead ? 8 : 6); // mine ⇒ I lead 19–5; rival's ⇒ totals tie 11–11
+    territory(5, 2, 1); // rival filler (isolated 1-die cells): keeps territory counts
+    territory(6, 2, 1); // level (3–3 / 2–4) so CLOSEOUT (strict lead) can never fire here
     link(1, 2);
   };
 
@@ -586,7 +591,7 @@ describe('Expectimax AI', () => {
       lowOddsPenalty: 0,
     };
 
-    // Leading the duel (19 vs 3 dice) → shortcut fires → PRESS takes the marginal capture.
+    // Leading the duel (19 vs 5 dice) → shortcut fires → PRESS takes the marginal capture.
     duelBoard(true)();
     expect(makeExpectimax(cfg)(mockGame)).not.toBe(0);
     expect(mockGame.area_from).toBe(1);
@@ -603,6 +608,93 @@ describe('Expectimax AI', () => {
     duelBoard(false)();
     expect(makeExpectimax(cfg)(mockGame)).toBe(0);
     expect(mockGame.area_from).toBe(0);
+  });
+
+  /*
+   * CLOSEOUT posture (issue #115) — strict territory lead AND (dominant dice
+   * share OR ≤3 players alive) selects closeoutThreshold, ABOVE press in
+   * precedence. PRESS is not enough on a maxed frontier: a risk-penalized 8v8
+   * scores ≈ -3 vs stopping, below even pressThreshold (-2.5), which froze won
+   * games into turn-cap stalemates.
+   */
+  const closeoutBoard = () => {
+    // me: 3 cells vs 2 and 1 (strict lead), share 0.5 > pressDiceShare; the
+    // only attacks are 8v8 coinflips out of my border cell 3.
+    territory(1, 1, 8);
+    territory(2, 1, 8);
+    territory(3, 1, 8);
+    territory(4, 2, 8);
+    territory(5, 2, 8);
+    territory(6, 3, 8);
+    link(1, 2);
+    link(2, 3);
+    link(3, 4); // 8v8 border
+    link(3, 5); // second 8v8 border (deepens the loss branch: clearly below press)
+    link(4, 5);
+    link(5, 6);
+  };
+
+  test('CLOSEOUT posture: a clear territory leader presses the maxed frontier (issue #115)', () => {
+    // press/base/weak pinned high: only the closeout bar can admit the 8v8.
+    closeoutBoard();
+    expect(
+      makeExpectimax({
+        closeoutThreshold: -8,
+        pressThreshold: 50,
+        baseThreshold: 50,
+        weakThreshold: 50,
+      })(mockGame)
+    ).not.toBe(0);
+    expect(mockGame.area_from).toBe(3);
+    expect([4, 5]).toContain(mockGame.area_to);
+
+    // Same board, closeout pinned high too → every posture declines → pass.
+    mockGame.area_from = 0;
+    mockGame.area_to = 0;
+    closeoutBoard();
+    expect(
+      makeExpectimax({
+        closeoutThreshold: 50,
+        pressThreshold: 50,
+        baseThreshold: 50,
+        weakThreshold: 50,
+      })(mockGame)
+    ).toBe(0);
+  });
+
+  test('CLOSEOUT requires the strict territory lead (tied leader falls through to PRESS)', () => {
+    /*
+     * Identical maxed frontier but tied 3–3 territories: closeout must not
+     * fire. Share 0.5 > pressDiceShare still selects PRESS, pinned high here,
+     * so the bot declines — proving the territory lead is the closeout selector.
+     */
+    territory(1, 1, 8);
+    territory(2, 1, 8);
+    territory(3, 1, 8);
+    territory(4, 2, 8);
+    territory(5, 2, 8);
+    territory(6, 2, 8);
+    link(1, 2);
+    link(2, 3);
+    link(3, 4);
+    link(4, 5);
+    link(5, 6);
+    expect(
+      makeExpectimax({
+        closeoutThreshold: -50,
+        pressThreshold: 50,
+        baseThreshold: 50,
+        weakThreshold: 50,
+      })(mockGame)
+    ).toBe(0);
+    expect(mockGame.area_from).toBe(0);
+  });
+
+  test('shipped defaults press the clearly-winning maxed frontier instead of passing (issue #115)', () => {
+    // The end-to-end #115 acceptance at unit scale: no overrides, real weights.
+    closeoutBoard();
+    expect(ai_expectimax(mockGame)).not.toBe(0);
+    expect(mockGame.area_from).toBe(3);
   });
 
   test('attackThreshold override disables posture adaptation (fixed bar)', () => {

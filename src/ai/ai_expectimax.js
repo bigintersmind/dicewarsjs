@@ -71,6 +71,7 @@ export const DEFAULT_PARAMS = {
   attackThreshold: null, // fixed EV bar override; null ⇒ posture-adaptive (base/press/weak below)
   baseThreshold: 1.2, // balanced game (the common case): steep bar — only clearly profitable captures (D-9 tuned)
   pressThreshold: -2.5, // dominant / winning duel: spend the advantage hard to close the game out (D-9 tuned)
+  closeoutThreshold: -8.0, // clearly winning (strict territory lead + dominant share or ≤3 alive): admit the maxed frontier's near-even full-stack swings that even pressThreshold rejects (a risk-penalized 8v8 ≈ -3) — issue #115. Finite on purpose: a truly suicidal only-move is still declined.
   weakThreshold: 0.15, // losing badly in a crowd: still take near-even fights to claw back
   pressDiceShare: 0.38, // dice share above which (strict >) I'm dominant enough to press
   weakDiceShare: 0.15, // dice share below which (in a crowd) I'm weak enough to claw back
@@ -107,6 +108,10 @@ const clampDie = n => (n > MAX_DICE ? MAX_DICE : n);
  * bar; in the common balanced case I hold the steep BASE bar and only spend dice
  * on clearly profitable captures. Mirrors ai_lookahead's posture logic — the
  * mechanism that makes it the field leader.
+ * A fourth CLOSEOUT tier (issue #115) sits above PRESS: a strict territory
+ * lead plus dominant share (or a ≤3-player field) drops the bar to
+ * closeoutThreshold, admitting the near-even full-stack swings a maxed
+ * winning frontier offers — the case PRESS's -2.5 still rejected.
  *
  * Computed once from the real root board (posture is a turn-level property) and
  * threaded unchanged into every recursive `search` node, so the bot's stance can't
@@ -123,14 +128,26 @@ function postureThreshold(diceByPlayer, areasByPlayer, me, pmax, P) {
   let totalDice = 0;
   let activeRivals = 0;
   let bestRivalDice = 0;
+  let bestRivalAreas = 0;
   for (let pl = 0; pl < pmax; pl++) {
     totalDice += diceByPlayer[pl];
     if (pl === me) continue;
     if (areasByPlayer[pl] > 0) activeRivals += 1;
     if (diceByPlayer[pl] > bestRivalDice) bestRivalDice = diceByPlayer[pl];
+    if (areasByPlayer[pl] > bestRivalAreas) bestRivalAreas = areasByPlayer[pl];
   }
   const myShare = totalDice > 0 ? diceByPlayer[me] / totalDice : 0;
 
+  /*
+   * Clearly winning — strict territory lead AND (dominant dice share OR the
+   * field narrowed to ≤3 alive) → the closeout bar, ABOVE press in precedence.
+   * PRESS is not enough here: on a maxed frontier every candidate is a
+   * risk-penalized ~8v8 (≈ -3 vs stopping), which even pressThreshold rejects,
+   * freezing won games into turn-cap stalemates (issue #115).
+   */
+  if (areasByPlayer[me] > bestRivalAreas && (myShare > P.pressDiceShare || activeRivals <= 2)) {
+    return P.closeoutThreshold;
+  }
   // Dominant, or ahead in a heads-up endgame → press to finish.
   if (myShare > P.pressDiceShare || (activeRivals === 1 && diceByPlayer[me] > bestRivalDice)) {
     return P.pressThreshold;

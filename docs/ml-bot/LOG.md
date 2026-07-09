@@ -48,8 +48,9 @@ Entry template:
 
 **Next:**
 
-- OPEN: re-register NC1's role under the zero-noise reality (keep as determinism tripwire vs. redesign)
-  — needs an ML-workstream decision; update EVAL_HARNESS/PERSONAS wording when made.
+- OPEN (tracked in #154): re-register NC1's role under the zero-noise reality (keep as determinism
+  tripwire vs. redesign) — needs an ML-workstream decision; update EVAL_HARNESS/PERSONAS wording when
+  made.
 
 ---
 

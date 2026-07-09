@@ -17,13 +17,22 @@
  */
 
 import { GameRenderer } from '../../src/renderer/GameRenderer.js';
+import { BASE_WIDTH, BASE_HEIGHT, HUD_BAR_HEIGHT } from '../../src/renderer/constants.js';
 
 vi.mock('pixi.js', async importOriginal => {
   const actual = await importOriginal();
   class MockContainer {
     constructor() {
+      // Record the applied scale so _resize()'s layout math can be asserted.
+      this.scale = {
+        x: 1,
+        y: 1,
+        set: s => {
+          this.scale.x = s;
+          this.scale.y = s;
+        },
+      };
       this.children = [];
-      this.scale = { set: () => {} };
       this.x = 0;
       this.y = 0;
     }
@@ -44,6 +53,9 @@ vi.mock('pixi.js', async importOriginal => {
       }
 
       async init() {}
+
+      /* The ResizePlugin surface: _resize() forces it before reading screen dims. */
+      resize() {}
 
       destroy() {}
     },
@@ -98,5 +110,29 @@ describe('GameRenderer init() dice-display sync', () => {
 
     renderer.setDiceDisplayMode('dice');
     expect(renderer.dice._displayMode).toBe('dice');
+  });
+});
+
+describe('GameRenderer _resize()', () => {
+  it('forces app.resize() before reading screen dims (regression: stale title→game scale)', async () => {
+    const renderer = new GameRenderer();
+    await renderer.init(document.createElement('canvas'));
+
+    /*
+     * The ResizePlugin applies a window resize on the next frame, so app.screen
+     * still holds the OLD dims when _resize() runs on the 'resize' event. Model
+     * that: screen reads stale until app.resize() (which _resize must force
+     * first) refreshes it. If _resize() read app.screen without forcing the
+     * resize, the scale below would reflect the stale 400×300.
+     */
+    renderer.app.screen = { width: 400, height: 300 };
+    renderer.app.resize = () => {
+      renderer.app.screen = { width: 1200, height: 900 };
+    };
+
+    renderer._resize();
+
+    const expected = Math.min(1200 / BASE_WIDTH, (900 - HUD_BAR_HEIGHT) / BASE_HEIGHT);
+    expect(renderer.root.scale.x).toBeCloseTo(expected);
   });
 });

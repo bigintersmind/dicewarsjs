@@ -95,6 +95,14 @@ export class GameRenderer {
   /** Recalculate scale to fit the game board in the window. */
   _resize() {
     if (!this.app) return;
+    /*
+     * The ResizePlugin (`resizeTo: window`) applies window resizes on the next
+     * animation frame, so on a 'resize' event `app.screen` still holds the old
+     * dimensions. Force the plugin's resize now so the layout below reads
+     * fresh values — otherwise the board keeps a stale scale until the next
+     * resize (visible when the always-on title canvas transitions to a game).
+     */
+    this.app.resize();
     const availableHeight = Math.max(this.app.screen.height - HUD_BAR_HEIGHT, 1);
     const scale = Math.min(this.app.screen.width / BASE_WIDTH, availableHeight / BASE_HEIGHT);
     this.root.scale.set(scale);

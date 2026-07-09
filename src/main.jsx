@@ -9,6 +9,7 @@ import { App } from './ui/App.jsx';
 import { GameRenderer } from './renderer/GameRenderer.js';
 import { createGameStore } from './store/GameStore.js';
 import { createGameController } from './controller/GameController.js';
+import { createTitleAttractMode } from './controller/TitleAttractMode.js';
 import { createSoundManager } from './audio/SoundManager.js';
 import { createPreferencesManager } from './store/PreferencesManager.js';
 import { createKeyboardController } from './controller/KeyboardController.js';
@@ -82,6 +83,13 @@ async function main() {
   // Create the game controller
   const controller = createGameController(store, gameRenderer, soundManager, preferencesManager);
 
+  /*
+   * Background AI game behind the title screen. Owns a private engine state
+   * (never touches store.gameState) and runs only while screen === 'title',
+   * so it can't fight the controller for the renderer.
+   */
+  createTitleAttractMode({ store, renderer: gameRenderer, preferencesManager }).attach();
+
   // Wire canvas clicks to the controller
   if (canvas) {
     canvas.addEventListener('pointerdown', e => {
@@ -96,9 +104,10 @@ async function main() {
   /*
    * Only show PixiJS canvas on screens that render the game board.
    * Update this list when adding new screens that need the canvas.
+   * 'title' shows the board too: the attract-mode background game.
    */
   if (canvas) {
-    const gameScreens = ['playing', 'gameOver', 'mapPreview', 'replay'];
+    const gameScreens = ['title', 'playing', 'gameOver', 'mapPreview', 'replay'];
     store.subscribe((state, prev) => {
       const shouldShow = gameScreens.includes(state.screen);
       canvas.style.display = shouldShow ? 'block' : 'none';

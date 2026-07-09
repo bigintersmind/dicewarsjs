@@ -10,8 +10,8 @@
  * unseeded `Math.random`, so the second pass diverged — that unseeded-opponent noise, with map
  * variance cancelled by the shared seeds, was the noise floor the paired signature gate sees.
  * Since #151 every built-in draws from the seeded `game.random()`, so a built-in field yields
- * identical arms and the A/A degenerates to a harness-determinism check — `signatureNoiseFloor`'s
- * `zeroNoise` guard reports that condition.)
+ * identical arms and the A/A is a harness-determinism tripwire — `summarizeAaSample`'s
+ * `zeroNoise` flag, which the pre-flight enforces as a HALT on any divergence ([D-34]).)
  *
  * @module scripts/lib/behavior-sweep
  */

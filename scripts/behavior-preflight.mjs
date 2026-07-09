@@ -19,21 +19,25 @@
  *  2. NEGATIVE CONTROL 1 — A/A signature noise floor (§10.5). Profile the base against ITSELF —
  *     two passes at the SAME seeds — and judge each registered signature axis ({@link SIGNATURE_AXES})
  *     against the ±MDE/3 floor. NOT a raw |Δ| < MDE/3 point test: an axis CERTIFIES when its paired
- *     95% CI ⊆ ±MDE/3, and only a Holm-significant self-difference BEYOND ±MDE/3 HALTs (see
+ *     95% CI ⊆ ±MDE/3, and a Holm-significant self-difference BEYOND ±MDE/3 HALTs as BIASED (see
  *     `signatureNoiseFloor`). The base is deterministic and the maps are seeded; pre-#151 the two
  *     passes differed only by the heuristic opponents' unseeded Math.random — pairing over the
  *     shared maps cancels map variance and leaves the unseeded-opponent noise the paired signature
  *     GATE also cannot cancel (the same noise NC2 measures on the strength metric). Since #151
  *     seeded every built-in bot, a built-in field yields identical arms — the zero-noise path
- *     below — and the A/A degenerates to a harness-determinism check. A self-comparison that
- *     shows a signature-sized difference means the harness is BIASED (a bug that makes one policy
- *     look like two) — grading HALTS. Only signature axes gate; descriptive axes carry more of that
+ *     below — so the primary halt is now the [D-34] determinism tripwire: ANY same-seed divergence
+ *     HALTS as reintroduced entropy, with BIASED layered on top for which-axis detail (a bug that
+ *     makes one policy look like two). Only signature axes gate; descriptive axes carry more of that
  *     noise and are reported, never the halt criterion. The A/A runs the SAME `behavior-sweep`
  *     personas are graded on (extracted to a shared lib so it tests the real path, not a copy).
  *     Sample-health guards (summarizeAaSample) keep a degenerate A/A from reading as a clean bill:
  *     if a base LOADS but force-ends its games they are quarantined to NO DATA — that HALTS (the
- *     control could not run) rather than exiting 0 "uncertified"; and a deterministic --opponents
- *     field (arm A ≡ arm B, zero measured noise) is WARNED as vacuous, since its CERTIFIED is empty.
+ *     control could not run) rather than exiting 0 "uncertified". Post-#151 identical arms are the
+ *     EXPECTED state (every built-in is seed-pure), so the invariant is enforced the other way
+ *     around ([D-34]): `zeroNoise === false` — the same policy diverging from itself at identical
+ *     seeds — HALTS as reintroduced entropy (a Math.random bot or harness nondeterminism). The
+ *     Holm BIASED verdict cannot substitute: it detects a systematic mean shift and was built not
+ *     to fire on symmetric noise, which is what entropy looks like.
  *
  *  3. NEGATIVE CONTROL 2 — test-retest noise floor. Already produced by `ppo:curve --test-retest`
  *     (STRENGTH_CURVE.md), which re-grades one checkpoint at identical settings and records the
@@ -47,7 +51,8 @@
  *   npm run behavior:preflight -- --bot Conqueror --json          # A/A a built-in (no #97 loader step)
  *
  * Exit codes: 0 = pre-flight CLEAR (all checks passed); 1 = usage/validation error; 2 = HALT — a
- * probe-path failure, a fixture-less input NOT rejected, or an A/A signature-floor violation.
+ * probe-path failure, a fixture-less input NOT rejected, an A/A that could not run, a same-seed
+ * A/A divergence (reintroduced entropy, [D-34]), or a Holm-BIASED signature-floor violation.
  */
 
 import fs from 'node:fs';
@@ -320,9 +325,9 @@ log('');
 // The two arms are the SAME sweep at the SAME seeds. Pre-#151, the heuristic opponents' unseeded
 // Math.random advanced between the two passes, so arm B genuinely diverged — exactly the noise the
 // paired signature gate cannot cancel. Since #151 seeded every built-in bot, a built-in field
-// produces identical arms (zero noise) and the zeroNoise guard reports the A/A as a determinism
-// check instead. (A disjoint-seed A/A would re-inject full map variance and false-halt |Δ| at any
-// feasible run count.)
+// produces identical arms (zero noise) and the zeroNoise guard ENFORCES the A/A as a determinism
+// tripwire ([D-34]): any divergence HALTs as reintroduced entropy. (A disjoint-seed A/A would
+// re-inject full map variance and false-halt |Δ| at any feasible run count.)
 const sweepOpts = { opponents, runCount, gamesPerRun, stride, quarantine };
 const armA = sweepBot(baseBot, {
   ...sweepOpts,
@@ -339,8 +344,9 @@ nc1 = signatureNoiseFloor(armA.perRun, armB.perRun, mde, { divisor });
 // Sample health: a base that LOADS but force-ends its games gets them quarantined, collapsing every
 // axis to NO DATA — without this the pre-flight would exit 0 "CLEAR (uncertified)" on exactly the
 // broken harness it exists to catch. summarizeAaSample folds the two arms' quarantine/live-run counts
-// (sweepBot already returns them; the A/A had dropped them) into a HALT-if-uninformative flag and a
-// vacuous-field (zero-noise) warning, mirroring behavior-profile's per-arm accounting.
+// (sweepBot already returns them; the A/A had dropped them) into a HALT-if-uninformative flag and the
+// [D-34] zeroNoise determinism flag (enforced as a halt below), mirroring behavior-profile's
+// per-arm accounting.
 nc1Sample = summarizeAaSample(armA, armB, nc1);
 if (nc1Sample.insufficient) {
   // The negative control could not run: too few games survived quarantine to form a paired CI on any
@@ -352,14 +358,31 @@ if (nc1Sample.insufficient) {
       `${pct(armB.quarantined, armB.played)} of games quarantined) — the base force-ends games or ` +
       `the field is broken; the harness noise floor is unverified.`
   );
-} else if (!nc1.pass) {
-  // Only a BIASED axis halts — a signature-sized self-difference with Holm-significant (family-wise)
-  // evidence it is real, i.e. a harness bug that makes one policy look like two. INCONCLUSIVE / NO
-  // DATA are "add runs", below.
-  halt.push(
-    `negative control 1 (A/A): [${nc1.biased.join(', ')}] show a signature-sized self-difference ` +
-      `(harness bias — the base differs from itself beyond MDE/${divisor})`
-  );
+} else {
+  if (!nc1Sample.zeroNoise) {
+    // [D-34] harness-determinism tripwire. Post-#151 every built-in is seed-pure and the base is
+    // argmax-deterministic (parity-checked above), so the two same-seed arms must be IDENTICAL —
+    // any divergence at all is reintroduced entropy (a Math.random call in a bot or the harness,
+    // or state leaking between the arms). The Holm BIASED check below CANNOT catch this: entropy
+    // is symmetric (~zero mean) and the criterion was built not to fire on it — a small entropy
+    // source would even read CERTIFIED. So the zero-noise invariant itself is the halt condition.
+    halt.push(
+      `negative control 1 (A/A): the two same-seed arms DIVERGED — since #151 every built-in is ` +
+        `seed-pure, so ANY nonzero self-Δ means reintroduced entropy (a Math.random call in a ` +
+        `bot or the harness, or cross-arm state leakage) — the [D-34] determinism tripwire`
+    );
+  }
+  if (!nc1.pass) {
+    // A BIASED axis also halts — a signature-sized self-difference with Holm-significant
+    // (family-wise) evidence it is real, i.e. a harness bug that makes one policy look like two.
+    // Any divergence already fires the entropy halt above (zeroNoise requires delta 0 AND ci 0, so
+    // even a constant offset trips it); BIASED is kept for the which-axis, how-big detail that
+    // turns "something diverged" into a debuggable lead. INCONCLUSIVE / NO DATA never halt.
+    halt.push(
+      `negative control 1 (A/A): [${nc1.biased.join(', ')}] show a signature-sized self-difference ` +
+        `(harness bias — the base differs from itself beyond MDE/${divisor})`
+    );
+  }
 }
 
 // --- Negative control 2: read the recorded test-retest floor (if provided) -------------------
@@ -491,27 +514,37 @@ function reportAndExit() {
     const uncertified = [...nc1.inconclusive, ...nc1.noData];
     if (uncertified.length) {
       // When quarantine (not thin sampling) starved the axes, "add runs" is the WRONG remedy — more
-      // games just get force-ended too. Point at the real cause when either arm lost games.
+      // games just get force-ended too. Point at the real cause when either arm lost games. And when
+      // the arms diverged at all (the [D-34] entropy halt below), wide CIs are a SYMPTOM of the
+      // entropy, not thin sampling — more runs won't fix that either.
       const starved = nc1Sample && (nc1Sample.quarantinedA > 0 || nc1Sample.quarantinedB > 0);
-      const remedy = starved
-        ? 'games were quarantined (forced-end) — fix the base/field so games complete, not just more runs'
-        : 'increase --runs/--games to certify their floor';
+      const diverged = nc1Sample && !nc1Sample.insufficient && !nc1Sample.zeroNoise;
+      const remedy = diverged
+        ? 'the arms diverged (see HALT below) — find the entropy source; more runs will not certify'
+        : starved
+          ? 'games were quarantined (forced-end) — fix the base/field so games complete, not just more runs'
+          : 'increase --runs/--games to certify their floor';
       log(
         `  NOTE: [${uncertified.join(', ')}] not yet CERTIFIED (CI too wide / no winners) — ` +
-          `${remedy}. Not a bias, does not halt.`
+          `${remedy}.${diverged ? '' : ' Not a bias, does not halt.'}`
       );
     }
     if (nc1Sample?.zeroNoise) {
-      // Field injected no noise ⇒ arm A ≡ arm B ⇒ CERTIFIED is vacuous (a deterministic --opponents
-      // field, not the intended stochastic one). Warn loud so a footgun field can't read as clean.
+      // Arm A ≡ arm B — the [D-34] expected state (every built-in seed-pure since #151). CERTIFIED
+      // is vacuous as a noise floor; what the A/A certifies is harness determinism.
       log(
-        '  ⚠ the A/A measured ZERO opponent noise (every signature axis has a zero-width CI) — ' +
-          'expected since #151 seeded every built-in bot. CERTIFIED is vacuous as a noise floor; ' +
-          'the A/A instead certifies harness determinism (identical arms).'
+        '  ✓ the A/A arms are IDENTICAL (every signature axis Δ = 0, zero-width CI) — expected ' +
+          'since #151 seeded every built-in bot. CERTIFIED is vacuous as a noise floor; the A/A ' +
+          'instead certifies harness determinism ([D-34]).'
       );
     }
     if (nc1Sample?.insufficient) {
       log('  → NC1 HALT: the A/A could not run — too few games survived quarantine (see sample)');
+    } else if (nc1Sample && !nc1Sample.zeroNoise) {
+      log(
+        '  → NC1 HALT: the same-seed arms DIVERGED — reintroduced entropy ' +
+          `([D-34] determinism tripwire)${nc1.pass ? '' : `; Holm-BIASED: [${nc1.biased.join(', ')}]`}`
+      );
     } else if (!nc1.pass) {
       log(`  → NC1 HALT: [${nc1.biased.join(', ')}] show a signature-sized self-difference (bias)`);
     } else if (nc1.certified) {
@@ -522,10 +555,20 @@ function reportAndExit() {
     log('');
   }
 
-  // NC2 block.
+  // NC2 block. Surfaces a RECORDED spread whose provenance this script can't see (it may predate
+  // #151, or the retest may have crossed a behavior-changing commit — ppo:curve tolerates gitSha
+  // drift with a note). So a nonzero recording gets the [D-34] read but not a halt; the enforced
+  // same-process determinism tripwire is NC1 above.
   log('Negative control 2 — test-retest noise floor:');
   if (nc2?.testRetest) {
     log(`  spread ${nc2.testRetest.spreadPp} pp at step ${nc2.testRetest.step} (${nc2.source})`);
+    if (nc2.testRetest.spreadPp !== 0) {
+      log(
+        '  ⚠ nonzero — post-#151 a same-commit retest is byte-identical (spread 0.00): this ' +
+          'recording either predates #151/crossed commits, or entropy was live when it was taken ' +
+          '([D-34]). Re-run `ppo:curve --test-retest` at the current commit to tell which.'
+      );
+    }
   } else {
     log(`  ${nc2?.note ?? 'not run'}`);
   }
@@ -537,12 +580,12 @@ function reportAndExit() {
     process.exit(2);
   }
   if (nc1Sample?.zeroNoise) {
-    // Not a halt (a deterministic field is a footgun, not a proven bug), but the strongest "cleared"
-    // message would be dishonest — the control measured no noise, so say so.
+    // The [D-34] expected state: identical arms. The honest "cleared" message names what the A/A
+    // actually certified — harness determinism, not a noise floor (which no longer exists to measure).
     log(
-      'PRE-FLIGHT CLEAR (no detected bias) — the A/A measured no opponent noise (see ⚠ above): ' +
-        'with a fully seeded field (all built-ins since #151) the arms are identical by ' +
-        'construction, so NC1 certifies harness determinism rather than a noise floor.'
+      'PRE-FLIGHT CLEAR — the A/A arms are identical (see ✓ above): with a fully seeded field ' +
+        '(all built-ins since #151) NC1 certifies harness determinism rather than a noise floor ' +
+        '([D-34]); a divergence would have HALTed as reintroduced entropy.'
     );
   } else if (nc1 && !nc1.certified) {
     log(

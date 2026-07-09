@@ -2157,7 +2157,7 @@ describe('isLiveRun + summarizeAaSample — A/A sample-health guards', () => {
     expect(s.zeroNoise).toBe(false);
   });
 
-  it('a healthy divergent A/A is neither insufficient nor zeroNoise', () => {
+  it('a divergent A/A is neither insufficient nor zeroNoise (post-[D-34] the CLI HALTs on this — reintroduced entropy)', () => {
     const a = runsOf({
       winPct: [50, 50, 50, 50],
       aggression: [3, 3.2, 2.9, 3.1],
@@ -2184,12 +2184,27 @@ describe('isLiveRun + summarizeAaSample — A/A sample-health guards', () => {
     expect(s.liveRunsA).toBe(4);
   });
 
-  it('flags zeroNoise (vacuous CERTIFIED) when the field injected no divergence (arm A ≡ arm B)', () => {
+  it('flags zeroNoise when the arms are IDENTICAL (post-#151 the expected state; [D-34] pass condition)', () => {
     const nc1 = signatureNoiseFloor(flatLive(), flatLive(), DEFAULT_MDE);
     const s = summarizeAaSample(wrap(flatLive(), 16, 0), wrap(flatLive(), 16, 0), nc1);
     expect(s.zeroNoise).toBe(true);
     expect(s.insufficient).toBe(false);
-    // Every signature axis CERTIFIED on a zero-width CI — the vacuous "clean bill" the flag guards.
+    // Every signature axis CERTIFIED on a zero-width CI — vacuous as a noise floor; what identical
+    // arms actually certify is harness determinism ([D-34]).
     expect(nc1.certified).toBe(true);
+  });
+
+  it('a CONSTANT nonzero offset is NOT zeroNoise (zero variance but delta ≠ 0 — a determinism bug)', () => {
+    // Same value in every run of arm B, offset from arm A: paired SE 0 ⇒ CI exactly 0, but delta
+    // ≠ 0. On CI alone this would masquerade as zeroNoise (and, at 0.02 ≪ tol 0.1, the verdict is
+    // CERTIFIED, so Holm never flags it) — dodging the [D-34] entropy halt on arms that are NOT
+    // identical. The delta === 0 clause closes that hole.
+    const b = flatLive();
+    b.forEach(r => (r.aggression = 3.02));
+    const nc1 = signatureNoiseFloor(flatLive(), b, DEFAULT_MDE);
+    const s = summarizeAaSample(wrap(flatLive(), 16, 0), wrap(b, 16, 0), nc1);
+    expect(s.zeroNoise).toBe(false);
+    expect(s.insufficient).toBe(false);
+    expect(nc1.pass).toBe(true); // Holm sees no bias — exactly why zeroNoise must catch it instead
   });
 });

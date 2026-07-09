@@ -577,19 +577,21 @@ export function signatureNoiseFloor(
  *     has them quarantined ({@link isForcedEnd}), collapsing every arm to `nullRun()` ⇒ every axis
  *     NO DATA ⇒ `signatureNoiseFloor.pass === true`. Left unguarded, the pre-flight exits 0
  *     "CLEAR (uncertified)" on exactly the broken harness it exists to catch. `insufficient` flags it.
- *   - **The field actually injected opponent noise.** Pre-#151 the A/A's two arms diverged via the
- *     heuristic opponents' unseeded `Math.random`; a deterministic `--opponents` field makes arm A ≡
- *     arm B ⇒ every signature axis a zero-width CI ⇒ trivially CERTIFIED — the *strongest* "cleared"
- *     message on a control that measured nothing. `zeroNoise` flags it (a warning, not a halt).
- *     Since #151 seeded every built-in bot, arm A ≡ arm B is the EXPECTED state for a built-in
- *     field: the A/A degenerates to a harness-determinism check (a nonzero self-Δ now means
- *     reintroduced entropy — a `Math.random` bot or a harness bug), and the paired persona gate
- *     itself runs with the opponent-noise term genuinely eliminated. Whether NC1 should be
- *     re-registered around that new meaning is an open ML-workstream question (LOG 2026-07-08).
+ *   - **The arms are identical.** Pre-#151 the A/A's two arms diverged via the heuristic opponents'
+ *     unseeded `Math.random`, so `zeroNoise` flagged a deterministic `--opponents` field as a
+ *     vacuous control (trivially CERTIFIED — the *strongest* "cleared" message on a control that
+ *     measured nothing). Since #151 seeded every built-in bot, arm A ≡ arm B is the EXPECTED state
+ *     for ANY field — the invariant flipped ([D-34]): `zeroNoise === true` is the pass condition
+ *     (NC1 certifies harness determinism), and `zeroNoise === false` means the same policy diverged
+ *     from itself at identical seeds — reintroduced entropy (a `Math.random` bot violating §3.6
+ *     argmax-purity, or harness nondeterminism / cross-arm state leakage). Note the Holm BIASED
+ *     verdict cannot stand in for this check: it detects a *systematic* mean shift and was built
+ *     NOT to fire on symmetric noise, which is exactly what entropy looks like (a small entropy
+ *     source would even read CERTIFIED). The zero-noise invariant itself is the tripwire.
  *
  * Pure: consumes only the two sweep results (`sweepBot` already returns `played`/`quarantined`) and
  * the NC1 verdict, so it is unit-tested without an arena. The CLI turns `insufficient` into a HALT
- * and `zeroNoise` into a loud caveat.
+ * and — per [D-34] — `zeroNoise === false` into a HALT too (reintroduced entropy).
  *
  * @param {{ perRun: Array<Record<string,number|null>>, played:number, quarantined:number }} armA
  * @param {{ perRun: Array<Record<string,number|null>>, played:number, quarantined:number }} armB
@@ -601,9 +603,13 @@ export function signatureNoiseFloor(
 export function summarizeAaSample(armA, armB, nc1, { minLiveRuns = 2 } = {}) {
   const liveRunsA = armA.perRun.filter(isLiveRun).length;
   const liveRunsB = armB.perRun.filter(isLiveRun).length;
-  // A MEASURED axis (not NO DATA) whose CI is exactly 0 has paired SE 0 — identical diffs across every
-  // kept run, i.e. the field produced no divergence between the two passes. If EVERY measured axis is
-  // like that (and there is ≥ 1), the A/A saw no opponent noise and its CERTIFIED verdicts are vacuous.
+  // A MEASURED axis (not NO DATA) with CI exactly 0 AND delta exactly 0 saw identical values in
+  // every kept run — the two passes truly did not diverge on it. Both clauses matter: CI 0 alone
+  // means only CONSTANT diffs (zero variance), and a constant NONZERO diff is a deterministic
+  // systematic divergence — a determinism bug, not zero noise — so it must NOT count as zeroNoise
+  // (it would dodge the [D-34] entropy halt; whether Holm separately flags it BIASED depends on n
+  // and tol). Identical arms produce exact 0s here (paired diffs of equal floats), so exact
+  // equality is the right test, not a tolerance.
   const measured = nc1.axes.filter(a => a.verdict !== 'NO DATA');
   return {
     playedA: armA.played,
@@ -615,7 +621,7 @@ export function summarizeAaSample(armA, armB, nc1, { minLiveRuns = 2 } = {}) {
     // The control could not run: either arm has < 2 live paired runs, OR not one signature axis
     // yielded a comparison (every axis NO DATA). Both mean the noise floor is unmeasured, not clean.
     insufficient: Math.min(liveRunsA, liveRunsB) < minLiveRuns || measured.length === 0,
-    zeroNoise: measured.length > 0 && measured.every(a => a.ci === 0),
+    zeroNoise: measured.length > 0 && measured.every(a => a.ci === 0 && a.delta === 0),
   };
 }
 

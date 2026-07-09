@@ -614,14 +614,18 @@ behavior:preflight` — see EVAL_HARNESS §3.9. NC1 profiles the base against it
     isolated the unseeded-opponent noise). **Post-#151 ([D-34], ratified 2026-07-09):** issue #151
     seeded every built-in bot, so a same-seed built-in A/A now yields IDENTICAL arms — `zeroNoise`
     fires by construction, the floor reads zero, and **NC1 is re-registered as a harness-determinism
-    tripwire**: a nonzero same-seed self-Δ = reintroduced entropy (a `Math.random` bot violating the
-    §3.6 argmax-purity rule, or a harness bug). The residual \_sampling_-noise floor the paired gate
-    still needs is read directly off the gate's own different-seed CIs, not off this same-seed
-    control — the floor didn't vanish, it moved to where it's measured directly. **NC2's `ppo:curve
-    --test-retest` same-seed spread is the same class of tripwire** (also ~0 by construction now,
-    since a deterministic argmax re-grade against the seeded field is byte-identical). The
-    equivalence-+-Holm refinement below is unchanged — it now adjudicates a nonzero self-Δ as the
-    tripwire's decision rule rather than certifying a floor. **Refinement to ratify:** the live n=8
+    tripwire, enforced as a HALT**: `behavior:preflight` exits 2 on ANY same-seed divergence, since
+    a nonzero self-Δ = reintroduced entropy (a `Math.random` bot violating the §3.6 argmax-purity
+    rule, or a harness bug). The zero-noise invariant itself is the decision rule; the
+    equivalence-+-Holm refinement below is unchanged but cannot serve that role — it detects a
+    systematic mean shift and was built NOT to fire on symmetric noise, which is what entropy looks
+    like (verified live: a `Math.random` bot reads INCONCLUSIVE on every axis). The residual
+    sampling-noise floor the paired gate still needs is read directly off the gate's own
+    different-seed CIs, not off this same-seed control — the floor didn't vanish, it moved to where
+    it's measured directly. **NC2's same-seed test-retest spread is the same class of check**
+    (exactly 0 for a same-commit retest, since a deterministic argmax re-grade against the seeded
+    field is byte-identical; surfaced with a caveat rather than enforced — a recording may predate
+    #151 or cross behavior-changing commits). **Refinement to ratify:** the live n=8
     A/A on the v3 base showed the
     registered raw "|Δ| < MDE/3" false-halts `turnsToWin` — a winners-only, high-variance axis whose
     per-run game length swings ≫ tol (Δ ≈ −4.7 ± 9.1) even though the true self-difference is 0. So
@@ -635,7 +639,7 @@ behavior:preflight` — see EVAL_HARNESS §3.9. NC1 profiles the base against it
     grows with n and survives Holm; sampling noise does not. This tests the same "is the
     self-difference within the floor?" question but correctly separates a bias from sampling noise.
     On the shipped v3 base it CLEARs (no bias; the noisy axes flag INCONCLUSIVE). NC2 = `ppo:curve
-    --test-retest` (already built). NC3 (control-vs-base) waits for the Wave-1 control arm.)\_
+    --test-retest` (already built). NC3 (control-vs-base) waits for the Wave-1 control arm.)_
 - **Ladder honesty.** The v2 audit proved win-rate rank flips with field composition, and the
   premise itself says the base beat Survivor-v2 head-to-head — so no pre-written ladder. Label
   picker rungs from **fresh-seed measured placement in the mixed field** (the one field-stable

@@ -325,9 +325,11 @@ Pairing, reproducibility, and the byte-identical-JSON test all assume bot decisi
 of state. The engine RNG is seeded, but a PPO policy in **sampling** mode (or any bot using
 `Math.random` for tie-breaks) breaks this. **Require profiled bots to run in greedy/argmax inference**
 and assert no internal RNG — enforce in the persona loader, not just the smoke test. Post-#151 the
-NC1/NC2 same-seed controls (§3.9) double as the _runtime_ tripwire for this invariant: a bot that
+NC1 same-seed control (§3.9) doubles as the _runtime_ tripwire for this invariant: a bot that
 smuggled in `Math.random` reintroduces entropy the seeded field no longer has, so its same-seed
-self-Δ goes nonzero ([D-34]).
+self-Δ goes nonzero and `behavior:preflight` **HALTs** ([D-34]). Note the halt condition is the
+zero-noise invariant itself, not the Holm BIASED verdict — entropy is symmetric (~zero mean) and
+cannot fire a bias test (verified live: a `Math.random` bot reads INCONCLUSIVE on every axis).
 
 ### 3.7 Quarantine — don't bias the metric you're measuring
 
@@ -376,10 +378,14 @@ the full 7.)
 >    built-in opponent field now yields IDENTICAL arms — `zeroNoise` fires by construction, the noise
 >    floor reads zero, and NC1 degenerates to a harness-determinism check (nonzero self-Δ =
 >    reintroduced entropy). The paragraph above describes the pre-#151 noise model; NC1 is now
->    **re-registered as exactly this harness-determinism tripwire** ([D-34], ratified 2026-07-09) —
->    the residual _sampling_-noise floor the paired gate still needs is read directly off the gate's
->    own different-seed CIs, not off this same-seed control. (The equivalence-+-Holm criterion below
->    is unchanged; it now adjudicates a nonzero self-Δ as the tripwire's decision rule.)
+>    **re-registered as exactly this harness-determinism tripwire, enforced as a HALT** ([D-34],
+>    ratified 2026-07-09): the pre-flight exits 2 on ANY same-seed divergence (`zeroNoise === false`,
+>    which requires per-axis Δ exactly 0 AND CI exactly 0 — so a constant deterministic offset can't
+>    masquerade as zero noise). The residual _sampling_-noise floor the paired gate still needs is
+>    read directly off the gate's own different-seed CIs, not off this same-seed control. (The
+>    equivalence-+-Holm criterion below is unchanged but is NOT the tripwire's decision rule — it
+>    detects a _systematic_ mean shift and was built not to fire on symmetric noise, which is what
+>    entropy looks like; it stays as the which-axis/how-big adjudication layered on top.)
 >    **Criterion (the registered "|Δ| < MDE/3" made statistically sound):** two refinements keep a
 >    _stochastic_ A/A from crying wolf while still catching a _systematic_ bug. (1) **Equivalence, not
 >    a raw point test:** judging the point estimate false-halts a winners-only, high-variance axis
@@ -390,26 +396,32 @@ the full 7.)
 >    ~1-in-11 across the five signature axes, and DEGENERATES back to the point test (1) removed when a
 >    small-n CI collapses (identical quantized diffs → SE 0 → zero-width CI). So **BIASED** requires a
 >    Holm-significant (family-wise α) "self-difference beyond ±tol" p-value (a zero-SE CI is capped at
->    the 2⁻ⁿ sign-agreement bound, never 0), else **INCONCLUSIVE**. Only BIASED halts; INCONCLUSIVE /
->    NO DATA are "add runs" signals (`certified` = every axis CERTIFIED). The family-wise false-HALT
->    rate is ≤ α and → 0 as runs grow, so a true-null self-A/A CLEARs **with high probability** (not a
->    guaranteed CLEAR — a systematic bug's Δ has a t that grows with n and survives Holm; sampling
->    noise does not). `--mde` / `--divisor` overrides are labeled a non-registered floor.
->    **Sample-health guards (`summarizeAaSample`):** the A/A is a valid control only if games survived
->    quarantine AND the field injected noise. A base that LOADS but force-ends its games has them
->    quarantined to NO DATA on every axis — that now **HALTS** ("the control could not run"), not a
->    soft exit-0 "uncertified" (advising "add runs" when more games would just force-end too); and a
->    deterministic `--opponents` field (arm A ≡ arm B ⇒ every signature axis a zero-width CI ⇒
->    trivially CERTIFIED) is **WARNED** as vacuous, since its CERTIFIED measured nothing. Per-arm
->    live-run / quarantine counts now ride the report and `--json` (`nc1Sample`).
+>    the 2⁻ⁿ sign-agreement bound, never 0), else **INCONCLUSIVE**. Among verdicts only BIASED halts;
+>    INCONCLUSIVE / NO DATA never do (`certified` = every axis CERTIFIED) — but note the [D-34]
+>    entropy halt below is a separate, stricter condition that fires on any divergence regardless of
+>    verdict. The family-wise false-HALT rate is ≤ α and → 0 as runs grow, so a true-null self-A/A
+>    CLEARs **with high probability** (not a guaranteed CLEAR — a systematic bug's Δ has a t that
+>    grows with n and survives Holm; sampling noise does not). `--mde` / `--divisor` overrides are
+>    labeled a non-registered floor.
+>    **Sample-health guards (`summarizeAaSample`):** a base that LOADS but force-ends its games has
+>    them quarantined to NO DATA on every axis — that **HALTS** ("the control could not run"), not a
+>    soft exit-0 "uncertified" (advising "add runs" when more games would just force-end too). And
+>    post-#151 identical arms are the EXPECTED state, so the old "vacuous CERTIFIED" warning inverted
+>    into the [D-34] tripwire: `zeroNoise === true` (every signature axis Δ = 0, CI = 0) is the pass
+>    condition — NC1 certifies harness determinism — and `zeroNoise === false` on a same-seed A/A
+>    **HALTS** as reintroduced entropy. Per-arm live-run / quarantine counts ride the report and
+>    `--json` (`nc1Sample`).
 > 3. **Negative control 2 — test-retest noise floor.** NOT re-run here; it is
 >    `ppo:curve --test-retest` (§ STRENGTH_CURVE.md), which records
 >    `strength.meta.json → testRetest.spreadPp`. `--curve <strength.jsonl|.meta.json>` surfaces the
 >    recorded spread; otherwise the pre-flight prints the command to produce it.
 >    **Post-#151 ([D-34]):** re-grading a deterministic argmax net against the now-seeded built-in
->    field at identical seeds is byte-identical, so this spread is also ~0 by construction — the
->    same class of harness-determinism tripwire as NC1 (nonzero spread = reintroduced entropy), not
->    an opponent-noise floor. The genuine sampling-noise floor is the paired gate's own different-seed CIs.
+>    field at identical seeds is byte-identical, so a same-commit retest's spread is **exactly 0** —
+>    the same class of harness-determinism check as NC1, not an opponent-noise floor. A nonzero
+>    spread means reintroduced entropy OR a benign cross-commit re-grade (the curve walker tolerates
+>    gitSha drift across sessions with a startup note), which is why the pre-flight surfaces a
+>    recorded nonzero spread with a caveat instead of halting on it — the enforced same-process
+>    tripwire is NC1. The genuine sampling-noise floor is the paired gate's own different-seed CIs.
 >
 > NC3 (control-arm-vs-base through all four signatures) needs the Wave-1 control arm and stays out
 > of this pre-flight. The shared seed×rotation sweep is extracted to `scripts/lib/behavior-sweep.mjs`
@@ -458,8 +470,8 @@ holmSignatures(entries[], {alpha, familySize}) -> { alpha, familySize, results[]
 killsPairMde(aKills[], bKills[]) -> { mde|null, comparatorMean|null }  // §10.3 relative kills bar: 15% of the pair's lower side; null = uncalibrated (fails closed)
 separationPair(aRuns[], bRuns[], mde, {axes, relativeKills}) -> { separated, comparable, onAxes[], axes[] }  // §10.5 pairwise separation: two-sided paired CI + MDE
 assertPairableReports([{path, report}]) -> { shaDrift|null }  // §10.5 identical-field/seeds contract; THROWS on config mismatch / duplicate bots / missing perRun
-signatureNoiseFloor(armA[], armB[], mde, {divisor=3, axes, alpha=0.05}) -> { pass, certified, divisor, alpha, axes[], biased[], inconclusive[], noData[] }  // NC1: A/A vs ±MDE/3 — CERTIFIED (CI ⊆ band) / BIASED (Holm-significant beyond band, family-wise α; zero-SE capped at 2⁻ⁿ) / INCONCLUSIVE / NO DATA; only BIASED halts
-summarizeAaSample(armA, armB, nc1, {minLiveRuns=2}) -> { playedA, quarantinedA, liveRunsA, playedB, quarantinedB, liveRunsB, insufficient, zeroNoise }  // NC1 sample health: insufficient (quarantine gutted the control ⇒ HALT) / zeroNoise (deterministic field ⇒ vacuous CERTIFIED, WARN)
+signatureNoiseFloor(armA[], armB[], mde, {divisor=3, axes, alpha=0.05}) -> { pass, certified, divisor, alpha, axes[], biased[], inconclusive[], noData[] }  // NC1: A/A vs ±MDE/3 — CERTIFIED (CI ⊆ band) / BIASED (Holm-significant beyond band, family-wise α; zero-SE capped at 2⁻ⁿ) / INCONCLUSIVE / NO DATA; BIASED halts (which-axis detail — the [D-34] entropy halt below catches any divergence first)
+summarizeAaSample(armA, armB, nc1, {minLiveRuns=2}) -> { playedA, quarantinedA, liveRunsA, playedB, quarantinedB, liveRunsB, insufficient, zeroNoise }  // NC1 sample health: insufficient (quarantine gutted the control ⇒ HALT) / zeroNoise = per-axis Δ 0 AND CI 0 (post-#151 the EXPECTED identical-arms state; false on a same-seed A/A ⇒ reintroduced entropy ⇒ HALT, [D-34])
 isLiveRun(run) -> boolean  // a reduced run carries data (winPct != null; a 0%-win run is live, not "no data")
 SIGNATURE_AXES  // deduped union of every PERSONA_SIGNATURES axis — the axes the A/A gates on
 parseBotSpec(spec) -> { name, weightsPath|null }        // "Name" (built-in) vs "Name=weights.js"
@@ -637,9 +649,11 @@ see the §3.5 as-built note). (`winPctVsRef` ships as the `winPct` axis.) The la
 nc2, halt, reasons }`, where `probePreflight` = `{ loaded, parity, params, fixturelessGuard }` (null
 for `--bot`), `nc1` = `signatureNoiseFloor`'s `{ pass, certified, divisor, alpha, axes[], biased[],
 inconclusive[], noData[] }` (per-axis `{ axis, delta, ci, lo, hi, n, tol, verdict }`; `verdict` ∈
-CERTIFIED / BIASED / INCONCLUSIVE / NO DATA, only BIASED halts), and `nc1Sample` =
+CERTIFIED / BIASED / INCONCLUSIVE / NO DATA; BIASED halts with which-axis detail), and `nc1Sample` =
 `summarizeAaSample`'s per-arm live-run/quarantine counts + `{ insufficient, zeroNoise }` (insufficient
-⇒ the A/A could not run ⇒ HALT; zeroNoise ⇒ a deterministic field ⇒ vacuous CERTIFIED ⇒ WARN).
+⇒ the A/A could not run ⇒ HALT; `zeroNoise === false` ⇒ the same-seed arms diverged ⇒ reintroduced
+entropy ⇒ HALT per [D-34]; `zeroNoise === true` is the expected post-#151 state — determinism
+certified).
 
 ```jsonc
 {

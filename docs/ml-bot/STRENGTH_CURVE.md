@@ -235,9 +235,12 @@ and is kept only as a coarse fallback for comparing across curves graded on diff
   settings and report the spread. **Pre-#151** this was the curve's empirical noise floor —
   meaningful because the `Math.random` opponents made same-seed replays non-identical.
   **Post-#151 ([D-34]):** every built-in is seed-pure, so a same-seed re-grade of a deterministic
-  argmax net is byte-identical and this spread is now a **harness-determinism check** (~0 by
-  construction; nonzero = reintroduced entropy). The genuine sampling-noise floor is the
-  confirmation protocol's fresh-seed CI below, not this same-seed retest.
+  argmax net is byte-identical and this spread is now a **harness-determinism check** — exactly 0
+  for a same-commit retest; nonzero means reintroduced entropy OR the first grade ran at a
+  different commit (the walker tolerates gitSha drift across sessions with a startup note, so a
+  curve resumed after a behavior-changing commit can legitimately re-grade differently). The
+  genuine sampling-noise floor is the confirmation protocol's fresh-seed CI below, not this
+  same-seed retest.
 
 ### Confirmation protocol (mandatory before any ship decision)
 

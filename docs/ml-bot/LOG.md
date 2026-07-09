@@ -21,9 +21,9 @@ Entry template:
 
 ---
 
-## 2026-07-09 — Issue #154: NC1/NC2 re-registered as harness-determinism tripwires ([D-34])
+## 2026-07-09 — Issue #154: NC1/NC2 re-registered as harness-determinism tripwires, ENFORCED ([D-34])
 
-**Phase:** eval-harness (docs/decision) · **Who:** Claude (scope + doc sync); Ivan (ratified the decision)
+**Phase:** eval-harness (decision + enforcement) · **Who:** Claude (scope + doc sync; review pass added the enforcement); Ivan (ratified the decision)
 
 **Did:**
 
@@ -33,11 +33,20 @@ Entry template:
   now means reintroduced entropy (a `Math.random` bot violating §3.6 argmax-purity, or a harness
   bug). The redesign option (inject a stochastic opponent to restore a real floor) was rejected: it
   fights the #151 seed-purity fix and serves no consumer.
-- Doc/wording sync (no code or test change — the live code already embodied this): DECISIONS [D-34];
-  PERSONAS §10.5 (NC parenthetical + the stale "unseeded-field noise" halt-rule phrasing);
-  EVAL_HARNESS §3.9 (NC1 open-question → resolved, NC2 block) + §3.6 (purity ↔ tripwire link);
+- **Review pass found the tripwire unenforced and closed the gap.** The first draft registered the
+  role docs-only ("the code already embodies this") — but at runtime nothing tripped: entropy is
+  symmetric noise, so it reads INCONCLUSIVE (small entropy even CERTIFIED), never Holm-BIASED, and
+  the pre-flight exited 0 CLEAR on it. Now `behavior:preflight` **HALTs (exit 2)** on any same-seed
+  divergence (`zeroNoise === false`); `zeroNoise` tightened to per-axis `Δ === 0 && CI === 0` so a
+  constant deterministic offset can't masquerade as zero noise; unit tests cover the
+  constant-offset hole. Verified live by temporarily injecting `Math.random` into `ai_example`:
+  every axis INCONCLUSIVE (confirming Holm can't catch it) and the new halt fired.
+- Doc/wording sync: DECISIONS [D-34]; PERSONAS §10.5 (NC parenthetical + the stale "unseeded-field
+  noise" halt-rule phrasing); EVAL_HARNESS §3.9 (NC1 open-question → resolved, sample-health
+  guards, NC2 block) + §3.6 (purity ↔ tripwire link) + §"As built" contract lines;
   STRENGTH_CURVE §"Test-retest calibration"; `scripts/ppo-strength-curve.mjs` (`--test-retest`
-  header + the two log lines); LOG 2026-07-08 OPEN item closed.
+  header + log lines: exact-0 same-commit expectation, cross-commit caveat); LOG 2026-07-08 OPEN
+  item closed.
 
 **Learned / decided:**
 
@@ -46,8 +55,13 @@ Entry template:
   same-seed controls (NC1, NC2-retest) used to estimate — the opponents' unseeded `Math.random`
   divergence — is exactly what #151 eliminated, so their same-seed pairing now cancels to zero and
   their honest job is a determinism check.
-- The equivalence-+-Holm adjudication built for NC1 is unchanged; it now serves as the tripwire's
-  decision rule (how a nonzero self-Δ is judged) rather than a floor certification.
+- **The tripwire's decision rule is the zero-noise invariant, NOT equivalence-+-Holm.** Holm-BIASED
+  detects a systematic mean shift and was deliberately built not to fire on symmetric noise — which
+  is exactly what reintroduced entropy looks like. Holm stays as the which-axis/how-big adjudication
+  layered on top (and the only source of axis detail for a systematic-bias divergence).
+- NC2's recorded spread stays informational in the pre-flight (provenance may predate #151 or cross
+  behavior-changing commits — the curve walker tolerates gitSha drift); the enforced same-process
+  tripwire is NC1. A same-commit retest must spread exactly 0.00, not "~0".
 
 **Next:**
 

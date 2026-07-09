@@ -42,6 +42,7 @@ export function createArenaAccumulator(bots, initialRatings) {
       totalTerritories: 0,
       totalAttacks: 0,
       totalAttackWins: 0,
+      turns: 0,
       errors: 0,
       invalidMoves: 0,
       maxMovesHit: 0,
@@ -67,6 +68,7 @@ export function accumulateMatch(acc, matchResult) {
     a.totalTerritories += stat.finalTerritories;
     a.totalAttacks += stat.attacksMade;
     a.totalAttackWins += stat.attacksWon;
+    a.turns += stat.turns;
     a.errors += stat.errors;
     a.invalidMoves += stat.invalidMoves;
     a.maxMovesHit += stat.maxMovesHit;
@@ -126,6 +128,7 @@ export function finalizeArenaStats(acc, bots, options = {}) {
     bots.map(bot => ({
       name: bot.name,
       errors: accum[bot.name].errors,
+      turns: accum[bot.name].turns,
       attacks: accum[bot.name].totalAttacks,
       invalidMoves: accum[bot.name].invalidMoves,
       maxMovesHit: accum[bot.name].maxMovesHit,

@@ -115,12 +115,28 @@ describe('runMatch', () => {
       expect(typeof stat.attacksWon).toBe('number');
       expect(stat.attacksWon).toBeLessThanOrEqual(stat.attacksMade);
       /*
+       * Per-turn denominator for the error-rate flag (#92 item 4): present, numeric, and a
+       * non-negative integer (a bot can be eliminated before its first turn, so not > 0).
+       */
+      expect(typeof stat.turns).toBe('number');
+      expect(Number.isInteger(stat.turns)).toBe(true);
+      expect(stat.turns).toBeGreaterThanOrEqual(0);
+      /*
        * Forced-end signal: present, numeric, and 0 in normal play (no turn exhausts the
        * MAX_MOVES_PER_TURN cap) — guards against the counter firing spuriously (D-14).
        */
       expect(typeof stat.maxMovesHit).toBe('number');
       expect(stat.maxMovesHit).toBe(0);
     }
+
+    /*
+     * Invariant: every main-loop iteration calls runBotTurn once (which bumps exactly one
+     * bot's `turns`) and increments turnCount once; the eliminated-player skip does neither.
+     * So the per-bot turn counts partition turnCount exactly — the property the error-rate
+     * denominator relies on (#92 item 4).
+     */
+    const totalTurns = result.botStats.reduce((sum, s) => sum + s.turns, 0);
+    expect(totalTurns).toBe(result.turnCount);
   });
 
   it('placements contain all player indices exactly once', () => {

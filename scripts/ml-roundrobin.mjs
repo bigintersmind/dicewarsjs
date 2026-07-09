@@ -134,7 +134,7 @@ const top2Pct = Object.fromEntries(field.map(b => [b.name, []]));
  * hand them to reportBotErrors so a broken/mis-registered net can't masquerade as "weak".
  */
 const botErr = Object.fromEntries(
-  field.map(b => [b.name, { errors: 0, attacks: 0, invalidMoves: 0, maxMovesHit: 0 }])
+  field.map(b => [b.name, { errors: 0, turns: 0, attacks: 0, invalidMoves: 0, maxMovesHit: 0 }])
 );
 
 let attempts = 0; // every match tried (success or fail) — the abort denominator
@@ -179,6 +179,7 @@ for (let run = 0; run < runCount; run++) {
         if (st.placement <= 2) top2[st.name]++;
         const e = botErr[st.name];
         e.errors += st.errors;
+        e.turns += st.turns;
         e.attacks += st.attacksMade;
         e.invalidMoves += st.invalidMoves;
         e.maxMovesHit += st.maxMovesHit;

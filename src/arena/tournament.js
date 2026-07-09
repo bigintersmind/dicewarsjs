@@ -90,6 +90,7 @@ export function runRoundRobin(config) {
       gamesPlayed: 0,
       points: 0,
       attacks: 0,
+      turns: 0,
       errors: 0,
       invalidMoves: 0,
       maxMovesHit: 0,
@@ -169,6 +170,7 @@ export function runRoundRobin(config) {
     bots.map(bot => ({
       name: bot.name,
       errors: stats[bot.name].errors,
+      turns: stats[bot.name].turns,
       attacks: stats[bot.name].attacks,
       invalidMoves: stats[bot.name].invalidMoves,
       maxMovesHit: stats[bot.name].maxMovesHit,
@@ -217,6 +219,7 @@ export function runSingleElimination(config) {
       gamesPlayed: 0,
       points: 0,
       attacks: 0,
+      turns: 0,
       errors: 0,
       invalidMoves: 0,
       maxMovesHit: 0,
@@ -333,6 +336,7 @@ export function runSingleElimination(config) {
     bots.map(bot => ({
       name: bot.name,
       errors: stats[bot.name].errors,
+      turns: stats[bot.name].turns,
       attacks: stats[bot.name].attacks,
       invalidMoves: stats[bot.name].invalidMoves,
       maxMovesHit: stats[bot.name].maxMovesHit,
@@ -368,6 +372,7 @@ function updateMatchStats(stats, ratings, result) {
     const s = stats[botStat.name];
     s.gamesPlayed++;
     s.attacks += botStat.attacksMade;
+    s.turns += botStat.turns;
     s.errors += botStat.errors;
     s.invalidMoves += botStat.invalidMoves;
     s.maxMovesHit += botStat.maxMovesHit;

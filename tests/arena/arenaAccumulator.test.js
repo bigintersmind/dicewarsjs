@@ -19,6 +19,7 @@ function makeMatch(specs, winner = 0) {
     finalDice: 0,
     attacksMade: s.attacksMade ?? 0,
     attacksWon: s.attacksWon ?? 0,
+    turns: s.turns ?? 0,
     errors: s.errors ?? 0,
     invalidMoves: s.invalidMoves ?? 0,
     maxMovesHit: s.maxMovesHit ?? 0,
@@ -95,13 +96,13 @@ describe('finalizeArenaStats', () => {
   it('flags a bot that errored on most of its turns and warns via the injected sink', () => {
     const warned = [];
     const acc = createArenaAccumulator([{ name: 'broken' }, { name: 'ok' }]);
-    // broken: all errors, no attacks each game → error fraction 1.0
+    // broken: errored on all 20 turns, never landed an attack → error fraction 1.0
     accumulateMatch(
       acc,
       makeMatch(
         [
-          { name: 'broken', errors: 20 },
-          { name: 'ok', attacksMade: 10, attacksWon: 6 },
+          { name: 'broken', turns: 20, errors: 20 },
+          { name: 'ok', turns: 20, attacksMade: 10, attacksWon: 6 },
         ],
         1
       )
@@ -118,6 +119,35 @@ describe('finalizeArenaStats', () => {
     expect(warned).toHaveLength(1);
     expect(warned[0]).toContain('[Arena]');
     expect(warned[0]).toContain('broken');
+  });
+
+  it('flags a half-broken bot via the per-turn rate, exercising the turns plumbing (#92 item 4)', () => {
+    // Regression guard for the `turns` accumulation. This bot LANDS attacks (attacksMade > 0),
+    // so the never-attacked masquerade branch doesn't apply — it can only be flagged through the
+    // per-turn rate errors/turns = 25/40 = 0.625, whose denominator is accum.turns. Drop the
+    // `a.turns += stat.turns` plumbing and this bot silently stops being flagged (reverting the
+    // arena path to the exact #92 blind spot). The other flag test flags via the masquerade
+    // branch, which ignores turns, so it can't catch a turns-plumbing regression.
+    const warned = [];
+    const acc = createArenaAccumulator([{ name: 'half' }, { name: 'ok' }]);
+    accumulateMatch(
+      acc,
+      makeMatch(
+        [
+          { name: 'half', turns: 40, errors: 25, attacksMade: 100, attacksWon: 40 },
+          { name: 'ok', turns: 40, attacksMade: 50, attacksWon: 30 },
+        ],
+        1
+      )
+    );
+
+    const { flagged } = finalizeArenaStats(acc, [{ name: 'half' }, { name: 'ok' }], {
+      warn: msg => warned.push(msg),
+    });
+
+    expect(flagged.map(f => f.name)).toEqual(['half']);
+    expect(flagged[0].errorFraction).toBeCloseTo(0.625, 5);
+    expect(warned).toHaveLength(1);
   });
 
   it('reports zero games as zeroed stats rather than NaN', () => {

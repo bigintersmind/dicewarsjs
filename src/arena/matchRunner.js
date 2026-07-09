@@ -48,6 +48,10 @@ export const DEFAULT_MAX_TURNS = 500;
  * @property {number} placement      - 1-based finishing position
  * @property {number} attacksMade    - Total attacks attempted
  * @property {number} attacksWon     - Total successful attacks
+ * @property {number} turns          - Total turns the bot took (one per `runBotTurn` call).
+ *   The per-turn denominator for the error rate the ranking pipeline flags on — a true turn
+ *   count, unlike `attacksMade` which counts many attacks per turn (#92 item 4). See
+ *   {@link module:arena/botErrorReport.reportBotErrors}.
  * @property {number} errors         - Bot errors (exceptions) during turn
  * @property {number} invalidMoves   - Invalid moves attempted
  * @property {number} maxMovesHit    - Turns force-ended by the MAX_MOVES_PER_TURN cap
@@ -93,6 +97,12 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
   let currentState = state;
   const playerId = currentState.turnOrder[currentState.currentPlayerIndex];
   let consecutiveInvalid = 0;
+
+  // Count this turn once, up front (independent of how it exits: attacks, a voluntary
+  // stop, or a forced end). This is the per-turn denominator reportBotErrors flags on —
+  // `errors / turns` is a true turn-level rate, where `errors` is tallied per turn below
+  // but `attacks` can climb many-per-turn (#92 item 4).
+  stats.turns = (stats.turns || 0) + 1;
 
   /*
    * Hoisted so a post-loop `i === MAX_MOVES_PER_TURN` test can detect cap exhaustion
@@ -354,6 +364,7 @@ export function runMatch(config) {
     placement: placements.indexOf(playerIndex) + 1,
     attacksMade: attackStats[playerIndex].attacks,
     attacksWon: attackStats[playerIndex].wins,
+    turns: attackStats[playerIndex].turns || 0,
     errors: attackStats[playerIndex].errors || 0,
     invalidMoves: attackStats[playerIndex].invalidMoves || 0,
     maxMovesHit: attackStats[playerIndex].maxMovesHit || 0,

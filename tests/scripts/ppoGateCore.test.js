@@ -12,9 +12,11 @@ import {
   missingWeightsHelp,
   pairedDelta,
   rotatedField,
+  runGateSweep,
   shouldAbort,
   verdictLine,
 } from '../../scripts/lib/ppo-gate-core.mjs';
+import { reportBotErrors } from '../../src/arena/botErrorReport.js';
 
 describe('pairedDelta', () => {
   it('is the per-run difference, not the difference of means', () => {
@@ -162,6 +164,75 @@ describe('rotatedField', () => {
     for (let r = 0; r < field.length; r++) {
       expect([...rotatedField(field, r)].sort()).toEqual([...field].sort());
     }
+  });
+});
+
+describe('runGateSweep errorTotals (#92 item 5)', () => {
+  // A field of two tallied bots; the candidate throws every turn (errors, no attacks), the bar
+  // is healthy. matchFn is a stub — runGateSweep only reads winnerName + botStats by name.
+  const field = [
+    { name: 'Cand', fn: () => null },
+    { name: 'Bar', fn: () => null },
+  ];
+  const matchFn = () => ({
+    winnerName: 'Bar',
+    botStats: [
+      {
+        name: 'Cand',
+        playerIndex: 0,
+        placement: 2,
+        attacksMade: 0,
+        attacksWon: 0,
+        turns: 5,
+        errors: 5,
+        invalidMoves: 2,
+        maxMovesHit: 0,
+      },
+      {
+        name: 'Bar',
+        playerIndex: 1,
+        placement: 1,
+        attacksMade: 10,
+        attacksWon: 6,
+        turns: 5,
+        errors: 0,
+        invalidMoves: 0,
+        maxMovesHit: 0,
+      },
+    ],
+  });
+
+  it('accumulates per-tally-name forced-end totals across the whole sweep', async () => {
+    // N=2, gamesPerRun=2 → 1 seed × 2 rotations = 2 games/run; 2 runs = 4 games total.
+    const sweep = await runGateSweep({
+      field,
+      matchFn,
+      runs: 2,
+      gamesPerRun: 2,
+      tallyNames: ['Cand', 'Bar'],
+    });
+
+    expect(sweep.games).toBe(4);
+    expect(sweep.errorTotals.Cand).toEqual({ errors: 20, invalidMoves: 8, turns: 20, attacks: 0 });
+    expect(sweep.errorTotals.Bar).toEqual({ errors: 0, invalidMoves: 0, turns: 20, attacks: 40 });
+  });
+
+  it('feeds a broken candidate to reportBotErrors as a 100%-error flag (the gate wiring)', async () => {
+    const sweep = await runGateSweep({
+      field,
+      matchFn,
+      runs: 2,
+      gamesPerRun: 2,
+      tallyNames: ['Cand', 'Bar'],
+    });
+
+    const flagged = reportBotErrors(
+      ['Cand', 'Bar'].map(name => ({ name, ...sweep.errorTotals[name] })),
+      { label: '[gate]', warn: () => {} }
+    );
+
+    expect(flagged.map(f => f.name)).toEqual(['Cand']);
+    expect(flagged[0].errorFraction).toBe(1);
   });
 });
 

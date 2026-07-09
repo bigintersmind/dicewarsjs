@@ -489,6 +489,34 @@ describe('GameController', () => {
       expect(renderer.drawMap).toHaveBeenCalledTimes(2);
       expect(renderer.update).not.toHaveBeenCalled();
     });
+
+    it('diffs each step against the previous one, not the first frame', () => {
+      const stateC = { grid, areas: [null, { owner: 2 }] };
+      controller.updateReplayBoard(stateA);
+      controller.updateReplayBoard(stateB);
+      controller.updateReplayBoard(stateC);
+
+      // Each step must advance the cached "prev": B diffs vs A, C diffs vs B.
+      expect(renderer.update).toHaveBeenNthCalledWith(1, stateA, stateB);
+      expect(renderer.update).toHaveBeenNthCalledWith(2, stateB, stateC);
+    });
+
+    it('re-throws a render failure and recovers with a full redraw on the next step', () => {
+      renderer.update.mockImplementationOnce(() => {
+        throw new Error('pixi blew up');
+      });
+      controller.updateReplayBoard(stateA); // full draw, caches stateA
+      expect(() => controller.updateReplayBoard(stateB)).toThrow(
+        'Failed to render the game board for this replay step.'
+      );
+
+      // The failed update() cleared the cached state, so the next step must
+      // take the full-drawMap branch rather than diffing against a stale frame.
+      const stateC = { grid, areas: [null, { owner: 2 }] };
+      controller.updateReplayBoard(stateC);
+      expect(renderer.drawMap).toHaveBeenCalledTimes(2);
+      expect(renderer.drawMap).toHaveBeenLastCalledWith(stateC);
+    });
   });
 
   /*

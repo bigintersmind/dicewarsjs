@@ -774,8 +774,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *
    * The first call for a replay draws the full map; consecutive steps of the
    * same game (same grid reference) diff against the last drawn state instead,
-   * which redraws only changed territories rather than rebuilding every
-   * Graphics object 16×/sec at 8x playback.
+   * which redraws only the territories that changed owner rather than retracing
+   * and rebuilding every territory's Graphics 16×/sec at 8x playback.
    */
   function updateReplayBoard(state) {
     if (renderer && state) {
@@ -788,8 +788,12 @@ export function createGameController(store, renderer, soundManager, preferencesM
         }
         replayRenderedState = state;
       } catch (err) {
+        // A failed update() may leave the canvas mid-repaint; drop the cached
+        // state so the next step takes the full-drawMap branch and recovers to
+        // a consistent board instead of diffing against a stale reference.
+        replayRenderedState = null;
         console.error('[GameController] Failed to render replay board:', err);
-        throw new Error('Failed to render the game board for this replay step.');
+        throw new Error('Failed to render the game board for this replay step.', { cause: err });
       }
     }
   }

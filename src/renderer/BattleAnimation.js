@@ -53,8 +53,9 @@ export function createBattleAnimation(app) {
 
   /*
    * Detach and destroy the current play's display objects. removeChildren()
-   * alone leaks each die's GraphicsContext (pixi v8 frees it only on an
-   * explicit destroy), which adds up over the many battles of a long game.
+   * alone leaks each child's GraphicsContext (pixi v8 frees it only on an
+   * explicit destroy({ context: true })), which adds up over the many battles
+   * of a long game.
    */
   function disposeChildren() {
     for (const child of container.removeChildren()) {

@@ -230,9 +230,13 @@ export class HexGridRenderer {
     // Build cellToArea lookup
     this._cellToArea = buildCellToArea(areas, grid.cellCount);
 
-    // Remove old territory graphics
+    // Remove old territory graphics — destroy() them, or their GraphicsContext
+    // GPU geometry leaks (drawMap runs per step during replay playback)
     for (const gfx of this._territoryGfx) {
-      if (gfx) this.container.removeChild(gfx);
+      if (gfx) {
+        this.container.removeChild(gfx);
+        gfx.destroy();
+      }
     }
     this._territoryGfx = new Array(areas.length).fill(null);
     this._borders = new Array(areas.length).fill(null);
@@ -406,6 +410,6 @@ export class HexGridRenderer {
 
   /** Dispose of all graphics. */
   destroy() {
-    this.container.destroy({ children: true });
+    this.container.destroy({ children: true, context: true });
   }
 }

@@ -445,6 +445,54 @@ describe('GameController', () => {
 
   /*
    * -----------------------------------------------------------------------
+   * updateReplayBoard
+   * -----------------------------------------------------------------------
+   */
+
+  describe('updateReplayBoard', () => {
+    const grid = { width: 28, height: 32 };
+    const stateA = { grid, areas: [null, { owner: 0 }] };
+    const stateB = { grid, areas: [null, { owner: 1 }] };
+
+    it('draws the full map on the first call', () => {
+      controller.updateReplayBoard(stateA);
+
+      expect(renderer.drawMap).toHaveBeenCalledTimes(1);
+      expect(renderer.drawMap).toHaveBeenCalledWith(stateA);
+      expect(renderer.update).not.toHaveBeenCalled();
+    });
+
+    it('uses incremental update for consecutive steps of the same game', () => {
+      controller.updateReplayBoard(stateA);
+      controller.updateReplayBoard(stateB);
+
+      expect(renderer.drawMap).toHaveBeenCalledTimes(1);
+      expect(renderer.update).toHaveBeenCalledTimes(1);
+      expect(renderer.update).toHaveBeenCalledWith(stateA, stateB);
+    });
+
+    it('redraws the full map when the grid changes (new replay)', () => {
+      const otherGameState = { grid: { width: 28, height: 32 }, areas: [null, { owner: 0 }] };
+
+      controller.updateReplayBoard(stateA);
+      controller.updateReplayBoard(otherGameState);
+
+      expect(renderer.drawMap).toHaveBeenCalledTimes(2);
+      expect(renderer.update).not.toHaveBeenCalled();
+    });
+
+    it('redraws the full map after leaving the replay viewer', () => {
+      controller.updateReplayBoard(stateA);
+      controller.goBackFromReplay();
+      controller.updateReplayBoard(stateB);
+
+      expect(renderer.drawMap).toHaveBeenCalledTimes(2);
+      expect(renderer.update).not.toHaveBeenCalled();
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
    * handleTerritoryClick
    * -----------------------------------------------------------------------
    */

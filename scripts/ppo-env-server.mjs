@@ -320,16 +320,17 @@ export function shouldRunEpisode(ep, episodes) {
 export function makeShapedEmission({ shapingTracker, maxAreas, learnerSeat }) {
   return {
     /** Clear the per-episode dense-reward cursors (territory baseline + kill count). No-op when off. */
-
     reset() {
-      // clear per-episode cursors
-      // (whatever is appropriate for your tracker implementation)
+      if (shapingTracker) shapingTracker.reset();
     },
 
+    /**
+     * Seed the tracker from the episode's initial board (fired once by runMatch after createGame,
+     * before the first turn) so seats already eliminated at start aren't back-credited as learner
+     * kills (issue #85). Also clears the per-episode cursors, so it subsumes reset() at the boundary.
+     */
     onStart(state) {
-      if (shapingTracker) {
-        shapingTracker.reset(state);
-      }
+      if (shapingTracker) shapingTracker.reset(state);
     },
 
     /**

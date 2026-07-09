@@ -218,4 +218,13 @@ describe('deriveBotRandom', () => {
       expect(v).toBeLessThan(1);
     }
   });
+
+  it('throws on non-integer inputs rather than fabricating a degenerate stream', () => {
+    // A NaN/undefined playerId would silently collapse the seed to rngState — the
+    // engine battle stream this derivation exists to avoid mirroring (issue #151).
+    expect(() => deriveBotRandom(42, undefined)).toThrow(TypeError);
+    expect(() => deriveBotRandom(undefined, 0)).toThrow(TypeError);
+    expect(() => deriveBotRandom(42, NaN)).toThrow(TypeError);
+    expect(() => deriveBotRandom(42.5, 0)).toThrow(TypeError);
+  });
 });

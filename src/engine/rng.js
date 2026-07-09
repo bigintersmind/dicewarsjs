@@ -86,8 +86,9 @@ export function createRng(seed) {
  * new stream each time. The playerId mix keeps seats distinct even across a
  * zero-draw END_TURN (reinforcement placement with nothing to place), and the
  * `playerId + 1` offset guarantees the bot stream never coincides with the
- * engine's own `createRng(rngState)` battle stream (an odd multiplier times a
- * nonzero operand is never 0 mod 2^32, so the xor always displaces the seed).
+ * engine's own `createRng(rngState)` battle stream (`0x9e3779b9` is odd, i.e. a
+ * unit mod 2^32, so times the nonzero `playerId + 1` the product is never 0 mod
+ * 2^32, and the xor always displaces the seed).
  *
  * The only state that repeats between two decisions is an invalid-move retry
  * (no applyAction ran) — the bot then redraws the same values, repeats the
@@ -103,6 +104,17 @@ export function createRng(seed) {
  * @returns {() => number} Seeded drop-in for `Math.random`: floats in [0, 1)
  */
 export function deriveBotRandom(rngState, playerId) {
+  // Fail loud (issue #151's whole point): a non-integer here means a malformed
+  // state reached the bot layer without its RNG/seat wiring. Silently coercing
+  // (`undefined >>> 0` → 0, `Math.imul(NaN, …)` → 0) would fabricate a
+  // degenerate stream — and a NaN playerId would collapse the seed to rngState
+  // itself, the exact mirror of the engine battle stream this offset prevents.
+  if (!Number.isInteger(rngState) || !Number.isInteger(playerId)) {
+    throw new TypeError(
+      `deriveBotRandom: rngState and playerId must be integers, got ` +
+        `rngState=${rngState}, playerId=${playerId}`
+    );
+  }
   const seed = ((rngState >>> 0) ^ Math.imul(playerId + 1, 0x9e3779b9)) >>> 0;
   return createRng(seed).nextFloat;
 }

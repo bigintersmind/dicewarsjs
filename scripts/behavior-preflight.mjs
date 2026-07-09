@@ -303,7 +303,8 @@ log(
 );
 log(
   `  A/A sweep: ${runCount} runs × ${gamesPerRun} games × ${fieldSize} rot per arm ` +
-    `(both arms SAME seeds — the maps cancel; the Δ is the unseeded-opponent noise) — ${totalMatches} matches`
+    `(both arms SAME seeds — the maps cancel; post-#151 a fully-seeded built-in field yields ` +
+    `identical arms, so the Δ is zero) — ${totalMatches} matches`
 );
 if (mdeOverridden.length || divisorOverridden) {
   log(

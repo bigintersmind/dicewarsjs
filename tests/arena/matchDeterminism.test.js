@@ -34,6 +34,15 @@ describe('same-seed match determinism (issue #151)', () => {
       expect(b.placements).toEqual(a.placements);
       expect(b.botStats).toEqual(a.botStats);
       expect(JSON.stringify(b.finalState)).toBe(JSON.stringify(a.finalState));
+
+      // Reproducible is not enough — it must be reproducibly CORRECT. An
+      // all-forfeit game (e.g. a broken `game.random` threading that throws on
+      // every decision) is byte-identical too. Prove the bots actually played:
+      // real attacks happened and none of the now-`game.random`-dependent bots
+      // errored out of their turns.
+      const totalAttacks = a.botStats.reduce((n, s) => n + s.attacksMade, 0);
+      expect(totalAttacks).toBeGreaterThan(0);
+      for (const s of a.botStats) expect(s.errors).toBe(0);
     }
   );
 

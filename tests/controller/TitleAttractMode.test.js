@@ -177,4 +177,93 @@ describe('TitleAttractMode', () => {
     expect(renderer.drawMap).toHaveBeenCalledTimes(1);
     mode.destroy();
   });
+
+  it('ends the turn (and keeps stepping) when a bot yields no move', async () => {
+    const renderer = makeRenderer();
+    // A legacy-style bot that returns 0 = "end turn"; injected via the loader.
+    const mode = createTitleAttractMode({
+      store: createGameStore(),
+      renderer,
+      botLoader: async () => [() => 0],
+    });
+    await mode.start();
+
+    expect(() => vi.advanceTimersByTime(MAX_STEP_MS)).not.toThrow();
+    // The no-move fell through to END_TURN and still advanced+rendered a new state.
+    expect(renderer.update).toHaveBeenCalledTimes(1);
+    const [prev, next] = renderer.update.mock.calls[0];
+    expect(prev).not.toBe(next);
+    expect(mode.isRunning()).toBe(true);
+    mode.destroy();
+  });
+
+  it('survives a bot that throws (degrades to end turn, loop stays healthy)', async () => {
+    const renderer = makeRenderer();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mode = createTitleAttractMode({
+      store: createGameStore(),
+      renderer,
+      botLoader: async () => [
+        () => {
+          throw new TypeError('boom');
+        },
+      ],
+    });
+    await mode.start();
+
+    expect(() => vi.advanceTimersByTime(MAX_STEP_MS)).not.toThrow();
+    expect(renderer.update).toHaveBeenCalledTimes(1); // END_TURN fallthrough still renders
+    expect(mode.isRunning()).toBe(true);
+    errSpy.mockRestore();
+    mode.destroy();
+  });
+
+  it('regenerates the board when a render update throws (no dead-but-running freeze)', async () => {
+    const renderer = makeRenderer();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Throw on the first update only, then recover.
+    renderer.update.mockImplementationOnce(() => {
+      throw new Error('render boom');
+    });
+    const mode = createTitleAttractMode({ store: createGameStore(), renderer });
+    await mode.start();
+    expect(renderer.drawMap).toHaveBeenCalledTimes(1);
+
+    // The failing update drops the board and schedules a restart (no crash)…
+    expect(() => vi.advanceTimersByTime(MAX_STEP_MS)).not.toThrow();
+    expect(renderer.drawMap).toHaveBeenCalledTimes(1); // …board lingers…
+    vi.advanceTimersByTime(ROUND_RESTART_MS);
+    expect(renderer.drawMap).toHaveBeenCalledTimes(2); // …then a fresh board is drawn
+    expect(mode.isRunning()).toBe(true);
+    errSpy.mockRestore();
+    mode.destroy();
+  });
+
+  it('drops ticks fired before the bot cast finishes loading (no null deref)', async () => {
+    const renderer = makeRenderer();
+    const prefs = makePrefs();
+    // Capture the prefs subscriber so we can trigger an external schedule().
+    let prefsCb;
+    prefs.subscribe = vi.fn(cb => {
+      prefsCb = cb;
+      return () => {};
+    });
+    const mode = createTitleAttractMode({
+      store: createGameStore(),
+      renderer,
+      preferencesManager: prefs,
+      botLoader: () => new Promise(() => {}), // never resolves: stay in the load window
+    });
+
+    mode.attach(); // `running` flips true synchronously; loadBots() is still pending
+    expect(mode.isRunning()).toBe(true);
+
+    // An external event schedules ticks while `botFns` is still null.
+    prefsCb();
+    expect(() => vi.advanceTimersByTime(MAX_STEP_MS * 3)).not.toThrow();
+    expect(renderer.update).not.toHaveBeenCalled();
+    expect(renderer.drawMap).not.toHaveBeenCalled();
+
+    mode.destroy();
+  });
 });

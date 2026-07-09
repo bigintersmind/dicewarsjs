@@ -51,6 +51,9 @@ const DEFAULT_MAX_ACTIONS = 1500;
  * @param {Object | null} deps.renderer - GameRenderer (may be null if WebGL failed)
  * @param {Object} [deps.preferencesManager] - For effectiveReducedMotion()
  * @param {number} [deps.maxActionsPerRound] - Test hook: cap actions per round
+ * @param {() => Promise<Array<Function>>} [deps.botLoader] - Test hook: resolve
+ *   the bot cast (defaults to loading ATTRACT_BOT_IDS from AI_STRATEGIES). Lets
+ *   tests inject deterministic/throwing bots and control the load timing.
  * @returns {{ start: () => Promise<void>, stop: () => void, attach: () => void,
  *   destroy: () => void, isRunning: () => boolean }}
  */
@@ -59,6 +62,7 @@ export function createTitleAttractMode({
   renderer,
   preferencesManager,
   maxActionsPerRound = DEFAULT_MAX_ACTIONS,
+  botLoader,
 }) {
   let running = false;
   let token = 0; // invalidates async bot loading + pending ticks across stop()
@@ -74,7 +78,9 @@ export function createTitleAttractMode({
 
   async function loadBots() {
     if (botFns) return botFns;
-    botFns = await Promise.all(ATTRACT_BOT_IDS.map(id => AI_STRATEGIES[id].loader()));
+    botFns = botLoader
+      ? await botLoader()
+      : await Promise.all(ATTRACT_BOT_IDS.map(id => AI_STRATEGIES[id].loader()));
     return botFns;
   }
 
@@ -91,7 +97,11 @@ export function createTitleAttractMode({
 
   /** Advance the background game by one attack or end-turn. */
   function tick() {
-    if (!running) return;
+    // Bail if the cast isn't loaded yet: an external schedule() (a visibility
+    // or reduced-motion change) can fire a tick during start()'s async
+    // loadBots() window, when `running` is already true but `botFns` is still
+    // null. Dropping the tick is safe — start() reschedules once the load lands.
+    if (!running || !botFns) return;
     if (!state) {
       // A finished round lingered; start a fresh board.
       try {
@@ -136,7 +146,16 @@ export function createTitleAttractMode({
     }
 
     actionCount++;
-    renderer.update(prevState, state);
+    try {
+      renderer.update(prevState, state);
+    } catch (err) {
+      // A render throw must not leave the loop dead-but-running: degrade like
+      // the action path and roll a fresh board rather than freeze mid-round.
+      console.error('[TitleAttractMode] render update failed, regenerating board:', err);
+      state = null;
+      schedule(ROUND_RESTART_MS);
+      return;
+    }
 
     if (state.phase === GAME_PHASES.GAME_OVER || actionCount >= maxActionsPerRound) {
       // Let the conquered (or stalled) board linger, then regenerate.

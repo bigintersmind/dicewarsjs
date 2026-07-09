@@ -245,6 +245,7 @@ export function runMatch(config) {
     bots,
     seed,
     maxTurns = DEFAULT_MAX_TURNS,
+    onStart,
     onTurn,
     onStep,
     recordTrajectory,
@@ -261,6 +262,10 @@ export function runMatch(config) {
     playerCount: bots.length,
     recordHistory,
   });
+
+  if (onStart) {
+    onStart(gameState);
+  }
 
   /*
    * Map player indices to bot functions.

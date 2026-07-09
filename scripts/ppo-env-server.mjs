@@ -325,6 +325,15 @@ export function makeShapedEmission({ shapingTracker, maxAreas, learnerSeat }) {
     },
 
     /**
+     * Seed the tracker from the episode's initial board (fired once by runMatch after createGame,
+     * before the first turn) so seats already eliminated at start aren't back-credited as learner
+     * kills (issue #85). Also clears the per-episode cursors, so it subsumes reset() at the boundary.
+     */
+    onStart(state) {
+      if (shapingTracker) shapingTracker.reset(state);
+    },
+
+    /**
      * Build the per-decision observation frame. Under shaping it reads the learner's OWN
      * owned-territory count right now (`botState.myPlayer === learnerSeat`) and threads the raw
      * `{shaped, deltaTerritory, elimsByLearner}` tail; off ⇒ no tail (byte-identical frame).
@@ -675,6 +684,7 @@ async function main() {
           maxAreas,
           maxTurns,
           chooseAction,
+          onStart: shapedEmission.onStart,
           onTurn: onTurnFn,
           // End the episode at the learner's elimination, not game-over (PPO terminal; ~2×).
           terminateOnElimination: true,

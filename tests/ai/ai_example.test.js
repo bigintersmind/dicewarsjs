@@ -16,6 +16,7 @@ describe('Example AI', () => {
       area_from: 0,
       area_to: 0,
       get_pn: vi.fn().mockReturnValue(1), // Current player is 1
+      random: () => 0, // Seeded game.random stand-in (issue #151); tests override per case
     };
 
     // Initialize territory data
@@ -81,9 +82,6 @@ describe('Example AI', () => {
   });
 
   test('chooses randomly when multiple valid attacks exist', () => {
-    // Mock Math.random to control the selection
-    const originalRandom = Math.random;
-
     // Configure territories - multiple valid attacks
     mockGame.adat[1].size = 10;
     mockGame.adat[1].arm = 1;
@@ -102,7 +100,7 @@ describe('Example AI', () => {
     mockGame.adat[3].dice = 2;
 
     // First test: select first option
-    Math.random = vi.fn().mockReturnValue(0);
+    mockGame.random = vi.fn().mockReturnValue(0);
     ai_example(mockGame);
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(2);
@@ -112,13 +110,10 @@ describe('Example AI', () => {
     mockGame.area_to = 0;
 
     // Second test: select second option
-    Math.random = vi.fn().mockReturnValue(0.99);
+    mockGame.random = vi.fn().mockReturnValue(0.99);
     ai_example(mockGame);
     expect(mockGame.area_from).toBe(1);
     expect(mockGame.area_to).toBe(3);
-
-    // Restore original Math.random
-    Math.random = originalRandom;
   });
 
   test('skips territories that do not belong to current player', () => {

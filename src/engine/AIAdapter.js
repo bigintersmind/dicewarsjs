@@ -10,6 +10,7 @@
 
 import { applyAction, getValidMoves } from './StateManager.js';
 import { ACTION_TYPES, GAME_PHASES } from './constants.js';
+import { deriveBotRandom } from './rng.js';
 import { playerSlotCount } from '../ai/playerCount.js';
 
 /**
@@ -74,6 +75,11 @@ export function createLegacyGameView(state) {
     ban: currentPlayerIndex,
     area_from: 0,
     area_to: 0,
+    /*
+     * Seeded Math.random replacement for the acting player (issue #151) —
+     * fresh per decision because applyAction advances rngState between calls.
+     */
+    random: deriveBotRandom(state.rngState, turnOrder[currentPlayerIndex]),
     get_pn() {
       return this.jun[this.ban];
     },

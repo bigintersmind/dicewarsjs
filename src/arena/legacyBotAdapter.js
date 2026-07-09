@@ -102,6 +102,8 @@ function createLegacyViewFromBotState(botState) {
     ban: 0, // myPlayer is always at index 0 in this view's jun
     area_from: 0,
     area_to: 0,
+    // Seeded Math.random replacement, threaded from BotState (issue #151).
+    random: botState.random,
     get_pn() {
       return this.jun[this.ban];
     },

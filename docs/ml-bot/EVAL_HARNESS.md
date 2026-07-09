@@ -369,6 +369,11 @@ the full 7.)
 >    the two passes differ ONLY by the heuristic opponents' unseeded `Math.random` (§3.6); pairing
 >    over the shared maps cancels map variance and isolates exactly the noise the paired signature
 >    gate also can't cancel — the same "unseeded-opponent" noise NC2 measures on strength.
+>    **Post-#151 note (2026-07-08):** issue #151 seeded every built-in bot (`game.random()`), so a
+>    built-in opponent field now yields IDENTICAL arms — `zeroNoise` fires by construction, the noise
+>    floor reads zero, and NC1 degenerates to a harness-determinism check (nonzero self-Δ =
+>    reintroduced entropy). The paragraph above describes the pre-#151 noise model; re-registering
+>    NC1's role is an open question (LOG 2026-07-08).
 >    **Criterion (the registered "|Δ| < MDE/3" made statistically sound):** two refinements keep a
 >    _stochastic_ A/A from crying wolf while still catching a _systematic_ bug. (1) **Equivalence, not
 >    a raw point test:** judging the point estimate false-halts a winners-only, high-variance axis

@@ -190,3 +190,22 @@ describe('edge cases', () => {
     expect(move).toBeNull();
   });
 });
+
+describe('adaptLegacyBot random() passthrough', () => {
+  it('exposes the BotState seeded random on the legacy view', () => {
+    const state = createGame({ seed: 42, playerCount: 4 });
+    const playerId = state.turnOrder[state.currentPlayerIndex];
+    const botState = createBotState(state, playerId);
+
+    let seen;
+    const probeBot = adaptLegacyBot(game => {
+      seen = game.random;
+      return 0;
+    }, 'probe');
+    probeBot(botState);
+
+    expect(typeof seen).toBe('function');
+    // Same stream as the BotState's own: both derive from the same state+player.
+    expect(seen()).toBe(createBotState(state, playerId).random());
+  });
+});

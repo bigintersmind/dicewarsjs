@@ -113,7 +113,7 @@ export const ai_default = game => {
       }
 
       // 90% chance to attack in equal dice situations
-      if (Math.random() > 0.1) {
+      if (game.random() > 0.1) {
         shouldAttack = true;
       }
 
@@ -180,7 +180,7 @@ export const ai_default = game => {
   }
 
   // Choose a random valid attack from the list
-  const selectedAttack = validAttacks[Math.floor(Math.random() * validAttacks.length)];
+  const selectedAttack = validAttacks[Math.floor(game.random() * validAttacks.length)];
 
   // Update game state with the selected attack
   game.area_from = selectedAttack.attacker;

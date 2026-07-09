@@ -42,8 +42,10 @@ copy one as a starting point for your own.
 
 ## Notes
 
-- **Keep bots deterministic** (avoid `Math.random`) so tournament results are
-  reproducible from the daily seed.
+- **Keep bots seed-reproducible**: never call `Math.random` — if you want
+  randomness, use `state.random()`, the seeded drop-in (see
+  `docs/BOT_GUIDE.md`). Tournament results must be reproducible from the
+  daily seed.
 - Bots run in a sandbox with only standard JavaScript built-ins — no
   `require`, `process`, `fetch`, file or network access. Each move has a time
   limit; exceeding it (or throwing) ends your turn.

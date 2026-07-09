@@ -1402,10 +1402,10 @@ describe('§6 engine signal — runMatch passes actingPlayerId to onTurn', () =>
     // as the killing blow (so the prior firing still saw it alive — the read-before-ingest premise).
     // Nothing else in the suite drives that path on real data, so the profileGameFromCapture
     // count-mismatch guard never fires on a real capture — pin it against an engine change to
-    // elimination timing or player shape. The default Example/Default/Defensive field calls
-    // Math.random() so kills don't reproduce on seed alone; use a deterministic search field and
-    // sweep a few seeds, so one shifting outcome can't strand the test (fail loud only if ALL go
-    // killless).
+    // elimination timing or player shape. The default Example/Default/Defensive field called
+    // Math.random() pre-#151, so kills didn't reproduce on seed alone; hence a deterministic search
+    // field and a few-seed sweep, so one shifting outcome can't strand the test (fail loud only if
+    // ALL go killless).
     // Re-pick (issue #115): the press-to-close override shifted these deterministic seeded games,
     // stranding the old [4, 6, 8] sweep kill-less for seat 0 — the staleness mode this guard names.
     // Seeds re-validated against the post-#115 field (this branch alone AND with the sibling

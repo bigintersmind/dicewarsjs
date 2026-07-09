@@ -293,3 +293,25 @@ describe('AI strategy compatibility', () => {
     });
   }
 });
+
+describe('createLegacyGameView random()', () => {
+  it('exposes a seeded random function for the acting player', () => {
+    const state = createTestState();
+    const view = createLegacyGameView(state);
+
+    expect(typeof view.random).toBe('function');
+    const v = view.random();
+    expect(v).toBeGreaterThanOrEqual(0);
+    expect(v).toBeLessThan(1);
+  });
+
+  it('yields the same sequence for the same engine state', () => {
+    const state = createTestState();
+    const a = createLegacyGameView(state);
+    const b = createLegacyGameView(state);
+
+    const seqA = Array.from({ length: 10 }, () => a.random());
+    const seqB = Array.from({ length: 10 }, () => b.random());
+    expect(seqA).toEqual(seqB);
+  });
+});

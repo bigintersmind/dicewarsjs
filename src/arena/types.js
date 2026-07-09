@@ -19,6 +19,9 @@
  * @property {BotArea[]}   myAreas        - Territories owned by this player
  * @property {BotArea[]}   allAreas       - All territories on the board
  * @property {BotPlayer[]} players        - All player stats
+ * @property {() => number} random        - Seeded drop-in for Math.random, floats in [0, 1).
+ *   The only sanctioned randomness source for bots (issue #151): a per-decision stream derived
+ *   from the engine seed, so matches stay seed-reproducible. Never use the global Math.random.
  */
 
 /**

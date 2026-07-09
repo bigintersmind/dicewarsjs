@@ -20,10 +20,12 @@
  *     two passes at the SAME seeds — and judge each registered signature axis ({@link SIGNATURE_AXES})
  *     against the ±MDE/3 floor. NOT a raw |Δ| < MDE/3 point test: an axis CERTIFIES when its paired
  *     95% CI ⊆ ±MDE/3, and only a Holm-significant self-difference BEYOND ±MDE/3 HALTs (see
- *     `signatureNoiseFloor`). The base is deterministic and the maps are seeded, so the two passes
- *     differ only by the heuristic opponents' unseeded Math.random; pairing over the shared maps
- *     cancels map variance and leaves the unseeded-opponent noise the paired signature GATE also
- *     cannot cancel (the same noise NC2 measures on the strength metric). A self-comparison that
+ *     `signatureNoiseFloor`). The base is deterministic and the maps are seeded; pre-#151 the two
+ *     passes differed only by the heuristic opponents' unseeded Math.random — pairing over the
+ *     shared maps cancels map variance and leaves the unseeded-opponent noise the paired signature
+ *     GATE also cannot cancel (the same noise NC2 measures on the strength metric). Since #151
+ *     seeded every built-in bot, a built-in field yields identical arms — the zero-noise path
+ *     below — and the A/A degenerates to a harness-determinism check. A self-comparison that
  *     shows a signature-sized difference means the harness is BIASED (a bug that makes one policy
  *     look like two) — grading HALTS. Only signature axes gate; descriptive axes carry more of that
  *     noise and are reported, never the halt criterion. The A/A runs the SAME `behavior-sweep`
@@ -314,11 +316,12 @@ if (mdeOverridden.length || divisorOverridden) {
 }
 log('');
 
-// The two arms are the SAME sweep at the SAME seeds. The base is deterministic and the maps are
-// seeded, so the only thing that differs is the heuristic opponents' unseeded Math.random (which
-// has advanced between the two passes) — arm B genuinely diverges. Pairing over shared maps cancels
-// map variance, leaving exactly the noise the paired signature gate cannot cancel. (A disjoint-seed
-// A/A would re-inject full map variance and false-halt |Δ| at any feasible run count.)
+// The two arms are the SAME sweep at the SAME seeds. Pre-#151, the heuristic opponents' unseeded
+// Math.random advanced between the two passes, so arm B genuinely diverged — exactly the noise the
+// paired signature gate cannot cancel. Since #151 seeded every built-in bot, a built-in field
+// produces identical arms (zero noise) and the zeroNoise guard reports the A/A as a determinism
+// check instead. (A disjoint-seed A/A would re-inject full map variance and false-halt |Δ| at any
+// feasible run count.)
 const sweepOpts = { opponents, runCount, gamesPerRun, stride, quarantine };
 const armA = sweepBot(baseBot, {
   ...sweepOpts,
@@ -501,8 +504,9 @@ function reportAndExit() {
       // Field injected no noise ⇒ arm A ≡ arm B ⇒ CERTIFIED is vacuous (a deterministic --opponents
       // field, not the intended stochastic one). Warn loud so a footgun field can't read as clean.
       log(
-        '  ⚠ the A/A measured ZERO opponent noise (every signature axis has a zero-width CI) — the ' +
-          'field is deterministic, so CERTIFIED is vacuous. Re-run with a stochastic --opponents field.'
+        '  ⚠ the A/A measured ZERO opponent noise (every signature axis has a zero-width CI) — ' +
+          'expected since #151 seeded every built-in bot. CERTIFIED is vacuous as a noise floor; ' +
+          'the A/A instead certifies harness determinism (identical arms).'
       );
     }
     if (nc1Sample?.insufficient) {
@@ -535,9 +539,9 @@ function reportAndExit() {
     // Not a halt (a deterministic field is a footgun, not a proven bug), but the strongest "cleared"
     // message would be dishonest — the control measured no noise, so say so.
     log(
-      'PRE-FLIGHT CLEAR (no detected bias) — but the A/A measured no opponent noise (see ⚠ above); ' +
-        'with a deterministic field the negative control is vacuous. Re-run with a stochastic ' +
-        '--opponents field before trusting it.'
+      'PRE-FLIGHT CLEAR (no detected bias) — the A/A measured no opponent noise (see ⚠ above): ' +
+        'with a fully seeded field (all built-ins since #151) the arms are identical by ' +
+        'construction, so NC1 certifies harness determinism rather than a noise floor.'
     );
   } else if (nc1 && !nc1.certified) {
     log(

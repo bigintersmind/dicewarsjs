@@ -17,6 +17,7 @@ describe('Default AI', () => {
       jun: [0, 1, 2, 3, 4, 5, 6, 7],
       ban: 1, // Current turn is player 1
       player: [],
+      random: () => 0.5, // Seeded game.random stand-in (issue #151); tests override per case
     };
 
     // Initialize player data
@@ -62,14 +63,10 @@ describe('Default AI', () => {
     mockGame.adat[2].arm = 2; // Owned by opponent
     mockGame.adat[2].dice = 1;
 
-    // Mock Math.random to make the test deterministic
-    const originalRandom = Math.random;
-    Math.random = vi.fn().mockReturnValue(0.5);
+    // Pin game.random to make the test deterministic
+    mockGame.random = vi.fn().mockReturnValue(0.5);
 
     ai_default(mockGame);
-
-    // Restore Math.random
-    Math.random = originalRandom;
 
     // Should attack from territory 1 to territory 2
     expect(mockGame.area_from).toBe(1);
@@ -88,14 +85,10 @@ describe('Default AI', () => {
     mockGame.adat[2].arm = 2; // Owned by opponent
     mockGame.adat[2].dice = 2;
 
-    // Mock Math.random to make the test deterministic - will attack with 90% probability
-    const originalRandom = Math.random;
-    Math.random = vi.fn().mockReturnValue(0.5); // > 0.1, so should attack
+    // Pin game.random to make the test deterministic - will attack with 90% probability
+    mockGame.random = vi.fn().mockReturnValue(0.5); // > 0.1, so should attack
 
     ai_default(mockGame);
-
-    // Restore Math.random
-    Math.random = originalRandom;
 
     // Should attack from territory 1 to territory 2
     expect(mockGame.area_from).toBe(1);
@@ -124,17 +117,13 @@ describe('Default AI', () => {
     mockGame.adat[4].arm = 2; // Owned by opponent
     mockGame.adat[4].dice = 1;
 
-    // Mock Math.random to avoid the equal dice attack
-    const originalRandom = Math.random;
-    Math.random = vi
+    // Pin game.random to avoid the equal dice attack
+    mockGame.random = vi
       .fn()
       .mockReturnValueOnce(0.05) // <= 0.1, should skip equal dice attack
       .mockReturnValueOnce(0.5); // For move selection
 
     ai_default(mockGame);
-
-    // Restore Math.random
-    Math.random = originalRandom;
 
     // Should attack from territory 3 to territory 4 (avoiding the equal dice situation)
     expect(mockGame.area_from).toBe(3);

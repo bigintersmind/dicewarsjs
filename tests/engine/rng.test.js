@@ -1,4 +1,4 @@
-import { createRng } from '../../src/engine/rng.js';
+import { createRng, deriveBotRandom } from '../../src/engine/rng.js';
 
 describe('createRng', () => {
   describe('determinism', () => {
@@ -172,5 +172,50 @@ describe('createRng', () => {
       const v2 = rng2.next();
       expect(v).toBe(v2);
     });
+  });
+});
+
+describe('deriveBotRandom', () => {
+  it('produces the same sequence for the same (rngState, playerId)', () => {
+    const a = deriveBotRandom(42, 3);
+    const b = deriveBotRandom(42, 3);
+    for (let i = 0; i < 50; i++) {
+      expect(a()).toBe(b());
+    }
+  });
+
+  it('produces different sequences for different playerIds', () => {
+    const a = deriveBotRandom(42, 0);
+    const b = deriveBotRandom(42, 1);
+    const seqA = Array.from({ length: 10 }, () => a());
+    const seqB = Array.from({ length: 10 }, () => b());
+    expect(seqA).not.toEqual(seqB);
+  });
+
+  it('produces different sequences for different rngStates', () => {
+    const a = deriveBotRandom(42, 0);
+    const b = deriveBotRandom(43, 0);
+    const seqA = Array.from({ length: 10 }, () => a());
+    const seqB = Array.from({ length: 10 }, () => b());
+    expect(seqA).not.toEqual(seqB);
+  });
+
+  it('does not mirror the engine stream, even for playerId 0', () => {
+    // The engine draws createRng(rngState) directly for battles; the bot stream
+    // must never coincide with it or a bot's draws would echo upcoming rolls.
+    const engine = createRng(42);
+    const bot = deriveBotRandom(42, 0);
+    const engineSeq = Array.from({ length: 5 }, () => engine.next());
+    const botSeq = Array.from({ length: 5 }, () => bot());
+    expect(botSeq).not.toEqual(engineSeq);
+  });
+
+  it('returns floats in [0, 1)', () => {
+    const random = deriveBotRandom(123, 2);
+    for (let i = 0; i < 500; i++) {
+      const v = random();
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(1);
+    }
   });
 });

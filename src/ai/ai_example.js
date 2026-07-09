@@ -56,8 +56,8 @@ export const ai_example = game => {
   // End turn if no valid moves found
   if (validMoves.length === 0) return 0;
 
-  // Randomly select a move from the valid options
-  const selectedMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+  // Randomly select a move from the valid options (seeded — never Math.random)
+  const selectedMove = validMoves[Math.floor(game.random() * validMoves.length)];
 
   // Destructure the selected move
   const { attacker, defender } = selectedMove;

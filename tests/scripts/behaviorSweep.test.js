@@ -2,9 +2,7 @@
  * The shared behavioral sweep (`scripts/lib/behavior-sweep.mjs`), extracted from
  * `behavior-profile.mjs` so `behavior:preflight`'s A/A negative control runs the identical path.
  *
- * `runMatch` is NOT bit-deterministic at a fixed seed — the map is seeded but the heuristic
- * opponents pick with unseeded `Math.random` (that irreducible "unseeded-opponent noise" is exactly
- * what the negative controls bound). So these tests MOCK `runMatch` to pin the sweep's own
+ * These tests MOCK `runMatch` to pin the sweep's own
  * deterministic control logic: the exact seed SCHEDULE (identical across calls — the A/A pairs over
  * shared maps), the rotation count, and the quarantine tally. The real (noisy) sweep is exercised
  * end-to-end by behaviorPreflight.test.js's A/A cases.
@@ -80,8 +78,8 @@ describe('sweepBot — seed schedule', () => {
     const first = [...h.seeds];
     h.seeds.length = 0;
     sweepBot(bot, { ...COMMON });
-    // Same seed schedule both passes: map variance cancels in the A/A pairing (only the opponents'
-    // unseeded Math.random — invisible to this mock — makes the realized games diverge).
+    // Same seed schedule both passes: map variance cancels in the A/A pairing (and since #151
+    // seeded the built-in bots, the realized games are identical too — see behaviorPreflight).
     expect(h.seeds).toEqual(first);
   });
 

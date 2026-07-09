@@ -208,7 +208,16 @@ describe('tournament error observability (#53)', () => {
       expect.stringMatching(/\[Tournament\] bot "Broken".*error fraction 100\.0%/s)
     );
     // The flagged list is threaded out so the Tournament screen can badge the row (#92).
-    expect(result.flagged.map(f => f.name)).toContain('Broken');
+    const flaggedBroken = result.flagged.find(f => f.name === 'Broken');
+    expect(flaggedBroken).toBeDefined();
+    /*
+     * Guards the shared `updateMatchStats` turns accumulation (#92 item 4): a bot that throws
+     * every turn still *takes* turns (runBotTurn bumps `turns` up front, before the throw), so
+     * the flagged entry must carry turns > 0. Drop `s.turns += botStat.turns` and this reads 0 —
+     * a regression the fraction can't catch here, since this bot flags via the turns-blind
+     * never-attacked masquerade.
+     */
+    expect(flaggedBroken.turns).toBeGreaterThan(0);
 
     warnSpy.mockRestore();
   });

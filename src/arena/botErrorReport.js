@@ -16,7 +16,7 @@
  * The data + validation pipelines already guard this class — `forcedEndReason` in
  * scripts/lib/selfplay-core.mjs (D-14) quarantines training games, and
  * scripts/validate-bot.mjs downgrades a community bot to a warning. This helper closes
- * the matching gap on the *ranking* side: given the per-bot error/attack totals a
+ * the matching gap on the *ranking* side: given the per-bot error/turn/attack totals a
  * ranking run has accumulated, it warns loudly about any bot whose turn-level error
  * fraction exceeds a threshold, so a broken bot can't masquerade as a meaningful
  * measurement.

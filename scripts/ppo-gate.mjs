@@ -216,7 +216,7 @@ console.log(`\n\nCompleted in ${elapsed}s${failedGames ? ` (${failedGames} games
  * weak-but-working policy. Surface any tallied bot whose per-turn error fraction is out of
  * bounds so a wasted run reads as "broken", not "weak". The failure direction is safe (a
  * 0%-win broken bot can't falsely PASS a must-BEAT gate), so this warns without changing the
- * exit code — it's diagnosis, mirroring the arenaRunner call shape.
+ * exit code — it's diagnosis, mirroring the arena path's finalizeArenaStats call shape.
  */
 reportBotErrors(
   [candidateName, barName].map(name => ({ name, ...sweep.errorTotals[name] })),

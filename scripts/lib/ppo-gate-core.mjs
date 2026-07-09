@@ -269,7 +269,7 @@ export async function runGateSweep({
   const perRun = {};
   for (const t of tallyNames) perRun[t] = { winPct: [], avgPlacement: [], attackWinRate: [] };
   /*
-   * Sweep-wide forced-end totals per tallied name, for the broken-candidate check the CLI
+   * Sweep-wide error/turn/attack totals per tallied name, for the broken-candidate check the CLI
    * runs before trusting the verdict (#92 item 5). The gate is judged purely on win%, so a
    * runtime-broken candidate (e.g. a makeBC registration / coordinate-space bug the static
    * parity check can't catch) wins ~0 games and reads as a legit 0% BEHIND — indistinguishable

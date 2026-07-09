@@ -21,6 +21,40 @@ Entry template:
 
 ---
 
+## 2026-07-09 — Issue #154: NC1/NC2 re-registered as harness-determinism tripwires ([D-34])
+
+**Phase:** eval-harness (docs/decision) · **Who:** Claude (scope + doc sync); Ivan (ratified the decision)
+
+**Did:**
+
+- Resolved the #151 eval-harness ripple left OPEN on 2026-07-08. Ratified [D-34]: **keep** NC1 (the
+  base A/A) and the NC2 `ppo:curve --test-retest` same-seed spread, **re-registered** from
+  opponent-noise-floor estimators to **harness-determinism tripwires** — a nonzero same-seed self-Δ
+  now means reintroduced entropy (a `Math.random` bot violating §3.6 argmax-purity, or a harness
+  bug). The redesign option (inject a stochastic opponent to restore a real floor) was rejected: it
+  fights the #151 seed-purity fix and serves no consumer.
+- Doc/wording sync (no code or test change — the live code already embodied this): DECISIONS [D-34];
+  PERSONAS §10.5 (NC parenthetical + the stale "unseeded-field noise" halt-rule phrasing);
+  EVAL_HARNESS §3.9 (NC1 open-question → resolved, NC2 block) + §3.6 (purity ↔ tripwire link);
+  STRENGTH_CURVE §"Test-retest calibration"; `scripts/ppo-strength-curve.mjs` (`--test-retest`
+  header + the two log lines); LOG 2026-07-08 OPEN item closed.
+
+**Learned / decided:**
+
+- The noise floor didn't vanish, it **moved**: the residual _sampling_-noise floor the paired persona
+  gate needs is read directly off the gate's own **different-seed** CIs over the seed sweep. What the
+  same-seed controls (NC1, NC2-retest) used to estimate — the opponents' unseeded `Math.random`
+  divergence — is exactly what #151 eliminated, so their same-seed pairing now cancels to zero and
+  their honest job is a determinism check.
+- The equivalence-+-Holm adjudication built for NC1 is unchanged; it now serves as the tripwire's
+  decision rule (how a nonzero self-Δ is judged) rather than a floor certification.
+
+**Next:**
+
+- None for #154 — closed. NC3 (control-vs-base) still waits on the Wave-1 control arm (unrelated).
+
+---
+
 ## 2026-07-08 — Issue #151: seeded bot RNG — every built-in bot is now seed-pure (eval-harness ripple)
 
 **Phase:** cross-cutting (arena/bot SDK) · **Who:** Claude (implementation); Ivan (approved design)
@@ -48,9 +82,11 @@ Entry template:
 
 **Next:**
 
-- OPEN (tracked in #154): re-register NC1's role under the zero-noise reality (keep as determinism
+- ~~OPEN (tracked in #154): re-register NC1's role under the zero-noise reality (keep as determinism
   tripwire vs. redesign) — needs an ML-workstream decision; update EVAL_HARNESS/PERSONAS wording when
-  made.
+  made.~~ **RESOLVED 2026-07-09 ([D-34], #154):** kept as a harness-determinism tripwire (redesign
+  rejected); NC1 + the NC2 test-retest same-seed spread re-registered; PERSONAS §10.5 / EVAL_HARNESS
+  §3.6+§3.9 / `ppo-strength-curve.mjs` wording synced. See the 2026-07-09 entry.
 
 ---
 

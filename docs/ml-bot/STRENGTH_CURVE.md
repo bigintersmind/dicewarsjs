@@ -232,8 +232,12 @@ and is kept only as a coarse fallback for comparing across curves graded on diff
 - **Gaps break windows**: a missing/failed curve point interrupts any "k consecutive" window
   rather than bridging it.
 - **Test-retest calibration** (first curve only, cheap): grade ONE checkpoint twice at identical
-  settings and report the spread as the curve's empirical noise floor — meaningful precisely
-  because the `Math.random` opponents make same-seed replays non-identical.
+  settings and report the spread. **Pre-#151** this was the curve's empirical noise floor —
+  meaningful because the `Math.random` opponents made same-seed replays non-identical.
+  **Post-#151 ([D-34]):** every built-in is seed-pure, so a same-seed re-grade of a deterministic
+  argmax net is byte-identical and this spread is now a **harness-determinism check** (~0 by
+  construction; nonzero = reintroduced entropy). The genuine sampling-noise floor is the
+  confirmation protocol's fresh-seed CI below, not this same-seed retest.
 
 ### Confirmation protocol (mandatory before any ship decision)
 

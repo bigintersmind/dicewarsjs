@@ -324,7 +324,10 @@ signatures.
 Pairing, reproducibility, and the byte-identical-JSON test all assume bot decisions are a pure function
 of state. The engine RNG is seeded, but a PPO policy in **sampling** mode (or any bot using
 `Math.random` for tie-breaks) breaks this. **Require profiled bots to run in greedy/argmax inference**
-and assert no internal RNG — enforce in the persona loader, not just the smoke test.
+and assert no internal RNG — enforce in the persona loader, not just the smoke test. Post-#151 the
+NC1/NC2 same-seed controls (§3.9) double as the _runtime_ tripwire for this invariant: a bot that
+smuggled in `Math.random` reintroduces entropy the seeded field no longer has, so its same-seed
+self-Δ goes nonzero ([D-34]).
 
 ### 3.7 Quarantine — don't bias the metric you're measuring
 
@@ -372,8 +375,11 @@ the full 7.)
 >    **Post-#151 note (2026-07-08):** issue #151 seeded every built-in bot (`game.random()`), so a
 >    built-in opponent field now yields IDENTICAL arms — `zeroNoise` fires by construction, the noise
 >    floor reads zero, and NC1 degenerates to a harness-determinism check (nonzero self-Δ =
->    reintroduced entropy). The paragraph above describes the pre-#151 noise model; re-registering
->    NC1's role is an open question (LOG 2026-07-08).
+>    reintroduced entropy). The paragraph above describes the pre-#151 noise model; NC1 is now
+>    **re-registered as exactly this harness-determinism tripwire** ([D-34], ratified 2026-07-09) —
+>    the residual _sampling_-noise floor the paired gate still needs is read directly off the gate's
+>    own different-seed CIs, not off this same-seed control. (The equivalence-+-Holm criterion below
+>    is unchanged; it now adjudicates a nonzero self-Δ as the tripwire's decision rule.)
 >    **Criterion (the registered "|Δ| < MDE/3" made statistically sound):** two refinements keep a
 >    _stochastic_ A/A from crying wolf while still catching a _systematic_ bug. (1) **Equivalence, not
 >    a raw point test:** judging the point estimate false-halts a winners-only, high-variance axis
@@ -400,6 +406,10 @@ the full 7.)
 >    `ppo:curve --test-retest` (§ STRENGTH_CURVE.md), which records
 >    `strength.meta.json → testRetest.spreadPp`. `--curve <strength.jsonl|.meta.json>` surfaces the
 >    recorded spread; otherwise the pre-flight prints the command to produce it.
+>    **Post-#151 ([D-34]):** re-grading a deterministic argmax net against the now-seeded built-in
+>    field at identical seeds is byte-identical, so this spread is also ~0 by construction — the
+>    same class of harness-determinism tripwire as NC1 (nonzero spread = reintroduced entropy), not
+>    an opponent-noise floor. The genuine sampling-noise floor is the paired gate's own different-seed CIs.
 >
 > NC3 (control-arm-vs-base through all four signatures) needs the Wave-1 control arm and stays out
 > of this pre-flight. The shared seed×rotation sweep is extracted to `scripts/lib/behavior-sweep.mjs`

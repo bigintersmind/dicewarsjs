@@ -24,7 +24,7 @@
  *   ... --every-n 2 --max-points 1             # budget escape hatches (skips are logged)
  *   ... --watch --poll-sec 60                  # poll + grade incrementally + alert on regression
  *   ... --rsync-from shodan:/path/to/eval      # pull the eval dir before each walk
- *   ... --test-retest                          # re-grade the argmax once: empirical noise floor
+ *   ... --test-retest                          # re-grade the argmax once: harness-determinism check (~0 post-#151)
  *   ... --out ml/runs/<run>/eval/strength.jsonl --csv
  */
 
@@ -378,7 +378,8 @@ async function runTestRetest(rows) {
   }
   console.log(
     `[curve] test-retest: re-grading ${indexRow.id} at identical settings ` +
-      `(same seeds — the spread is the unseeded-opponent noise floor) ...`
+      `(same seeds — post-#151 every built-in is seed-pure, so this is a harness-determinism ` +
+      `check: ~0 by construction, nonzero = reintroduced entropy) ...`
   );
   const res = await gradeCheckpoint({ indexRow, evalDir, knobs, refNames, gitSha, deps });
   process.stdout.write('\n');
@@ -392,7 +393,7 @@ async function runTestRetest(rows) {
     `[curve] test-retest: first Δlook ${first.deltaVsLook.mean}, retest ${res.row.deltaVsLook.mean}`
   );
   console.log(
-    `[curve] test-retest spread: ${spread.toFixed(2)} pp — the curve's empirical noise floor at these knobs`
+    `[curve] test-retest spread: ${spread.toFixed(2)} pp — expected ~0 post-#151 (harness-determinism check; nonzero = reintroduced entropy)`
   );
   const meta = readJsonOrDie(metaPath, 'strength.meta.json');
   meta.testRetest = {

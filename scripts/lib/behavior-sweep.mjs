@@ -6,9 +6,12 @@
  * A/A negative control (`behavior-preflight.mjs`, PERSONAS §10.5) profiles the base through the
  * EXACT sweep personas are graded on. A re-implementation would test a copy, not the path the gate
  * actually uses — the whole point of an A/A is to exercise the real harness. (The A/A gets its two
- * arms by calling this twice at the SAME seeds: the map is seeded but the heuristic opponents pick
- * with unseeded `Math.random`, so the second pass diverges — that unseeded-opponent noise, with map
- * variance cancelled by the shared seeds, is exactly the noise floor the paired signature gate sees.)
+ * arms by calling this twice at the SAME seeds. Pre-#151 the heuristic opponents picked with
+ * unseeded `Math.random`, so the second pass diverged — that unseeded-opponent noise, with map
+ * variance cancelled by the shared seeds, was the noise floor the paired signature gate sees.
+ * Since #151 every built-in draws from the seeded `game.random()`, so a built-in field yields
+ * identical arms and the A/A degenerates to a harness-determinism check — `signatureNoiseFloor`'s
+ * `zeroNoise` guard reports that condition.)
  *
  * @module scripts/lib/behavior-sweep
  */

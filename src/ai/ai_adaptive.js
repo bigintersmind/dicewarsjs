@@ -39,7 +39,7 @@ export const ai_adaptive = game => {
   if (moves.length === 0) return 0;
 
   // Step 5: Select the best move based on the current strategy
-  const bestMove = selectBestMove(moves, strategy);
+  const bestMove = selectBestMove(moves, strategy, game.random);
 
   // Step 6: Execute the selected move
   game.area_from = bestMove.from;
@@ -847,9 +847,10 @@ const simulateConnectivityImprovement = (game, from, to) => {
  *
  * @param {Array} moves - Sorted list of possible moves
  * @param {Object} strategy - Strategic parameters
+ * @param {() => number} random - Seeded random source from the game view (never Math.random)
  * @returns {Object} The selected move to execute
  */
-const selectBestMove = (moves, strategy) => {
+const selectBestMove = (moves, strategy, random) => {
   if (moves.length === 0) return null;
 
   // Identify if we're in an endgame scenario based on strategy aggression being very high
@@ -860,24 +861,24 @@ const selectBestMove = (moves, strategy) => {
     // Choose more randomly from good moves to create unpredictability
     const randomFactor = Math.min(0.7, strategy.riskTolerance);
 
-    if (Math.random() < randomFactor) {
+    if (random() < randomFactor) {
       // In endgame, consider a wider range of moves, up to half of all possible moves
       const endgameTopCount = Math.max(1, Math.ceil(moves.length * 0.5));
       const endgameTopMoves = moves.slice(0, Math.min(endgameTopCount, moves.length));
 
       // In rare cases, pick a completely random move to break patterns
-      if (Math.random() < 0.2 && endgameTopMoves.length > 1) {
-        return endgameTopMoves[Math.floor(Math.random() * endgameTopMoves.length)];
+      if (random() < 0.2 && endgameTopMoves.length > 1) {
+        return endgameTopMoves[Math.floor(random() * endgameTopMoves.length)];
       }
     }
   }
 
   // Regular non-endgame randomness based on risk tolerance
-  if (Math.random() < strategy.riskTolerance * 0.3) {
+  if (random() < strategy.riskTolerance * 0.3) {
     // Select from top moves (more options with higher risk tolerance)
     const topCount = Math.max(1, Math.ceil(moves.length * strategy.riskTolerance * 0.5));
     const topMoves = moves.slice(0, Math.min(topCount, moves.length));
-    return topMoves[Math.floor(Math.random() * topMoves.length)];
+    return topMoves[Math.floor(random() * topMoves.length)];
   }
 
   // Otherwise return the highest rated move

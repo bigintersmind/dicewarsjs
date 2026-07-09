@@ -58,6 +58,7 @@ Your function receives a `state` object with these fields:
 | `myAreas`       | `BotArea[]`                  | Territories you own                                                               |
 | `allAreas`      | `BotArea[]`                  | All territories on the board                                                      |
 | `players`       | `BotPlayer[]`                | All player stats                                                                  |
+| `random`        | `() => number`               | Seeded drop-in for `Math.random` — floats in `[0, 1)` (see rule 6)                |
 
 ### BotArea
 
@@ -92,6 +93,12 @@ Each player in `players`:
 3. **Attack an enemy**: `to` must be owned by a different player
 4. **Attack a neighbor**: `from` and `to` must be adjacent
 5. **Return the right shape**: `{ from: number, to: number }` or `null`
+6. **Use `state.random()`, never `Math.random`**: matches are seed-reproducible — the same
+   seed must replay the same game for arena ELO, replays, and debugging (issue #151).
+   `state.random()` is a seeded drop-in (floats in `[0, 1)`); each decision gets its own
+   stream, so your bot stays stochastic across seeds while any single seed reproduces
+   exactly. A bot that calls `Math.random` (or any other outside entropy: `Date.now`,
+   `performance.now`, ...) breaks that guarantee.
 
 Invalid moves end your turn immediately. Throwing an exception also ends your turn.
 

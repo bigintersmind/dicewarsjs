@@ -474,8 +474,10 @@ function pBeyondFloor(cmp, tol) {
  * noise and are never the halt criterion.
  *
  * The two arms share map seeds, so the paired Δ CANCELS map variance and isolates the residual noise
- * the paired signature gate itself can't cancel — the heuristic opponents' unseeded Math.random (the
- * same "unseeded-opponent" noise NC2's test-retest measures on the strength metric). A same-policy
+ * the paired signature gate itself can't cancel — historically the heuristic opponents' unseeded
+ * Math.random (the same "unseeded-opponent" noise NC2's test-retest measures on the strength
+ * metric); since #151 seeded every built-in bot, a built-in field leaves no residual noise at all
+ * (the `zeroNoise` case below). A same-policy
  * A/A therefore has E[Δ] = 0; each realized Δ is a random draw of that residual noise, and
  * {@link compareAxis}'s paired CI narrows at feasible run counts (a disjoint-seed A/A would re-inject
  * full map variance).
@@ -575,11 +577,15 @@ export function signatureNoiseFloor(
  *     has them quarantined ({@link isForcedEnd}), collapsing every arm to `nullRun()` ⇒ every axis
  *     NO DATA ⇒ `signatureNoiseFloor.pass === true`. Left unguarded, the pre-flight exits 0
  *     "CLEAR (uncertified)" on exactly the broken harness it exists to catch. `insufficient` flags it.
- *   - **The field actually injected opponent noise.** The A/A's two arms diverge only via the
+ *   - **The field actually injected opponent noise.** Pre-#151 the A/A's two arms diverged via the
  *     heuristic opponents' unseeded `Math.random`; a deterministic `--opponents` field makes arm A ≡
  *     arm B ⇒ every signature axis a zero-width CI ⇒ trivially CERTIFIED — the *strongest* "cleared"
- *     message on a control that measured nothing. `zeroNoise` flags it (a warning, not a halt: a
- *     genuinely deterministic field is a footgun, not a proven failure).
+ *     message on a control that measured nothing. `zeroNoise` flags it (a warning, not a halt).
+ *     Since #151 seeded every built-in bot, arm A ≡ arm B is the EXPECTED state for a built-in
+ *     field: the A/A degenerates to a harness-determinism check (a nonzero self-Δ now means
+ *     reintroduced entropy — a `Math.random` bot or a harness bug), and the paired persona gate
+ *     itself runs with the opponent-noise term genuinely eliminated. Whether NC1 should be
+ *     re-registered around that new meaning is an open ML-workstream question (LOG 2026-07-08).
  *
  * Pure: consumes only the two sweep results (`sweepBot` already returns `played`/`quarantined`) and
  * the NC1 verdict, so it is unit-tested without an arena. The CLI turns `insufficient` into a HALT

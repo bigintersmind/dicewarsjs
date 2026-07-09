@@ -3,6 +3,7 @@ import { createInitialState, getValidMoves } from '../../src/engine/StateManager
 import { generateMap } from '../../src/engine/MapGenerator.js';
 import { createTurnOrder } from '../../src/engine/TurnManager.js';
 import { createRng } from '../../src/engine/rng.js';
+import { createBotState } from '../../src/arena/botState.js';
 import { ai_example } from '../../src/ai/ai_example.js';
 import { ai_default } from '../../src/ai/ai_default.js';
 import { ai_defensive } from '../../src/ai/ai_defensive.js';
@@ -292,4 +293,40 @@ describe('AI strategy compatibility', () => {
       expect(() => runFullAITurn(state, fn)).not.toThrow();
     });
   }
+});
+
+describe('createLegacyGameView random()', () => {
+  it('exposes a seeded random function for the acting player', () => {
+    const state = createTestState();
+    const view = createLegacyGameView(state);
+
+    expect(typeof view.random).toBe('function');
+    const v = view.random();
+    expect(v).toBeGreaterThanOrEqual(0);
+    expect(v).toBeLessThan(1);
+  });
+
+  it('yields the same sequence for the same engine state', () => {
+    const state = createTestState();
+    const a = createLegacyGameView(state);
+    const b = createLegacyGameView(state);
+
+    const seqA = Array.from({ length: 10 }, () => a.random());
+    const seqB = Array.from({ length: 10 }, () => b.random());
+    expect(seqA).toEqual(seqB);
+  });
+
+  it('derives the same stream as the arena BotState path (Node↔browser parity)', () => {
+    // The in-browser path (createLegacyGameView) and the arena path
+    // (createBotState) must produce IDENTICAL draws for the same seat, or a
+    // seed would play out differently in-browser vs. arena/replay (issue #151).
+    const state = createTestState();
+    const actingId = state.turnOrder[state.currentPlayerIndex];
+    const browserView = createLegacyGameView(state);
+    const arenaState = createBotState(state, actingId);
+
+    const browserSeq = Array.from({ length: 10 }, () => browserView.random());
+    const arenaSeq = Array.from({ length: 10 }, () => arenaState.random());
+    expect(browserSeq).toEqual(arenaSeq);
+  });
 });

@@ -164,6 +164,7 @@ When working with AI strategies:
 2. AI functions perform attacks by setting `game.area_from` and `game.area_to` properties.
 3. AI functions have access to the full game state through the game object parameter.
 4. The AI system is designed to be extensible - new strategies can be added by creating a new file in src/ai/.
+5. Randomness must come from `game.random()` (legacy interface) / `state.random()` (BotState) — a seeded per-decision stream. Never `Math.random`: it breaks same-seed match reproducibility (issue #151).
 
 ### Testing Approach
 

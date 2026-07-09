@@ -1,6 +1,6 @@
 import { createBotState } from '../../src/arena/botState.js';
 import { createGame } from '../../src/engine/GameRunner.js';
-import { applyAction } from '../../src/engine/StateManager.js';
+import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
 
 function createTestState(seed = 42) {
   return createGame({ seed, playerCount: 4 });
@@ -251,7 +251,14 @@ describe('createBotState', () => {
     const bs1 = createBotState(state, playerId);
     const bs2 = createBotState(state, playerId);
 
-    expect(bs1).toEqual(bs2);
+    // random is a fresh closure per call, so compare it behaviorally and the
+    // data fields structurally.
+    const { random: rand1, ...data1 } = bs1;
+    const { random: rand2, ...data2 } = bs2;
+    expect(data1).toEqual(data2);
+    expect(Array.from({ length: 5 }, () => rand1())).toEqual(
+      Array.from({ length: 5 }, () => rand2())
+    );
   });
 
   it('does not mutate the original engine state', () => {
@@ -310,5 +317,51 @@ describe('createBotState', () => {
     const playerId = lateState.turnOrder[lateState.currentPlayerIndex];
     const botState = createBotState(lateState, playerId);
     expect(botState.gamePhase).toBe('late');
+  });
+});
+
+describe('createBotState random()', () => {
+  it('exposes a seeded random function on the frozen BotState', () => {
+    const state = createTestState();
+    const playerId = state.turnOrder[state.currentPlayerIndex];
+    const botState = createBotState(state, playerId);
+
+    expect(typeof botState.random).toBe('function');
+    const v = botState.random();
+    expect(v).toBeGreaterThanOrEqual(0);
+    expect(v).toBeLessThan(1);
+  });
+
+  it('yields the same sequence for the same engine state and player', () => {
+    const state = createTestState();
+    const playerId = state.turnOrder[state.currentPlayerIndex];
+    const a = createBotState(state, playerId);
+    const b = createBotState(state, playerId);
+
+    const seqA = Array.from({ length: 10 }, () => a.random());
+    const seqB = Array.from({ length: 10 }, () => b.random());
+    expect(seqA).toEqual(seqB);
+  });
+
+  it('yields different sequences for different players on the same state', () => {
+    const state = createTestState();
+    const seqs = [0, 1].map(playerId => {
+      const botState = createBotState(state, playerId);
+      return Array.from({ length: 10 }, () => botState.random());
+    });
+    expect(seqs[0]).not.toEqual(seqs[1]);
+  });
+
+  it('yields a fresh stream after an action advances the engine rngState', () => {
+    const state = createTestState();
+    const playerId = state.turnOrder[state.currentPlayerIndex];
+    const before = createBotState(state, playerId).random();
+
+    const [move] = getValidMoves(state);
+    const attacked = applyAction(state, { type: 'ATTACK', from: move.from, to: move.to });
+    expect(attacked.rngState).not.toBe(state.rngState);
+
+    const after = createBotState(attacked, playerId).random();
+    expect(after).not.toBe(before);
   });
 });

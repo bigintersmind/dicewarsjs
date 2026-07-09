@@ -21,6 +21,38 @@ Entry template:
 
 ---
 
+## 2026-07-08 — Issue #151: seeded bot RNG — every built-in bot is now seed-pure (eval-harness ripple)
+
+**Phase:** cross-cutting (arena/bot SDK) · **Who:** Claude (implementation); Ivan (approved design)
+
+**Did:**
+
+- Fixed issue #151: `ai_default`/`ai_example`/`ai_adaptive` no longer call `Math.random`. Bots now draw
+  from a seeded per-decision stream — `deriveBotRandom(state.rngState, playerId)` (`src/engine/rng.js`),
+  exposed as `state.random()` on BotState and `game.random()` on both legacy views. Same-seed
+  `runMatch` is now byte-identical for ANY built-in field (regression-locked in
+  `tests/arena/matchDeterminism.test.js`).
+- Emptied `NON_DETERMINISTIC_BOT_IDS` (selfplay-core): the three bots are now eligible for self-play
+  fields; seed-range sharding (D-13) holds for every built-in.
+
+**Learned / decided:**
+
+- **Eval-harness ripple:** the §10.5 NC1 A/A's noise source was exactly the opponents' unseeded
+  `Math.random`. With a built-in field the two same-seed arms are now IDENTICAL — `zeroNoise` fires by
+  construction and NC1 degenerates to a harness-determinism check (nonzero self-Δ = reintroduced
+  entropy). The paired persona gate itself now runs with the opponent-noise term eliminated (tighter
+  CIs, pure signal). Preflight messaging + the live `zeroNoise` test assertion updated to match;
+  EVAL_HARNESS §3.6/§3.9 and PERSONAS §10.5 still describe the pre-#151 noise model.
+- Strength distributions are unchanged (same uniform draws, different reproducible realizations), but
+  any historical single-seed realization won't replay bit-identically — it never did (that was the bug).
+
+**Next:**
+
+- OPEN: re-register NC1's role under the zero-noise reality (keep as determinism tripwire vs. redesign)
+  — needs an ML-workstream decision; update EVAL_HARNESS/PERSONAS wording when made.
+
+---
+
 ## 2026-07-08 — Wave-2 Predator revival: launched, graded, CLOSED under the current wire ([D-33])
 
 **Phase:** Wave 2 (PERSONAS §10.2/§10.8, the Predator slot) · **Who:** Claude (drive launch + grade); Ivan (standing ruling)

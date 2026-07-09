@@ -134,9 +134,10 @@ Verified against the code during the 2026-06-21 analysis:
   feature.
 - **Determinism:** Mulberry32 RNG state lives inside `GameState`, threaded
   through every `applyAction`; same seed → identical game. Pass an explicit
-  `config.seed`, and the policy must avoid `Math.random`. (Note: `ai_default`,
-  `ai_example`, `ai_adaptive` call `Math.random` and are non-reproducible
-  opponents.)
+  `config.seed`, and the policy must avoid `Math.random`. (Historical note:
+  `ai_default`, `ai_example`, `ai_adaptive` called `Math.random` and were
+  non-reproducible opponents until issue #151 moved them to the seeded
+  per-decision `game.random()` — every built-in is seed-pure now.)
 - **Measured throughput:** ~150 games/s/core pure engine (~6.6 ms/game, ~12
   µs/`applyAction`), ~77 g/s with the Strategist heuristic, near-linear across
   cores (the Strategist run hit ~266 g/s on 4 procs ≈ 3.4× its 77 g/s single

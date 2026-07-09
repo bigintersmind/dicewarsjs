@@ -4,6 +4,7 @@
  * Provides utilities for creating mock game objects for AI testing
  */
 import { AreaData } from './areaData.js';
+import { createRng } from '../../src/engine/rng.js';
 
 /**
  * Creates a standardized mock game object for AI testing
@@ -24,6 +25,11 @@ export const createGameMock = (options = {}) => {
     area_from: 0,
     area_to: 0,
     get_pn: vi.fn().mockReturnValue(currentPlayer),
+    /*
+     * Seeded random mirroring the adapters' game.random (issue #151).
+     * Tests needing a specific draw override it: mockGame.random = () => 0.5;
+     */
+    random: createRng(0xb075eed).nextFloat,
   };
 
   // Initialize area data

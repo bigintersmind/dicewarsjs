@@ -73,3 +73,48 @@ export function createRng(seed) {
 
   return { next, nextInt, nextFloat, shuffle, state };
 }
+
+/**
+ * Derive a seeded `random()` function for a bot decision (issue #151).
+ *
+ * Bots must never call the global `Math.random` — it breaks same-seed match
+ * reproducibility. Instead each bot decision gets its own throwaway stream,
+ * derived from the engine's current `state.rngState` mixed with the acting
+ * player's id. Freshness across decisions comes from the engine itself:
+ * `applyAction(ATTACK)` always advances `rngState`, and every applied move sits
+ * between consecutive decisions of a turn, so re-deriving per decision yields a
+ * new stream each time. The playerId mix keeps seats distinct even across a
+ * zero-draw END_TURN (reinforcement placement with nothing to place), and the
+ * `playerId + 1` offset guarantees the bot stream never coincides with the
+ * engine's own `createRng(rngState)` battle stream (`0x9e3779b9` is odd, i.e. a
+ * unit mod 2^32, so times the nonzero `playerId + 1` the product is never 0 mod
+ * 2^32, and the xor always displaces the seed).
+ *
+ * The only state that repeats between two decisions is an invalid-move retry
+ * (no applyAction ran) — the bot then redraws the same values, repeats the
+ * move, and trips the consecutive-invalid cap, exactly like any deterministic
+ * bot today.
+ *
+ * Reproducibility, not secrecy: the derivation is invertible in principle, so
+ * a determined bot could recover engine RNG state from its draws. Community
+ * bots land via reviewed PRs, which is the actual integrity boundary here.
+ *
+ * @param {number} rngState - The engine state's current `rngState` (uint32)
+ * @param {number} playerId - The acting player's id
+ * @returns {() => number} Seeded drop-in for `Math.random`: floats in [0, 1)
+ */
+export function deriveBotRandom(rngState, playerId) {
+  // Fail loud (issue #151's whole point): a non-integer here means a malformed
+  // state reached the bot layer without its RNG/seat wiring. Silently coercing
+  // (`undefined >>> 0` → 0, `Math.imul(NaN, …)` → 0) would fabricate a
+  // degenerate stream — and a NaN playerId would collapse the seed to rngState
+  // itself, the exact mirror of the engine battle stream this offset prevents.
+  if (!Number.isInteger(rngState) || !Number.isInteger(playerId)) {
+    throw new TypeError(
+      `deriveBotRandom: rngState and playerId must be integers, got ` +
+        `rngState=${rngState}, playerId=${playerId}`
+    );
+  }
+  const seed = ((rngState >>> 0) ^ Math.imul(playerId + 1, 0x9e3779b9)) >>> 0;
+  return createRng(seed).nextFloat;
+}

@@ -7,6 +7,8 @@
  * @module arena/botState
  */
 
+import { deriveBotRandom } from '../engine/rng.js';
+
 /**
  * Compute the estimated game phase based on active player count and turn number.
  *
@@ -67,6 +69,8 @@ function computeTurnsUntilActs(players, turnOrder, playerId) {
  *
  * Strips internal fields (grid geometry, RNG state, history) that bots
  * should not depend on. Returns a frozen object to enforce no-mutation.
+ * The raw rngState is exposed only indirectly, as the derived seeded
+ * `random()` function (issue #151).
  *
  * @param {import('../engine/types.js').GameState} state - Engine game state
  * @param {number} playerId - The player this bot is acting for
@@ -132,5 +136,14 @@ export function createBotState(state, playerId) {
     myAreas,
     allAreas,
     players: botPlayers,
+    /*
+     * Seeded drop-in for Math.random (issue #151): derived from rngState +
+     * playerId per decision, so bots stay stochastic yet same-seed matches are
+     * reproducible. This is the ONE spot where a raw-state field crosses into
+     * BotState — as a derived function only, never the rngState value itself.
+     * A function property drops out of JSON serialization, so recorded
+     * trajectories/observations are unaffected.
+     */
+    random: deriveBotRandom(state.rngState, playerId),
   });
 }

@@ -45,24 +45,24 @@ import { updateEloRatings, DEFAULT_RATING } from '../../src/arena/elo.js';
  * identical Strategists 0-attacks and stalemates to `maxTurns` every game — the
  * PLAN's explicit warning); seed-pure so the same seed reproduces the same game
  * on every machine, which is what makes seed-range sharding merge losslessly
- * across boxes (D-13). The three `Math.random` bots (default/example/adaptive)
- * are deliberately excluded — see {@link NON_DETERMINISTIC_BOT_IDS}.
+ * across boxes (D-13).
  *
  * @type {string[]}
  */
 export const DEFAULT_FIELD = ['Strategist', 'Expectimax', 'Lookahead', 'Defensive'];
 
 /**
- * Built-in bots that call `Math.random` and are therefore NOT reproducible from
- * a seed (README "Key grounded facts"). Including one breaks the "same seed →
- * same game" guarantee that seed-range sharding relies on (a given seed yields
- * different games on different machines), so the harness warns when one is
- * selected. The recorded trajectory itself is still valid and replayable — we
- * store the actual moves taken — it just is not reproducible from the seed.
+ * Bots that are NOT reproducible from a seed. Including one breaks the "same
+ * seed → same game" guarantee that seed-range sharding relies on (a given seed
+ * yields different games on different machines), so the harness warns when one
+ * is selected. Empty since issue #151: the three former `Math.random` bots
+ * (default/example/adaptive) now draw from the seeded per-decision
+ * `game.random()`, making every built-in seed-pure. Kept as the registration
+ * point — a future bot that can't be seed-pure goes here.
  *
  * @type {Set<string>}
  */
-export const NON_DETERMINISTIC_BOT_IDS = new Set(['ai_default', 'ai_example', 'ai_adaptive']);
+export const NON_DETERMINISTIC_BOT_IDS = new Set();
 
 /**
  * Resolve bot display names to `{ id, name, fn }` from the built-in registry.

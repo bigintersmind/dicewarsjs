@@ -206,12 +206,13 @@ describe('behavior-preflight — NC1 A/A wiring', () => {
     for (const ax of r.nc1.axes) expect(valid.has(ax.verdict)).toBe(true);
     expect(typeof r.nc1.pass).toBe('boolean');
     expect(r.halt).toBe(exitCode === 2); // halt flag agrees with the exit code
-    // Gap-2 guard: the two arms must genuinely DIVERGE (unseeded-opponent noise) — a stochastic field
-    // (Example + Adaptive both call Math.random) makes zeroNoise false. If opponents ever went
-    // deterministic, or arm B were accidentally arm A, every axis would collapse to a zero-width CI
-    // and this flips true — turning the A/A into a vacuous always-CERTIFY rubber stamp. This deterministic
-    // invariant (arms diverge, both arms live) is safe to assert on a live run; `pass` is not.
-    expect(r.nc1Sample.zeroNoise).toBe(false);
+    // Post-#151 the premise of the old Gap-2 guard inverted: Example + Adaptive now draw from the
+    // seeded game.random(), so a same-seed A/A produces IDENTICAL arms by construction and zeroNoise
+    // must be true. (Pre-#151 this asserted false — the arms diverged via the opponents' unseeded
+    // Math.random.) A false here now means entropy snuck back into a built-in bot or the harness —
+    // exactly what issue #151 fixed. This deterministic invariant is safe to assert on a live run;
+    // `pass` is not.
+    expect(r.nc1Sample.zeroNoise).toBe(true);
     expect(r.nc1Sample.liveRunsA).toBeGreaterThanOrEqual(2);
     expect(r.nc1Sample.liveRunsB).toBeGreaterThanOrEqual(2);
   });

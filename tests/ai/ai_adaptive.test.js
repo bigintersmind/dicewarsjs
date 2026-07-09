@@ -43,14 +43,10 @@ describe('Adaptive AI', () => {
       mockGame.createTerritory(1, 1, 5, { 2: 1 });
       mockGame.createTerritory(2, 2, 1, { 1: 1 });
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       expect(mockGame.area_from).toBe(1);
       expect(mockGame.area_to).toBe(2);
@@ -61,14 +57,10 @@ describe('Adaptive AI', () => {
       mockGame.createTerritory(1, 1, 3, { 2: 1 });
       mockGame.createTerritory(2, 2, 3, { 1: 1 });
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       const result = ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       // Should end turn since attack would be equal dice
       expect(result).toBe(0);
@@ -97,14 +89,10 @@ describe('Adaptive AI', () => {
 
       mockGame.recalculatePlayerStats();
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       // Verify that the AI selects the valid attack in the early game scenario
       expect(mockGame.area_from).toBe(20);
@@ -133,14 +121,10 @@ describe('Adaptive AI', () => {
       mockGame.recalculatePlayerStats();
       mockGame.setPlayerRankings();
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       // Verify that the AI selects the valid attack in the late game scenario
       expect(mockGame.area_from).toBe(25);
@@ -163,14 +147,10 @@ describe('Adaptive AI', () => {
       mockGame.recalculatePlayerStats();
       mockGame.setPlayerRankings();
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       /*
        * The adaptive AI will choose a valid attack based on multiple complex factors
@@ -199,14 +179,10 @@ describe('Adaptive AI', () => {
       mockGame.recalculatePlayerStats();
       mockGame.setPlayerRankings();
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       // When in last place, should target weakest player (player 3)
       expect(mockGame.area_from).toBe(1);
@@ -224,14 +200,10 @@ describe('Adaptive AI', () => {
       mockGame.player[1].area_c = 2;
       mockGame.player[1].area_tc = 1;
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       // The adaptive AI selects from multiple possible scenarios based on complex logic
       const validAttackPairs = [
@@ -262,14 +234,10 @@ describe('Adaptive AI', () => {
       mockGame.createTerritory(6, 1, 3, { 7: 1 }); // Another of our territories
       mockGame.createTerritory(7, 2, 1, { 6: 1 }); // Non-choke point enemy territory
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       // Should prioritize attacking the choke point (territory 2)
       expect(mockGame.area_from).toBe(1);
@@ -296,13 +264,9 @@ describe('Adaptive AI', () => {
       mockGame.recalculatePlayerStats();
 
       // Force a very low risk tolerance with deterministic random
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.1);
+      mockGame.random = vi.fn().mockReturnValue(0.1);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       // Should choose the low-risk attack (territory 1 -> territory 2)
       expect(mockGame.area_from).toBe(1);
@@ -332,14 +296,10 @@ describe('Adaptive AI', () => {
 
       mockGame.recalculatePlayerStats();
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       // Should prefer the attack that reduces border exposure (attack 1)
       expect(mockGame.area_from).toBe(1);
@@ -377,14 +337,10 @@ describe('Adaptive AI', () => {
       mockGame.player[1].area_c = 3; // We have 3 territories total
       mockGame.player[1].area_tc = 2; // But only 2 are connected
 
-      // Mock Math.random to ensure consistent results
-      const originalRandom = Math.random;
-      Math.random = vi.fn().mockReturnValue(0.5);
+      // Pin game.random to ensure consistent results
+      mockGame.random = vi.fn().mockReturnValue(0.5);
 
       ai_adaptive(mockGame);
-
-      // Restore Math.random
-      Math.random = originalRandom;
 
       // Should prefer the attack that improves connectivity (attack 1)
       expect(mockGame.area_from).toBe(1);

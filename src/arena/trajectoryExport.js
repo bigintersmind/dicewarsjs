@@ -129,10 +129,19 @@ function applyRecordedAction(state, action) {
 export function buildStep(state, action, nextState, cached) {
   const playerId = state.turnOrder[state.currentPlayerIndex];
   const isAttack = action.type === ACTION_TYPES.ATTACK;
+  /*
+   * Strip BotState's random() from the recorded observation: an observation is
+   * pure training data, and a function property would silently vanish on JSON
+   * round-trip anyway — dropping it here keeps in-memory steps and
+   * (de)serialized steps identical (live capture vs re-derivation would
+   * otherwise carry distinct closure instances that never compare equal).
+   */
+  const observation = { ...(cached?.observation ?? createBotState(state, playerId)) };
+  delete observation.random;
   return Object.freeze({
     playerId,
     turnNumber: state.turnNumber,
-    observation: cached?.observation ?? createBotState(state, playerId),
+    observation: Object.freeze(observation),
     legalMoves: cached?.legalMoves ?? legalMovesWithStop(state),
     chosenMove: isAttack ? { from: action.from, to: action.to } : STOP,
     outcome: isAttack ? { won: nextState.areas[action.to].owner === playerId } : null,

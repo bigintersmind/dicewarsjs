@@ -1,8 +1,15 @@
 /**
  * Title Screen
  *
- * Player count selection, an optional per-slot bot picker, START and AI vs AI
- * buttons.
+ * The landing page, styled after the original 2001 GAMEDESIGN title screen:
+ * the decoded original wordmark + starburst-dice logo (see titleArt.jsx) over
+ * the live attract-mode board (TitleAttractMode draws on the canvas behind
+ * this screen; the container's `--ui-scrim` tint keeps the UI legible on top
+ * of it). Options follow the original's bare-text language — player counts as
+ * a 4/3 grid of Anton text, red when selected — and START / AI vs AI are the
+ * original's white double-rimmed buttons. Modern additions (map size,
+ * per-slot bot picker, arena/tournament/leaderboard navigation) share those
+ * idioms rather than introducing new chrome.
  *
  * @module ui/TitleScreen
  */
@@ -12,6 +19,7 @@ import { DEFAULT_MAP_SIZE } from '../utils/config.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
+import { TitleWordmark, TitleLogo } from './titleArt.jsx';
 import {
   PLAYER_COLORS_CSS,
   COLORBLIND_PLAYER_COLORS_CSS,
@@ -44,99 +52,180 @@ const { selfPlay: SELF_PLAY_OPTIONS, general: GENERAL_OPTIONS } = getAIStrategie
  */
 const COMMUNITY_OPTIONS = getCommunityBotList();
 
+/*
+ * Classic-button and option-text states (hover/active/focus) can't be done
+ * with inline styles, so the interactive styling lives in this scoped
+ * stylesheet. The white button colors are the original art's exact values
+ * (BT_GRAPH: #fff face, #ccc inner edge, #333 rim) and stay fixed across
+ * themes — they're part of the game's identity, and read well over the
+ * scrimmed board in both. Everything theme-dependent goes through var(--ui-*).
+ */
+const CSS = `
+.dw-btn {
+  font-family: Anton, sans-serif;
+  color: #111111;
+  background: #ffffff;
+  border: 3px solid #333333;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 3px #cccccc, 0 4px 0 rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.12s ease;
+}
+.dw-btn:hover { border-color: #7a7a7a; }
+.dw-btn:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 0 0 3px #cccccc, 0 1px 0 rgba(0, 0, 0, 0.3);
+}
+.dw-btn:focus-visible { outline: 3px solid var(--ui-accent); outline-offset: 3px; }
+
+.dw-opt {
+  font-family: Anton, sans-serif;
+  background: transparent;
+  border: none;
+  padding: 0.1rem 0.4rem;
+  color: var(--ui-text-muted);
+  text-shadow: 0 1px 4px var(--ui-bg);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.dw-opt:hover { color: var(--ui-text); }
+.dw-opt[aria-pressed='true'] { color: var(--ui-accent); }
+.dw-opt:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.dw-hero { display: flex; align-items: center; justify-content: center; }
+.dw-panel { display: flex; flex-direction: column; align-items: flex-start; }
+@media (max-width: 760px) {
+  .dw-hero { flex-direction: column; gap: 1rem; }
+  .dw-panel { align-items: center; }
+  .dw-panel .dw-rows { justify-content: center; }
+}
+
+@keyframes dw-rise {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dw-pop {
+  0% { opacity: 0; transform: scale(0.82) rotate(-3deg); }
+  70% { transform: scale(1.04) rotate(0.5deg); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes dw-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.dw-anim-rise { animation: dw-rise 0.4s ease-out both; }
+.dw-anim-pop { animation: dw-pop 0.45s ease-out 0.1s both; }
+.dw-anim-fade { animation: dw-fade 0.35s ease-out 0.2s both; }
+@media (prefers-reduced-motion: reduce) {
+  .dw-anim-rise, .dw-anim-pop, .dw-anim-fade { animation: none; }
+}
+`;
+
 const STYLE = {
   container: {
+    position: 'relative',
+    minHeight: '100%',
     display: 'flex',
     flexDirection: 'column',
-    justifyContent: 'center',
     alignItems: 'center',
-    minHeight: '100%',
     overflowY: 'auto',
+    padding: '2rem 1rem 1.2rem',
+    background: 'var(--ui-scrim)',
     pointerEvents: 'auto',
     userSelect: 'none',
     color: 'var(--ui-text)',
   },
-  title: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '4rem',
-    color: 'var(--ui-accent)',
-    textShadow: '2px 2px 8px rgba(0, 0, 0, 0.5)',
-    letterSpacing: '0.1em',
-    marginBottom: '2rem',
+  /*
+   * Two auto margins split the free vertical space: the spacer centers the
+   * main block in the space above the copyright line, which stays pinned to
+   * the viewport bottom. On short viewports both collapse to zero and the
+   * screen scrolls normally.
+   */
+  topSpacer: {
+    marginTop: 'auto',
   },
-  playerRow: {
-    display: 'flex',
-    gap: '0.8rem',
-    marginBottom: '1.2rem',
+  wordmark: {
+    width: 'min(92vw, 600px)',
+    height: 'auto',
+    filter: 'drop-shadow(0 5px 14px rgba(0, 0, 0, 0.3))',
+  },
+  hero: {
+    gap: '2.5rem',
     flexWrap: 'wrap',
-    justifyContent: 'center',
+    margin: '1.2rem 0 0',
   },
-  sectionLabel: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.75rem',
-    letterSpacing: '0.12em',
+  logo: {
+    width: 'min(60vw, 250px)',
+    height: 'auto',
+    flexShrink: 0,
+  },
+  panel: {
+    gap: '0.9rem',
+  },
+  optionRows: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    maxWidth: '440px',
+    rowGap: '0.15rem',
+  },
+  playerOpt: {
+    fontSize: '1.25rem',
+  },
+  sizeOpt: {
+    fontSize: '1rem',
     textTransform: 'uppercase',
-    marginBottom: '0.5rem',
+  },
+  eyebrow: {
+    fontFamily: 'Roboto, sans-serif',
+    fontSize: '0.65rem',
+    letterSpacing: '0.16em',
+    textTransform: 'uppercase',
     color: 'var(--ui-text-muted)',
-  },
-  sizeRow: {
-    display: 'flex',
-    gap: '0.8rem',
-    marginBottom: '2rem',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-  playerBtn: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '1.3rem',
-    padding: '0.4rem 1rem',
-    background: 'transparent',
-    border: '2px solid var(--ui-border)',
-    color: 'var(--ui-text-muted)',
-    cursor: 'pointer',
-    borderRadius: '4px',
-    transition: 'all 0.15s',
-  },
-  playerBtnActive: {
-    color: 'var(--ui-accent)',
-    borderColor: 'var(--ui-accent)',
+    marginBottom: '0.15rem',
   },
   buttonRow: {
     display: 'flex',
+    alignItems: 'center',
     gap: '1rem',
-    marginTop: '1rem',
     flexWrap: 'wrap',
-    justifyContent: 'center',
+    marginTop: '0.4rem',
   },
   startBtn: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '1.5rem',
-    padding: '0.6rem 2.5rem',
-    background: 'var(--ui-accent)',
-    border: 'none',
-    color: '#fff',
-    cursor: 'pointer',
-    borderRadius: '6px',
-    letterSpacing: '0.05em',
-    transition: 'background 0.15s',
+    fontSize: 'clamp(1.35rem, 3vw, 1.6rem)',
+    padding: '0.7rem 2.8rem',
   },
   aiBtn: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '1.2rem',
-    padding: '0.6rem 1.5rem',
-    background: 'transparent',
-    border: '2px solid var(--ui-accent)',
-    color: 'var(--ui-accent)',
-    cursor: 'pointer',
-    borderRadius: '6px',
-    letterSpacing: '0.05em',
-    transition: 'all 0.15s',
+    fontSize: '1.05rem',
+    padding: '0.6rem 1.3rem',
+  },
+  navRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1.4rem',
+    flexWrap: 'wrap',
+    marginTop: '0.3rem',
+  },
+  navLink: {
+    fontSize: '0.95rem',
+    textTransform: 'uppercase',
+    padding: '0.1rem 0.2rem',
   },
   copyright: {
     fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.8rem',
+    fontSize: '0.78rem',
     color: 'var(--ui-text-muted)',
-    marginTop: '3rem',
+    textShadow: '0 1px 4px var(--ui-bg)',
+    marginTop: 'auto',
+    paddingTop: '2rem',
+  },
+  copyrightLink: {
+    color: 'inherit',
   },
   errorBanner: {
     background: 'var(--ui-accent-soft)',
@@ -144,7 +233,8 @@ const STYLE = {
     color: 'var(--ui-accent)',
     padding: '0.6rem 1.2rem',
     borderRadius: '6px',
-    marginBottom: '1.5rem',
+    margin: '1rem 0 0',
+    fontFamily: 'Roboto, sans-serif',
     fontSize: '0.95rem',
     maxWidth: '400px',
     textAlign: 'center',
@@ -157,8 +247,8 @@ const STYLE = {
     background: 'transparent',
     border: 'none',
     color: 'var(--ui-text-muted)',
+    textShadow: '0 1px 4px var(--ui-bg)',
     cursor: 'pointer',
-    marginBottom: '0.8rem',
     padding: '0.2rem 0.4rem',
   },
   customizePanel: {
@@ -166,8 +256,13 @@ const STYLE = {
     flexDirection: 'column',
     gap: '0.5rem',
     width: '100%',
-    maxWidth: '320px',
-    marginBottom: '1.5rem',
+    maxWidth: '340px',
+    maxHeight: '38vh',
+    overflowY: 'auto',
+    padding: '0.8rem 1rem',
+    background: 'var(--ui-overlay-bg)',
+    border: '1px solid var(--ui-border)',
+    borderRadius: '10px',
   },
   slotRow: {
     display: 'flex',
@@ -223,6 +318,11 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
   const prefs = useGameStore(store, s => s.preferences);
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const colorNames = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLOR_NAMES : PLAYER_COLOR_NAMES;
+  /*
+   * The system-level preference is handled in CSS (prefers-reduced-motion);
+   * this only needs to honor an explicit in-app "on".
+   */
+  const animate = prefs?.reducedMotion !== 'on';
 
   const [playerCount, setPlayerCount] = useState(7);
   const [mapSize, setMapSize] = useState(DEFAULT_MAP_SIZE);
@@ -262,136 +362,162 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
     onStart({ playerCount, spectator: true, mapSize, aiAssignments: buildAssignments() });
   };
 
+  const navLinks = [
+    onArena && { label: 'Arena', onClick: onArena },
+    onTournament && { label: 'Tournament', onClick: onTournament },
+    onLeaderboard && { label: 'Leaderboard', onClick: onLeaderboard },
+  ].filter(Boolean);
+
   return (
     <div style={STYLE.container}>
-      <h1 style={STYLE.title}>DICE WARS</h1>
+      <style>{CSS}</style>
+      <div style={STYLE.topSpacer} />
+
+      <TitleWordmark className={animate ? 'dw-anim-rise' : ''} style={STYLE.wordmark} />
 
       {error && <div style={STYLE.errorBanner}>{error}</div>}
 
-      <span style={STYLE.sectionLabel}>Players</span>
-      <div style={STYLE.playerRow}>
-        {[2, 3, 4, 5, 6, 7, 8].map(n => (
+      <div className="dw-hero" style={STYLE.hero}>
+        <TitleLogo className={animate ? 'dw-anim-pop' : ''} style={STYLE.logo} />
+
+        <div className={`dw-panel ${animate ? 'dw-anim-fade' : ''}`} style={STYLE.panel}>
+          <div className="dw-rows" role="group" aria-label="Players" style={STYLE.optionRows}>
+            {[2, 3, 4, 5, 6, 7, 8].map(n => (
+              <button
+                key={n}
+                type="button"
+                className="dw-opt"
+                aria-label={`Play with ${n} players`}
+                aria-pressed={n === playerCount}
+                style={STYLE.playerOpt}
+                onClick={() => setPlayerCount(n)}
+              >
+                {n} players
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <div style={STYLE.eyebrow}>Map size</div>
+            <div className="dw-rows" role="group" aria-label="Map size" style={STYLE.optionRows}>
+              {MAP_SIZE_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className="dw-opt"
+                  aria-label={`${opt.label} map`}
+                  aria-pressed={opt.value === mapSize}
+                  style={STYLE.sizeOpt}
+                  onClick={() => setMapSize(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button
-            key={n}
             type="button"
-            aria-label={`Play with ${n} players`}
-            aria-pressed={n === playerCount}
-            style={{
-              ...STYLE.playerBtn,
-              ...(n === playerCount ? STYLE.playerBtnActive : {}),
-            }}
-            onClick={() => setPlayerCount(n)}
+            style={STYLE.disclosureBtn}
+            aria-expanded={showCustomize}
+            onClick={() => setShowCustomize(v => !v)}
           >
-            {n} players
+            {showCustomize ? '▾' : '▸'} Customize players
           </button>
-        ))}
-      </div>
 
-      <span style={STYLE.sectionLabel}>Map size</span>
-      <div style={STYLE.sizeRow}>
-        {MAP_SIZE_OPTIONS.map(opt => (
-          <button
-            key={opt.value}
-            type="button"
-            aria-label={`${opt.label} map`}
-            aria-pressed={opt.value === mapSize}
-            style={{
-              ...STYLE.playerBtn,
-              ...(opt.value === mapSize ? STYLE.playerBtnActive : {}),
-            }}
-            onClick={() => setMapSize(opt.value)}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-
-      <button
-        type="button"
-        style={STYLE.disclosureBtn}
-        aria-expanded={showCustomize}
-        onClick={() => setShowCustomize(v => !v)}
-      >
-        {showCustomize ? '▾' : '▸'} Customize players
-      </button>
-
-      {showCustomize && (
-        <div style={STYLE.customizePanel}>
-          {Array.from({ length: playerCount }, (_, i) => {
-            const colorName = colorNames[i % colorNames.length];
-            return (
-              <div key={i} style={STYLE.slotRow}>
-                <span style={STYLE.slotIdentity}>
-                  <span
-                    style={{ ...STYLE.swatch, background: colorPalette[i % colorPalette.length] }}
-                  />
-                  <span style={STYLE.slotLabel}>{colorName}</span>
-                </span>
-                {i === 0 ? (
-                  <span style={STYLE.humanTag}>You (human)</span>
-                ) : (
-                  <select
-                    aria-label={`Bot for ${colorName} player`}
-                    style={STYLE.select}
-                    value={assignments[i] || 'ai_default'}
-                    onChange={e => handleAssign(i, e.target.value)}
-                  >
-                    <optgroup label="Self-Play">
-                      {SELF_PLAY_OPTIONS.map(ai => (
-                        <option key={ai.id} value={ai.id}>
-                          {ai.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="General">
-                      {GENERAL_OPTIONS.map(ai => (
-                        <option key={ai.id} value={ai.id}>
-                          {ai.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                    {COMMUNITY_OPTIONS.length > 0 && (
-                      <optgroup label="Community">
-                        {COMMUNITY_OPTIONS.map(bot => (
-                          <option key={bot.id} value={`community:${bot.id}`}>
-                            {bot.name}
-                          </option>
-                        ))}
-                      </optgroup>
+          {showCustomize && (
+            <div style={STYLE.customizePanel}>
+              {Array.from({ length: playerCount }, (_, i) => {
+                const colorName = colorNames[i % colorNames.length];
+                return (
+                  <div key={i} style={STYLE.slotRow}>
+                    <span style={STYLE.slotIdentity}>
+                      <span
+                        style={{
+                          ...STYLE.swatch,
+                          background: colorPalette[i % colorPalette.length],
+                        }}
+                      />
+                      <span style={STYLE.slotLabel}>{colorName}</span>
+                    </span>
+                    {i === 0 ? (
+                      <span style={STYLE.humanTag}>You (human)</span>
+                    ) : (
+                      <select
+                        aria-label={`Bot for ${colorName} player`}
+                        style={STYLE.select}
+                        value={assignments[i] || 'ai_default'}
+                        onChange={e => handleAssign(i, e.target.value)}
+                      >
+                        <optgroup label="Self-Play">
+                          {SELF_PLAY_OPTIONS.map(ai => (
+                            <option key={ai.id} value={ai.id}>
+                              {ai.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="General">
+                          {GENERAL_OPTIONS.map(ai => (
+                            <option key={ai.id} value={ai.id}>
+                              {ai.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                        {COMMUNITY_OPTIONS.length > 0 && (
+                          <optgroup label="Community">
+                            {COMMUNITY_OPTIONS.map(bot => (
+                              <option key={bot.id} value={`community:${bot.id}`}>
+                                {bot.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
                     )}
-                  </select>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-      <div style={STYLE.buttonRow}>
-        <button style={STYLE.startBtn} onClick={handleStart}>
-          START
-        </button>
-        <button style={STYLE.aiBtn} onClick={handleAIvsAI}>
-          AI vs AI
-        </button>
-        {onArena && (
-          <button style={STYLE.aiBtn} onClick={onArena}>
-            ARENA
-          </button>
-        )}
-        {onTournament && (
-          <button style={STYLE.aiBtn} onClick={onTournament}>
-            TOURNAMENT
-          </button>
-        )}
-        {onLeaderboard && (
-          <button style={STYLE.aiBtn} onClick={onLeaderboard}>
-            LEADERBOARD
-          </button>
-        )}
+          <div style={STYLE.buttonRow}>
+            <button className="dw-btn" style={STYLE.startBtn} onClick={handleStart}>
+              START
+            </button>
+            <button className="dw-btn" style={STYLE.aiBtn} onClick={handleAIvsAI}>
+              AI vs AI
+            </button>
+          </div>
+
+          {navLinks.length > 0 && (
+            <nav style={STYLE.navRow} aria-label="More game modes">
+              {navLinks.map(link => (
+                <button
+                  key={link.label}
+                  type="button"
+                  className="dw-opt"
+                  style={STYLE.navLink}
+                  onClick={link.onClick}
+                >
+                  {link.label}
+                </button>
+              ))}
+            </nav>
+          )}
+        </div>
       </div>
 
-      <p style={STYLE.copyright}>Copyright (C) 2001 GAMEDESIGN</p>
+      <p className={animate ? 'dw-anim-fade' : ''} style={STYLE.copyright}>
+        Copyright (C) 2001{' '}
+        <a
+          href="https://www.gamedesign.jp/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={STYLE.copyrightLink}
+        >
+          GAMEDESIGN
+        </a>
+      </p>
     </div>
   );
 }

@@ -20,6 +20,7 @@ export const THEMES = {
     uiAccent: '#e94560',
     uiBorder: '#555555',
     bodyBg: '#1a1a2e',
+    uiScrim: 'rgba(16, 16, 32, 0.68)',
   },
   light: {
     bgColor: 0xe8e8f0,
@@ -33,6 +34,7 @@ export const THEMES = {
     uiAccent: '#c0283d',
     uiBorder: '#999999',
     bodyBg: '#e8e8f0',
+    uiScrim: 'rgba(244, 244, 250, 0.7)',
   },
 };
 

@@ -45,6 +45,9 @@ vi.mock('pixi.js', async importOriginal => {
 
       async init() {}
 
+      /* The ResizePlugin surface: _resize() forces it before reading screen dims. */
+      resize() {}
+
       destroy() {}
     },
   };

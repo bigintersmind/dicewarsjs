@@ -35,6 +35,7 @@
 import { existsSync } from 'node:fs';
 
 import { runMatch } from '../src/arena/matchRunner.js';
+import { reportBotErrors } from '../src/arena/botErrorReport.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
 import { makeBC } from '../src/ai/ai_bc.js';
 import { getArg } from './lib/cli-args.mjs';
@@ -207,6 +208,20 @@ const candAtkWin = sweep.perRun[candidateName].attackWinRate;
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 console.log(`\n\nCompleted in ${elapsed}s${failedGames ? ` (${failedGames} games failed)` : ''}\n`);
+
+/*
+ * Broken-candidate check (#92 item 5): the verdict below is driven purely by win%, so a
+ * runtime-broken candidate — a makeBC registration / coordinate-space bug the static parity
+ * check can't catch — wins ~0 games and grades as a legit 0% BEHIND, indistinguishable from a
+ * weak-but-working policy. Surface any tallied bot whose per-turn error fraction is out of
+ * bounds so a wasted run reads as "broken", not "weak". The failure direction is safe (a
+ * 0%-win broken bot can't falsely PASS a must-BEAT gate), so this warns without changing the
+ * exit code — it's diagnosis, mirroring the arenaRunner call shape.
+ */
+reportBotErrors(
+  [candidateName, barName].map(name => ({ name, ...sweep.errorTotals[name] })),
+  { label: '[gate]' }
+);
 
 // --- Report ----------------------------------------------------------------------
 const cw = meanCi(candWin);

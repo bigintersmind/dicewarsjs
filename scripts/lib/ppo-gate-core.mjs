@@ -224,6 +224,7 @@ export function sweepPlan(fieldSize, gamesPerRun) {
  * @param {(info: { seed: number, rotation: number, error: Error }) => void} [args.onMatchError]
  * @returns {Promise<{
  *   perRun: Record<string, { winPct: number[], avgPlacement: number[], attackWinRate: number[] }>,
+ *   errorTotals: Record<string, { errors: number, invalidMoves: number, turns: number, attacks: number }>,
  *   games: number, failedGames: number, attempts: number,
  *   seedsPerRun: number, gamesPerRunActual: number, stride: number
  * }>}
@@ -267,6 +268,18 @@ export async function runGateSweep({
 
   const perRun = {};
   for (const t of tallyNames) perRun[t] = { winPct: [], avgPlacement: [], attackWinRate: [] };
+  /*
+   * Sweep-wide forced-end totals per tallied name, for the broken-candidate check the CLI
+   * runs before trusting the verdict (#92 item 5). The gate is judged purely on win%, so a
+   * runtime-broken candidate (e.g. a makeBC registration / coordinate-space bug the static
+   * parity check can't catch) wins ~0 games and reads as a legit 0% BEHIND — indistinguishable
+   * from a weak-but-working policy. These totals let the caller hand the candidate to
+   * reportBotErrors and print "broken", not just "behind".
+   */
+  const errorTotals = {};
+  for (const t of tallyNames) {
+    errorTotals[t] = { errors: 0, invalidMoves: 0, turns: 0, attacks: 0 };
+  }
   let failedGames = 0;
   let attempts = 0; // every match tried (success or fail) — the abort denominator
   let games = 0;
@@ -306,6 +319,11 @@ export async function runGateSweep({
           rec.placementSum += stat.placement;
           rec.attacks += stat.attacksMade;
           rec.attackWins += stat.attacksWon;
+          const et = errorTotals[t];
+          et.errors += stat.errors;
+          et.invalidMoves += stat.invalidMoves;
+          et.turns += stat.turns;
+          et.attacks += stat.attacksMade;
         }
       }
     }
@@ -333,7 +351,16 @@ export async function runGateSweep({
     });
   }
 
-  return { perRun, games, failedGames, attempts, seedsPerRun, gamesPerRunActual, stride };
+  return {
+    perRun,
+    errorTotals,
+    games,
+    failedGames,
+    attempts,
+    seedsPerRun,
+    gamesPerRunActual,
+    stride,
+  };
 }
 
 /**

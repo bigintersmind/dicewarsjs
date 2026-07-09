@@ -19,6 +19,7 @@ function makeMatch(specs, winner = 0) {
     finalDice: 0,
     attacksMade: s.attacksMade ?? 0,
     attacksWon: s.attacksWon ?? 0,
+    turns: s.turns ?? 0,
     errors: s.errors ?? 0,
     invalidMoves: s.invalidMoves ?? 0,
     maxMovesHit: s.maxMovesHit ?? 0,
@@ -95,13 +96,13 @@ describe('finalizeArenaStats', () => {
   it('flags a bot that errored on most of its turns and warns via the injected sink', () => {
     const warned = [];
     const acc = createArenaAccumulator([{ name: 'broken' }, { name: 'ok' }]);
-    // broken: all errors, no attacks each game → error fraction 1.0
+    // broken: errored on all 20 turns, never landed an attack → error fraction 1.0
     accumulateMatch(
       acc,
       makeMatch(
         [
-          { name: 'broken', errors: 20 },
-          { name: 'ok', attacksMade: 10, attacksWon: 6 },
+          { name: 'broken', turns: 20, errors: 20 },
+          { name: 'ok', turns: 20, attacksMade: 10, attacksWon: 6 },
         ],
         1
       )

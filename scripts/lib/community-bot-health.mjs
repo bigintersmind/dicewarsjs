@@ -43,9 +43,17 @@ import { reportBotErrors } from '../../src/arena/botErrorReport.js';
  */
 export function assessBotMatchHealth(result, botName) {
   const stat = result.botStats.find(s => s.name === botName);
-  const errors = stat ? stat.errors : 0;
-  const invalidMoves = stat ? stat.invalidMoves : 0;
-  const attacksMade = stat ? stat.attacksMade : 0;
+  if (!stat) {
+    // Fail loud: a missing stat is a programming error (wrong name, or a refactor of how
+    // bots are keyed), and defaulting it to healthy would let the very rot this gate exists
+    // to prevent slip through as a clean PASS. The sole caller wraps this in the runMatch
+    // try/catch, so a throw here fails the bot closed — the safe direction for a merge gate.
+    throw new Error(
+      `assessBotMatchHealth: bot "${botName}" not found in result.botStats ` +
+        `(names: ${result.botStats.map(s => s.name).join(', ') || '<none>'})`
+    );
+  }
+  const { errors, invalidMoves, attacksMade } = stat;
 
   // Gate 2: reuse the ranking-side masquerade detector rather than invent a threshold.
   // Swallow its warnings — we surface our own message below.
@@ -55,7 +63,9 @@ export function assessBotMatchHealth(result, botName) {
 
   let reason = null;
   if (errors > 0) {
-    // Gate 1: any thrown exception is a code bug, never legitimate losing.
+    // Gate 1: any thrown exception is a code bug, never legitimate losing. Deliberately
+    // stricter than validate-bot.mjs (the single-bot dev tool), which only WARNs on
+    // errors > 0 — a merge gate should reject a throwing bot, not wave it through.
     reason =
       `bot threw during the test match — ${errors} turn(s) ended in an error ` +
       `(${invalidMoves} invalid move(s), ${attacksMade} attack(s) landed). ` +

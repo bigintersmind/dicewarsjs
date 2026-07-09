@@ -11,6 +11,9 @@ function resultWith(stat) {
   return { botStats: [{ name: 'Bot', attacksMade: 0, errors: 0, invalidMoves: 0, ...stat }] };
 }
 
+/** Look a built-in bot up by name so tests survive a roster reorder (indices shift). */
+const byName = name => BUILT_IN_BOTS.find(b => b.name === name);
+
 describe('assessBotMatchHealth', () => {
   it('passes a healthy bot that landed attacks with no errors or invalid moves', () => {
     const health = assessBotMatchHealth(resultWith({ attacksMade: 45 }), 'Bot');
@@ -49,9 +52,32 @@ describe('assessBotMatchHealth', () => {
     expect(health.reason).toBeNull();
   });
 
+  it('passes a do-nothing bot that never acted (all-zero counters — degenerate, not broken)', () => {
+    // The whole point of gate 2: distinguish "never acted" (a voluntary pass/STOP bot) from
+    // "acted illegally every turn". An all-zero bot must pass, matching botErrorReport's policy.
+    const health = assessBotMatchHealth(resultWith({}), 'Bot');
+    expect(health.ok).toBe(true);
+    expect(health.reason).toBeNull();
+  });
+
+  it('tolerates many invalid moves once the bot has landed at least one valid attack', () => {
+    // Intended policy (reuse reportBotErrors, don't invent a threshold): invalidMoves only
+    // flags when the bot never landed an attack. A bot with attacksMade > 0 is not flagged —
+    // this pins that as a deliberate contract and guards the attacks:attacksMade mapping.
+    const health = assessBotMatchHealth(resultWith({ attacksMade: 5, invalidMoves: 500 }), 'Bot');
+    expect(health.ok).toBe(true);
+    expect(health.reason).toBeNull();
+  });
+
+  it('throws (fails closed) when the bot name is absent from botStats', () => {
+    expect(() => assessBotMatchHealth(resultWith({}), 'Ghost')).toThrow(
+      /not found in result\.botStats/
+    );
+  });
+
   it('catches a bot whose body throws every turn, run through a real match (#148)', () => {
     const throwFn = compileSandboxedBot('throw new Error("boom every turn");', 'ThrowBot');
-    const opponent = BUILT_IN_BOTS[0];
+    const opponent = byName('Example');
     const result = runMatch({
       bots: [{ name: 'ThrowBot', fn: throwFn }, opponent],
       seed: 42,
@@ -66,9 +92,28 @@ describe('assessBotMatchHealth', () => {
     expect(health.reason).toContain(String(health.errors));
   });
 
+  it('catches a bot that returns an invalid move every turn, run through a real match', () => {
+    const garbageFn = compileSandboxedBot('return { from: -1, to: -1 };', 'GarbageBot');
+    const opponent = byName('Example');
+    const result = runMatch({
+      bots: [{ name: 'GarbageBot', fn: garbageFn }, opponent],
+      seed: 42,
+      maxTurns: 200,
+    });
+
+    // Mirror of the throwing-bot test for the invalid-move gate: the engine folds each illegal
+    // move into invalidMoves (never throwing out of runMatch), so the health check must flag it
+    // via the reused reportBotErrors masquerade path.
+    const health = assessBotMatchHealth(result, 'GarbageBot');
+    expect(health.ok).toBe(false);
+    expect(health.invalidMoves).toBeGreaterThan(0);
+    expect(health.attacksMade).toBe(0);
+    expect(health.reason).toMatch(/invalid/i);
+  });
+
   it('passes a real, valid built-in bot run through a real match', () => {
-    const bot = { name: BUILT_IN_BOTS[5].name, fn: BUILT_IN_BOTS[5].fn };
-    const opponent = { name: BUILT_IN_BOTS[0].name, fn: BUILT_IN_BOTS[0].fn };
+    const bot = byName('Lookahead');
+    const opponent = byName('Example');
     const result = runMatch({ bots: [bot, opponent], seed: 42, maxTurns: 200 });
     const health = assessBotMatchHealth(result, bot.name);
     expect(health.ok).toBe(true);

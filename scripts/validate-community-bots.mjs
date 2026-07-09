@@ -21,7 +21,12 @@ import { findRegistryCollisions } from './lib/tournament-field.mjs';
 import { assessBotMatchHealth } from './lib/community-bot-health.mjs';
 import { colors, pass, fail, warn } from './lib/cli-utils.mjs';
 
-const COMMUNITY_DIR = path.resolve(import.meta.dirname, '..', 'community-bots');
+// Default to the checked-in community-bots dir; DICEWARS_COMMUNITY_BOTS_DIR overrides it so
+// a test can point the validator at an isolated fixture dir instead of mutating the shared
+// registry (which would race other suites that read it under vitest's parallel workers).
+const COMMUNITY_DIR = process.env.DICEWARS_COMMUNITY_BOTS_DIR
+  ? path.resolve(process.env.DICEWARS_COMMUNITY_BOTS_DIR)
+  : path.resolve(import.meta.dirname, '..', 'community-bots');
 const REGISTRY_PATH = path.join(COMMUNITY_DIR, 'registry.json');
 
 // --- Load registry ---

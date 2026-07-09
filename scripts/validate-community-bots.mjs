@@ -18,6 +18,7 @@ import { runMatch } from '../src/arena/matchRunner.js';
 import { BUILT_IN_BOTS } from '../src/arena/builtInBots.js';
 import { compileSandboxedBot } from './lib/bot-sandbox.mjs';
 import { findRegistryCollisions } from './lib/tournament-field.mjs';
+import { assessBotMatchHealth } from './lib/community-bot-health.mjs';
 import { colors, pass, fail, warn } from './lib/cli-utils.mjs';
 
 const COMMUNITY_DIR = path.resolve(import.meta.dirname, '..', 'community-bots');
@@ -129,9 +130,23 @@ if (compiledBots.length > 0) {
     const testBots = [bot, opponent];
     try {
       const result = runMatch({ bots: testBots, seed: 42, maxTurns: 200 });
-      pass(
-        `${bot.name}: test match OK (${result.turnCount} turns, winner: ${result.winner !== null ? testBots[result.winner].name : 'stalemate'})`
-      );
+      const winner = result.winner !== null ? testBots[result.winner].name : 'stalemate';
+
+      /*
+       * runMatch swallows a bot's per-turn throws/invalid moves into counters so a broken
+       * bot can't crash the run — which means a fully-broken bot completes the match
+       * cleanly and would otherwise report PASS (#148). Read those counters here.
+       */
+      const health = assessBotMatchHealth(result, bot.name);
+      if (health.ok) {
+        pass(
+          `${bot.name}: test match OK (${result.turnCount} turns, winner: ${winner}, ` +
+            `${health.errors} errors, ${health.invalidMoves} invalid moves)`
+        );
+      } else {
+        fail(`${bot.name}: ${health.reason}`);
+        failures++;
+      }
     } catch (err) {
       fail(`${bot.name}: test match failed: ${err.message}`);
       failures++;

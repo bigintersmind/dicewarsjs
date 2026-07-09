@@ -77,6 +77,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
   let aiRunning = false;
   /** @type {boolean} True when the controller should stop the current AI loop */
   let aiAborted = false;
+  /** @type {import('../engine/types.js').GameState | null} Last state drawn by the replay viewer */
+  let replayRenderedState = null;
 
   /**
    * Build AI assignment array from config.
@@ -723,6 +725,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
   /** Return from replay viewer to the screen that opened it. */
   function goBackFromReplay() {
+    replayRenderedState = null;
     const { replayOrigin } = store.getState();
     if (replayOrigin === 'gameOver') {
       store.setState({ screen: 'gameOver', replayOrigin: null });
@@ -766,14 +769,31 @@ export function createGameController(store, renderer, soundManager, preferencesM
     startTurn();
   }
 
-  /** Redraw the PixiJS canvas to reflect a given game state (used by the replay viewer). */
+  /**
+   * Redraw the PixiJS canvas to reflect a given game state (used by the replay viewer).
+   *
+   * The first call for a replay draws the full map; consecutive steps of the
+   * same game (same grid reference) diff against the last drawn state instead,
+   * which redraws only the territories that changed owner rather than retracing
+   * and rebuilding every territory's Graphics 16×/sec at 8x playback.
+   */
   function updateReplayBoard(state) {
     if (renderer && state) {
       try {
-        renderer.drawMap(state);
+        const prev = replayRenderedState;
+        if (prev && prev.grid === state.grid) {
+          renderer.update(prev, state);
+        } else {
+          renderer.drawMap(state);
+        }
+        replayRenderedState = state;
       } catch (err) {
+        // A failed update() may leave the canvas mid-repaint; drop the cached
+        // state so the next step takes the full-drawMap branch and recovers to
+        // a consistent board instead of diffing against a stale reference.
+        replayRenderedState = null;
         console.error('[GameController] Failed to render replay board:', err);
-        throw new Error('Failed to render the game board for this replay step.');
+        throw new Error('Failed to render the game board for this replay step.', { cause: err });
       }
     }
   }

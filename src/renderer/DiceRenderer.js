@@ -521,9 +521,15 @@ export class DiceRenderer {
     }
     sortedAreas.sort((a, b) => areas[a].centerCell - areas[b].centerCell);
 
-    // Remove and dispose existing dice containers (Graphics + Text) to avoid GPU leaks
+    /*
+     * Remove and dispose existing dice containers (Graphics + Text) to avoid
+     * GPU leaks. `context: true` matters: with a truthy options object,
+     * pixi v8 Graphics.destroy() keeps the owned GraphicsContext alive unless
+     * the option is set explicitly, leaking geometry on every redraw — enough
+     * for steady drawAll callers (replay playback, AI turns) to OOM the tab.
+     */
     for (const child of this.container.removeChildren()) {
-      child.destroy({ children: true });
+      child.destroy({ children: true, context: true });
     }
 
     for (const areaId of sortedAreas) {
@@ -625,6 +631,6 @@ export class DiceRenderer {
 
   /** Clean up. */
   destroy() {
-    this.container.destroy({ children: true });
+    this.container.destroy({ children: true, context: true });
   }
 }

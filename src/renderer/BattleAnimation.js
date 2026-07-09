@@ -51,6 +51,18 @@ export function createBattleAnimation(app) {
     colorBlindMode = enabled;
   }
 
+  /*
+   * Detach and destroy the current play's display objects. removeChildren()
+   * alone leaks each child's GraphicsContext (pixi v8 frees it only on an
+   * explicit destroy({ context: true })), which adds up over the many battles
+   * of a long game.
+   */
+  function disposeChildren() {
+    for (const child of container.removeChildren()) {
+      child.destroy({ children: true, context: true });
+    }
+  }
+
   /**
    * Play a battle animation and return a Promise that resolves when done.
    *
@@ -75,7 +87,7 @@ export function createBattleAnimation(app) {
     return new Promise(resolve => {
       pendingResolve = resolve;
       // Clear previous
-      container.removeChildren();
+      disposeChildren();
       container.visible = true;
 
       // Position at center-bottom of game area
@@ -139,7 +151,7 @@ export function createBattleAnimation(app) {
           if (phase === 3) {
             app.ticker.remove(tick);
             container.visible = false;
-            container.removeChildren();
+            disposeChildren();
             pendingResolve = null;
             resolve();
           }
@@ -147,7 +159,7 @@ export function createBattleAnimation(app) {
           console.error('[BattleAnimation] tick error, aborting:', err);
           app.ticker.remove(tick);
           container.visible = false;
-          container.removeChildren();
+          disposeChildren();
           pendingResolve = null;
           resolve();
         }
@@ -162,7 +174,7 @@ export function createBattleAnimation(app) {
       pendingResolve();
       pendingResolve = null;
     }
-    container.destroy({ children: true });
+    container.destroy({ children: true, context: true });
   }
 
   return { play, destroy, container, setColorBlindMode };

@@ -161,6 +161,7 @@ export function runSelfPlayEpisode(cfg) {
     maxTurns,
     chooseAction,
     onObservation,
+    onStart,
     onTurn,
     terminateOnElimination = false,
   } = cfg;
@@ -244,6 +245,7 @@ export function runSelfPlayEpisode(cfg) {
         seed,
         maxTurns,
         recordHistory: false,
+        onStart,
         onTurn: guardedOnTurn,
       });
       // Learner survived to game-over (won or stalemate-survivor) → identical to the full game.
@@ -255,7 +257,7 @@ export function runSelfPlayEpisode(cfg) {
     }
   }
 
-  const result = runMatch({ bots: roster, seed, maxTurns, recordHistory: false, onTurn });
+  const result = runMatch({ bots: roster, seed, maxTurns, recordHistory: false, onStart, onTurn });
   return summarizeOutcome(result, learnerSeat, playerCount);
 }
 

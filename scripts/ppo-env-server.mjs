@@ -320,8 +320,16 @@ export function shouldRunEpisode(ep, episodes) {
 export function makeShapedEmission({ shapingTracker, maxAreas, learnerSeat }) {
   return {
     /** Clear the per-episode dense-reward cursors (territory baseline + kill count). No-op when off. */
-    reset(initialState) {
-      if (shapingTracker) shapingTracker.reset(initialState);
+
+    reset() {
+      // clear per-episode cursors
+      // (whatever is appropriate for your tracker implementation)
+    },
+
+    onStart(state) {
+      if (shapingTracker) {
+        shapingTracker.reset(state);
+      }
     },
 
     /**
@@ -663,7 +671,7 @@ async function main() {
       const seed = seedBase + ep;
       decisionsThisEpisode = 0;
       // Clear the per-episode dense-reward cursors (territory baseline + kill count). No-op when off.
-      shapedEmission.reset(initialState);
+      shapedEmission.reset();
       // Draw this episode's opponent field from the league (B1: the empty-pool baseline field).
       const { opponents, drawn } = league.draw(seed);
       let result;
@@ -675,6 +683,7 @@ async function main() {
           maxAreas,
           maxTurns,
           chooseAction,
+          onStart: shapedEmission.onStart,
           onTurn: onTurnFn,
           // End the episode at the learner's elimination, not game-over (PPO terminal; ~2×).
           terminateOnElimination: true,

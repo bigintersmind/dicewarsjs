@@ -37,7 +37,7 @@ describe('createRewardShapingTracker — territory delta', () => {
     const t = createRewardShapingTracker(LEARNER);
     t.frameSignals(5);
     t.frameSignals(9);
-   t.reset(stateWith([]));
+    t.reset(stateWith([]));
     // First frame after reset is a fresh baseline → 0, not 9→2.
     expect(t.frameSignals(2)).toEqual({ deltaTerritory: 0, elimsByLearner: 0 });
   });
@@ -45,22 +45,22 @@ describe('createRewardShapingTracker — territory delta', () => {
 
 describe('createRewardShapingTracker — attributed eliminations', () => {
   it('does not credit players already eliminated at episode start', () => {
-  const t = createRewardShapingTracker(LEARNER);
+    const t = createRewardShapingTracker(LEARNER);
 
-  // Player 2 starts the episode already eliminated.
-  t.reset(stateWith([2]));
+    // Player 2 starts the episode already eliminated.
+    t.reset(stateWith([2]));
 
-  // First emitted frame establishes the baseline.
-  t.frameSignals(10);
+    // First emitted frame establishes the baseline.
+    t.frameSignals(10);
 
-  // Learner takes the first turn, but nobody new is eliminated.
-  t.recordTurn(stateWith([2]), LEARNER);
+    // Learner takes the first turn, but nobody new is eliminated.
+    t.recordTurn(stateWith([2]), LEARNER);
 
-  const signals = t.frameSignals(10);
+    const signals = t.frameSignals(10);
 
-  expect(signals.elimsByLearner).toBe(0);
+    expect(signals.elimsByLearner).toBe(0);
   });
-  
+
   it('credits a kill only when it happens during the learner’s own turn', () => {
     const t = createRewardShapingTracker(LEARNER);
     t.frameSignals(10); // baseline frame
@@ -108,7 +108,7 @@ describe('createRewardShapingTracker — attributed eliminations', () => {
     const t = createRewardShapingTracker(LEARNER);
     t.frameSignals(10);
     t.recordTurn(stateWith([1]), LEARNER);
-   t.reset(stateWith([]));
+    t.reset(stateWith([]));
     t.frameSignals(10);
     // Player 1 "eliminated" again in a new episode is a fresh kill, not a deduped no-op.
     t.recordTurn(stateWith([1]), LEARNER);

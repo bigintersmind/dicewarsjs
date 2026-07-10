@@ -11,10 +11,16 @@
  * live attract-mode board. All of it floats on `var(--ui-scrim)` — the same
  * tint the title screen uses over the background game.
  *
- * The white button and the headline bevel keep fixed colors across themes:
- * like the wordmark itself, they're part of the game's identity and read well
- * over the scrimmed board in both dark and light. Everything theme-dependent
- * goes through var(--ui-*).
+ * Also home to the mode rail (`TopNav`): the persistent tab bar App mounts
+ * across the hub screens (NAV_TABS — Battle, Arena, Tournament, Leaderboard).
+ * It replaces the old title-screen nav links and per-screen BACK buttons; the
+ * current tab is set in the logotype bevel at miniature scale, so "where you
+ * are" is always written in the game's own lettering.
+ *
+ * The white button, the headline bevel, and the rail's active-tab bevel keep
+ * fixed colors across themes: like the wordmark itself, they're part of the
+ * game's identity and read well over the scrimmed board in both dark and
+ * light. Everything theme-dependent goes through var(--ui-*).
  *
  * @module ui/menuChrome
  */
@@ -113,14 +119,17 @@ a.dw-btn { display: inline-block; text-decoration: none; }
 
 /** Shared inline-style fragments for menu screens. */
 export const MENU_STYLE = {
-  /** Full-viewport scroll column over the scrimmed live board. */
+  /**
+   * Full-viewport scroll column over the scrimmed live board. The top padding
+   * clears the fixed mode rail (~50px) plus breathing room.
+   */
   container: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     height: '100%',
     overflowY: 'auto',
-    padding: '2rem 1rem 2rem',
+    padding: '4.6rem 1rem 2rem',
     background: 'var(--ui-scrim)',
     pointerEvents: 'auto',
     userSelect: 'none',
@@ -225,5 +234,135 @@ export function MenuScreen({ title, children }) {
       </h1>
       {children}
     </div>
+  );
+}
+
+/**
+ * The hub screens, in rail order. `id` values are `store.screen` names; this
+ * list is also how App decides where the rail shows (and so must stay in sync
+ * with ATTRACT_SCREENS in TitleAttractMode.js — the rail belongs exactly where
+ * the live attract board runs behind the chrome).
+ */
+export const NAV_TABS = [
+  { id: 'title', label: 'Battle' },
+  { id: 'arena', label: 'Arena' },
+  { id: 'tournament', label: 'Tournament' },
+  { id: 'onlineLeaderboard', label: 'Leaderboard' },
+];
+
+/*
+ * Self-contained (not part of CHROME_CSS): the rail is mounted by App outside
+ * the screen switch, so it must stay styled while a lazy screen chunk is still
+ * loading and no screen stylesheet is mounted. The rail band adds a second
+ * layer of --ui-scrim on top of the screen's own, reading as a slightly deeper
+ * strip of the same tint. The active tab is CSS-only: `aria-current="page"`
+ * carries both the semantics and the bevel (declared after :hover so the bevel
+ * wins on an active tab). Fixed bevel colors are titleArt.jsx's wordmark
+ * palette — identity, not theme.
+ */
+const NAV_CSS = `
+.dw-topnav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 900;
+  display: flex;
+  overflow-x: auto;
+  background: var(--ui-scrim);
+  border-bottom: 1px solid var(--ui-border);
+  pointer-events: auto;
+  user-select: none;
+}
+/* margin:auto centers the rail but still yields to the scroll edge when the
+   tabs outgrow a narrow viewport (a flex 'safe center' that works everywhere).
+   The side padding keeps the last tab clear of the settings gear. */
+.dw-topnav-rail {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin: 0 auto;
+  padding: 0 3.4rem;
+}
+.dw-tab {
+  font-family: Anton, sans-serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  border: none;
+  padding: 1rem 0.7rem;
+  color: var(--ui-text-muted);
+  text-shadow: 0 1px 4px var(--ui-bg);
+  cursor: pointer;
+  transition: color 0.12s ease;
+  white-space: nowrap;
+}
+.dw-tab:hover { color: var(--ui-text); }
+.dw-tab:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+/* The logotype bevel, miniaturized. No yellow rim-light at this scale — a
+   15px glyph's strokes are as thin as the rim, which turns it to mush; the
+   orange face + tight brown extrusion is the smallest treatment that still
+   reads as the wordmark (and the dark extrusion keeps it legible over the
+   light theme's pale scrim, exactly like the headline). */
+.dw-tab[aria-current='page'] {
+  color: #ff9c00;
+  text-shadow:
+    1px 1px 0 #875300,
+    2px 2px 0 #4a2d00,
+    1px 3px 6px rgba(0, 0, 0, 0.35);
+  cursor: default;
+}
+@keyframes dw-nav-drop {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: none; }
+}
+.dw-topnav-drop { animation: dw-nav-drop 0.4s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .dw-topnav-drop { animation: none; }
+}
+/* Phones: tighten until all four tabs fit beside the settings gear at 360px.
+   Only the right side needs gear clearance. */
+@media (max-width: 560px) {
+  .dw-tab { font-size: 0.78rem; padding: 1rem 0.35rem; }
+  .dw-topnav-rail { gap: 0.15rem; padding: 0 3rem 0 0.75rem; }
+}
+`;
+
+/**
+ * Persistent mode rail across the hub screens. Pure: the current screen comes
+ * in as a prop and taps report the target screen id back through onNavigate —
+ * App owns the actual controller navigation.
+ *
+ * @param {Object} props
+ * @param {string} props.active - `store.screen` id of the current hub screen
+ * @param {(screenId: string) => void} props.onNavigate - Called with the
+ *   tapped tab's screen id (never the active one)
+ * @param {boolean} [props.animate] - Play the one-time drop-in entrance
+ *   (disabled for the in-app reduced-motion preference; the system-level
+ *   preference is handled in CSS)
+ */
+export function TopNav({ active, onNavigate, animate = true }) {
+  return (
+    <nav className={animate ? 'dw-topnav dw-topnav-drop' : 'dw-topnav'} aria-label="Game screens">
+      <style>{NAV_CSS}</style>
+      <div className="dw-topnav-rail">
+        {NAV_TABS.map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            className="dw-tab"
+            aria-current={tab.id === active ? 'page' : undefined}
+            onClick={tab.id === active ? undefined : () => onNavigate(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    </nav>
   );
 }

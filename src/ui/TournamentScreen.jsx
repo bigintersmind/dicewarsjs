@@ -6,7 +6,7 @@
  * @module ui/TournamentScreen
  */
 
-import { useState, useCallback } from 'preact/hooks';
+import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
 import { runRoundRobin, runSingleElimination } from '../arena/tournament.js';
 import { PLAYER_VISIBLE_BOTS } from '../arena/builtInBots.js';
 import { createReplay } from '../arena/replayFormat.js';
@@ -56,10 +56,9 @@ const STYLE = {
 
 /**
  * @param {Object} props
- * @param {() => void} props.onBack
  * @param {(replay: Object) => void} [props.onViewReplay] - Navigate to replay viewer
  */
-export function TournamentScreen({ onBack, onViewReplay }) {
+export function TournamentScreen({ onViewReplay }) {
   const [selectedBots, setSelectedBots] = useState(new Set(PLAYER_VISIBLE_BOTS.map(b => b.id)));
   const [tournamentType, setTournamentType] = useState('round-robin');
   const [gamesPerRound, setGamesPerRound] = useState(3);
@@ -67,6 +66,20 @@ export function TournamentScreen({ onBack, onViewReplay }) {
   const [result, setResult] = useState(null);
   const [replays, setReplays] = useState([]);
   const [error, setError] = useState(null);
+
+  /*
+   * The mode rail can navigate away mid-run (the old BACK button was disabled
+   * while running; the rail is not). The whole tournament runs in one deferred
+   * macrotask — if the screen unmounts during the 50ms defer, skip it entirely
+   * rather than computing a result nobody will see.
+   */
+  const cancelledRef = useRef(false);
+  useEffect(
+    () => () => {
+      cancelledRef.current = true;
+    },
+    []
+  );
 
   const toggleBot = useCallback(id => {
     setSelectedBots(prev => {
@@ -93,6 +106,7 @@ export function TournamentScreen({ onBack, onViewReplay }) {
     const bots = PLAYER_VISIBLE_BOTS.filter(b => selectedBots.has(b.id));
 
     setTimeout(() => {
+      if (cancelledRef.current) return;
       try {
         const collectedReplays = [];
         const config = {
@@ -218,14 +232,6 @@ export function TournamentScreen({ onBack, onViewReplay }) {
           disabled={!canRun}
         >
           {running ? 'RUNNING...' : 'START TOURNAMENT'}
-        </button>
-        <button
-          className="dw-btn"
-          style={MENU_STYLE.secondaryBtn}
-          onClick={onBack}
-          disabled={running}
-        >
-          BACK
         </button>
       </div>
 

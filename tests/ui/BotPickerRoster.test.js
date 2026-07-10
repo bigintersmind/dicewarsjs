@@ -34,7 +34,7 @@ function mount(Component) {
   container = document.createElement('div');
   document.body.appendChild(container);
   act(() => {
-    render(h(Component, { onBack: vi.fn(), onViewReplay: vi.fn() }), container);
+    render(h(Component, { onViewReplay: vi.fn() }), container);
   });
   return container;
 }

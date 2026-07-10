@@ -53,9 +53,11 @@ describe('App lazy-screen chunk-load failure', () => {
     expect(container.textContent).toContain('Loading');
 
     // Then the rejection propagates and the ErrorBoundary swaps in the reload affordance.
-    await vi.waitFor(() => expect(container.querySelector('button')?.textContent).toBe('Reload'), {
-      timeout: 5000,
-    });
+    // (The mode rail's tabs precede it in the DOM — the rail lives in its own boundary
+    // and must survive a screen-chunk failure — so search all buttons, not the first.)
+    const reloadBtn = () =>
+      [...container.querySelectorAll('button')].find(b => b.textContent === 'Reload');
+    await vi.waitFor(() => expect(reloadBtn()).toBeTruthy(), { timeout: 5000 });
     expect(container.textContent).toContain('reload');
     expect(container.textContent).not.toContain('Try Again');
   });

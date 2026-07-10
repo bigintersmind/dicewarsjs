@@ -1,7 +1,11 @@
 /**
  * Root Application Component
  *
- * Routes between screens based on GameStore state.
+ * Routes between screens based on GameStore state. Renders two layers: a
+ * persistent chrome layer (settings gear, plus the TopNav mode rail on the
+ * hub screens) and the current screen. The chrome sits outside the screen
+ * switch so it survives navigation — the rail must not remount (and replay
+ * its entrance) on every tab change.
  *
  * @module ui/App
  */
@@ -19,6 +23,7 @@ import { OnlineLeaderboardScreen } from './OnlineLeaderboardScreen.jsx';
 import { ReplayViewer } from './ReplayViewer.jsx';
 import { SettingsPanel } from './SettingsPanel.jsx';
 import { ScreenReaderAnnouncer } from './ScreenReaderAnnouncer.jsx';
+import { TopNav, NAV_TABS } from './menuChrome.jsx';
 
 /*
  * Arena & Tournament are the only screens that pull in the bot registry
@@ -38,6 +43,14 @@ const ArenaScreen = lazy(() => import('./ArenaScreen.jsx').then(m => ({ default:
 const TournamentScreen = lazy(() =>
   import('./TournamentScreen.jsx').then(m => ({ default: m.TournamentScreen }))
 );
+
+/** Mode-rail tab id → GameController navigation method. */
+const NAV_METHODS = {
+  title: 'goToTitle',
+  arena: 'goToArena',
+  tournament: 'goToTournament',
+  onlineLeaderboard: 'goToOnlineLeaderboard',
+};
 
 /**
  * Brief full-screen placeholder shown while a code-split screen chunk loads.
@@ -71,6 +84,12 @@ export function App({ store, controller, preferencesManager }) {
   const screen = useGameStore(store, s => s.screen);
   const error = useGameStore(store, s => s.error);
   const currentReplay = useGameStore(store, s => s.currentReplay);
+  const prefs = useGameStore(store, s => s.preferences);
+
+  if (screen === 'replay' && !currentReplay) {
+    controller.goToTitle();
+    return null;
+  }
 
   const settings = preferencesManager ? (
     <SettingsPanel store={store} preferencesManager={preferencesManager} />
@@ -78,99 +97,65 @@ export function App({ store, controller, preferencesManager }) {
 
   const announcer = <ScreenReaderAnnouncer store={store} />;
 
-  if (screen === 'title') {
-    return (
-      <ErrorBoundary>
-        {settings}
+  /* The rail lives exactly on the hub screens (the ATTRACT_SCREENS set). */
+  const isHub = NAV_TABS.some(tab => tab.id === screen);
+
+  const content = (() => {
+    if (screen === 'title') {
+      return (
         <TitleScreen
           store={store}
           error={error}
           onStart={config => controller.startNewGame(config)}
-          onArena={() => controller.goToArena()}
-          onTournament={() => controller.goToTournament()}
-          onLeaderboard={() => controller.goToOnlineLeaderboard()}
         />
-      </ErrorBoundary>
-    );
-  }
-
-  if (screen === 'arena') {
-    return (
-      <ErrorBoundary>
-        {settings}
-        <Suspense fallback={<ScreenLoading />}>
-          <ArenaScreen
-            onBack={() => controller.goToTitle()}
-            onViewReplay={replay => controller.goToReplay(replay)}
-          />
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
-
-  if (screen === 'tournament') {
-    return (
-      <ErrorBoundary>
-        {settings}
-        <Suspense fallback={<ScreenLoading />}>
-          <TournamentScreen
-            onBack={() => controller.goToTitle()}
-            onViewReplay={replay => controller.goToReplay(replay)}
-          />
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
-
-  if (screen === 'onlineLeaderboard') {
-    return (
-      <ErrorBoundary>
-        {settings}
-        <OnlineLeaderboardScreen
-          onBack={() => controller.goToTitle()}
-          onViewReplay={replay => controller.goToReplay(replay)}
-        />
-      </ErrorBoundary>
-    );
-  }
-
-  if (screen === 'replay') {
-    if (!currentReplay) {
-      controller.goToTitle();
-      return null;
+      );
     }
-    return (
-      <ErrorBoundary>
-        {settings}
+
+    if (screen === 'arena') {
+      return (
+        <Suspense fallback={<ScreenLoading />}>
+          <ArenaScreen onViewReplay={replay => controller.goToReplay(replay)} />
+        </Suspense>
+      );
+    }
+
+    if (screen === 'tournament') {
+      return (
+        <Suspense fallback={<ScreenLoading />}>
+          <TournamentScreen onViewReplay={replay => controller.goToReplay(replay)} />
+        </Suspense>
+      );
+    }
+
+    if (screen === 'onlineLeaderboard') {
+      return <OnlineLeaderboardScreen onViewReplay={replay => controller.goToReplay(replay)} />;
+    }
+
+    if (screen === 'replay') {
+      return (
         <ReplayViewer
           replay={currentReplay}
           onStateChange={state => controller.updateReplayBoard(state)}
           onBack={() => controller.goBackFromReplay()}
           overlay={true}
         />
-      </ErrorBoundary>
-    );
-  }
+      );
+    }
 
-  if (screen === 'mapPreview') {
-    return (
-      <ErrorBoundary>
-        {settings}
+    if (screen === 'mapPreview') {
+      return (
         <MapPreview
           store={store}
           onAccept={() => controller.acceptMap()}
           onReject={() => controller.rejectMap()}
         />
-      </ErrorBoundary>
-    );
-  }
+      );
+    }
 
-  if (screen === 'gameOver') {
-    return (
-      <ErrorBoundary>
-        {settings}
-        {announcer}
+    if (screen === 'gameOver') {
+      return (
         <div style={{ height: '100%', position: 'relative' }}>
+          {announcer}
           <GameHUD store={store} />
           <GameOverScreen
             store={store}
@@ -179,19 +164,33 @@ export function App({ store, controller, preferencesManager }) {
             onSpectate={() => controller.startSpectate()}
           />
         </div>
-      </ErrorBoundary>
-    );
-  }
+      );
+    }
 
-  // screen === 'playing'
-  return (
-    <ErrorBoundary>
-      {settings}
-      {announcer}
+    // screen === 'playing'
+    return (
       <div style={{ height: '100%', position: 'relative' }}>
+        {announcer}
         <GameHUD store={store} />
         <GameOverlay store={store} onEndTurn={() => controller.endHumanTurn()} />
       </div>
-    </ErrorBoundary>
+    );
+  })();
+
+  return (
+    <>
+      <ErrorBoundary>
+        {settings}
+        {isHub && (
+          <TopNav
+            active={screen}
+            animate={prefs?.reducedMotion !== 'on'}
+            onNavigate={id => controller[NAV_METHODS[id]]()}
+          />
+        )}
+      </ErrorBoundary>
+      {/* Keyed by screen so a crash caught on one screen never sticks to the next. */}
+      <ErrorBoundary key={screen}>{content}</ErrorBoundary>
+    </>
   );
 }

@@ -8,8 +8,9 @@
  * of it). Options follow the original's bare-text language — player counts as
  * a 4/3 grid of Anton text, red when selected — and START / AI vs AI are the
  * original's white double-rimmed buttons. Modern additions (map size,
- * per-slot bot picker, arena/tournament/leaderboard navigation) share those
- * idioms rather than introducing new chrome.
+ * per-slot bot picker) share those idioms rather than introducing new chrome.
+ * This is the "Battle" tab of the mode rail (menuChrome's TopNav, mounted by
+ * App) — navigation to Arena/Tournament/Leaderboard lives there, not here.
  *
  * @module ui/TitleScreen
  */
@@ -77,7 +78,8 @@ const STYLE = {
     flexDirection: 'column',
     alignItems: 'center',
     overflowY: 'auto',
-    padding: '2rem 1rem 1.2rem',
+    /* Top padding clears the fixed mode rail (~50px). */
+    padding: '4.6rem 1rem 1.2rem',
     background: 'var(--ui-scrim)',
     pointerEvents: 'auto',
     userSelect: 'none',
@@ -145,18 +147,6 @@ const STYLE = {
   aiBtn: {
     fontSize: '1.05rem',
     padding: '0.6rem 1.3rem',
-  },
-  navRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1.4rem',
-    flexWrap: 'wrap',
-    marginTop: '0.3rem',
-  },
-  navLink: {
-    fontSize: '0.95rem',
-    textTransform: 'uppercase',
-    padding: '0.1rem 0.2rem',
   },
   copyright: {
     fontFamily: 'Roboto, sans-serif',
@@ -252,11 +242,8 @@ const STYLE = {
  * @param {Object} props.store - GameStore, used to seed the default bot lineup
  * @param {string | null} [props.error] - Error message to display
  * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, aiAssignments: (string | null)[] }) => void} props.onStart
- * @param {() => void} [props.onArena] - Navigate to arena screen
- * @param {() => void} [props.onTournament] - Navigate to tournament screen
- * @param {() => void} [props.onLeaderboard] - Navigate to online leaderboard screen
  */
-export function TitleScreen({ store, error, onStart, onArena, onTournament, onLeaderboard }) {
+export function TitleScreen({ store, error, onStart }) {
   const prefs = useGameStore(store, s => s.preferences);
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const colorNames = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLOR_NAMES : PLAYER_COLOR_NAMES;
@@ -303,12 +290,6 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
   const handleAIvsAI = () => {
     onStart({ playerCount, spectator: true, mapSize, aiAssignments: buildAssignments() });
   };
-
-  const navLinks = [
-    onArena && { label: 'Arena', onClick: onArena },
-    onTournament && { label: 'Tournament', onClick: onTournament },
-    onLeaderboard && { label: 'Leaderboard', onClick: onLeaderboard },
-  ].filter(Boolean);
 
   return (
     <div style={STYLE.container}>
@@ -430,22 +411,6 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
               AI vs AI
             </button>
           </div>
-
-          {navLinks.length > 0 && (
-            <nav style={STYLE.navRow} aria-label="More game modes">
-              {navLinks.map(link => (
-                <button
-                  key={link.label}
-                  type="button"
-                  className="dw-opt"
-                  style={STYLE.navLink}
-                  onClick={link.onClick}
-                >
-                  {link.label}
-                </button>
-              ))}
-            </nav>
-          )}
         </div>
       </div>
 

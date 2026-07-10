@@ -1,7 +1,8 @@
 /**
  * Game Over Screen
  *
- * Overlay showing the winner with TITLE, HISTORY, and SPECTATE buttons.
+ * Overlay showing the winner with BATTLE (back to the landing screen),
+ * HISTORY, and SPECTATE buttons.
  *
  * @module ui/GameOverScreen
  */
@@ -104,7 +105,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate }) {
       )}
       <div style={STYLE.buttonRow}>
         <button style={STYLE.btn} onClick={onTitle}>
-          TITLE
+          BATTLE
         </button>
         {onHistory && (
           <button style={STYLE.btn} onClick={onHistory}>

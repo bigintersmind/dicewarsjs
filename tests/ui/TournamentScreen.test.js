@@ -20,7 +20,7 @@ let container;
 function renderTournament(props = {}) {
   container = document.createElement('div');
   document.body.appendChild(container);
-  act(() => render(h(TournamentScreen, { onBack: vi.fn(), ...props }), container));
+  act(() => render(h(TournamentScreen, props), container));
 }
 
 const button = text => [...container.querySelectorAll('button')].find(b => b.textContent === text);

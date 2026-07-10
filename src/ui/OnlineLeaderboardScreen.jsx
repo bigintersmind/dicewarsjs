@@ -66,10 +66,9 @@ const STYLE = {
 
 /**
  * @param {Object} props
- * @param {() => void} props.onBack
  * @param {(replay: Object) => void} props.onViewReplay
  */
-export function OnlineLeaderboardScreen({ onBack, onViewReplay }) {
+export function OnlineLeaderboardScreen({ onViewReplay }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [replayError, setReplayError] = useState(null);
@@ -111,9 +110,6 @@ export function OnlineLeaderboardScreen({ onBack, onViewReplay }) {
         <div style={MENU_STYLE.buttonRow}>
           <button className="dw-btn" style={MENU_STYLE.secondaryBtn} onClick={fetchLeaderboard}>
             RETRY
-          </button>
-          <button className="dw-btn" style={MENU_STYLE.secondaryBtn} onClick={onBack}>
-            BACK
           </button>
         </div>
       </MenuScreen>
@@ -178,10 +174,6 @@ export function OnlineLeaderboardScreen({ onBack, onViewReplay }) {
           </div>
         </div>
       )}
-
-      <button className="dw-btn" style={MENU_STYLE.secondaryBtn} onClick={onBack}>
-        BACK
-      </button>
     </MenuScreen>
   );
 }

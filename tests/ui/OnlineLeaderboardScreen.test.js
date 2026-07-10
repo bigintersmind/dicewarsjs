@@ -55,10 +55,7 @@ function mount(props = {}) {
   container = document.createElement('div');
   document.body.appendChild(container);
   act(() => {
-    render(
-      h(OnlineLeaderboardScreen, { onBack: vi.fn(), onViewReplay: vi.fn(), ...props }),
-      container
-    );
+    render(h(OnlineLeaderboardScreen, { onViewReplay: vi.fn(), ...props }), container);
   });
   return container;
 }
@@ -85,7 +82,6 @@ describe('OnlineLeaderboardScreen', () => {
     expect(container.textContent).toContain('Conqueror');
     expect(container.textContent).toContain('42 turns');
     expect(button('WATCH')).toBeTruthy();
-    expect(button('BACK')).toBeTruthy();
   });
 
   it('WATCH fetches the replay, shows a busy label in flight, and hands the JSON to onViewReplay', async () => {
@@ -120,14 +116,11 @@ describe('OnlineLeaderboardScreen', () => {
       .mockImplementationOnce(() => Promise.resolve({ ok: false, status: 503 }))
       .mockImplementation(() => okJson(FIXTURE));
     vi.stubGlobal('fetch', fetchMock);
-    const onBack = vi.fn();
-    mount({ onBack });
+    mount();
 
     await vi.waitFor(() =>
       expect(container.textContent).toContain('Could not load leaderboard: HTTP 503')
     );
-    act(() => button('BACK').click());
-    expect(onBack).toHaveBeenCalledTimes(1);
 
     act(() => button('RETRY').click());
     await vi.waitFor(() => expect(container.textContent).toContain('Conqueror'));

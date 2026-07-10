@@ -26,6 +26,12 @@ const STYLE = {
     padding: '2rem',
     fontFamily: 'sans-serif',
     textAlign: 'center',
+    /*
+     * #app is pointer-events:none (clicks fall through to the Pixi canvas);
+     * every interactive surface must opt back in, or the recovery buttons
+     * render but silently swallow clicks.
+     */
+    pointerEvents: 'auto',
   },
   button: {
     marginTop: '1rem',

@@ -93,14 +93,20 @@ describe('SettingsPanel', () => {
    * -----------------------------------------------------------------------
    */
 
-  it('renders the gear button', () => {
+  it('renders the settings die button', () => {
     renderPanel();
     const btn = container.querySelector('button[aria-label="Settings"]');
     expect(btn).toBeTruthy();
     expect(btn.getAttribute('aria-expanded')).toBe('false');
+
+    // The die art must actually render (an empty pill would be an invisible
+    // trigger), and stay decorative — the button's aria-label is the name.
+    const svg = btn.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg.getAttribute('aria-hidden')).toBe('true');
   });
 
-  it('opens panel on gear button click', () => {
+  it('opens panel on die button click', () => {
     renderPanel();
     const btn = container.querySelector('button[aria-label="Settings"]');
 
@@ -110,7 +116,7 @@ describe('SettingsPanel', () => {
     expect(container.textContent).toContain('SETTINGS');
   });
 
-  it('closes panel on second gear button click', () => {
+  it('closes panel on second die button click', () => {
     renderPanel();
     const btn = container.querySelector('button[aria-label="Settings"]');
 
@@ -129,8 +135,8 @@ describe('SettingsPanel', () => {
 
   it('calls setPref with light theme when selecting Light', () => {
     const { pm } = renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     const darkBtn = optionIn('Theme', 'Dark');
     const lightBtn = optionIn('Theme', 'Light');
@@ -150,8 +156,8 @@ describe('SettingsPanel', () => {
 
   it('shows Off pressed by default and enables color-blind mode when selecting On', () => {
     const { pm } = renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     const onBtn = optionIn('Color-blind', 'On');
     const offBtn = optionIn('Color-blind', 'Off');
@@ -165,8 +171,8 @@ describe('SettingsPanel', () => {
 
   it('disables color-blind mode when selecting Off while enabled', () => {
     const { pm } = renderPanel({}, { colorBlindMode: true });
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     expect(optionIn('Color-blind', 'On').getAttribute('aria-pressed')).toBe('true');
 
@@ -183,8 +189,8 @@ describe('SettingsPanel', () => {
 
   it('calls setPref to switch dice display to number', () => {
     const { pm } = renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     const numberBtn = optionIn('Dice style', 'Number');
     expect(numberBtn).toBeTruthy();
@@ -202,8 +208,8 @@ describe('SettingsPanel', () => {
 
   it('calls setPref to mute when selecting Sound Off', () => {
     const { pm } = renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     const onBtn = optionIn('Sound', 'On');
     const offBtn = optionIn('Sound', 'Off');
@@ -216,8 +222,8 @@ describe('SettingsPanel', () => {
 
   it('calls setPref to unmute when selecting Sound On while muted', () => {
     const { pm } = renderPanel({}, { muted: true });
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     const offBtn = optionIn('Sound', 'Off');
     expect(offBtn.getAttribute('aria-pressed')).toBe('true');
@@ -235,8 +241,8 @@ describe('SettingsPanel', () => {
 
   it('calls setPref with animationSpeed value', () => {
     const { pm } = renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     const speedBtn = optionIn('Speed', '2x');
     expect(speedBtn).toBeTruthy();
@@ -254,8 +260,8 @@ describe('SettingsPanel', () => {
 
   it('calls setPref with reducedMotion value', () => {
     const { pm } = renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     const onBtn = optionIn('Reduce motion', 'On');
     expect(onBtn).toBeTruthy();
@@ -273,8 +279,8 @@ describe('SettingsPanel', () => {
 
   it('closes panel on Escape key', () => {
     renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     expect(container.textContent).toContain('SETTINGS');
 
@@ -282,13 +288,13 @@ describe('SettingsPanel', () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     });
 
-    expect(gearBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(dieBtn.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('closes panel on click outside', () => {
     renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     expect(container.textContent).toContain('SETTINGS');
 
@@ -300,21 +306,21 @@ describe('SettingsPanel', () => {
       outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     });
 
-    expect(gearBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(dieBtn.getAttribute('aria-expanded')).toBe('false');
     document.body.removeChild(outside);
   });
 
   it('stays open when clicking an option inside the panel', () => {
     renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     // A pointerdown inside the panel must not trip the click-outside handler.
     act(() => {
       optionIn('Theme', 'Light').dispatchEvent(new Event('pointerdown', { bubbles: true }));
     });
 
-    expect(gearBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(dieBtn.getAttribute('aria-expanded')).toBe('true');
     expect(container.textContent).toContain('SETTINGS');
   });
 
@@ -326,8 +332,8 @@ describe('SettingsPanel', () => {
 
   it('applies the open animation class by default', () => {
     renderPanel();
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     const panel = container.querySelector('.dw-set-panel');
     expect(panel.classList.contains('dw-set-panel-anim')).toBe(true);
@@ -335,8 +341,8 @@ describe('SettingsPanel', () => {
 
   it('omits the open animation class when reduced motion is on', () => {
     renderPanel({}, { reducedMotion: 'on' });
-    const gearBtn = container.querySelector('button[aria-label="Settings"]');
-    act(() => gearBtn.click());
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
 
     const panel = container.querySelector('.dw-set-panel');
     expect(panel.classList.contains('dw-set-panel-anim')).toBe(false);

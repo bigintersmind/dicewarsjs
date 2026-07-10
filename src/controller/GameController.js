@@ -178,6 +178,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * @param {(string | null)[]} [config.aiAssignments] - Per-slot AI strategy IDs
    *   (index = player slot, null = human). Falls back to the store's current
    *   assignments when omitted.
+   * @param {string} [config.difficulty] - Difficulty mode id ('easy' | 'standard'
+   *   | 'hard' | 'custom') the lineup came from. Persisted for later display;
+   *   the controller itself only consumes aiAssignments.
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
@@ -209,12 +212,14 @@ export function createGameController(store, renderer, soundManager, preferencesM
      */
     const aiAssignments = config.aiAssignments ?? store.getState().config.aiAssignments;
 
+    const difficulty = config.difficulty ?? store.getState().config.difficulty;
+
     /*
      * Update store config. Persist mapSize so a later rejectMap() regenerates
      * at the same size the player chose.
      */
     store.setState({
-      config: { ...store.getState().config, playerCount, mapSize, aiAssignments },
+      config: { ...store.getState().config, playerCount, mapSize, aiAssignments, difficulty },
       humanPlayerIndex: spectator ? null : 0,
     });
 

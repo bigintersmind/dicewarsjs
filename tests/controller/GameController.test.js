@@ -411,6 +411,25 @@ describe('GameController', () => {
 
   /*
    * -----------------------------------------------------------------------
+   * difficulty selection
+   * -----------------------------------------------------------------------
+   */
+
+  describe('difficulty selection', () => {
+    it('persists the chosen difficulty in store config (#167)', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false, difficulty: 'hard' });
+      expect(store.getState().config.difficulty).toBe('hard');
+    });
+
+    it('keeps the stored difficulty when the caller omits it', async () => {
+      store.setState({ config: { ...store.getState().config, difficulty: 'easy' } });
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      expect(store.getState().config.difficulty).toBe('easy');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
    * goToTitle
    * -----------------------------------------------------------------------
    */

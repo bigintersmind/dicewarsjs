@@ -21,6 +21,54 @@ Entry template:
 
 ---
 
+## 2026-07-09 — Issue #154: NC1/NC2 re-registered as harness-determinism tripwires, ENFORCED ([D-34])
+
+**Phase:** eval-harness (decision + enforcement) · **Who:** Claude (scope + doc sync; review pass added the enforcement); Ivan (ratified the decision)
+
+**Did:**
+
+- Resolved the #151 eval-harness ripple left OPEN on 2026-07-08. Ratified [D-34]: **keep** NC1 (the
+  base A/A) and the NC2 `ppo:curve --test-retest` same-seed spread, **re-registered** from
+  opponent-noise-floor estimators to **harness-determinism tripwires** — a nonzero same-seed self-Δ
+  now means reintroduced entropy (a `Math.random` bot violating §3.6 argmax-purity, or a harness
+  bug). The redesign option (inject a stochastic opponent to restore a real floor) was rejected: it
+  fights the #151 seed-purity fix and serves no consumer.
+- **Review pass found the tripwire unenforced and closed the gap.** The first draft registered the
+  role docs-only ("the code already embodies this") — but at runtime nothing tripped: entropy is
+  symmetric noise, so it reads INCONCLUSIVE (small entropy even CERTIFIED), never Holm-BIASED, and
+  the pre-flight exited 0 CLEAR on it. Now `behavior:preflight` **HALTs (exit 2)** on any same-seed
+  divergence (`zeroNoise === false`); `zeroNoise` tightened to per-axis `Δ === 0 && CI === 0` so a
+  constant deterministic offset can't masquerade as zero noise; unit tests cover the
+  constant-offset hole. Verified live by temporarily injecting `Math.random` into `ai_example`:
+  every axis INCONCLUSIVE (confirming Holm can't catch it) and the new halt fired.
+- Doc/wording sync: DECISIONS [D-34]; PERSONAS §10.5 (NC parenthetical + the stale "unseeded-field
+  noise" halt-rule phrasing); EVAL_HARNESS §3.9 (NC1 open-question → resolved, sample-health
+  guards, NC2 block) + §3.6 (purity ↔ tripwire link) + §"As built" contract lines;
+  STRENGTH_CURVE §"Test-retest calibration"; `scripts/ppo-strength-curve.mjs` (`--test-retest`
+  header + log lines: exact-0 same-commit expectation, cross-commit caveat); LOG 2026-07-08 OPEN
+  item closed.
+
+**Learned / decided:**
+
+- The noise floor didn't vanish, it **moved**: the residual _sampling_-noise floor the paired persona
+  gate needs is read directly off the gate's own **different-seed** CIs over the seed sweep. What the
+  same-seed controls (NC1, NC2-retest) used to estimate — the opponents' unseeded `Math.random`
+  divergence — is exactly what #151 eliminated, so their same-seed pairing now cancels to zero and
+  their honest job is a determinism check.
+- **The tripwire's decision rule is the zero-noise invariant, NOT equivalence-+-Holm.** Holm-BIASED
+  detects a systematic mean shift and was deliberately built not to fire on symmetric noise — which
+  is exactly what reintroduced entropy looks like. Holm stays as the which-axis/how-big adjudication
+  layered on top (and the only source of axis detail for a systematic-bias divergence).
+- NC2's recorded spread stays informational in the pre-flight (provenance may predate #151 or cross
+  behavior-changing commits — the curve walker tolerates gitSha drift); the enforced same-process
+  tripwire is NC1. A same-commit retest must spread exactly 0.00, not "~0".
+
+**Next:**
+
+- None for #154 — closed. NC3 (control-vs-base) still waits on the Wave-1 control arm (unrelated).
+
+---
+
 ## 2026-07-08 — Issue #151: seeded bot RNG — every built-in bot is now seed-pure (eval-harness ripple)
 
 **Phase:** cross-cutting (arena/bot SDK) · **Who:** Claude (implementation); Ivan (approved design)
@@ -48,9 +96,11 @@ Entry template:
 
 **Next:**
 
-- OPEN (tracked in #154): re-register NC1's role under the zero-noise reality (keep as determinism
+- ~~OPEN (tracked in #154): re-register NC1's role under the zero-noise reality (keep as determinism
   tripwire vs. redesign) — needs an ML-workstream decision; update EVAL_HARNESS/PERSONAS wording when
-  made.
+  made.~~ **RESOLVED 2026-07-09 ([D-34], #154):** kept as a harness-determinism tripwire (redesign
+  rejected); NC1 + the NC2 test-retest same-seed spread re-registered; PERSONAS §10.5 / EVAL_HARNESS
+  §3.6+§3.9 / `ppo-strength-curve.mjs` wording synced. See the 2026-07-09 entry.
 
 ---
 

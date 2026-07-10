@@ -210,8 +210,9 @@ describe('behavior-preflight — NC1 A/A wiring', () => {
     // seeded game.random(), so a same-seed A/A produces IDENTICAL arms by construction and zeroNoise
     // must be true. (Pre-#151 this asserted false — the arms diverged via the opponents' unseeded
     // Math.random.) A false here now means entropy snuck back into a built-in bot or the harness —
-    // exactly what issue #151 fixed. This deterministic invariant is safe to assert on a live run;
-    // `pass` is not.
+    // exactly what issue #151 fixed — and the CLI HALTs on it (exit 2, the [D-34] determinism
+    // tripwire), which the `r.halt === (exitCode === 2)` assertion above keeps consistent. This
+    // deterministic invariant is safe to assert on a live run; `pass` is not.
     expect(r.nc1Sample.zeroNoise).toBe(true);
     expect(r.nc1Sample.liveRunsA).toBeGreaterThanOrEqual(2);
     expect(r.nc1Sample.liveRunsB).toBeGreaterThanOrEqual(2);

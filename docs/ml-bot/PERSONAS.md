@@ -603,15 +603,30 @@ Numbers: RESULTS.md 2026-07-08.)_
   See EVAL_HARNESS §3.5 "As built".)_
 - **Negative controls (run before grading any persona):** (1) an **A/A profile** of the v3 base
   against itself — signature axes must return |Δ| < MDE/3 (numeric tolerance registered now;
-  restrict the halt rule to signature axes so unseeded-field noise on descriptive axes can't halt
-  the batch); (2) test-retest one checkpoint twice for the gate's empirical noise floor; (3) the
+  restrict the halt rule to signature axes so descriptive-axis noise can't halt
+  the batch); (2) test-retest one checkpoint twice for the gate's noise floor; (3) the
   control arm run through all four signatures **vs the base** (defined explicitly as control-vs-base)
   — if matched-objective fine-tuning alone passes any signature, that signature measures drift,
   not personality: fix before claiming anything.
   - _(Landed 2026-07-05, Wave-0 item 5: NC1 + NC2 + the #97 probe pre-flight ship as `npm run
 behavior:preflight` — see EVAL_HARNESS §3.9. NC1 profiles the base against itself at the SAME
-    seeds (the base is deterministic, so the paired Δ cancels map variance and isolates the
-    unseeded-opponent noise). **Refinement to ratify:** the live n=8 A/A on the v3 base showed the
+    seeds (the base is deterministic, so the paired Δ cancels map variance and — pre-#151 —
+    isolated the unseeded-opponent noise). **Post-#151 ([D-34], ratified 2026-07-09):** issue #151
+    seeded every built-in bot, so a same-seed built-in A/A now yields IDENTICAL arms — `zeroNoise`
+    fires by construction, the floor reads zero, and **NC1 is re-registered as a harness-determinism
+    tripwire, enforced as a HALT**: `behavior:preflight` exits 2 on ANY same-seed divergence, since
+    a nonzero self-Δ = reintroduced entropy (a `Math.random` bot violating the §3.6 argmax-purity
+    rule, or a harness bug). The zero-noise invariant itself is the decision rule; the
+    equivalence-+-Holm refinement below is unchanged but cannot serve that role — it detects a
+    systematic mean shift and was built NOT to fire on symmetric noise, which is what entropy looks
+    like (verified live: a `Math.random` bot reads INCONCLUSIVE on every axis). The residual
+    sampling-noise floor the paired gate still needs is read directly off the gate's own
+    different-seed CIs, not off this same-seed control — the floor didn't vanish, it moved to where
+    it's measured directly. **NC2's same-seed test-retest spread is the same class of check**
+    (exactly 0 for a same-commit retest, since a deterministic argmax re-grade against the seeded
+    field is byte-identical; surfaced with a caveat rather than enforced — a recording may predate
+    #151 or cross behavior-changing commits). **Refinement to ratify:** the live n=8
+    A/A on the v3 base showed the
     registered raw "|Δ| < MDE/3" false-halts `turnsToWin` — a winners-only, high-variance axis whose
     per-run game length swings ≫ tol (Δ ≈ −4.7 ± 9.1) even though the true self-difference is 0. So
     NC1 CERTIFIES an axis only when its paired 95% CI ⊆ ±tol (equivalence). **BIASED** — the halt —

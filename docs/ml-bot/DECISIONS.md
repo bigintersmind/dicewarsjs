@@ -2103,3 +2103,50 @@ grading is unblocked; (c) still deferred.)_
 **Consequence.** The shipped trio — **Conqueror + Blitz + Survivor (v2)** — stands unchanged; Predator was always pre-committed as upside, not gap-fill (§10.8 slate-level). Both run dirs are backed up to the mini (byte-exact per-file SHA, `~/wave2-backup/`); the AtStartup supervisor script + schtasks task are removed (reboot-relaunch hazard). No roster or code change ships from this wave.
 
 **Addendum (same day) — the pre-registered §10.3 attribution diagnostic was RUN, and H2 is CONFIRMED as the binding failure.** `ml/dicewars_ppo/kill_attribution_probe.py` (PR #145) replayed both frozen pilots through the real env stack and computed the GAE advantages the trainer saw (detection cross-validated against the wire, 0/800 episode mismatches). Result: ~84% of kills are non-terminal and pay 1–2 transitions late, and attribution is **inverted, not merely diluted** — the killing attack's advantage sits significantly _below_ its turn-mates' (b15 −0.016 [−0.022, −0.010]; b25 −0.030 [−0.037, −0.024]) while the STOP carrying the payment collects the surplus, **scaling with the bounty** (A_paid − A_kill +0.029 → +0.052). That last number is a causal account of b25's basin: per kill, the current wire reinforces stopping-after-kills harder than killing, which is exactly the `zeroAttackTurnFrac` signature that killed the arm. The offline counterfactual (same trajectories, same critic, payment re-timed onto the killing action) flips sharpness decisively positive (+0.098 / +0.156; kill-is-turn-max 27%→76% / 18%→71%) — so the frame-level fix has a **demonstrated mechanism**, and this decision's revisit clause is evidence-backed rather than assumed. Numbers: RESULTS.md 2026-07-08 §10.2 post-closure diagnostic.
+
+## D-34 — NC1 (and the NC2 test-retest same-seed spread) re-registered as harness-determinism tripwires, not opponent-noise floors · Accepted (2026-07-09) · resolves [#154](https://github.com/bigintersmind/dicewarsjs/issues/154) (follows #151/#152, [D-33](#d-33--wave-2-predator-revival-closed-under-the-current-wire-neither-pilot-clears-the-108-gate--accepted-2026-07-08--resolves-the-personasmd-102-predator-slot))
+
+**Context.** Issue #151 (PR #152) seeded every built-in bot's `game.random()` (`deriveBotRandom`,
+`src/engine/rng.js`), making the whole built-in field seed-pure. The §10.5 negative controls that
+worked by _pairing two same-seed arms_ — **NC1** (the base A/A profile) and **NC2** (`ppo:curve
+--test-retest`, a re-grade of one argmax checkpoint at identical settings) — measured their "noise
+floor" as exactly the opponents' unseeded `Math.random` divergence between the two arms. With a
+seeded field that divergence is gone: same-seed arms are now **identical by construction**, so
+`zeroNoise` fires, the floor reads zero, and both controls degenerate. The live code already
+_detected_ this (`behavior-preflight.mjs`'s `zeroNoise` flag; `behaviorPreflight.test.js` asserts
+`zeroNoise === true`) — but review found it did not _enforce_ it: nothing at runtime tripped on a
+divergence. What was open (#154, LOG 2026-07-08) was the design call, the doc/wording ripple, and
+closing that enforcement gap.
+
+**Decision (ratified — Ivan, 2026-07-09).** **Keep both controls; re-register them from noise-floor
+estimators to harness-determinism tripwires.** A nonzero same-seed self-Δ (NC1) or test-retest
+spread (NC2) now means _reintroduced entropy_ — a bot that smuggled in `Math.random` (violating the
+§3.6 argmax-purity requirement) or a harness nondeterminism bug — which is a genuinely useful thing
+to trip on. **The tripwire's decision rule is the zero-noise invariant itself, enforced as a HALT:**
+`behavior:preflight` exits 2 when the same-seed arms diverge at all (`zeroNoise === false`, which
+requires per-axis Δ exactly 0 AND CI exactly 0 — so a constant deterministic offset can't
+masquerade as "zero noise"). The equivalence-+-Holm adjudication could **not** serve as that rule:
+BIASED detects a _systematic_ mean shift and was deliberately built not to fire on symmetric noise
+— which is exactly what reintroduced entropy looks like (verified live: a `Math.random` bot reads
+INCONCLUSIVE on every axis, and pre-fix the pre-flight exited 0 CLEAR on it; a _small_ entropy
+source would even read CERTIFIED). Holm stays as the which-axis/how-big adjudication layered on
+top. NC2's recorded spread stays informational in the pre-flight (its provenance may predate #151
+or cross commits — the curve walker tolerates gitSha drift); a nonzero recording is surfaced with
+the [D-34] read, and the enforced same-process tripwire is NC1.
+
+**Why not redesign (rejected).** The alternative — inject an intentionally-stochastic opponent to
+restore a real same-seed noise floor — fights the #151 seed-purity fix, requires a special
+non-seeded bot, and serves no consumer: the residual _sampling_-noise floor the paired persona gate
+still needs is read **directly off the gate's own different-seed CIs** over the seed sweep, not off
+a same-seed control. The noise floor didn't vanish; it moved to where it is measured directly.
+
+**Ripple (this change).** Enforcement: `behavior-preflight.mjs` gains the `zeroNoise === false` ⇒
+HALT branch (+ report lines, entropy-aware "uncertified" remedy, NC2 nonzero-recording caveat);
+`behavior-core.mjs` tightens `zeroNoise` to per-axis `ci === 0 && delta === 0` and updates the
+contract docs; unit tests cover the constant-offset hole (`tests/behaviorCore.test.js`) and the
+tripwire wiring note (`tests/scripts/behaviorPreflight.test.js`). Docs: PERSONAS §10.5 (the NC
+parenthetical + the "unseeded-field noise" halt-rule wording), EVAL_HARNESS §3.6 (the purity link) /
+§3.9 (NC1 note resolved, sample-health guards, NC2 block) + the §"As built" contract lines,
+STRENGTH_CURVE §"Test-retest calibration", `scripts/ppo-strength-curve.mjs` (the `--test-retest`
+log lines + header, exact-0 same-commit expectation + cross-commit caveat), and the LOG 2026-07-08
+OPEN item — all synced to this decision.

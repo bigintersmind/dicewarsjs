@@ -124,7 +124,7 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 - **Bot Arena** (src/arena/): Headless bot-vs-bot tournament system — ELO ratings (elo.js), match/tournament runners, custom-bot compilation & validation, replay format. Powers `npm run arena`, the in-game Arena screen, and the CLI bot tooling. See docs/BOT_GUIDE.md for authoring a bot (a function: state → { from, to } | null).
 
-- **GameController** (src/controller/GameController.js): Orchestrates the full game loop — title → mapPreview → playing → gameOver. Handles human input (two-phase click: select from, select to), AI turns with step-by-step animation, and turn advancement. Drives the engine for the real game; its sibling `TitleAttractMode.js` steps a private, decorative AI-vs-AI engine game behind the title screen (the title screen's live background — heuristic bots only, so no persona weight chunks load on the landing page).
+- **GameController** (src/controller/GameController.js): Orchestrates the full game loop — title → mapPreview → playing → gameOver. Handles human input (two-phase click: select from, select to), AI turns with step-by-step animation, and turn advancement. Drives the engine for the real game; its sibling `TitleAttractMode.js` steps a private, decorative AI-vs-AI engine game behind the menu screens (`ATTRACT_SCREENS`: title + arena/tournament/leaderboard, whose chrome floats over the scrimmed live board — heuristic bots only, so no persona weight chunks load on the landing page).
 
 - **GameStore** (src/store/GameStore.js): Observable pub/sub store shared by renderer, controller, and UI. Shallow-merge `setState`, subscriber notification with error isolation.
 

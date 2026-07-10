@@ -1,13 +1,16 @@
 /**
  * Title Attract Mode
  *
- * Plays a slow, fully-AI game on the PixiJS board behind the title screen —
+ * Plays a slow, fully-AI game on the PixiJS board behind the menu screens —
  * the modern take on the original title's pale background map. Purely
  * decorative: it owns a private engine state (never written to the GameStore)
  * and steps it on a timer, so it can't interfere with the GameController's
- * game flow. It runs only while `store.screen === 'title'` and the
- * controller's own rendering only happens on later screens, so the two never
- * draw over each other.
+ * game flow. It runs only while `store.screen` is one of ATTRACT_SCREENS
+ * (title plus the arena/tournament/leaderboard hub screens, which float their
+ * chrome over the same scrimmed board) and the controller's own rendering
+ * only happens on other screens, so the two never draw over each other. The
+ * board persists across hops between attract screens — navigation doesn't
+ * reset the background war.
  *
  * Deliberately uses only lightweight hand-written bots: importing a neural
  * persona here would pull its ~0.5 MB weight chunk into every page load,
@@ -29,6 +32,13 @@ import { AI_STRATEGIES } from '../ai/aiConfig.js';
 
 /** Heuristic-only cast (see module note about persona weight chunks). */
 export const ATTRACT_BOT_IDS = ['ai_default', 'ai_defensive', 'ai_adaptive', 'ai_strategist'];
+
+/**
+ * Screens that show the background game. main.jsx spreads this array into its
+ * canvas-visibility list, so every attract screen automatically shows the
+ * canvas — the mode must never step a board nobody can see.
+ */
+export const ATTRACT_SCREENS = ['title', 'arena', 'tournament', 'onlineLeaderboard'];
 
 /** Board shape for the background game. */
 const ATTRACT_PLAYER_COUNT = 7;
@@ -212,14 +222,16 @@ export function createTitleAttractMode({
   }
 
   /**
-   * Wire lifecycle to the store: run exactly while the title screen is up.
-   * Also honors live changes to the reduced-motion preference.
+   * Wire lifecycle to the store: run exactly while an attract screen is up.
+   * start() is a no-op when already running, so moving between attract
+   * screens keeps the same board going rather than regenerating it. Also
+   * honors live changes to the reduced-motion preference.
    */
   function attach() {
     if (unsubscribeStore) return;
     unsubscribeStore = store.subscribe((s, prev) => {
       if (s.screen === prev.screen) return;
-      if (s.screen === 'title') start();
+      if (ATTRACT_SCREENS.includes(s.screen)) start();
       else stop();
     });
     if (preferencesManager) {
@@ -232,7 +244,7 @@ export function createTitleAttractMode({
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibilityChange);
     }
-    if (store.getState().screen === 'title') start();
+    if (ATTRACT_SCREENS.includes(store.getState().screen)) start();
   }
 
   function destroy() {

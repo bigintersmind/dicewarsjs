@@ -9,95 +9,58 @@
 
 import { useState, useEffect } from 'preact/hooks';
 import { Leaderboard } from './Leaderboard.jsx';
+import { MenuScreen, MENU_STYLE } from './menuChrome.jsx';
 
+/* Screen-specific styles; everything shared comes from MENU_STYLE / dw-* classes. */
 const STYLE = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    height: '100%',
-    pointerEvents: 'auto',
-    userSelect: 'none',
-    padding: '2rem',
-    overflowY: 'auto',
-  },
-  title: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '2.5rem',
-    color: 'var(--ui-accent)',
-    textShadow: '2px 2px 8px rgba(0, 0, 0, 0.5)',
-    letterSpacing: '0.1em',
-    marginBottom: '0.5rem',
-  },
   subtitle: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.85rem',
-    color: 'var(--ui-text-muted)',
-    marginBottom: '1.5rem',
-    textAlign: 'center',
+    ...MENU_STYLE.statsRow,
+    marginTop: '-0.6rem',
+    marginBottom: '1.4rem',
   },
-  section: {
-    marginBottom: '1.5rem',
-    width: '100%',
-    maxWidth: '600px',
-  },
-  sectionTitle: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '1.1rem',
-    color: 'var(--ui-text-muted)',
-    marginBottom: '0.5rem',
-    letterSpacing: '0.05em',
-  },
-  backBtn: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '1.1rem',
-    padding: '0.5rem 1.5rem',
-    background: 'transparent',
-    border: '2px solid var(--ui-accent)',
-    color: 'var(--ui-accent)',
-    cursor: 'pointer',
-    borderRadius: '6px',
-    marginTop: '1rem',
-    transition: 'all 0.15s',
+  tableSection: {
+    maxWidth: '620px',
   },
   replayList: {
     listStyle: 'none',
     padding: 0,
     margin: 0,
+    textAlign: 'left',
   },
   replayItem: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '0.4rem 0.6rem',
+    gap: '0.8rem',
+    padding: '0.45rem 0.2rem',
     borderBottom: '1px solid var(--ui-border)',
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.85rem',
     color: 'var(--ui-text)',
   },
-  replayBtn: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.75rem',
-    padding: '0.2rem 0.6rem',
-    background: 'transparent',
-    border: '1px solid var(--ui-accent)',
-    color: 'var(--ui-accent)',
-    cursor: 'pointer',
-    borderRadius: '4px',
+  /* Compact classic button: thinner rim so the double edge survives the size. */
+  watchBtn: {
+    fontSize: '0.72rem',
+    padding: '0.2rem 0.7rem',
+    borderWidth: '2px',
+    borderRadius: '8px',
+    boxShadow: 'inset 0 0 0 2px #cccccc, 0 2px 0 rgba(0, 0, 0, 0.3)',
+    flexShrink: 0,
   },
-  loading: {
+  message: {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '1rem',
     color: 'var(--ui-text-muted)',
+    textShadow: '0 1px 4px var(--ui-bg)',
     textAlign: 'center',
-    marginTop: '2rem',
+    margin: '1.5rem 0',
   },
-  error: {
+  errorText: {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.9rem',
     color: 'var(--ui-accent)',
     textAlign: 'center',
-    marginTop: '2rem',
+    margin: '0.5rem 0 1rem',
   },
 };
 
@@ -143,36 +106,34 @@ export function OnlineLeaderboardScreen({ onBack, onViewReplay }) {
 
   if (error) {
     return (
-      <div style={STYLE.container}>
-        <h1 style={STYLE.title}>LEADERBOARD</h1>
-        <p style={STYLE.error}>{error}</p>
-        <button style={STYLE.backBtn} onClick={fetchLeaderboard}>
-          RETRY
-        </button>
-        <button style={{ ...STYLE.backBtn, marginTop: '0.5rem' }} onClick={onBack}>
-          BACK
-        </button>
-      </div>
+      <MenuScreen title="LEADERBOARD">
+        <p style={STYLE.errorText}>{error}</p>
+        <div style={MENU_STYLE.buttonRow}>
+          <button className="dw-btn" style={MENU_STYLE.secondaryBtn} onClick={fetchLeaderboard}>
+            RETRY
+          </button>
+          <button className="dw-btn" style={MENU_STYLE.secondaryBtn} onClick={onBack}>
+            BACK
+          </button>
+        </div>
+      </MenuScreen>
     );
   }
 
   if (!data) {
     return (
-      <div style={STYLE.container}>
-        <h1 style={STYLE.title}>LEADERBOARD</h1>
-        <p style={STYLE.loading}>Loading...</p>
-      </div>
+      <MenuScreen title="LEADERBOARD">
+        <p style={STYLE.message}>Loading...</p>
+      </MenuScreen>
     );
   }
 
   const hasResults = data.bots && data.bots.length > 0;
 
   return (
-    <div style={STYLE.container}>
-      <h1 style={STYLE.title}>LEADERBOARD</h1>
-
+    <MenuScreen title="LEADERBOARD">
       {data.updatedAt && (
-        <p style={STYLE.subtitle}>
+        <p className="dw-anim-fade" style={STYLE.subtitle}>
           {data.tournamentCount} tournament{data.tournamentCount !== 1 ? 's' : ''} &middot;{' '}
           {data.totalGamesPlayed} games &middot; Updated{' '}
           {new Date(data.updatedAt).toLocaleDateString()}
@@ -180,42 +141,47 @@ export function OnlineLeaderboardScreen({ onBack, onViewReplay }) {
       )}
 
       {!hasResults && (
-        <p style={STYLE.loading}>No tournament results yet. Check back after the first run!</p>
+        <p style={STYLE.message}>No tournament results yet. Check back after the first run!</p>
       )}
 
       {hasResults && (
-        <div style={STYLE.section}>
-          <Leaderboard bots={data.bots} />
+        <div className="dw-anim-fade" style={{ ...MENU_STYLE.section, ...STYLE.tableSection }}>
+          <div style={MENU_STYLE.panel}>
+            <Leaderboard bots={data.bots} />
+          </div>
         </div>
       )}
 
       {data.replays && data.replays.length > 0 && (
-        <div style={STYLE.section}>
-          <div style={STYLE.sectionTitle}>NOTABLE MATCHES</div>
-          {replayError && <p style={STYLE.error}>{replayError}</p>}
-          <ul style={STYLE.replayList}>
-            {data.replays.map(r => (
-              <li key={r.file} style={STYLE.replayItem}>
-                <span>
-                  {r.bots.join(' vs ')} &mdash; {r.turns} turns
-                  {r.winner && ` (${r.winner} wins)`}
-                </span>
-                <button
-                  style={STYLE.replayBtn}
-                  disabled={loadingReplay === r.file}
-                  onClick={() => handleViewReplay(r.file)}
-                >
-                  {loadingReplay === r.file ? '...' : 'Watch'}
-                </button>
-              </li>
-            ))}
-          </ul>
+        <div className="dw-anim-fade" style={{ ...MENU_STYLE.section, ...STYLE.tableSection }}>
+          <div style={MENU_STYLE.eyebrow}>Notable matches</div>
+          {replayError && <p style={STYLE.errorText}>{replayError}</p>}
+          <div style={MENU_STYLE.panel}>
+            <ul style={STYLE.replayList}>
+              {data.replays.map(r => (
+                <li key={r.file} style={STYLE.replayItem}>
+                  <span>
+                    {r.bots.join(' vs ')} &mdash; {r.turns} turns
+                    {r.winner && ` (${r.winner} wins)`}
+                  </span>
+                  <button
+                    className="dw-btn"
+                    style={STYLE.watchBtn}
+                    disabled={loadingReplay === r.file}
+                    onClick={() => handleViewReplay(r.file)}
+                  >
+                    {loadingReplay === r.file ? '...' : 'WATCH'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
-      <button style={STYLE.backBtn} onClick={onBack}>
+      <button className="dw-btn" style={MENU_STYLE.secondaryBtn} onClick={onBack}>
         BACK
       </button>
-    </div>
+    </MenuScreen>
   );
 }

@@ -39,7 +39,11 @@ const TournamentScreen = lazy(() =>
   import('./TournamentScreen.jsx').then(m => ({ default: m.TournamentScreen }))
 );
 
-/** Brief full-screen placeholder shown while a code-split screen chunk loads. */
+/**
+ * Brief full-screen placeholder shown while a code-split screen chunk loads.
+ * Uses the same scrim as the menu screens so the attract-mode board behind
+ * stays visible and the hand-off doesn't flash a flat panel.
+ */
 function ScreenLoading() {
   return (
     <div
@@ -48,7 +52,7 @@ function ScreenLoading() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'var(--ui-bg)',
+        background: 'var(--ui-scrim)',
         color: 'var(--ui-text-muted)',
         fontSize: '1.1rem',
       }}

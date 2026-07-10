@@ -44,9 +44,9 @@ describe('computeMapLayout', () => {
         expect(layout.x + renderedWidth).toBeLessThanOrEqual(BASE_WIDTH + 0.5);
       });
 
-      it('fits vertically within the base canvas', () => {
+      it('never overlaps the HUD strip at the bottom', () => {
         const renderedHeight = height * CELL_HEIGHT * layout.scale;
-        expect(layout.y + renderedHeight).toBeLessThanOrEqual(BASE_HEIGHT + 0.5);
+        expect(layout.y + renderedHeight).toBeLessThanOrEqual(BASE_HEIGHT - HUD_BAR_HEIGHT + 0.5);
       });
 
       it('never rises above MAP_TOP_MARGIN', () => {
@@ -80,5 +80,16 @@ describe('computeMapLayout', () => {
     const mapPixelWidth = 28 * CELL_WIDTH;
     const expectedX = BASE_WIDTH / 2 - mapPixelWidth / 2 - CELL_WIDTH / 4;
     expect(computeMapLayout(28, 32).x).toBeCloseTo(expectedX, 6);
+  });
+
+  it('caps scale on height for tall grids and pins them to MAP_TOP_MARGIN', () => {
+    // No shipping preset is height-bound (Large is width-bound), so without
+    // this synthetic grid the availHeight/mapPixelHeight term in the scale
+    // Math.min could be deleted with every other test still passing.
+    const bandHeight = BASE_HEIGHT - MAP_TOP_MARGIN - HUD_BAR_HEIGHT;
+    const layout = computeMapLayout(20, 50); // 900px tall > the 740px band
+    expect(layout.scale).toBeCloseTo(bandHeight / (50 * CELL_HEIGHT), 6);
+    // Fully height-capped → zero slack to split, so y sits at the margin.
+    expect(layout.y).toBeCloseTo(MAP_TOP_MARGIN, 6);
   });
 });

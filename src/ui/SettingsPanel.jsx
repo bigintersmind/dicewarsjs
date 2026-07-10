@@ -12,7 +12,9 @@
  * Mounted by App on every screen — including 'playing', where no menu screen
  * (and so no CHROME_CSS <style>) is in the DOM — so, like TopNav, it renders
  * its own stylesheet: CHROME_CSS for the shared option idiom plus its own
- * scoped rules. Duplicate mounts are harmless (identical rules).
+ * scoped rules. Duplicate CHROME_CSS mounts are harmless (identical rules), and
+ * SETTINGS_CSS's one override of a shared rule (.dw-opt.dw-set-opt) is written
+ * to win on specificity, so mount order between the two <style>s doesn't matter.
  *
  * @module ui/SettingsPanel
  */
@@ -118,14 +120,18 @@ const SETTINGS_CSS = `
   color: var(--ui-text-muted);
   margin-bottom: 0.1rem;
 }
-/* Negative margin cancels the first/last .dw-opt padding so option text
+/* Negative margin cancels the first/last .dw-set-opt padding so option text
    left-aligns with the eyebrow inside the tight card. */
 .dw-set-row {
   display: flex;
   flex-wrap: wrap;
   margin: 0 -0.45rem;
 }
-.dw-set-opt {
+/* Doubled class (.dw-opt.dw-set-opt) so this padding override outranks the base
+   .dw-opt on specificity, not source order: on hub screens a second CHROME_CSS
+   copy mounts after this <style>, and an equal-specificity rule would let its
+   .dw-opt win the tie and shift the option text out of eyebrow alignment. */
+.dw-opt.dw-set-opt {
   font-size: 0.95rem;
   text-transform: uppercase;
   padding: 0.12rem 0.45rem;

@@ -148,17 +148,31 @@ describe('SettingsPanel', () => {
    * -----------------------------------------------------------------------
    */
 
-  it('calls setPref to enable color-blind mode', () => {
+  it('shows Off pressed by default and enables color-blind mode when selecting On', () => {
     const { pm } = renderPanel();
     const gearBtn = container.querySelector('button[aria-label="Settings"]');
     act(() => gearBtn.click());
 
     const onBtn = optionIn('Color-blind', 'On');
-    expect(onBtn).toBeTruthy();
+    const offBtn = optionIn('Color-blind', 'Off');
+    expect(offBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(onBtn.getAttribute('aria-pressed')).toBe('false');
 
     act(() => onBtn.click());
 
     expect(pm.set).toHaveBeenCalledWith('colorBlindMode', true);
+  });
+
+  it('disables color-blind mode when selecting Off while enabled', () => {
+    const { pm } = renderPanel({}, { colorBlindMode: true });
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    expect(optionIn('Color-blind', 'On').getAttribute('aria-pressed')).toBe('true');
+
+    act(() => optionIn('Color-blind', 'Off').click());
+
+    expect(pm.set).toHaveBeenCalledWith('colorBlindMode', false);
   });
 
   /*
@@ -288,6 +302,44 @@ describe('SettingsPanel', () => {
 
     expect(gearBtn.getAttribute('aria-expanded')).toBe('false');
     document.body.removeChild(outside);
+  });
+
+  it('stays open when clicking an option inside the panel', () => {
+    renderPanel();
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    // A pointerdown inside the panel must not trip the click-outside handler.
+    act(() => {
+      optionIn('Theme', 'Light').dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    });
+
+    expect(gearBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('SETTINGS');
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Open animation
+   * -----------------------------------------------------------------------
+   */
+
+  it('applies the open animation class by default', () => {
+    renderPanel();
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    const panel = container.querySelector('.dw-set-panel');
+    expect(panel.classList.contains('dw-set-panel-anim')).toBe(true);
+  });
+
+  it('omits the open animation class when reduced motion is on', () => {
+    renderPanel({}, { reducedMotion: 'on' });
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    const panel = container.querySelector('.dw-set-panel');
+    expect(panel.classList.contains('dw-set-panel-anim')).toBe(false);
   });
 
   /*

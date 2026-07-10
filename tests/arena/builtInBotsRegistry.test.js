@@ -8,9 +8,9 @@
  * from issue #164. That contract lives entirely in data (the `hidden`/`persona`
  * flags + the derived strength-ordered `PLAYER_VISIBLE_BOTS`), so a one-line
  * edit — dropping a `hidden: true`, forgetting a `persona: true`, or changing
- * the order — would silently re-leak bots or misorient the picker with every
- * other test still green. These assertions pin the exact split and order so
- * regression turns a test red.
+ * the order — would silently re-leak bots (flag edits) or reorder the
+ * Arena/Tournament rosters (order edits) with every other test still green.
+ * These assertions pin the exact split and order so regression turns a test red.
  */
 import { BUILT_IN_BOTS, PLAYER_VISIBLE_BOTS } from '../../src/arena/builtInBots.js';
 

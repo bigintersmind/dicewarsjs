@@ -115,7 +115,7 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
   - ai_defensive: Prioritizes protecting vulnerable territories — **Hidden from players** (#164 roster trim) — dev/eval + CLI-by-name only, though attract mode's decorative board (ATTRACT_BOT_IDS) still plays it behind the menus
   - ai_example: Basic implementation for educational purposes — **Hidden from players** (#164 roster trim) — dev/eval + CLI-by-name only
   - ai_adaptive: Adapts strategy based on game conditions
-  - ai_strategist: Expected-value strategy using exact dice odds and connectivity economics (strongest hand-written/heuristic bot; authored by Claude Opus 4.8)
+  - ai_strategist: Expected-value strategy using exact dice odds and connectivity economics (second-strongest hand-written bot — ai_lookahead's search outranks it by measured arena strength; authored by Claude Opus 4.8)
   - ai_lookahead: Standalone shallow-expectimax search over win/loss branches with board-value evaluation (authored by GPT-5.5)
   - ai_expectimax: Chance-node expectimax over the exact battle distribution — the "search-first" ML-bot baseline (docs/ml-bot/), at parity with ai_lookahead — **Hidden from players** (#164 roster trim) — dev/eval + CLI-by-name only
   - ai_bc: Behavioral-cloning net that imitates ai_lookahead, running in-browser via a pure-JS forward pass (bcForward.js) over exported weights (bcPolicyWeights.js); ml-bot Phase 2. **Hidden from players** ([D-27]) — flagged `hidden` in builtInBots.js, kept only as a dev/eval-harness bot (not in the in-game picker, the arena/tournament UI, or the gate field)

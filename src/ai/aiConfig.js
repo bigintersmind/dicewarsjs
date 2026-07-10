@@ -101,8 +101,9 @@ export const AI_STRATEGIES = {
   /*
    * Hidden from the player picker (#164 roster trim) — getAIStrategiesByCategory()
    * filters `hidden`, but the entries stay registered: getAIById/getAIImplementation
-   * still resolve them (attract mode loads ai_defensive through this registry), and
-   * the mirror flags live in builtInBots.js for the arena-side lists.
+   * still resolve them, attract mode reads `AI_STRATEGIES[id].loader` directly
+   * (ATTRACT_BOT_IDS includes ai_defensive), and the mirror flags live in
+   * builtInBots.js for the arena-side lists.
    */
   ai_defensive: {
     id: 'ai_defensive',
@@ -222,12 +223,13 @@ export function getAIStrategiesByCategory() {
 }
 
 /**
- * Default AI assignments — kept in sync with GameStore's default lineup.
- * Currently unused at runtime (createAIFunctionMapping has no callers);
- * GameController reads the store config instead.
+ * Default AI assignments — mirrors slots 1-7 of GameStore's default lineup
+ * (the store's slot 0 is null, the human seat; slot 0 here is arbitrary since
+ * nothing consumes it). Currently unused at runtime (createAIFunctionMapping
+ * has no callers); GameController reads the store config instead.
  */
 export const DEFAULT_AI_ASSIGNMENTS = [
-  'ai_conqueror', // Player 0 (human seat; a bot only if used for spectator-style mapping)
+  'ai_conqueror', // Player 0 (the store uses null here — the human seat)
   'ai_conqueror', // Player 1
   'ai_blitz', // Player 2
   'ai_survivor', // Player 3

@@ -11,7 +11,7 @@
  *    default arena field import that derived list.
  *  - **The dev ML eval harness** (`ppo:gate`, `behavior:profile`, the PFSP league)
  *    imports the full `BUILT_IN_BOTS`, so `PPO` stays available as the strength baseline.
- *    The gate's reference field excludes `persona`-tagged bots (see `ppo-gate-core.js`)
+ *    The gate's reference field excludes `persona`-tagged bots (see `scripts/lib/ppo-gate-core.mjs`)
  *    so adding personas here does NOT change the canonical gate table.
  *
  * @module arena/builtInBots
@@ -98,10 +98,11 @@ export const BUILT_IN_BOTS = [
 
 /**
  * The player-facing roster, strongest first: the three self-play personas, then the
- * hand-written heuristics by measured strength. Every list a player sees — the
- * title-screen picker's sibling registry, the Arena/Tournament screens, the CLI arena
- * default field, and the online tournament — derives from this array, so
- * "strongest bots first" lives here (#164).
+ * hand-written heuristics by measured strength. Every arena-side list a player sees —
+ * the Arena/Tournament screens, the CLI arena default field, and the online
+ * tournament — derives from this array (#164). The title-screen picker instead reads
+ * the sibling aiConfig.js registry, whose insertion order must be edited by hand to
+ * match this one; the cross-registry drift tests pin the two orders together.
  *
  * An explicit id list (not a `.filter`) so the order is a deliberate roster decision;
  * the guards below throw at import time if it drifts from BUILT_IN_BOTS, so adding or

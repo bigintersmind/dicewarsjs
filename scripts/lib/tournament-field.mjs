@@ -8,8 +8,8 @@
  *
  * Two invariants this module exists to protect (both were live foot-guns):
  *  1. **Player-visible roster only.** The public leaderboard must not surface the
- *     hidden dev-harness nets (`BC`/`PPO`) — so the field is built from
- *     {@link PLAYER_VISIBLE_BOTS}, not the full `BUILT_IN_BOTS`.
+ *     hidden bots (the `BC`/`PPO` dev nets plus the #164-trimmed heuristics) — so
+ *     the field is built from {@link PLAYER_VISIBLE_BOTS}, not the full `BUILT_IN_BOTS`.
  *  2. **No name collisions.** `runArena`/`runRoundRobin` reject a field with any
  *     duplicate name. A built-in and a community bot can share a name (e.g. the
  *     first-party "Blitz" persona vs. the community "Blitz" bot), which would

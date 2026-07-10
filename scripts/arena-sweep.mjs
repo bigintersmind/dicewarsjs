@@ -59,8 +59,9 @@ if (botFilter) {
     process.exit(1);
   }
 } else {
-  // Default field = the player-visible roster (see the note in scripts/arena.mjs):
-  // the hidden BC/PPO nets are excluded so a duplicate policy can't skew the CIs.
+  // Default field = the player-visible roster (see the note in scripts/arena.mjs): the
+  // hidden bots (BC/PPO nets, #164-trimmed heuristics) are excluded so a duplicate
+  // policy — like Expectimax at strength-parity with Lookahead — can't skew the CIs.
   bots = [...PLAYER_VISIBLE_BOTS];
 }
 

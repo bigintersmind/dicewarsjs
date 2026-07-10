@@ -104,7 +104,7 @@ export const HUD_BAR_HEIGHT = 50;
 export const CELL_WIDTH = 27;
 export const CELL_HEIGHT = 18;
 
-/** Top margin for the map. */
+/** Minimum top margin for the map (the map centers in the band below it). */
 export const MAP_TOP_MARGIN = 50;
 
 /** Background color for the canvas. */

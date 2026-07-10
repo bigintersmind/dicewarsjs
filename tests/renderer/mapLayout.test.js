@@ -8,7 +8,14 @@
  */
 
 import { computeMapLayout } from '../../src/renderer/HexGridRenderer.js';
-import { BASE_WIDTH, BASE_HEIGHT, CELL_WIDTH, CELL_HEIGHT } from '../../src/renderer/constants.js';
+import {
+  BASE_WIDTH,
+  BASE_HEIGHT,
+  CELL_WIDTH,
+  CELL_HEIGHT,
+  MAP_TOP_MARGIN,
+  HUD_BAR_HEIGHT,
+} from '../../src/renderer/constants.js';
 
 // Mirror MAP_SIZE_PRESETS (src/utils/config.js) — the dimensions that ship.
 const PRESETS = {
@@ -40,6 +47,21 @@ describe('computeMapLayout', () => {
       it('fits vertically within the base canvas', () => {
         const renderedHeight = height * CELL_HEIGHT * layout.scale;
         expect(layout.y + renderedHeight).toBeLessThanOrEqual(BASE_HEIGHT + 0.5);
+      });
+
+      it('never rises above MAP_TOP_MARGIN', () => {
+        expect(layout.y).toBeGreaterThanOrEqual(MAP_TOP_MARGIN);
+      });
+
+      it('centers vertically between MAP_TOP_MARGIN and the HUD strip', () => {
+        // Regression: top-anchoring piled all slack below the map, pushing the
+        // top row under the fixed mode rail on the hub screens (~55px) while
+        // leaving a large empty band at the bottom.
+        const renderedHeight = height * CELL_HEIGHT * layout.scale;
+        const bandBottom = BASE_HEIGHT - HUD_BAR_HEIGHT;
+        const topGap = layout.y - MAP_TOP_MARGIN;
+        const bottomGap = bandBottom - (layout.y + renderedHeight);
+        expect(topGap).toBeCloseTo(bottomGap, 6);
       });
     });
   }

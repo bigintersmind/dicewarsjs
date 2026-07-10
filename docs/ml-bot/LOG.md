@@ -50,8 +50,8 @@ Entry template:
   in-session then removed, shodan checked out `464a2ee` → master; run dir backed up to the mini
   (`~/backup/ppo-v3-scratch-40m.tgz`, 198 files per-file SHA-verified) plus the mini-only curve
   record (`strength.{jsonl,csv}`); run dir renamed `ppo-v3-scratch-40m-noship-20260710`
-  (stale-attempt precedent); gate logs → `ml/runs/_eval_logs/v3-scratch-40m.21M.*`; mini watcher
-  - sync loop stopped.
+  (stale-attempt precedent); gate logs → `ml/runs/_eval_logs/v3-scratch-40m.21M.*`; mini
+  watcher and sync loop stopped.
 
 **Learned / decided:**
 
@@ -67,7 +67,7 @@ Entry template:
 **Next:**
 
 - **#157 ladder-honesty matrix now unblocked** (roster ships unchanged: Conqueror/Blitz/Survivor
-  - Lookahead/Strategist/Expectimax) + the picker copy that follows it.
+  plus Lookahead/Strategist/Expectimax) + the picker copy that follows it.
 - 31M→34M late-run decline left undiagnosed (league drift? entropy decay?) — archived run
   supports a future probe; not scheduled.
 

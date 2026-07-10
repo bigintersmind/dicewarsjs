@@ -1321,7 +1321,8 @@ now evidence-backed rather than assumed.
 its final state (step 20,004,864) with `TIMESTEPS=40000000` and every other knob at the campaign's
 original values, at the campaign pin `464a2ee`, in a copied run dir. Ran 2026-07-09 19:33 CDT →
 2026-07-10, stopped deliberately at checkpoint **34,206,000** (~14.2M extension steps, ~186 fps)
-when the early-stop rule fired — see below. (Ops: the run was accidentally interrupted once at
+when the early-stop rule was adjudicated as having fired at 33.1M — ④ (34.1M) had already
+graded by the time of the status check that prompted adjudication — see below. (Ops: the run was accidentally interrupted once at
 ~34.14M — the interactive schtasks console window was closed — and cleanly relaunched via the
 proven resume path ~2 h before the stop decision; both events LOG 2026-07-10.) Curve graded live
 on the mini by the [D-29] watcher (fresh same-knob walk, 20×150, seedbase 0, ref PPO, 3,060
@@ -1343,15 +1344,18 @@ v2 `PPO` baseline:
 | 33,104,976             | +23.43 [21.37, 25.50]      | +2.19 TIE    | 31.9      | ③ — **rule fires**       |
 | 34,104,984             | +13.92 [12.04, 15.80]      | −6.63 BEHIND | 22.1      | ④ — collapse             |
 
-**Early-stop adjudication (with a threshold-calibration note).** [D-35] wrote the trigger as
-"three consecutive points with CI-upper < **32.2**" — but 32.2 is the 20M point's lower bound _on
-the RESULTS-harness scale_ (+33.9 [32.2, 35.5], 2026-07-05). The mini's same-walk re-grade runs
-~2.3 pp lower across the board (its 20M reference: +31.57 [30.13, 33.01]), and applied literally
-the 32.2 trigger would have "stopped" the _base_ run at 3M–5M — the run that ended at its peak.
-The operative threshold is therefore the same-walk 20M reference's lower bound, **30.13** —
-exactly what the launch-day calibration walk existed to provide. Against it, points ①②③
-(31.1M/32.1M/33.1M) are three consecutive CI-uppers below, and ④ made four with the tail in
-free fall. Ivan ratified the stop 2026-07-10.
+**Early-stop adjudication (with a threshold-calibration note).** [D-35] registered the trigger
+as three consecutive 1M-grid points with CI-upper below **32.2** — but 32.2 is the 20M point's
+lower bound _on the RESULTS-harness scale_ (+33.9 [32.2, 35.5], 2026-07-05). The mini's
+same-walk re-grade runs ~2.3 pp lower across the board (its 20M reference: +31.57 [30.13,
+33.01]), and applied literally the 32.2 trigger would have "stopped" the _base_ run at 3M–5M —
+the run that ended at its peak. The operative threshold is therefore the same-walk 20M
+reference's lower bound, **30.13** — exactly what the launch-day calibration walk existed to
+provide. Against it, points ①②③ (31.1M/32.1M/33.1M) are three consecutive CI-uppers below,
+and ④ made four with the tail in free fall. This was also the rule's _first_ firing: the
+plateau dipped under 30.13 three times (22.1M hi 29.65; 28.1M hi 28.71; 29.1M hi 29.47) but
+never three in a row — 23.1M and 30.1M broke those chains (per-point CIs in the mini-side
+`strength.jsonl`). Ivan ratified the stop 2026-07-10.
 
 ### The [D-35] bars — ship bar FAILED
 

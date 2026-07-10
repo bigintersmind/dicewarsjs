@@ -12,7 +12,7 @@
  * silently otherwise).
  */
 import { getAIStrategiesByCategory, AI_STRATEGIES } from '../../src/ai/aiConfig.js';
-import { BUILT_IN_BOTS } from '../../src/arena/builtInBots.js';
+import { BUILT_IN_BOTS, PLAYER_VISIBLE_BOTS } from '../../src/arena/builtInBots.js';
 
 describe('getAIStrategiesByCategory', () => {
   it('puts exactly the self-play personas in the Self-Play group, in registry order', () => {
@@ -57,6 +57,14 @@ describe('getAIStrategiesByCategory', () => {
       .map(b => b.id)
       .sort();
     expect(pickerPersonaIds).toEqual(registryPersonaIds);
+  });
+
+  it('orders the picker roster exactly like PLAYER_VISIBLE_BOTS (no order drift)', () => {
+    // The Title Screen renders Self-Play above General, so this concatenation IS the
+    // picker's top-to-bottom order. The two registries are aligned only by hand-matched
+    // insertion order; this ties the picker's order to the arena-side STRENGTH_ORDER.
+    const { selfPlay, general } = getAIStrategiesByCategory();
+    expect([...selfPlay, ...general].map(s => s.id)).toEqual(PLAYER_VISIBLE_BOTS.map(b => b.id));
   });
 
   it('hides the same bot set as builtInBots.js minus the registry-only nets (no drift)', () => {

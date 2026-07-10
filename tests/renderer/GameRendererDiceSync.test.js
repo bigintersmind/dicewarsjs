@@ -78,17 +78,17 @@ vi.mock('../../src/renderer/BattleAnimation.js', () => ({
 }));
 
 describe('GameRenderer init() dice-display sync', () => {
-  it("seeds the child renderer with the default 'number' mode (regression for #19)", async () => {
+  it("seeds the child renderer with the default 'dice' mode (regression for #19)", async () => {
     const renderer = new GameRenderer();
-    expect(renderer._diceDisplayMode).toBe('number'); // constructor default
+    expect(renderer._diceDisplayMode).toBe('dice'); // constructor default
 
     await renderer.init(document.createElement('canvas'));
 
     /*
-     * Before the fix the child kept its own 'dice' constructor default, so a
-     * fresh install rendered stacked dice instead of number badges.
+     * The child must adopt the GameRenderer's mode from init() rather than
+     * keeping its own constructor default (#19).
      */
-    expect(renderer.dice._displayMode).toBe('number');
+    expect(renderer.dice._displayMode).toBe('dice');
   });
 
   it('keeps the child in sync even when a later setDiceDisplayMode no-ops on the guard', async () => {
@@ -100,16 +100,16 @@ describe('GameRenderer init() dice-display sync', () => {
      * GameRenderer default the equality guard short-circuits. The child must
      * already be correct from init().
      */
-    renderer.setDiceDisplayMode('number');
-    expect(renderer.dice._displayMode).toBe('number');
+    renderer.setDiceDisplayMode('dice');
+    expect(renderer.dice._displayMode).toBe('dice');
   });
 
   it('still propagates an explicit change that differs from the default', async () => {
     const renderer = new GameRenderer();
     await renderer.init(document.createElement('canvas'));
 
-    renderer.setDiceDisplayMode('dice');
-    expect(renderer.dice._displayMode).toBe('dice');
+    renderer.setDiceDisplayMode('number');
+    expect(renderer.dice._displayMode).toBe('number');
   });
 });
 

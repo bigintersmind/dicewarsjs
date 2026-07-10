@@ -12,7 +12,7 @@ describe('PreferencesManager', () => {
       expect(pm.getAll()).toEqual({
         theme: 'dark',
         colorBlindMode: false,
-        diceDisplayMode: 'number',
+        diceDisplayMode: 'dice',
         animationSpeed: 1,
         reducedMotion: 'system',
         muted: false,
@@ -81,7 +81,7 @@ describe('PreferencesManager', () => {
       const pm = createPreferencesManager();
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       pm.set('diceDisplayMode', 'pips');
-      expect(pm.get('diceDisplayMode')).toBe('number');
+      expect(pm.get('diceDisplayMode')).toBe('dice');
       pm.set('diceDisplayMode', 'number');
       expect(pm.get('diceDisplayMode')).toBe('number');
       warnSpy.mockRestore();
@@ -154,7 +154,7 @@ describe('PreferencesManager', () => {
       expect(pm.getAll()).toEqual({
         theme: 'dark',
         colorBlindMode: false,
-        diceDisplayMode: 'number',
+        diceDisplayMode: 'dice',
         animationSpeed: 1,
         reducedMotion: 'system',
         muted: false,

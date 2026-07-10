@@ -36,7 +36,7 @@ export class GameRenderer {
     /** @type {boolean} Color-blind mode */
     this._colorBlindMode = false;
     /** @type {'dice' | 'number'} How dice counts are shown */
-    this._diceDisplayMode = 'number';
+    this._diceDisplayMode = 'dice';
     /** @type {{ x: number, y: number }} Saved root position for screen shake */
     this._rootOrigin = { x: 0, y: 0 };
     /** @type {boolean} Whether a screen shake is active */

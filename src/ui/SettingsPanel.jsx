@@ -237,7 +237,7 @@ export function SettingsPanel({ store, preferencesManager }) {
             <span style={STYLE.label}>Dice style</span>
             <div style={STYLE.btnGroup}>
               {DICE_DISPLAY_OPTIONS.map(opt => {
-                const active = (prefs.diceDisplayMode || 'number') === opt.value;
+                const active = (prefs.diceDisplayMode || 'dice') === opt.value;
                 return (
                   <button
                     key={opt.value}

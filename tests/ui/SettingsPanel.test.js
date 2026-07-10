@@ -21,6 +21,7 @@ function createMockPreferencesManager(initial = {}) {
     diceDisplayMode: 'dice',
     animationSpeed: 1,
     reducedMotion: 'system',
+    muted: false,
     ...initial,
   };
   return {
@@ -42,6 +43,7 @@ function renderPanel(storeOverrides = {}, prefsOverrides = {}) {
       diceDisplayMode: 'dice',
       animationSpeed: 1,
       reducedMotion: 'system',
+      muted: false,
       ...prefsOverrides,
     },
     ...storeOverrides,
@@ -70,6 +72,13 @@ afterEach(() => {
     container = null;
   }
 });
+
+/** Find the option button with the given visible label inside a named group. */
+function optionIn(groupLabel, optionLabel) {
+  const group = container.querySelector(`[role="group"][aria-label="${groupLabel}"]`);
+  if (!group) return null;
+  return Array.from(group.querySelectorAll('button')).find(b => b.textContent === optionLabel);
+}
 
 /*
  * ---------------------------------------------------------------------------
@@ -114,40 +123,56 @@ describe('SettingsPanel', () => {
 
   /*
    * -----------------------------------------------------------------------
-   * Theme toggle
+   * Theme
    * -----------------------------------------------------------------------
    */
 
-  it('calls setPref with light theme when toggling from dark', () => {
+  it('calls setPref with light theme when selecting Light', () => {
     const { pm } = renderPanel();
     const gearBtn = container.querySelector('button[aria-label="Settings"]');
     act(() => gearBtn.click());
 
-    const themeBtn = container.querySelector('button[aria-label="Switch to light theme"]');
-    expect(themeBtn).toBeTruthy();
+    const darkBtn = optionIn('Theme', 'Dark');
+    const lightBtn = optionIn('Theme', 'Light');
+    expect(darkBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(lightBtn.getAttribute('aria-pressed')).toBe('false');
 
-    act(() => themeBtn.click());
+    act(() => lightBtn.click());
 
     expect(pm.set).toHaveBeenCalledWith('theme', 'light');
   });
 
   /*
    * -----------------------------------------------------------------------
-   * Color-blind toggle
+   * Color-blind mode
    * -----------------------------------------------------------------------
    */
 
-  it('calls setPref to enable color-blind mode', () => {
+  it('shows Off pressed by default and enables color-blind mode when selecting On', () => {
     const { pm } = renderPanel();
     const gearBtn = container.querySelector('button[aria-label="Settings"]');
     act(() => gearBtn.click());
 
-    const cbBtn = container.querySelector('button[aria-label="Enable color-blind mode"]');
-    expect(cbBtn).toBeTruthy();
+    const onBtn = optionIn('Color-blind', 'On');
+    const offBtn = optionIn('Color-blind', 'Off');
+    expect(offBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(onBtn.getAttribute('aria-pressed')).toBe('false');
 
-    act(() => cbBtn.click());
+    act(() => onBtn.click());
 
     expect(pm.set).toHaveBeenCalledWith('colorBlindMode', true);
+  });
+
+  it('disables color-blind mode when selecting Off while enabled', () => {
+    const { pm } = renderPanel({}, { colorBlindMode: true });
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    expect(optionIn('Color-blind', 'On').getAttribute('aria-pressed')).toBe('true');
+
+    act(() => optionIn('Color-blind', 'Off').click());
+
+    expect(pm.set).toHaveBeenCalledWith('colorBlindMode', false);
   });
 
   /*
@@ -161,13 +186,45 @@ describe('SettingsPanel', () => {
     const gearBtn = container.querySelector('button[aria-label="Settings"]');
     act(() => gearBtn.click());
 
-    const buttons = Array.from(container.querySelectorAll('button'));
-    const numberBtn = buttons.find(b => b.textContent === 'Number');
+    const numberBtn = optionIn('Dice style', 'Number');
     expect(numberBtn).toBeTruthy();
 
     act(() => numberBtn.click());
 
     expect(pm.set).toHaveBeenCalledWith('diceDisplayMode', 'number');
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Sound
+   * -----------------------------------------------------------------------
+   */
+
+  it('calls setPref to mute when selecting Sound Off', () => {
+    const { pm } = renderPanel();
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    const onBtn = optionIn('Sound', 'On');
+    const offBtn = optionIn('Sound', 'Off');
+    expect(onBtn.getAttribute('aria-pressed')).toBe('true');
+
+    act(() => offBtn.click());
+
+    expect(pm.set).toHaveBeenCalledWith('muted', true);
+  });
+
+  it('calls setPref to unmute when selecting Sound On while muted', () => {
+    const { pm } = renderPanel({}, { muted: true });
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    const offBtn = optionIn('Sound', 'Off');
+    expect(offBtn.getAttribute('aria-pressed')).toBe('true');
+
+    act(() => optionIn('Sound', 'On').click());
+
+    expect(pm.set).toHaveBeenCalledWith('muted', false);
   });
 
   /*
@@ -181,8 +238,7 @@ describe('SettingsPanel', () => {
     const gearBtn = container.querySelector('button[aria-label="Settings"]');
     act(() => gearBtn.click());
 
-    const buttons = Array.from(container.querySelectorAll('button'));
-    const speedBtn = buttons.find(b => b.textContent === '2x');
+    const speedBtn = optionIn('Speed', '2x');
     expect(speedBtn).toBeTruthy();
 
     act(() => speedBtn.click());
@@ -201,8 +257,7 @@ describe('SettingsPanel', () => {
     const gearBtn = container.querySelector('button[aria-label="Settings"]');
     act(() => gearBtn.click());
 
-    const buttons = Array.from(container.querySelectorAll('button'));
-    const onBtn = buttons.find(b => b.textContent === 'On');
+    const onBtn = optionIn('Reduce motion', 'On');
     expect(onBtn).toBeTruthy();
 
     act(() => onBtn.click());
@@ -247,6 +302,44 @@ describe('SettingsPanel', () => {
 
     expect(gearBtn.getAttribute('aria-expanded')).toBe('false');
     document.body.removeChild(outside);
+  });
+
+  it('stays open when clicking an option inside the panel', () => {
+    renderPanel();
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    // A pointerdown inside the panel must not trip the click-outside handler.
+    act(() => {
+      optionIn('Theme', 'Light').dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    });
+
+    expect(gearBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('SETTINGS');
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Open animation
+   * -----------------------------------------------------------------------
+   */
+
+  it('applies the open animation class by default', () => {
+    renderPanel();
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    const panel = container.querySelector('.dw-set-panel');
+    expect(panel.classList.contains('dw-set-panel-anim')).toBe(true);
+  });
+
+  it('omits the open animation class when reduced motion is on', () => {
+    renderPanel({}, { reducedMotion: 'on' });
+    const gearBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => gearBtn.click());
+
+    const panel = container.querySelector('.dw-set-panel');
+    expect(panel.classList.contains('dw-set-panel-anim')).toBe(false);
   });
 
   /*

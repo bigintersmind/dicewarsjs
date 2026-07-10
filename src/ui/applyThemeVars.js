@@ -33,13 +33,15 @@ export const VAR_MAP = {
 };
 
 /**
- * Compose the ink-rim text shadow from a theme's ink colors: a tight opaque
- * rim on all four sides plus a soft under-shadow. Text floating directly on
- * the scrimmed live board (menu options, eyebrows, nav tabs) carries this as
- * a portable background — the same trick the DICE WARS logotype uses — so its
- * contrast no longer depends on which territory drifts underneath.
+ * Compose the ink-rim text shadow from a theme's ink colors: a tight
+ * near-opaque rim on all four sides plus a soft under-shadow. Text set
+ * directly on the scrimmed live board (e.g. menu options, eyebrows, nav tabs)
+ * carries this as a portable background — the same self-carried-backing idea
+ * as the logotype's bevel stack — so its contrast doesn't depend on which
+ * territory drifts underneath. The ink tracks each theme's scrim tone, so the
+ * light theme's "ink" is deliberately light (a pale rim behind dark text).
  *
- * @param {string} ink - Opaque rim color (theme `uiInk`)
+ * @param {string} ink - Near-opaque rim color (theme `uiInk`)
  * @param {string} soft - Soft under-shadow color (theme `uiInkSoft`)
  * @returns {string} A `text-shadow` value
  */

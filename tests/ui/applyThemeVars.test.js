@@ -68,15 +68,17 @@ describe('applyThemeVars', () => {
   });
 
   /*
-   * The ink-rim shadow is what guarantees text floating on the scrimmed live
-   * board a contrast floor regardless of the territory color underneath, so
-   * assert it is composed from each theme's own ink colors.
+   * The halo is the contrast mechanism for text over the attract board (see
+   * composeTextHalo), so pin its derivation to each theme's own ink colors —
+   * a hardcoded dark rim would silently break the light theme. The
+   * "undefined" guard catches a renamed/missing palette key, which would
+   * otherwise pass this comparison vacuously.
    */
   it.each(['dark', 'light'])('derives --ui-text-halo from the %s theme ink colors', name => {
     applyThemeVars(name, { root, body });
-    expect(root.style.getPropertyValue('--ui-text-halo')).toBe(
-      composeTextHalo(THEMES[name].uiInk, THEMES[name].uiInkSoft)
-    );
+    const halo = root.style.getPropertyValue('--ui-text-halo');
+    expect(halo).not.toMatch(/undefined/);
+    expect(halo).toBe(composeTextHalo(THEMES[name].uiInk, THEMES[name].uiInkSoft));
   });
 
   it('syncs the page background to the theme bodyBg', () => {

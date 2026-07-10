@@ -1,8 +1,18 @@
 /**
  * Settings Panel
  *
- * Gear icon button that opens a dropdown with theme, accessibility,
- * and animation preferences.
+ * Gear icon button that opens a dropdown with theme, accessibility, and
+ * animation preferences, built from the shared menu-chrome language: each
+ * preference is the title screen's eyebrow-over-options group (`.dw-opt` bare
+ * Anton text, accent when selected — no toggles or pills), the heading is the
+ * logotype bevel at the mode rail's miniature scale, and the card is the
+ * standard translucent panel. Everything theme-dependent goes through
+ * var(--ui-*).
+ *
+ * Mounted by App on every screen — including 'playing', where no menu screen
+ * (and so no CHROME_CSS <style>) is in the DOM — so, like TopNav, it renders
+ * its own stylesheet: CHROME_CSS for the shared option idiom plus its own
+ * scoped rules. Duplicate mounts are harmless (identical rules).
  *
  * @module ui/SettingsPanel
  */
@@ -10,6 +20,23 @@
 import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 import { DEFAULTS as PREF_DEFAULTS } from '../store/PreferencesManager.js';
+import { CHROME_CSS } from './menuChrome.jsx';
+
+const THEME_OPTIONS = [
+  { value: 'dark', label: 'Dark' },
+  { value: 'light', label: 'Light' },
+];
+
+/* Boolean prefs as the same bare-text pair (value mapping done per group). */
+const ON_OFF_OPTIONS = [
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+];
+
+const DICE_DISPLAY_OPTIONS = [
+  { value: 'dice', label: 'Dice' },
+  { value: 'number', label: 'Number' },
+];
 
 const SPEED_OPTIONS = [
   { value: 0.5, label: '0.5x' },
@@ -24,90 +51,121 @@ const MOTION_OPTIONS = [
   { value: 'off', label: 'Off' },
 ];
 
-const DICE_DISPLAY_OPTIONS = [
-  { value: 'dice', label: 'Dice' },
-  { value: 'number', label: 'Number' },
-];
+/*
+ * Interactive states need a stylesheet (see CHROME_CSS's own comment). The
+ * heading's fixed bevel colors are titleArt.jsx's wordmark palette at the
+ * TopNav active-tab scale — identity, not theme, so they don't vary with
+ * var(--ui-*).
+ */
+const SETTINGS_CSS = `
+.dw-set-gear {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--ui-border);
+  border-radius: 50%;
+  background: var(--ui-overlay-bg);
+  color: var(--ui-text);
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.12s ease;
+}
+.dw-set-gear:hover { border-color: var(--ui-text-muted); }
+.dw-set-gear[aria-expanded='true'] { transform: rotate(90deg); }
+.dw-set-gear:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 
-const STYLE = {
-  wrapper: {
-    position: 'fixed',
-    top: '0.75rem',
-    right: '0.75rem',
-    zIndex: 1000,
-    pointerEvents: 'auto',
-  },
-  gearBtn: {
-    width: '36px',
-    height: '36px',
-    border: 'none',
-    borderRadius: '50%',
-    cursor: 'pointer',
-    fontSize: '1.2rem',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'transform 0.2s',
-    padding: 0,
-  },
-  panel: {
-    position: 'absolute',
-    top: '42px',
-    right: 0,
-    width: '220px',
-    borderRadius: '8px',
-    padding: '0.75rem',
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.85rem',
-  },
-  heading: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '0.95rem',
-    marginBottom: '0.6rem',
-    letterSpacing: '0.05em',
-  },
-  row: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '0.5rem',
-  },
-  label: {
-    fontSize: '0.85rem',
-  },
-  btnGroup: {
-    display: 'flex',
-    gap: '4px',
-  },
-  optionBtn: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.75rem',
-    padding: '2px 8px',
-    border: '1px solid',
-    borderRadius: '3px',
-    cursor: 'pointer',
-    transition: 'all 0.15s',
-  },
-  toggle: {
-    position: 'relative',
-    width: '36px',
-    height: '20px',
-    borderRadius: '10px',
-    border: 'none',
-    cursor: 'pointer',
-    transition: 'background 0.2s',
-    padding: 0,
-  },
-  toggleKnob: {
-    position: 'absolute',
-    top: '2px',
-    width: '16px',
-    height: '16px',
-    borderRadius: '50%',
-    background: '#fff',
-    transition: 'left 0.2s',
-  },
-};
+.dw-set-panel {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  width: 236px;
+  max-height: calc(100vh - 76px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.85rem 0.95rem 0.95rem;
+  background: var(--ui-overlay-bg);
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  transform-origin: top right;
+}
+@keyframes dw-set-open {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.dw-set-panel-anim { animation: dw-set-open 0.16s ease-out both; }
+
+.dw-set-heading {
+  font-family: Anton, sans-serif;
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  color: #ff9c00;
+  text-shadow:
+    1px 1px 0 #875300,
+    2px 2px 0 #4a2d00,
+    1px 3px 6px rgba(0, 0, 0, 0.35);
+}
+.dw-set-eyebrow {
+  font-family: Roboto, sans-serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted);
+  margin-bottom: 0.1rem;
+}
+/* Negative margin cancels the first/last .dw-opt padding so option text
+   left-aligns with the eyebrow inside the tight card. */
+.dw-set-row {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 -0.45rem;
+}
+.dw-set-opt {
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  padding: 0.12rem 0.45rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dw-set-gear { transition: border-color 0.12s ease; }
+  .dw-set-panel-anim { animation: none; }
+}
+`;
+
+/**
+ * One preference as the title screen's option-group idiom: Roboto eyebrow
+ * label above a wrapping row of bare Anton toggles.
+ *
+ * @param {Object} props
+ * @param {string} props.label - Group label (eyebrow + accessible group name)
+ * @param {{ value: string | number, label: string }[]} props.options
+ * @param {string | number} props.value - Currently selected option value
+ * @param {(value: string | number) => void} props.onSelect
+ */
+function OptionGroup({ label, options, value, onSelect }) {
+  return (
+    <div>
+      <div className="dw-set-eyebrow">{label}</div>
+      <div className="dw-set-row" role="group" aria-label={label}>
+        {options.map(opt => (
+          <button
+            key={String(opt.value)}
+            type="button"
+            className="dw-opt dw-set-opt"
+            aria-pressed={opt.value === value}
+            onClick={() => onSelect(opt.value)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * @param {Object} props
@@ -146,177 +204,80 @@ export function SettingsPanel({ store, preferencesManager }) {
     };
   }, [open]);
 
-  const theme = prefs.theme || 'dark';
-  const isDark = theme === 'dark';
-
-  const panelBg = isDark ? 'rgba(26, 26, 46, 0.95)' : 'rgba(240, 240, 245, 0.95)';
-  const textColor = isDark ? '#ffffff' : '#1a1a2e';
-  const mutedColor = isDark ? '#aaaaaa' : '#555566';
-  const accent = isDark ? '#e94560' : '#c0283d';
-  const borderColor = isDark ? '#555555' : '#999999';
+  /*
+   * The system-level preference is handled in CSS (prefers-reduced-motion);
+   * this only needs to honor an explicit in-app "on".
+   */
+  const animate = prefs.reducedMotion !== 'on';
 
   return (
-    <div style={STYLE.wrapper} ref={wrapperRef}>
+    <div
+      style={{
+        position: 'fixed',
+        top: '0.75rem',
+        right: '0.75rem',
+        zIndex: 1000,
+        pointerEvents: 'auto',
+      }}
+      ref={wrapperRef}
+    >
+      <style>{CHROME_CSS + SETTINGS_CSS}</style>
       <button
-        style={{
-          ...STYLE.gearBtn,
-          background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-          color: textColor,
-          transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
-        }}
+        type="button"
+        className="dw-set-gear"
         onClick={() => setOpen(!open)}
         aria-label="Settings"
         aria-expanded={open}
       >
-        {'\u2699'}
+        {'⚙'}
       </button>
 
       {open && (
-        <div
-          style={{
-            ...STYLE.panel,
-            background: panelBg,
-            color: textColor,
-            border: `1px solid ${borderColor}`,
-          }}
-        >
-          <div style={{ ...STYLE.heading, color: accent }}>SETTINGS</div>
+        <div className={animate ? 'dw-set-panel dw-set-panel-anim' : 'dw-set-panel'}>
+          <div className="dw-set-heading">SETTINGS</div>
 
-          {/* Theme */}
-          <div style={STYLE.row}>
-            <span style={STYLE.label}>Theme</span>
-            <button
-              style={{
-                ...STYLE.toggle,
-                background: isDark ? '#555' : accent,
-              }}
-              onClick={() => setPref('theme', isDark ? 'light' : 'dark')}
-              aria-label={`Switch to ${isDark ? 'light' : 'dark'} theme`}
-            >
-              <div
-                style={{
-                  ...STYLE.toggleKnob,
-                  left: isDark ? '2px' : '18px',
-                }}
-              />
-            </button>
-          </div>
-          <div
-            style={{
-              fontSize: '0.7rem',
-              color: mutedColor,
-              marginTop: '-6px',
-              marginBottom: '0.5rem',
-            }}
-          >
-            {isDark ? 'Dark' : 'Light'}
-          </div>
+          <OptionGroup
+            label="Theme"
+            options={THEME_OPTIONS}
+            value={prefs.theme || 'dark'}
+            onSelect={v => setPref('theme', v)}
+          />
 
-          {/* Color-blind mode */}
-          <div style={STYLE.row}>
-            <span style={STYLE.label}>Color-blind</span>
-            <button
-              style={{
-                ...STYLE.toggle,
-                background: prefs.colorBlindMode ? accent : '#555',
-              }}
-              onClick={() => setPref('colorBlindMode', !prefs.colorBlindMode)}
-              aria-label={`${prefs.colorBlindMode ? 'Disable' : 'Enable'} color-blind mode`}
-            >
-              <div
-                style={{
-                  ...STYLE.toggleKnob,
-                  left: prefs.colorBlindMode ? '18px' : '2px',
-                }}
-              />
-            </button>
-          </div>
+          <OptionGroup
+            label="Color-blind"
+            options={ON_OFF_OPTIONS}
+            value={prefs.colorBlindMode ? 'on' : 'off'}
+            onSelect={v => setPref('colorBlindMode', v === 'on')}
+          />
 
-          {/* Dice style */}
-          <div style={STYLE.row}>
-            <span style={STYLE.label}>Dice style</span>
-            <div style={STYLE.btnGroup}>
-              {DICE_DISPLAY_OPTIONS.map(opt => {
-                const active = (prefs.diceDisplayMode || 'dice') === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    style={{
-                      ...STYLE.optionBtn,
-                      background: active ? accent : 'transparent',
-                      color: active ? '#fff' : textColor,
-                      borderColor: active ? accent : borderColor,
-                    }}
-                    onClick={() => setPref('diceDisplayMode', opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <OptionGroup
+            label="Dice style"
+            options={DICE_DISPLAY_OPTIONS}
+            value={prefs.diceDisplayMode || 'dice'}
+            onSelect={v => setPref('diceDisplayMode', v)}
+          />
 
-          {/* Mute sounds */}
-          <div style={STYLE.row}>
-            <span style={STYLE.label}>Mute sounds</span>
-            <button
-              style={{
-                ...STYLE.toggle,
-                background: prefs.muted ? accent : '#555',
-              }}
-              onClick={() => setPref('muted', !prefs.muted)}
-              aria-label={`${prefs.muted ? 'Unmute' : 'Mute'} sounds`}
-            >
-              <div
-                style={{
-                  ...STYLE.toggleKnob,
-                  left: prefs.muted ? '18px' : '2px',
-                }}
-              />
-            </button>
-          </div>
+          {/* Player-facing polarity: SOUND ON means audible (muted: false). */}
+          <OptionGroup
+            label="Sound"
+            options={ON_OFF_OPTIONS}
+            value={prefs.muted ? 'off' : 'on'}
+            onSelect={v => setPref('muted', v === 'off')}
+          />
 
-          {/* Animation speed */}
-          <div style={STYLE.row}>
-            <span style={STYLE.label}>Speed</span>
-            <div style={STYLE.btnGroup}>
-              {SPEED_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  style={{
-                    ...STYLE.optionBtn,
-                    background: prefs.animationSpeed === opt.value ? accent : 'transparent',
-                    color: prefs.animationSpeed === opt.value ? '#fff' : textColor,
-                    borderColor: prefs.animationSpeed === opt.value ? accent : borderColor,
-                  }}
-                  onClick={() => setPref('animationSpeed', opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <OptionGroup
+            label="Speed"
+            options={SPEED_OPTIONS}
+            value={prefs.animationSpeed}
+            onSelect={v => setPref('animationSpeed', v)}
+          />
 
-          {/* Reduced motion */}
-          <div style={STYLE.row}>
-            <span style={STYLE.label}>Reduce motion</span>
-            <div style={STYLE.btnGroup}>
-              {MOTION_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  style={{
-                    ...STYLE.optionBtn,
-                    background: prefs.reducedMotion === opt.value ? accent : 'transparent',
-                    color: prefs.reducedMotion === opt.value ? '#fff' : textColor,
-                    borderColor: prefs.reducedMotion === opt.value ? accent : borderColor,
-                  }}
-                  onClick={() => setPref('reducedMotion', opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <OptionGroup
+            label="Reduce motion"
+            options={MOTION_OPTIONS}
+            value={prefs.reducedMotion}
+            onSelect={v => setPref('reducedMotion', v)}
+          />
         </div>
       )}
     </div>

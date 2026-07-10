@@ -10,7 +10,12 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { applyThemeVars, hexToRgba, VAR_MAP } from '../../src/ui/applyThemeVars.js';
+import {
+  applyThemeVars,
+  composeTextHalo,
+  hexToRgba,
+  VAR_MAP,
+} from '../../src/ui/applyThemeVars.js';
 import { THEMES } from '../../src/renderer/themes.js';
 
 describe('hexToRgba', () => {
@@ -62,6 +67,18 @@ describe('applyThemeVars', () => {
     expect(root.style.getPropertyValue('--ui-accent-soft')).toBe('rgba(233, 69, 96, 0.15)');
   });
 
+  /*
+   * The ink-rim shadow is what guarantees text floating on the scrimmed live
+   * board a contrast floor regardless of the territory color underneath, so
+   * assert it is composed from each theme's own ink colors.
+   */
+  it.each(['dark', 'light'])('derives --ui-text-halo from the %s theme ink colors', name => {
+    applyThemeVars(name, { root, body });
+    expect(root.style.getPropertyValue('--ui-text-halo')).toBe(
+      composeTextHalo(THEMES[name].uiInk, THEMES[name].uiInkSoft)
+    );
+  });
+
   it('syncs the page background to the theme bodyBg', () => {
     applyThemeVars('light', { root, body });
     /*
@@ -107,5 +124,13 @@ describe('index.html first-paint :root defaults', () => {
 
   it('seeds the derived --ui-accent-soft to match hexToRgba(uiAccent, 0.15)', () => {
     expect(indexHtml).toContain(`--ui-accent-soft: ${hexToRgba(THEMES.dark.uiAccent, 0.15)};`);
+  });
+
+  it('seeds the derived --ui-text-halo to match composeTextHalo(uiInk, uiInkSoft)', () => {
+    /* Prettier wraps the long shadow list in index.html; collapse before comparing. */
+    const collapsed = indexHtml.replace(/\s+/g, ' ');
+    expect(collapsed).toContain(
+      `--ui-text-halo: ${composeTextHalo(THEMES.dark.uiInk, THEMES.dark.uiInkSoft)};`
+    );
   });
 });

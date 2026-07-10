@@ -63,7 +63,7 @@ a.dw-btn { display: inline-block; text-decoration: none; }
   border: none;
   padding: 0.1rem 0.4rem;
   color: var(--ui-text-muted);
-  text-shadow: 0 1px 4px var(--ui-bg);
+  text-shadow: var(--ui-text-halo);
   letter-spacing: 0.04em;
   cursor: pointer;
   transition: color 0.12s ease;
@@ -153,7 +153,7 @@ export const MENU_STYLE = {
     letterSpacing: '0.16em',
     textTransform: 'uppercase',
     color: 'var(--ui-text-muted)',
-    textShadow: '0 1px 4px var(--ui-bg)',
+    textShadow: 'var(--ui-text-halo)',
     marginBottom: '0.2rem',
   },
   /** Small helper line under an option group. */
@@ -161,7 +161,7 @@ export const MENU_STYLE = {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.75rem',
     color: 'var(--ui-text-muted)',
-    textShadow: '0 1px 4px var(--ui-bg)',
+    textShadow: 'var(--ui-text-halo)',
     marginTop: '0.35rem',
   },
   /** Wrapping row of .dw-opt toggles. */
@@ -199,7 +199,7 @@ export const MENU_STYLE = {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.85rem',
     color: 'var(--ui-text-muted)',
-    textShadow: '0 1px 4px var(--ui-bg)',
+    textShadow: 'var(--ui-text-halo)',
     marginBottom: '0.8rem',
     textAlign: 'center',
   },
@@ -293,7 +293,7 @@ const NAV_CSS = `
   border: none;
   padding: 1rem 0.7rem;
   color: var(--ui-text-muted);
-  text-shadow: 0 1px 4px var(--ui-bg);
+  text-shadow: var(--ui-text-halo);
   cursor: pointer;
   transition: color 0.12s ease;
   white-space: nowrap;

@@ -41,7 +41,7 @@ const STYLE = {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.5rem',
     color: 'var(--ui-accent)',
-    textShadow: '0 1px 4px var(--ui-bg)',
+    textShadow: 'var(--ui-text-halo)',
     textAlign: 'center',
     marginBottom: '0.8rem',
   },

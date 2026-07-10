@@ -7,8 +7,7 @@
  * [3, 2, 1], so the top face reads as the three-dots "more" glyph in dice
  * language — cast in the DICE WARS logotype's layer palette so it reads as
  * chrome, not a player piece. The panel is built from the shared menu-chrome
- * language: each
- * preference is the title screen's eyebrow-over-options group (`.dw-opt` bare
+ * language: each preference is the title screen's eyebrow-over-options group (`.dw-opt` bare
  * Anton text, accent when selected — no toggles or pills), the heading is the
  * logotype bevel at the mode rail's miniature scale, and the card is the
  * standard translucent panel. Everything theme-dependent goes through
@@ -34,8 +33,10 @@ import { CHROME_CSS } from './menuChrome.jsx';
  * paths (CUBE/SIDE/TOP, rim wedges, bottom crescent, glint star) and measured
  * pip tables (TOP_PIPS[3], LEFT_PIPS[2], RIGHT_PIPS[1]), serialized command
  * for command. Treat as opaque — if the die art ever changes, re-serialize
- * from DiceRenderer.js rather than editing coordinates here. Same viewBox
- * space as the renderer: die center at the origin, 27.9 x 30.5 units.
+ * from DiceRenderer.js rather than editing coordinates here. Same coordinate
+ * space as the renderer (origin = die center; the silhouette spans
+ * 27.9 x 30.5, per DiceRenderer.js); the svg viewBox pads that box by
+ * ~0.2 units per side.
  */
 // prettier-ignore
 const DIE_PATHS = {
@@ -62,7 +63,7 @@ const RIGHT_PIP_1_PT = [6.85, 5.04];
  * wall, #4A2D00 deepest layer as the silhouette, #FFFF33 rim light as the
  * glint. Identity colors, not theme — like the wordmark and the active nav
  * tab — so the die reads as chrome rather than the orange player's piece
- * (whose set is the distinct amber E67F02/945100/371E00). The two rim wedges
+ * (whose identity triple is the distinct amber E67F02/945100/371E00). The two rim wedges
  * and bottom crescent interpolate within that ramp the way the legacy die
  * sets do (left rim just under the top face, right rim a step above the
  * base, crescent darkest); pips are black like every light-bodied die.
@@ -94,16 +95,11 @@ function SettingsDie() {
       <path d={DIE_PATHS.rightRim} fill={c.rightRim} />
       <path d={DIE_PATHS.bottomRim} fill={c.bottomRim} />
       <path d={DIE_PATHS.glint} fill={c.glint} />
-      {TOP_PIP_3.pts.map(([x, y]) => (
-        <ellipse key={`${x}`} cx={x} cy={y} rx={TOP_PIP_3.rx} ry={TOP_PIP_3.ry} fill={c.pips} />
+      {TOP_PIP_3.pts.map(([x, y], i) => (
+        <ellipse key={i} cx={x} cy={y} rx={TOP_PIP_3.rx} ry={TOP_PIP_3.ry} fill={c.pips} />
       ))}
-      {LEFT_PIP_2_PTS.map(([x, y]) => (
-        <path
-          key={`${x}`}
-          d={DIE_PATHS.pipLeft2}
-          transform={`translate(${x} ${y})`}
-          fill={c.pips}
-        />
+      {LEFT_PIP_2_PTS.map(([x, y], i) => (
+        <path key={i} d={DIE_PATHS.pipLeft2} transform={`translate(${x} ${y})`} fill={c.pips} />
       ))}
       <path
         d={DIE_PATHS.pipRight1}

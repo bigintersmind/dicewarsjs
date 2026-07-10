@@ -98,6 +98,12 @@ describe('SettingsPanel', () => {
     const btn = container.querySelector('button[aria-label="Settings"]');
     expect(btn).toBeTruthy();
     expect(btn.getAttribute('aria-expanded')).toBe('false');
+
+    // The die art must actually render (an empty pill would be an invisible
+    // trigger), and stay decorative — the button's aria-label is the name.
+    const svg = btn.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('opens panel on die button click', () => {

@@ -1,8 +1,13 @@
 /**
  * Settings Panel
  *
- * Gear icon button that opens a dropdown with theme, accessibility, and
- * animation preferences, built from the shared menu-chrome language: each
+ * Die-shaped button that opens a dropdown with theme, accessibility, and
+ * animation preferences. The trigger is the game's own die — the legacy cube
+ * art (DiceRenderer.js's decoded paths, replayed as SVG) showing faces
+ * [3, 2, 1], so the top face reads as the three-dots "more" glyph in dice
+ * language — cast in the DICE WARS logotype's layer palette so it reads as
+ * chrome, not a player piece. The panel is built from the shared menu-chrome
+ * language: each
  * preference is the title screen's eyebrow-over-options group (`.dw-opt` bare
  * Anton text, accent when selected — no toggles or pills), the heading is the
  * logotype bevel at the mode rail's miniature scale, and the card is the
@@ -23,6 +28,91 @@ import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 import { DEFAULTS as PREF_DEFAULTS } from '../store/PreferencesManager.js';
 import { CHROME_CSS } from './menuChrome.jsx';
+
+/*
+ * The legacy die geometry, as SVG path data: DiceRenderer.js's decoded Flash
+ * paths (CUBE/SIDE/TOP, rim wedges, bottom crescent, glint star) and measured
+ * pip tables (TOP_PIPS[3], LEFT_PIPS[2], RIGHT_PIPS[1]), serialized command
+ * for command. Treat as opaque — if the die art ever changes, re-serialize
+ * from DiceRenderer.js rather than editing coordinates here. Same viewBox
+ * space as the renderer: die center at the origin, 27.9 x 30.5 units.
+ */
+// prettier-ignore
+const DIE_PATHS = {
+  cube: 'M-3.05 14.52L-10.53 9.08Q-12.76 6.59 -13.92 3.3L-13.92 -3.49Q-12.46 -7.08 -10.18 -9.61L-3.73 -14.37Q-0.26 -15.67 3.74 -14.37L10.54 -9.27Q12.64 -7.08 13.93 -3.83L13.93 3.3Q13.1 6.11 11.22 8.4L3.06 14.52Q1.52 14.79 0 14.79Q-1.51 14.79 -3.05 14.52Z',
+  side: 'M-3.07 14.52L-10.53 9.08Q-12.76 6.59 -13.92 3.32L-13.92 -3.48Q-12.19 -4.6 -10.18 -3.82L-3.4 1.28Q-1.05 3.48 0 6.7L0 13.5Q-0.85 14.54 -2.62 14.54Q-2.84 14.54 -3.07 14.52Z',
+  top: 'M-3.38 1.26L-10.18 -3.84Q-12.61 -6.23 -10.18 -9.6L-3.72 -14.36Q-0.25 -15.67 3.74 -14.36L10.54 -9.27Q12.21 -6.45 10.54 -4.18L3.4 1.26Q1.74 2.14 0.04 2.14Q-1.64 2.14 -3.38 1.26Z',
+  leftRim: 'M-10.2 -9.6Q-11.53 -6.39 -10.2 -3.84Q-12.19 -4.61 -13.92 -3.49Q-12.46 -7.08 -10.2 -9.6Z',
+  rightRim: 'M10.56 -4.17Q11.53 -6.47 10.56 -9.26Q12.64 -7.08 13.93 -3.84Q12.3 -5.01 10.56 -4.17Z',
+  bottomRim: 'M-3.05 14.52Q-0.93 14.65 0 13.52Q1.07 14.53 3.06 14.52Q1.52 14.78 0 14.78Q-1.51 14.78 -3.05 14.52Z',
+  glint: 'M-3.38 1.28Q0 1.96 3.39 1.28Q0.88 3.72 0 6.7Q-1.04 3.48 -3.38 1.28Z',
+  pipLeft2: 'M0.42 2.35Q-0.44 1.94 -1.16 0.99Q-1.89 0.03 -2.07 -0.91Q-2.24 -1.84 -1.76 -2.21Q-1.28 -2.58 -0.43 -2.16Q0.43 -1.74 1.16 -0.78Q1.88 0.17 2.06 1.11Q2.24 2.04 1.76 2.41Q1.53 2.58 1.23 2.58Q0.88 2.58 0.42 2.35Z',
+  pipRight1: 'M-3.59 5.13Q-4.59 4.41 -4.23 2.45Q-3.87 0.49 -2.38 -1.53Q-0.89 -3.57 0.85 -4.51Q2.6 -5.44 3.59 -4.72Q4.59 -4 4.23 -2.04Q3.88 -0.08 2.38 1.94Q0.9 3.98 -0.85 4.92Q-1.83 5.44 -2.58 5.44Q-3.16 5.44 -3.59 5.13Z',
+};
+
+/** TOP_PIPS[3]: three pips in a row — the "more" glyph in dice language. */
+const TOP_PIP_3 = { rx: 2.23, ry: 1.62, pts: [[-7.06, -6.78], [-0.14, -6.75], [6.83, -6.79]] }; // prettier-ignore
+/** LEFT_PIPS[2] / RIGHT_PIPS[1] stamp positions (die-center-relative). */
+const LEFT_PIP_2_PTS = [[-9.84, 5.42], [-4.23, 4.34]]; // prettier-ignore
+const RIGHT_PIP_1_PT = [6.85, 5.04];
+
+/*
+ * Face colors cast from the DICE WARS logotype's layer palette (titleArt.jsx
+ * / .dw-screen-title): #FF9C00 face, #C57900 first extrusion as the left
+ * wall, #4A2D00 deepest layer as the silhouette, #FFFF33 rim light as the
+ * glint. Identity colors, not theme — like the wordmark and the active nav
+ * tab — so the die reads as chrome rather than the orange player's piece
+ * (whose set is the distinct amber E67F02/945100/371E00). The two rim wedges
+ * and bottom crescent interpolate within that ramp the way the legacy die
+ * sets do (left rim just under the top face, right rim a step above the
+ * base, crescent darkest); pips are black like every light-bodied die.
+ */
+const DIE_COLORS_CHROME = {
+  top: '#ff9c00',
+  side: '#c57900',
+  base: '#4a2d00',
+  glint: '#ffff33',
+  leftRim: '#e68a00',
+  rightRim: '#6e3c00',
+  bottomRim: '#2e1b00',
+  pips: '#000000',
+};
+
+/**
+ * The settings die: the legacy cube replayed in the original layer order
+ * (silhouette, left wall, top face, rims, glint, pips) with faces [3, 2, 1] —
+ * a physically valid corner (no opposite-face pairs, cf. DIE_FACES).
+ */
+function SettingsDie() {
+  const c = DIE_COLORS_CHROME;
+  return (
+    <svg viewBox="-14.1 -15.9 28.2 30.9" aria-hidden="true">
+      <path d={DIE_PATHS.cube} fill={c.base} />
+      <path d={DIE_PATHS.side} fill={c.side} />
+      <path d={DIE_PATHS.top} fill={c.top} />
+      <path d={DIE_PATHS.leftRim} fill={c.leftRim} />
+      <path d={DIE_PATHS.rightRim} fill={c.rightRim} />
+      <path d={DIE_PATHS.bottomRim} fill={c.bottomRim} />
+      <path d={DIE_PATHS.glint} fill={c.glint} />
+      {TOP_PIP_3.pts.map(([x, y]) => (
+        <ellipse key={`${x}`} cx={x} cy={y} rx={TOP_PIP_3.rx} ry={TOP_PIP_3.ry} fill={c.pips} />
+      ))}
+      {LEFT_PIP_2_PTS.map(([x, y]) => (
+        <path
+          key={`${x}`}
+          d={DIE_PATHS.pipLeft2}
+          transform={`translate(${x} ${y})`}
+          fill={c.pips}
+        />
+      ))}
+      <path
+        d={DIE_PATHS.pipRight1}
+        transform={`translate(${RIGHT_PIP_1_PT[0]} ${RIGHT_PIP_1_PT[1]})`}
+        fill={c.pips}
+      />
+    </svg>
+  );
+}
 
 const THEME_OPTIONS = [
   { value: 'dark', label: 'Dark' },
@@ -60,24 +150,30 @@ const MOTION_OPTIONS = [
  * var(--ui-*).
  */
 const SETTINGS_CSS = `
-.dw-set-gear {
+/* The pill shares the panel's radius (not a circle) so button and dropdown
+   read as one piece of chrome. Open state: the die tumbles to the splash
+   art's green-die tilt (titleArt.jsx rotates it -15deg). */
+.dw-set-die {
   width: 36px;
   height: 36px;
   border: 1px solid var(--ui-border);
-  border-radius: 50%;
+  border-radius: 10px;
   background: var(--ui-overlay-bg);
-  color: var(--ui-text);
-  font-size: 1.15rem;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.12s ease;
+  transition: border-color 0.12s ease;
 }
-.dw-set-gear:hover { border-color: var(--ui-text-muted); }
-.dw-set-gear[aria-expanded='true'] { transform: rotate(90deg); }
-.dw-set-gear:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.dw-set-die svg {
+  width: 24px;
+  height: 26px;
+  transition: transform 0.2s ease;
+}
+.dw-set-die:hover { border-color: var(--ui-text-muted); }
+.dw-set-die[aria-expanded='true'] svg { transform: rotate(-15deg); }
+.dw-set-die:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 
 .dw-set-panel {
   position: absolute;
@@ -137,7 +233,7 @@ const SETTINGS_CSS = `
   padding: 0.12rem 0.45rem;
 }
 @media (prefers-reduced-motion: reduce) {
-  .dw-set-gear { transition: border-color 0.12s ease; }
+  .dw-set-die svg { transition: none; }
   .dw-set-panel-anim { animation: none; }
 }
 `;
@@ -230,12 +326,12 @@ export function SettingsPanel({ store, preferencesManager }) {
       <style>{CHROME_CSS + SETTINGS_CSS}</style>
       <button
         type="button"
-        className="dw-set-gear"
+        className="dw-set-die"
         onClick={() => setOpen(!open)}
         aria-label="Settings"
         aria-expanded={open}
       >
-        {'⚙'}
+        <SettingsDie />
       </button>
 
       {open && (

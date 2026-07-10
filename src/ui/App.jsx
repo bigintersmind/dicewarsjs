@@ -2,7 +2,7 @@
  * Root Application Component
  *
  * Routes between screens based on GameStore state. Renders two layers: a
- * persistent chrome layer (settings gear, plus the TopNav mode rail on the
+ * persistent chrome layer (settings die, plus the TopNav mode rail on the
  * hub screens) and the current screen. The chrome sits outside the screen
  * switch so it survives navigation — the rail must not remount (and replay
  * its entrance) on every tab change.

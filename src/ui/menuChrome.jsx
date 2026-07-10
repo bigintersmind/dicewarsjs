@@ -276,7 +276,7 @@ const NAV_CSS = `
 }
 /* margin:auto centers the rail but still yields to the scroll edge when the
    tabs outgrow a narrow viewport (a flex 'safe center' that works everywhere).
-   The side padding keeps the last tab clear of the settings gear. */
+   The side padding keeps the last tab clear of the settings die. */
 .dw-topnav-rail {
   display: flex;
   align-items: stretch;
@@ -325,8 +325,8 @@ const NAV_CSS = `
 @media (prefers-reduced-motion: reduce) {
   .dw-topnav-drop { animation: none; }
 }
-/* Phones: tighten until all four tabs fit beside the settings gear at 360px.
-   Only the right side needs gear clearance. */
+/* Phones: tighten until all four tabs fit beside the settings die at 360px.
+   Only the right side needs die-button clearance. */
 @media (max-width: 560px) {
   .dw-tab { font-size: 0.78rem; padding: 1rem 0.35rem; }
   .dw-topnav-rail { gap: 0.15rem; padding: 0 3rem 0 0.75rem; }

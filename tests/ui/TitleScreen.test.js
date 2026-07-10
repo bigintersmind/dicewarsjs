@@ -223,11 +223,19 @@ describe('TitleScreen', () => {
         'Survivor',
       ]);
 
-      // General holds exactly the visible heuristics, strongest-first (#164) —
-      // the trimmed bots (Example/Defensive/Expectimax) must not render.
+      // General holds exactly the picker-visible heuristics, strongest-first,
+      // with the #167 revived weak bots (Easy-mode ingredients) at the bottom.
+      // Expectimax must not render — it stays trimmed everywhere.
       const general = select.querySelector('optgroup[label="General"]');
       const genValues = [...general.querySelectorAll('option')].map(o => o.value);
-      expect(genValues).toEqual(['ai_lookahead', 'ai_strategist', 'ai_adaptive', 'ai_default']);
+      expect(genValues).toEqual([
+        'ai_lookahead',
+        'ai_strategist',
+        'ai_adaptive',
+        'ai_default',
+        'ai_defensive',
+        'ai_example',
+      ]);
 
       // Community option values are namespaced so the controller can route them.
       const community = select.querySelector('optgroup[label="Community"]');

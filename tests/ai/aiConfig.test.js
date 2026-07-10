@@ -10,6 +10,9 @@
  * keeps it in sync with the `persona`/`hidden` flags in builtInBots.js (the two
  * registries list the same bots from different files, so they can drift apart
  * silently otherwise).
+ *
+ * Since #167, Defensive/Basic are picker-visible again (Easy-mode ingredients) while
+ * staying hidden on the arena side — the two registries' hidden sets intentionally differ.
  */
 import { getAIStrategiesByCategory, AI_STRATEGIES } from '../../src/ai/aiConfig.js';
 import { BUILT_IN_BOTS, PLAYER_VISIBLE_BOTS } from '../../src/arena/builtInBots.js';
@@ -21,25 +24,27 @@ describe('getAIStrategiesByCategory', () => {
     for (const s of selfPlay) expect(s.category).toBe('self-play');
   });
 
-  it('lists the General heuristics strongest-first and never a persona (#164)', () => {
+  it('lists the General heuristics strongest-first, revived weak bots last (#167)', () => {
     const { general } = getAIStrategiesByCategory();
     expect(general.map(s => s.id)).toEqual([
       'ai_lookahead',
       'ai_strategist',
       'ai_adaptive',
       'ai_default',
+      'ai_defensive',
+      'ai_example',
     ]);
   });
 
-  it('filters the hidden trimmed bots out of the picker (#164)', () => {
+  it('hides only ai_expectimax from the picker (#167 revived Defensive/Basic)', () => {
     const { selfPlay, general } = getAIStrategiesByCategory();
     const ids = [...selfPlay, ...general].map(s => s.id);
-    for (const hid of ['ai_example', 'ai_defensive', 'ai_expectimax']) {
-      expect(ids).not.toContain(hid);
-      // Hidden ids still resolve — attract mode loads ai_defensive through the registry.
-      expect(AI_STRATEGIES[hid]).toBeDefined();
-      expect(AI_STRATEGIES[hid].hidden).toBe(true);
-    }
+    // Expectimax stays trimmed everywhere: strength-duplicate of Lookahead.
+    expect(ids).not.toContain('ai_expectimax');
+    expect(AI_STRATEGIES.ai_expectimax.hidden).toBe(true);
+    // Defensive/Basic are revived in the picker (Easy-mode ingredients, #167) …
+    expect(ids).toContain('ai_defensive');
+    expect(ids).toContain('ai_example');
   });
 
   it('partitions the un-hidden registry with no overlap and no drops', () => {
@@ -59,23 +64,34 @@ describe('getAIStrategiesByCategory', () => {
     expect(pickerPersonaIds).toEqual(registryPersonaIds);
   });
 
-  it('orders the picker roster exactly like PLAYER_VISIBLE_BOTS (no order drift)', () => {
-    // The Title Screen renders Self-Play above General, so this concatenation IS the
-    // picker's top-to-bottom order. The two registries are aligned only by hand-matched
-    // insertion order; this ties the picker's order to the arena-side STRENGTH_ORDER.
+  it('orders the picker as PLAYER_VISIBLE_BOTS plus the revived tail (#167)', () => {
+    // The picker (Self-Play above General) extends the arena-side strength order
+    // with the two picker-only revived bots at the bottom. The prefix must stay
+    // byte-identical to PLAYER_VISIBLE_BOTS so the two hand-ordered registries
+    // can't drift; the tail is picker-only by design (competitive surfaces keep
+    // the curated 7).
     const { selfPlay, general } = getAIStrategiesByCategory();
-    expect([...selfPlay, ...general].map(s => s.id)).toEqual(PLAYER_VISIBLE_BOTS.map(b => b.id));
+    expect([...selfPlay, ...general].map(s => s.id)).toEqual([
+      ...PLAYER_VISIBLE_BOTS.map(b => b.id),
+      'ai_defensive',
+      'ai_example',
+    ]);
   });
 
-  it('hides the same bot set as builtInBots.js minus the registry-only nets (no drift)', () => {
-    // builtInBots also hides BC/PPO, which have no AI_STRATEGIES entry at all.
+  it('pins the intended hidden-flag divergence between the two registries (#167)', () => {
+    // Since #167 the flags MEAN different things: aiConfig.hidden = "not offered
+    // in the game-setup picker"; builtInBots.hidden = "not on competitive
+    // surfaces" (Arena/Tournament screens, CLI arena, online tournament).
+    // Defensive/Basic are picker-visible but stay off competitive surfaces.
     const configHidden = Object.values(AI_STRATEGIES)
       .filter(s => s.hidden)
       .map(s => s.id)
       .sort();
+    expect(configHidden).toEqual(['ai_expectimax']);
+
     const registryHidden = BUILT_IN_BOTS.filter(b => b.hidden && AI_STRATEGIES[b.id])
       .map(b => b.id)
       .sort();
-    expect(configHidden).toEqual(registryHidden);
+    expect(registryHidden).toEqual(['ai_defensive', 'ai_example', 'ai_expectimax']);
   });
 });

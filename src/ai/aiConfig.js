@@ -8,6 +8,9 @@
  * `AI_STRATEGIES`' General (hand-written) entries are ordered strongest first, and
  * entries flagged `hidden` (the #164 roster trim) are filtered out of the title-screen
  * picker by {@link getAIStrategiesByCategory} while staying resolvable by id.
+ *
+ * Since #167, Defensive/Basic are picker-visible again (Easy-mode ingredients) while
+ * staying hidden on the arena side — the two registries' hidden sets intentionally differ.
  */
 
 // Loader functions for each AI strategy using dynamic import
@@ -99,18 +102,20 @@ export const AI_STRATEGIES = {
   },
 
   /*
-   * Hidden from the player picker (#164 roster trim) — getAIStrategiesByCategory()
-   * filters `hidden`, but the entries stay registered: getAIById/getAIImplementation
-   * still resolve them, attract mode reads `AI_STRATEGIES[id].loader` directly
-   * (ATTRACT_BOT_IDS includes ai_defensive), and the mirror flags live in
-   * builtInBots.js for the arena-side lists.
+   * Revived for the difficulty-mode lineups (#167): weak bots the Easy preset
+   * uses, listed at the bottom of the picker's General section so Custom mode
+   * can reproduce and tweak any preset. They stay OFF competitive surfaces —
+   * builtInBots.js still flags them `hidden` there, so Arena/Tournament, the
+   * CLI arena field, and the online tournament keep the curated 7. The two
+   * registries' hidden flags diverge deliberately: aiConfig.hidden = "not
+   * offered in the game-setup picker"; builtInBots.hidden = "not on
+   * competitive surfaces".
    */
   ai_defensive: {
     id: 'ai_defensive',
     name: 'Defensive AI',
     description: 'Prioritizes protecting vulnerable territories',
     difficulty: 2,
-    hidden: true,
     loader: load_ai_defensive,
     implementation: null,
   },
@@ -119,10 +124,17 @@ export const AI_STRATEGIES = {
     name: 'Basic AI',
     description: 'Simple implementation for educational purposes',
     difficulty: 1,
-    hidden: true,
     loader: load_ai_example,
     implementation: null,
   },
+
+  /*
+   * Hidden from the player picker: at strength-parity with Lookahead, so it
+   * reads as a duplicate (#164) — that reasoning covers Custom mode too (#167).
+   * getAIStrategiesByCategory() filters `hidden`, but the entry stays
+   * registered: getAIById/getAIImplementation still resolve it, and the mirror
+   * flag lives in builtInBots.js for the arena side.
+   */
   ai_expectimax: {
     id: 'ai_expectimax',
     name: 'Expectimax AI',

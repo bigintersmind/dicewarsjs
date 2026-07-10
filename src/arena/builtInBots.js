@@ -4,11 +4,15 @@
  * Shared list of built-in bots adapted from legacy AI strategies.
  *
  * Two audiences read this list, distinguished by per-entry flags:
- *  - **Players** see {@link PLAYER_VISIBLE_BOTS} — a strength-ordered roster of exactly 7 bots
- *    (#164): the three self-play personas first, then hand-written heuristics by measured strength.
- *    The `hidden` flag covers both internal nets (`ai_bc`/`ai_ppo`) and trimmed heuristics
- *    (`ai_example`, `ai_defensive`, `ai_expectimax`). ArenaScreen, TournamentScreen, and the CLI
- *    default arena field import that derived list.
+ *  - **Competitive surfaces** (ArenaScreen, TournamentScreen, CLI arena field, online
+ *    tournament) see {@link PLAYER_VISIBLE_BOTS} — a strength-ordered roster of exactly 7
+ *    bots (#164): the three self-play personas first, then hand-written heuristics by
+ *    measured strength. The `hidden` flag covers both internal nets (`ai_bc`/`ai_ppo`) and
+ *    trimmed heuristics (`ai_example`, `ai_defensive`, `ai_expectimax`). ArenaScreen,
+ *    TournamentScreen, and the CLI default arena field import that derived list.
+ *    `hidden` here means "not on competitive surfaces" — the game-setup picker is
+ *    governed separately by aiConfig.js, where Defensive/Basic are visible again since
+ *    #167 (difficulty-mode ingredients).
  *  - **The dev ML eval harness** (`ppo:gate`, `behavior:profile`, the PFSP league)
  *    imports the full `BUILT_IN_BOTS`, so `PPO` stays available as the strength baseline.
  *    The gate's reference field excludes `persona`-tagged bots (see `scripts/lib/ppo-gate-core.mjs`)
@@ -33,15 +37,18 @@ import { ai_survivor } from '../ai/ai_survivor.js';
 
 export const BUILT_IN_BOTS = [
   /*
-   * Hidden from players (#164 roster trim): a near-random educational stub. Kept
-   * registered for the dev harness and BOT_GUIDE references; reachable by name
-   * via CLI `--bots` filters.
+   * Off competitive surfaces (#164): a near-random educational stub. Picker-visible
+   * again since #167 (Easy-lineup ingredient) via aiConfig.js — this flag only
+   * governs the arena side. Kept registered for the dev harness and BOT_GUIDE
+   * references; reachable by name via CLI `--bots` filters.
    */
   { id: 'ai_example', name: 'Example', fn: adaptLegacyBot(ai_example, 'Example'), hidden: true },
   { id: 'ai_default', name: 'Default', fn: adaptLegacyBot(ai_default, 'Default') },
   /*
-   * Hidden from players (#164): weak, with no distinct identity next to Default.
-   * Still loaded by attract mode (ATTRACT_BOT_IDS) via aiConfig, not this list.
+   * Off competitive surfaces (#164): weak, with no distinct identity next to Default.
+   * Picker-visible again since #167 (Easy-lineup ingredient) via aiConfig.js — this
+   * flag only governs the arena side. Still loaded by attract mode (ATTRACT_BOT_IDS)
+   * via aiConfig, not this list.
    */
   {
     id: 'ai_defensive',

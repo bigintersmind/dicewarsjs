@@ -51,7 +51,7 @@ const STYLE = {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '1rem',
     color: 'var(--ui-text-muted)',
-    textShadow: '0 1px 4px var(--ui-bg)',
+    textShadow: 'var(--ui-text-halo)',
     textAlign: 'center',
     margin: '1.5rem 0',
   },

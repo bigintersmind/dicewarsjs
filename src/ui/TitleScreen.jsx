@@ -133,6 +133,7 @@ const STYLE = {
     letterSpacing: '0.16em',
     textTransform: 'uppercase',
     color: 'var(--ui-text-muted)',
+    textShadow: 'var(--ui-text-halo)',
     marginBottom: '0.15rem',
   },
   buttonRow: {
@@ -154,7 +155,7 @@ const STYLE = {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.78rem',
     color: 'var(--ui-text-muted)',
-    textShadow: '0 1px 4px var(--ui-bg)',
+    textShadow: 'var(--ui-text-halo)',
     marginTop: 'auto',
     paddingTop: '2rem',
   },

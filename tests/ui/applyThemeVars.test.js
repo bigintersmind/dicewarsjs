@@ -10,7 +10,12 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { applyThemeVars, hexToRgba, VAR_MAP } from '../../src/ui/applyThemeVars.js';
+import {
+  applyThemeVars,
+  composeTextHalo,
+  hexToRgba,
+  VAR_MAP,
+} from '../../src/ui/applyThemeVars.js';
 import { THEMES } from '../../src/renderer/themes.js';
 
 describe('hexToRgba', () => {
@@ -62,6 +67,20 @@ describe('applyThemeVars', () => {
     expect(root.style.getPropertyValue('--ui-accent-soft')).toBe('rgba(233, 69, 96, 0.15)');
   });
 
+  /*
+   * The halo is the contrast mechanism for text over the attract board (see
+   * composeTextHalo), so pin its derivation to each theme's own ink colors —
+   * a hardcoded dark rim would silently break the light theme. The
+   * "undefined" guard catches a renamed/missing palette key, which would
+   * otherwise pass this comparison vacuously.
+   */
+  it.each(['dark', 'light'])('derives --ui-text-halo from the %s theme ink colors', name => {
+    applyThemeVars(name, { root, body });
+    const halo = root.style.getPropertyValue('--ui-text-halo');
+    expect(halo).not.toMatch(/undefined/);
+    expect(halo).toBe(composeTextHalo(THEMES[name].uiInk, THEMES[name].uiInkSoft));
+  });
+
   it('syncs the page background to the theme bodyBg', () => {
     applyThemeVars('light', { root, body });
     /*
@@ -107,5 +126,13 @@ describe('index.html first-paint :root defaults', () => {
 
   it('seeds the derived --ui-accent-soft to match hexToRgba(uiAccent, 0.15)', () => {
     expect(indexHtml).toContain(`--ui-accent-soft: ${hexToRgba(THEMES.dark.uiAccent, 0.15)};`);
+  });
+
+  it('seeds the derived --ui-text-halo to match composeTextHalo(uiInk, uiInkSoft)', () => {
+    /* Prettier wraps the long shadow list in index.html; collapse before comparing. */
+    const collapsed = indexHtml.replace(/\s+/g, ' ');
+    expect(collapsed).toContain(
+      `--ui-text-halo: ${composeTextHalo(THEMES.dark.uiInk, THEMES.dark.uiInkSoft)};`
+    );
   });
 });

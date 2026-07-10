@@ -67,6 +67,7 @@ function ScreenLoading() {
         justifyContent: 'center',
         background: 'var(--ui-scrim)',
         color: 'var(--ui-text-muted)',
+        textShadow: 'var(--ui-text-halo)',
         fontSize: '1.1rem',
       }}
     >

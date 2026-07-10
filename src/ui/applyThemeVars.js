@@ -16,8 +16,8 @@ import { getTheme } from '../renderer/themes.js';
 
 /**
  * Map of CSS custom property name → theme palette key. Note that
- * `--ui-accent-soft` is intentionally absent: it is derived from `uiAccent` at
- * runtime (see below), not looked up from the palette.
+ * `--ui-accent-soft` and `--ui-text-halo` are intentionally absent: they are
+ * derived from palette keys at runtime (see below), not looked up directly.
  *
  * Exported so tests can iterate it and stay in lockstep with the live mapping.
  */
@@ -31,6 +31,23 @@ export const VAR_MAP = {
   '--ui-body-bg': 'bodyBg',
   '--ui-scrim': 'uiScrim',
 };
+
+/**
+ * Compose the ink-rim text shadow from a theme's ink colors: a tight
+ * near-opaque rim on all four sides plus a soft under-shadow. Text set
+ * directly on the scrimmed live board (e.g. menu options, eyebrows, nav tabs)
+ * carries this as a portable background — the same self-carried-backing idea
+ * as the logotype's bevel stack — so its contrast doesn't depend on which
+ * territory drifts underneath. The ink tracks each theme's scrim tone, so the
+ * light theme's "ink" is deliberately light (a pale rim behind dark text).
+ *
+ * @param {string} ink - Near-opaque rim color (theme `uiInk`)
+ * @param {string} soft - Soft under-shadow color (theme `uiInkSoft`)
+ * @returns {string} A `text-shadow` value
+ */
+export function composeTextHalo(ink, soft) {
+  return `0 1px 2px ${ink}, 0 -1px 2px ${ink}, 1px 0 2px ${ink}, -1px 0 2px ${ink}, 0 2px 6px ${soft}`;
+}
 
 /**
  * Convert a `#rrggbb` hex color to an `rgba()` string with the given alpha.
@@ -68,6 +85,8 @@ export function applyThemeVars(themeName, { root, body } = {}) {
   }
   // Soft, translucent accent for error-banner fills and subtle highlights.
   el.style.setProperty('--ui-accent-soft', hexToRgba(theme.uiAccent, 0.15));
+  // Ink-rim shadow for text that floats directly on the scrimmed board.
+  el.style.setProperty('--ui-text-halo', composeTextHalo(theme.uiInk, theme.uiInkSoft));
 
   const bodyEl = body || (typeof document !== 'undefined' ? document.body : null);
   if (bodyEl) bodyEl.style.background = theme.bodyBg;

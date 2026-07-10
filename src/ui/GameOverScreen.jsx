@@ -1,8 +1,8 @@
 /**
  * Game Over Screen
  *
- * Overlay showing the winner with BATTLE (back to the landing screen),
- * HISTORY, and SPECTATE buttons.
+ * Overlay showing the winner with a BATTLE button (back to the landing
+ * screen) plus, when available, HISTORY and SPECTATE.
  *
  * @module ui/GameOverScreen
  */

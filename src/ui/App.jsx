@@ -179,16 +179,21 @@ export function App({ store, controller, preferencesManager }) {
 
   return (
     <>
-      <ErrorBoundary>
-        {settings}
-        {isHub && (
+      {/*
+       * Settings and the rail get separate boundaries: on the hub screens the
+       * rail is the only navigation left, so a settings crash must not take
+       * it down (nor vice versa).
+       */}
+      <ErrorBoundary>{settings}</ErrorBoundary>
+      {isHub && (
+        <ErrorBoundary>
           <TopNav
             active={screen}
             animate={prefs?.reducedMotion !== 'on'}
             onNavigate={id => controller[NAV_METHODS[id]]()}
           />
-        )}
-      </ErrorBoundary>
+        </ErrorBoundary>
+      )}
       {/* Keyed by screen so a crash caught on one screen never sticks to the next. */}
       <ErrorBoundary key={screen}>{content}</ErrorBoundary>
     </>

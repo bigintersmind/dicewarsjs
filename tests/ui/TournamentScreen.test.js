@@ -100,6 +100,23 @@ describe('TournamentScreen broken-bot surfacing', () => {
     expect(row('Healthy').textContent).not.toContain('⚠');
   });
 
+  // The mode rail can navigate away during the 50ms "let RUNNING... paint"
+  // defer — the deferred callback must see the unmount and skip the whole
+  // tournament rather than compute a result nobody will see.
+  it('skips the deferred run when the screen unmounts during the defer window', async () => {
+    vi.useFakeTimers();
+    const runSpy = mockRoundRobin({ standings: [], flagged: [], champion: null });
+
+    renderTournament();
+    act(() => button('START TOURNAMENT').click());
+
+    // Unmount inside the defer window, before the run callback fires.
+    act(() => render(null, container));
+    await vi.runAllTimersAsync();
+
+    expect(runSpy).not.toHaveBeenCalled();
+  });
+
   it('renders the results table with no badge when nothing is flagged', async () => {
     vi.useFakeTimers();
     mockRoundRobin({

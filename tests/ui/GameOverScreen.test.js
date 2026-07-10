@@ -24,10 +24,11 @@ function renderGameOver(overrides = {}) {
     gameOverReason: overrides.gameOverReason ?? null,
   });
 
+  const onTitle = overrides.onTitle ?? vi.fn();
   container = document.createElement('div');
   document.body.appendChild(container);
   act(() => {
-    render(h(GameOverScreen, { store, onTitle: vi.fn() }), container);
+    render(h(GameOverScreen, { store, onTitle }), container);
   });
   return { store, container };
 }
@@ -61,6 +62,17 @@ describe('GameOverScreen', () => {
   it('shows no draw subtitle for a normal game-over with no draw reason', () => {
     renderGameOver({ gameState: { winner: null }, gameOverReason: null });
     expect(container.textContent).not.toContain('turn limit reached');
+  });
+
+  // The exit button says BATTLE (the mode rail's name for the landing screen,
+  // since the top-rail redesign) and routes through onTitle.
+  it('labels the exit button BATTLE and routes it through onTitle', () => {
+    const onTitle = vi.fn();
+    renderGameOver({ gameState: { winner: 2 }, onTitle });
+    const battle = [...container.querySelectorAll('button')].find(b => b.textContent === 'BATTLE');
+    expect(battle).toBeTruthy();
+    act(() => battle.click());
+    expect(onTitle).toHaveBeenCalledTimes(1);
   });
 
   // Locks the subtitle branch precedence: a real winner must win over a lingering

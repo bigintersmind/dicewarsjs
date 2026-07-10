@@ -95,6 +95,37 @@ describe('ArenaScreen broken-bot surfacing', () => {
     expect(container.textContent).toContain('error turn');
   });
 
+  // The mode rail can navigate away mid-run (the old BACK button was disabled
+  // while running) — unmount must stop the one-game-per-macrotask chain, or it
+  // keeps burning CPU on a screen nobody is watching.
+  it('stops the game chain when the screen unmounts mid-run', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(matchRunner, 'runMatch');
+    // Any well-formed result will do — the run never reaches finalize.
+    mockBrokenMatch({});
+
+    renderArena();
+    act(() => button('5').click());
+    act(() => button('RUN ARENA').click());
+
+    // Past the 50ms "let RUNNING... paint" defer, then one more game tick.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersToNextTimerAsync();
+    });
+    const gamesBefore = matchRunner.runMatch.mock.calls.length;
+    expect(gamesBefore).toBeGreaterThan(0);
+    expect(gamesBefore).toBeLessThan(5);
+
+    // Unmount with the next game still queued (a rail tap away from Arena).
+    act(() => render(null, container));
+    await vi.runAllTimersAsync();
+
+    // The queued runNextGame saw cancelledRef and bailed — the chain is dead.
+    expect(matchRunner.runMatch.mock.calls.length).toBe(gamesBefore);
+  });
+
   it('shows no flag badge when every bot is healthy', async () => {
     vi.useFakeTimers();
     vi.spyOn(console, 'warn').mockImplementation(() => {});

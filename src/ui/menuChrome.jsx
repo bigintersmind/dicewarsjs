@@ -121,7 +121,7 @@ a.dw-btn { display: inline-block; text-decoration: none; }
 export const MENU_STYLE = {
   /**
    * Full-viewport scroll column over the scrimmed live board. The top padding
-   * clears the fixed mode rail (~50px) plus breathing room.
+   * clears the fixed mode rail (~55px) plus breathing room.
    */
   container: {
     display: 'flex',

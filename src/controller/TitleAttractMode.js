@@ -36,7 +36,9 @@ export const ATTRACT_BOT_IDS = ['ai_default', 'ai_defensive', 'ai_adaptive', 'ai
 /**
  * Screens that show the background game. main.jsx spreads this array into its
  * canvas-visibility list, so every attract screen automatically shows the
- * canvas — the mode must never step a board nobody can see.
+ * canvas — the mode must never step a board nobody can see. The mode rail's
+ * NAV_TABS (ui/menuChrome.jsx) mirrors this list — the rail belongs exactly
+ * where the live board runs behind the chrome (a test pins the two equal).
  */
 export const ATTRACT_SCREENS = ['title', 'arena', 'tournament', 'onlineLeaderboard'];
 

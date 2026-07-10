@@ -78,7 +78,7 @@ const STYLE = {
     flexDirection: 'column',
     alignItems: 'center',
     overflowY: 'auto',
-    /* Top padding clears the fixed mode rail (~50px). */
+    /* Top padding clears the fixed mode rail (~55px). */
     padding: '4.6rem 1rem 1.2rem',
     background: 'var(--ui-scrim)',
     pointerEvents: 'auto',

@@ -8,6 +8,8 @@
  * @module store/GameStore
  */
 
+import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
+
 /** @typedef {'title' | 'mapPreview' | 'playing' | 'gameOver' | 'arena' | 'tournament' | 'replay' | 'onlineLeaderboard'} Screen */
 /** @typedef {'idle' | 'battle'} AnimationPhase */
 /** @typedef {'selectFrom' | 'selectTo' | null} AwaitingInput */
@@ -64,21 +66,14 @@ const DEFAULT_STATE = {
     playerCount: 7,
     mapSize: 'medium',
     /*
-     * Default battle lineup, strongest first (#164): the human faces the three
-     * self-play personas plus the strongest heuristics. At the default 7 players
-     * slots 1-6 are used; choosing 8 players adds Default (the classic original-game
-     * AI) — the full player-visible roster.
+     * Difficulty ladder (#167): the shipped default is Standard — original-game
+     * parity, the classic ai_default in every AI seat. The #164 persona-led
+     * lineup lives on as the Hard preset (src/ai/difficultyModes.js); 'custom'
+     * means the player hand-picked slots on the title screen. Copied so store
+     * updates never mutate the preset.
      */
-    aiAssignments: [
-      null,
-      'ai_conqueror',
-      'ai_blitz',
-      'ai_survivor',
-      'ai_lookahead',
-      'ai_strategist',
-      'ai_adaptive',
-      'ai_default',
-    ],
+    difficulty: 'standard',
+    aiAssignments: [...DIFFICULTY_MODES.standard.lineup],
   },
 };
 

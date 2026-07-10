@@ -77,12 +77,16 @@ vi.mock('../../src/engine/AIAdapter.js', () => ({
   runAI: vi.fn(() => null), // AI immediately ends turn
 }));
 
-vi.mock('../../src/ai/aiConfig.js', () => ({
-  getAIImplementation: vi.fn(async id => {
-    if (id === 'FAIL_ALL') throw new Error('Module load failed');
-    return vi.fn(() => 0); // AI function that ends turn
-  }),
-}));
+vi.mock('../../src/ai/aiConfig.js', async importOriginal => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getAIImplementation: vi.fn(async id => {
+      if (id === 'FAIL_ALL') throw new Error('Module load failed');
+      return vi.fn(() => 0); // AI function that ends turn
+    }),
+  };
+});
 
 vi.mock('../../src/arena/communityBots.js', () => ({
   getCommunityBotList: vi.fn(() => []),

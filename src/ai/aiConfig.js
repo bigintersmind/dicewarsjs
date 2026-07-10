@@ -235,19 +235,22 @@ export function getAIStrategiesByCategory() {
 }
 
 /**
- * Default AI assignments — mirrors slots 1-7 of GameStore's default lineup
- * (the store's slot 0 is null, the human seat; slot 0 here is arbitrary since
- * nothing consumes it). Currently unused at runtime (createAIFunctionMapping
- * has no callers); GameController reads the store config instead.
+ * Default AI assignments — mirrors the store's default lineup, which since
+ * #167 is the Standard difficulty preset (DIFFICULTY_MODES.standard.lineup in
+ * difficultyModes.js — literals here because that module imports this one;
+ * hand-kept in sync). Slot 0 is arbitrary (the store uses null — the human
+ * seat); nothing consumes it. Currently unused at runtime
+ * (createAIFunctionMapping has no callers); GameController reads the store
+ * config instead.
  */
 export const DEFAULT_AI_ASSIGNMENTS = [
-  'ai_conqueror', // Player 0 (the store uses null here — the human seat)
-  'ai_conqueror', // Player 1
-  'ai_blitz', // Player 2
-  'ai_survivor', // Player 3
-  'ai_lookahead', // Player 4
-  'ai_strategist', // Player 5
-  'ai_adaptive', // Player 6
+  'ai_default', // Player 0 (the store uses null here — the human seat)
+  'ai_default', // Player 1
+  'ai_default', // Player 2
+  'ai_default', // Player 3
+  'ai_default', // Player 4
+  'ai_default', // Player 5
+  'ai_default', // Player 6
   'ai_default', // Player 7
 ];
 

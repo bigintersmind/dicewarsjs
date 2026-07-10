@@ -9,7 +9,7 @@ Built on the original [Dice Wars](https://www.gamedesign.jp/games/dicewars/) by 
 ## Features
 
 - **Play or spectate** — play against AI opponents or watch bots battle each other
-- **Choose your opponents** — pick a bot per slot before each game (Customize players), including the curated community bots — duplicates allowed
+- **Choose your opponents** — pick a difficulty (Easy/Standard/Hard) or go Custom to pick a bot per slot, including the curated community bots — duplicates allowed
 - **Configurable map size** — pick Small (20×24), Medium (28×32, default) or Large (36×40) before each game
 - **Bot SDK** — write a bot in a single function and compete in the arena
 - **Arena mode** — run tournaments with ELO ratings and match replays
@@ -97,7 +97,7 @@ src/
 ├── renderer/     PixiJS rendering (hex grid, dice, animations)
 ├── ui/           Preact components (screens, HUD, overlays)
 ├── arena/        Bot SDK (validation, execution, tournaments, ELO, replays)
-├── ai/           AI bots: the player roster (3 personas + 4 heuristics) + hidden dev-only bots (PPO/BC, trimmed heuristics)
+├── ai/           AI bots: picker roster (3 personas + 6 heuristics), difficulty-mode presets, hidden dev-only bots (PPO/BC, Expectimax)
 ├── store/        Observable GameStore (pub/sub shared state)
 ├── controller/   GameController (game loop orchestrator)
 ├── audio/        Web Audio sound manager
@@ -108,21 +108,21 @@ See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.
 
 ## AI Strategies
 
-| Bot                                 | Strategy                                                                       |
-| ----------------------------------- | ------------------------------------------------------------------------------ |
-| **Example** (`ai_example.js`)       | Simple implementation to learn from _(dev-only, hidden from players)_          |
-| **Default** (`ai_default.js`)       | Original game's balanced AI                                                    |
-| **Defensive** (`ai_defensive.js`)   | Prioritizes protecting vulnerable territories _(dev-only, hidden)_             |
-| **Adaptive** (`ai_adaptive.js`)     | Adjusts strategy based on game state                                           |
-| **Strategist** (`ai_strategist.js`) | Exact expected value using odds and income                                     |
-| **Lookahead** (`ai_lookahead.js`)   | Shallow expectimax over win/loss branches                                      |
-| **Expectimax** (`ai_expectimax.js`) | Chance-node expectimax over the exact battle distribution _(dev-only, hidden)_ |
-| **Conqueror** (`ai_conqueror.js`)   | Self-play net — balanced, plays the long game (the strongest)                  |
-| **Blitz** (`ai_blitz.js`)           | Self-play net — aggressive, presses hard and ends games fast                   |
-| **Survivor** (`ai_survivor.js`)     | Self-play net — patient, outlasts rivals                                       |
-| _PPO / BC_ (dev-only)               | Internal training nets — hidden from players (eval harness)                    |
+| Bot                                 | Strategy                                                                                                       |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Example** (`ai_example.js`)       | Simple implementation to learn from _(picker-only: Easy-mode ingredient — off competitive surfaces)_           |
+| **Default** (`ai_default.js`)       | Original game's balanced AI                                                                                    |
+| **Defensive** (`ai_defensive.js`)   | Prioritizes protecting vulnerable territories _(picker-only: Easy-mode ingredient — off competitive surfaces)_ |
+| **Adaptive** (`ai_adaptive.js`)     | Adjusts strategy based on game state                                                                           |
+| **Strategist** (`ai_strategist.js`) | Exact expected value using odds and income                                                                     |
+| **Lookahead** (`ai_lookahead.js`)   | Shallow expectimax over win/loss branches                                                                      |
+| **Expectimax** (`ai_expectimax.js`) | Chance-node expectimax over the exact battle distribution _(dev-only, hidden)_                                 |
+| **Conqueror** (`ai_conqueror.js`)   | Self-play net — balanced, plays the long game (the strongest)                                                  |
+| **Blitz** (`ai_blitz.js`)           | Self-play net — aggressive, presses hard and ends games fast                                                   |
+| **Survivor** (`ai_survivor.js`)     | Self-play net — patient, outlasts rivals                                                                       |
+| _PPO / BC_ (dev-only)               | Internal training nets — hidden from players (eval harness)                                                    |
 
-> Players see a curated 7-bot roster, strongest first (Conqueror, Blitz, Survivor, Lookahead, Strategist, Adaptive, Default); Example, Defensive, and Expectimax are hidden from the in-game lists but remain in the repo for the dev harness and CLI (`--bots` by name).
+> Players face a difficulty ladder (#167): **Easy** (Basic/Defensive-led — Basic is the `ai_example` stub), **Standard** — the default — (the original game's AI in every seat), **Hard** (the self-play personas lead the strongest roster), or **Custom** (pick any bot per seat). Competitive surfaces — Arena, Tournament, the online leaderboard — keep a curated 7-bot roster, strongest first (Conqueror, Blitz, Survivor, Lookahead, Strategist, Adaptive, Default); Basic and Defensive appear only in the game-setup picker, Expectimax stays dev-only, and all three remain CLI-reachable by name (`--bots`).
 >
 > **Strategist** and **Lookahead** are the strongest _heuristic_ built-in bots, each authored by an AI coding assistant: Strategist by **Claude Opus 4.8** and Lookahead by **GPT-5.5**. The names describe their technique (expected-value scoring vs. shallow search) rather than the tool that wrote them.
 >

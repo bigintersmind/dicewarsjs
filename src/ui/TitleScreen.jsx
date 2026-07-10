@@ -8,7 +8,8 @@
  * of it). Options follow the original's bare-text language — player counts as
  * a 4/3 grid of Anton text, red when selected — and START / AI vs AI are the
  * original's white double-rimmed buttons. Modern additions (map size,
- * per-slot bot picker) share those idioms rather than introducing new chrome.
+ * difficulty row, per-slot bot picker) share those idioms rather than
+ * introducing new chrome.
  * This is the "Battle" tab of the mode rail (menuChrome's TopNav, mounted by
  * App) — navigation to Arena/Tournament/Leaderboard lives there, not here.
  *
@@ -17,6 +18,7 @@
 
 import { useState } from 'preact/hooks';
 import { DEFAULT_MAP_SIZE } from '../utils/config.js';
+import { DIFFICULTY_MODES, lineupForMode } from '../ai/difficultyModes.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
@@ -171,18 +173,6 @@ const STYLE = {
     maxWidth: '400px',
     textAlign: 'center',
   },
-  disclosureBtn: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.8rem',
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase',
-    background: 'transparent',
-    border: 'none',
-    color: 'var(--ui-text-muted)',
-    textShadow: '0 1px 4px var(--ui-bg)',
-    cursor: 'pointer',
-    padding: '0.2rem 0.4rem',
-  },
   customizePanel: {
     display: 'flex',
     flexDirection: 'column',
@@ -239,9 +229,9 @@ const STYLE = {
 
 /**
  * @param {Object} props
- * @param {Object} props.store - GameStore, used to seed the default bot lineup
+ * @param {Object} props.store - GameStore, used to seed the bot lineup and difficulty selection
  * @param {string | null} [props.error] - Error message to display
- * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, aiAssignments: (string | null)[] }) => void} props.onStart
+ * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, difficulty: string, aiAssignments: (string | null)[] }) => void} props.onStart
  */
 export function TitleScreen({ store, error, onStart }) {
   const prefs = useGameStore(store, s => s.preferences);
@@ -255,14 +245,31 @@ export function TitleScreen({ store, error, onStart }) {
 
   const [playerCount, setPlayerCount] = useState(7);
   const [mapSize, setMapSize] = useState(DEFAULT_MAP_SIZE);
-  const [showCustomize, setShowCustomize] = useState(false);
+  const [difficulty, setDifficulty] = useState(
+    () => store.getState().config.difficulty ?? 'standard'
+  );
   /*
-   * Per-slot AI strategy IDs (index = player slot). Seeded from store defaults.
-   * `store` is required (the useGameStore call above already depends on it).
+   * Per-slot AI strategy IDs (index = player slot). Seeded from the store's
+   * current assignments — the last game's persisted lineup (possibly truncated
+   * to its player count) or the Standard default on first launch. `store` is
+   * required (the useGameStore call above already depends on it).
    */
   const [assignments, setAssignments] = useState(() =>
     (store.getState().config.aiAssignments ?? []).slice()
   );
+
+  /*
+   * A preset click replaces the whole lineup with the mode's — discarding any
+   * hand edits; Custom keeps the current lineup (the last-selected preset, or
+   * the store-seeded assignments when picked first) and reveals the per-slot
+   * picker below.
+   */
+  const handleSelectMode = modeId => {
+    setDifficulty(modeId);
+    if (modeId !== 'custom') {
+      setAssignments([...DIFFICULTY_MODES[modeId].lineup]);
+    }
+  };
 
   const handleAssign = (slot, aiId) => {
     setAssignments(prev => {
@@ -273,22 +280,39 @@ export function TitleScreen({ store, error, onStart }) {
   };
 
   /*
-   * Build the lineup passed to the controller: slot 0 is always the human seat
-   * (null — the controller fills it with a default bot in spectator mode), and
-   * every AI slot resolves to a concrete strategy id so a null never gets
-   * mistaken for a human.
+   * Build the lineup passed to the controller. Preset modes derive it from the
+   * mode's own lineup — the seeded per-slot state may be truncated to a
+   * previous game's player count, and padding it with defaults could silently
+   * contradict the pressed preset's label. Custom uses the per-slot picker
+   * state: slot 0 is always the human seat (null — the controller fills it
+   * with a default bot in spectator mode), and every AI slot resolves to a
+   * concrete strategy id so a null never gets mistaken for a human.
    */
   const buildAssignments = () =>
-    Array.from({ length: playerCount }, (_, i) =>
-      i === 0 ? null : assignments[i] || 'ai_default'
-    );
+    difficulty === 'custom'
+      ? Array.from({ length: playerCount }, (_, i) =>
+          i === 0 ? null : assignments[i] || 'ai_default'
+        )
+      : lineupForMode(difficulty, playerCount);
 
   const handleStart = () => {
-    onStart({ playerCount, spectator: false, mapSize, aiAssignments: buildAssignments() });
+    onStart({
+      playerCount,
+      spectator: false,
+      mapSize,
+      difficulty,
+      aiAssignments: buildAssignments(),
+    });
   };
 
   const handleAIvsAI = () => {
-    onStart({ playerCount, spectator: true, mapSize, aiAssignments: buildAssignments() });
+    onStart({
+      playerCount,
+      spectator: true,
+      mapSize,
+      difficulty,
+      aiAssignments: buildAssignments(),
+    });
   };
 
   return (
@@ -339,16 +363,26 @@ export function TitleScreen({ store, error, onStart }) {
             </div>
           </div>
 
-          <button
-            type="button"
-            style={STYLE.disclosureBtn}
-            aria-expanded={showCustomize}
-            onClick={() => setShowCustomize(v => !v)}
-          >
-            {showCustomize ? '▾' : '▸'} Customize players
-          </button>
+          <div>
+            <div style={STYLE.eyebrow}>Difficulty</div>
+            <div className="dw-rows" role="group" aria-label="Difficulty" style={STYLE.optionRows}>
+              {[...Object.values(DIFFICULTY_MODES), { id: 'custom', name: 'Custom' }].map(mode => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  className="dw-opt"
+                  aria-label={`${mode.name} difficulty`}
+                  aria-pressed={mode.id === difficulty}
+                  style={STYLE.sizeOpt}
+                  onClick={() => handleSelectMode(mode.id)}
+                >
+                  {mode.name}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          {showCustomize && (
+          {difficulty === 'custom' && (
             <div style={STYLE.customizePanel}>
               {Array.from({ length: playerCount }, (_, i) => {
                 const colorName = colorNames[i % colorNames.length];

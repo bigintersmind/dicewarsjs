@@ -3,13 +3,16 @@
  * TitleScreen tests
  *
  * Covers the pre-game setup controls: player-count and the new map-size preset
- * selector, plus that both START and AI-vs-AI thread the choices into onStart.
+ * selector, the difficulty-mode row (#167, including preset lineups deriving
+ * correctly from a truncated store), plus that both START and AI-vs-AI thread
+ * the choices into onStart.
  */
 
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { TitleScreen } from '../../src/ui/TitleScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { lineupForMode } from '../../src/ai/difficultyModes.js';
 import {
   PLAYER_COLOR_NAMES,
   PLAYER_COLORS_CSS,
@@ -38,8 +41,7 @@ const startBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent === 'START');
 const aiBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent === 'AI vs AI');
-const customizeBtn = () =>
-  [...container.querySelectorAll('button')].find(b => b.textContent.includes('Customize players'));
+const modeBtn = name => container.querySelector(`button[aria-label="${name} difficulty"]`);
 /*
  * Slots are labelled by player color now; `n` stays the 1-indexed player number.
  * Assumes the default palette — color-blind-mode tests query by name directly.
@@ -138,16 +140,16 @@ describe('TitleScreen', () => {
   });
 
   describe('per-slot bot picker', () => {
-    it('hides the slot controls until "Customize players" is expanded', () => {
+    it('hides the slot controls until the Custom difficulty is selected (#167)', () => {
       renderTitle();
       expect(slotSelect(2)).toBeNull();
-      act(() => customizeBtn().click());
-      expect(slotSelect(2)).toBeTruthy();
+      act(() => modeBtn('Custom').click());
+      expect(slotSelect(2)).not.toBeNull();
     });
 
     it('shows one bot dropdown per AI slot, with slot 0 marked as the human', () => {
       renderTitle();
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       // 7 players → slot 0 is "You", slots 1..6 are dropdowns.
       expect(container.querySelectorAll('select')).toHaveLength(6);
       expect(container.textContent).toContain('You (human)');
@@ -155,7 +157,7 @@ describe('TitleScreen', () => {
 
     it('labels each slot with its in-game color name and a swatch', () => {
       renderTitle();
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       // Default palette names for the first slots (human slot 0 + AI slots).
       expect(container.textContent).toContain('Lavender'); // slot 0
       expect(container.textContent).toContain('Lime'); // slot 1
@@ -168,7 +170,7 @@ describe('TitleScreen', () => {
 
     it('resizes the slot list when the player count changes', () => {
       renderTitle();
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       expect(container.querySelectorAll('select')).toHaveLength(6);
       act(() => playerBtn(3).click());
       // 3 players → slot 0 human + 2 dropdowns.
@@ -186,7 +188,7 @@ describe('TitleScreen', () => {
 
     it('threads chosen bots — including duplicates — into onStart', () => {
       const { onStart } = renderTitle();
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       chooseBot(2, 'ai_strategist');
       chooseBot(3, 'ai_strategist');
       act(() => startBtn().click());
@@ -198,7 +200,7 @@ describe('TitleScreen', () => {
 
     it('carries the chosen lineup through the AI-vs-AI path too', () => {
       const { onStart } = renderTitle();
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       chooseBot(2, 'ai_lookahead');
       act(() => aiBtn().click());
       const { spectator, aiAssignments } = onStart.mock.calls[0][0];
@@ -208,7 +210,7 @@ describe('TitleScreen', () => {
 
     it('groups bots into Self-Play, General, then Community sections (in that order)', () => {
       renderTitle();
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       const select = slotSelect(2);
 
       // The learned personas lead, then the hand-written heuristics, then community bots.
@@ -223,11 +225,19 @@ describe('TitleScreen', () => {
         'Survivor',
       ]);
 
-      // General holds exactly the visible heuristics, strongest-first (#164) —
-      // the trimmed bots (Example/Defensive/Expectimax) must not render.
+      // General holds exactly the picker-visible heuristics, strongest-first,
+      // with the #167 revived weak bots (Easy-mode ingredients) at the bottom.
+      // Expectimax must not render — it stays trimmed everywhere.
       const general = select.querySelector('optgroup[label="General"]');
       const genValues = [...general.querySelectorAll('option')].map(o => o.value);
-      expect(genValues).toEqual(['ai_lookahead', 'ai_strategist', 'ai_adaptive', 'ai_default']);
+      expect(genValues).toEqual([
+        'ai_lookahead',
+        'ai_strategist',
+        'ai_adaptive',
+        'ai_default',
+        'ai_defensive',
+        'ai_example',
+      ]);
 
       // Community option values are namespaced so the controller can route them.
       const community = select.querySelector('optgroup[label="Community"]');
@@ -238,11 +248,172 @@ describe('TitleScreen', () => {
 
     it('threads a chosen community bot (namespaced id) into onStart', () => {
       const { onStart } = renderTitle();
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       chooseBot(2, 'community:bigintersmind/connector');
       act(() => startBtn().click());
       const { aiAssignments } = onStart.mock.calls[0][0];
       expect(aiAssignments[1]).toBe('community:bigintersmind/connector');
+    });
+  });
+
+  describe('difficulty modes (#167)', () => {
+    it('renders Easy, Standard, Hard, Custom with Standard pre-selected', () => {
+      renderTitle();
+      for (const name of ['Easy', 'Standard', 'Hard', 'Custom']) {
+        expect(modeBtn(name)).not.toBeNull();
+      }
+      expect(modeBtn('Standard').getAttribute('aria-pressed')).toBe('true');
+      expect(modeBtn('Easy').getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('threads the default Standard mode and all-Default lineup into onStart', () => {
+      const { onStart } = renderTitle();
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulty: 'standard',
+          aiAssignments: [null, ...Array(6).fill('ai_default')], // default 7 players
+        })
+      );
+    });
+
+    it('replaces the lineup when a preset is clicked (Easy, sliced to 7)', () => {
+      const { onStart } = renderTitle();
+      act(() => modeBtn('Easy').click());
+      expect(modeBtn('Easy').getAttribute('aria-pressed')).toBe('true');
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulty: 'easy',
+          aiAssignments: lineupForMode('easy', 7),
+        })
+      );
+    });
+
+    it('seeds Custom from the last-selected preset (Hard → Custom)', () => {
+      renderTitle();
+      act(() => modeBtn('Hard').click());
+      act(() => modeBtn('Custom').click());
+      // Slot 1 (player 2) shows Hard's first opponent, ready to tweak.
+      expect(slotSelect(2).value).toBe('ai_conqueror');
+      expect(slotSelect(3).value).toBe('ai_blitz');
+    });
+
+    it('sends hand-edited lineups as custom difficulty', () => {
+      const { onStart } = renderTitle();
+      act(() => modeBtn('Custom').click());
+      chooseBot(2, 'ai_lookahead');
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ difficulty: 'custom' }));
+      expect(onStart.mock.calls[0][0].aiAssignments[1]).toBe('ai_lookahead');
+    });
+
+    it('threads difficulty through the AI-vs-AI path too', () => {
+      const { onStart } = renderTitle();
+      act(() => modeBtn('Hard').click());
+      act(() => aiBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulty: 'hard',
+          spectator: true,
+          // Slot 0 stays null even as a spectator — the controller fills it.
+          aiAssignments: lineupForMode('hard', 7),
+        })
+      );
+    });
+
+    it('sends the full 8-slot Hard lineup for an 8-player game', () => {
+      // Guards the playerCount → lineupForMode wiring: a stale 7-slot lineup
+      // here would give player 7 a null slot — a phantom second human.
+      const { onStart } = renderTitle();
+      act(() => playerBtn(8).click());
+      act(() => modeBtn('Hard').click());
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulty: 'hard',
+          aiAssignments: lineupForMode('hard', 8),
+        })
+      );
+    });
+
+    it('slices a preset down to a 2-player game (Easy → its gentlest opponent)', () => {
+      const { onStart } = renderTitle();
+      act(() => playerBtn(2).click());
+      act(() => modeBtn('Easy').click());
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({ difficulty: 'easy', aiAssignments: [null, 'ai_example'] })
+      );
+    });
+
+    it('discards hand edits when a preset is clicked (Custom → edit → Easy → Custom)', () => {
+      renderTitle();
+      act(() => modeBtn('Custom').click());
+      chooseBot(2, 'ai_lookahead');
+      act(() => modeBtn('Easy').click());
+      act(() => modeBtn('Custom').click());
+      // Re-entering Custom seeds from the pressed preset, not the stale edit.
+      expect(slotSelect(2).value).toBe('ai_example');
+    });
+
+    it('derives a preset lineup even when the store holds a truncated one (#167)', () => {
+      // A finished 3-player game persists a 3-slot lineup; a fresh 7-player
+      // START on the still-pressed preset must send the full preset slice,
+      // not the truncated array padded with defaults under the same label.
+      const store = createGameStore({
+        config: {
+          playerCount: 3,
+          mapSize: 'medium',
+          difficulty: 'hard',
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz'],
+        },
+      });
+      const { onStart } = renderTitle({ store });
+      expect(modeBtn('Hard').getAttribute('aria-pressed')).toBe('true');
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulty: 'hard',
+          aiAssignments: lineupForMode('hard', 7),
+        })
+      );
+    });
+
+    it("mounts with the per-slot panel open when the store persisted difficulty 'custom'", () => {
+      const store = createGameStore({
+        config: {
+          playerCount: 7,
+          mapSize: 'medium',
+          difficulty: 'custom',
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz'],
+        },
+      });
+      renderTitle({ store });
+      expect(modeBtn('Custom').getAttribute('aria-pressed')).toBe('true');
+      expect(slotSelect(2)).not.toBeNull();
+    });
+
+    it('pads Custom slots beyond a truncated store lineup with ai_default', () => {
+      // A previous 3-player Custom game persisted a 3-slot lineup; a fresh
+      // 7-player START in Custom must pad the unseeded slots, never send
+      // undefined entries (each would read as another human seat).
+      const store = createGameStore({
+        config: {
+          playerCount: 3,
+          mapSize: 'medium',
+          difficulty: 'custom',
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz'],
+        },
+      });
+      const { onStart } = renderTitle({ store });
+      act(() => startBtn().click()); // component default: 7 players
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulty: 'custom',
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz', ...Array(4).fill('ai_default')],
+        })
+      );
     });
   });
 
@@ -251,7 +422,7 @@ describe('TitleScreen', () => {
 
     it('labels slots with the Wong palette names when color-blind mode is on', () => {
       renderTitle({ store: cbStore() });
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       // index 0 → 'Blue' (Wong) instead of 'Lavender' (default).
       expect(container.textContent).toContain('Blue');
       expect(container.textContent).not.toContain('Lavender');
@@ -259,7 +430,7 @@ describe('TitleScreen', () => {
 
     it('keys the slot dropdown aria-label off the color-blind color name', () => {
       renderTitle({ store: cbStore() });
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       // index 2 → 'Teal' (Wong) instead of 'Green' (default).
       expect(container.querySelector('select[aria-label="Bot for Teal player"]')).toBeTruthy();
       expect(container.querySelector('select[aria-label="Bot for Green player"]')).toBeNull();
@@ -267,13 +438,13 @@ describe('TitleScreen', () => {
 
     it('paints the swatches from the Wong palette in color-blind mode', () => {
       renderTitle({ store: cbStore() });
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       expect(slotSwatches()[0].style.background).toBe(cssHexToRgb(COLORBLIND_PLAYER_COLORS_CSS[0]));
     });
 
     it('updates slot labels reactively when color-blind mode is toggled', () => {
       const { store } = renderTitle();
-      act(() => customizeBtn().click());
+      act(() => modeBtn('Custom').click());
       // Default palette initially: slot 2 is 'Green'.
       expect(container.querySelector('select[aria-label="Bot for Green player"]')).toBeTruthy();
       // Flip the preference; the panel re-renders from the store subscription.

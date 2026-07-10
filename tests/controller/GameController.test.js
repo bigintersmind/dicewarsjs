@@ -77,12 +77,16 @@ vi.mock('../../src/engine/AIAdapter.js', () => ({
   runAI: vi.fn(() => null), // AI immediately ends turn
 }));
 
-vi.mock('../../src/ai/aiConfig.js', () => ({
-  getAIImplementation: vi.fn(async id => {
-    if (id === 'FAIL_ALL') throw new Error('Module load failed');
-    return vi.fn(() => 0); // AI function that ends turn
-  }),
-}));
+vi.mock('../../src/ai/aiConfig.js', async importOriginal => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getAIImplementation: vi.fn(async id => {
+      if (id === 'FAIL_ALL') throw new Error('Module load failed');
+      return vi.fn(() => 0); // AI function that ends turn
+    }),
+  };
+});
 
 vi.mock('../../src/arena/communityBots.js', () => ({
   getCommunityBotList: vi.fn(() => []),
@@ -402,6 +406,25 @@ describe('GameController', () => {
       expect(createGame).toHaveBeenCalledWith(
         expect.objectContaining({ mapWidth: 36, mapHeight: 40, maxAreas: 48 })
       );
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * difficulty selection
+   * -----------------------------------------------------------------------
+   */
+
+  describe('difficulty selection', () => {
+    it('persists the chosen difficulty in store config (#167)', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false, difficulty: 'hard' });
+      expect(store.getState().config.difficulty).toBe('hard');
+    });
+
+    it('keeps the stored difficulty when the caller omits it', async () => {
+      store.setState({ config: { ...store.getState().config, difficulty: 'easy' } });
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      expect(store.getState().config.difficulty).toBe('easy');
     });
   });
 

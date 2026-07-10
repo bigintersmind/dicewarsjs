@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { AI_STRATEGIES } from '../../src/ai/aiConfig.js';
+import { DIFFICULTY_MODES } from '../../src/ai/difficultyModes.js';
 
 describe('GameStore', () => {
   it('creates with default state', () => {
@@ -123,18 +124,19 @@ describe('GameStore', () => {
   });
 
   describe('defaults', () => {
-    it('defaults the battle lineup strongest-first: personas lead, classic Default last (#164)', () => {
+    it('defaults the battle lineup to the Standard difficulty preset (#167)', () => {
       const s = createGameStore().getState();
-      expect(s.config.aiAssignments).toEqual([
-        null, // slot 0: the human seat
-        'ai_conqueror',
-        'ai_blitz',
-        'ai_survivor',
-        'ai_lookahead',
-        'ai_strategist',
-        'ai_adaptive',
-        'ai_default',
-      ]);
+      // Pinned literally so a difficultyModes.js edit can't silently change the
+      // shipped default; the by-construction assertion ties it to the preset.
+      expect(s.config.aiAssignments).toEqual([null, ...Array(7).fill('ai_default')]);
+      expect(s.config.aiAssignments).toEqual(DIFFICULTY_MODES.standard.lineup);
+      // Fresh copy, not a shared reference — setState/UI edits must not
+      // mutate the preset.
+      expect(s.config.aiAssignments).not.toBe(DIFFICULTY_MODES.standard.lineup);
+    });
+
+    it("defaults difficulty to 'standard' (#167)", () => {
+      expect(createGameStore().getState().config.difficulty).toBe('standard');
     });
 
     it('assigns only ids that resolve to un-hidden picker entries', () => {

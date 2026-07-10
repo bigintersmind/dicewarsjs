@@ -56,7 +56,7 @@ const DEFAULT_STATE = {
   preferences: {
     theme: 'dark',
     colorBlindMode: false,
-    diceDisplayMode: 'number',
+    diceDisplayMode: 'dice',
     animationSpeed: 1,
     reducedMotion: 'system',
   },

@@ -12,7 +12,7 @@ const STORAGE_KEY = 'dicewars_prefs';
 export const DEFAULTS = {
   theme: 'dark',
   colorBlindMode: false,
-  diceDisplayMode: 'number', // 'dice' | 'number'
+  diceDisplayMode: 'dice', // 'dice' | 'number'
   animationSpeed: 1,
   reducedMotion: 'system', // 'system' | 'on' | 'off'
   muted: false,

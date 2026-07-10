@@ -7,9 +7,13 @@
  * `DiceRenderer` carries its own constructor default (`'dice'`). When the
  * configured mode equals the value main.jsx pushes at startup, the equality
  * guard in `setDiceDisplayMode` short-circuits — so `init()` must seed the
- * child directly. Without that seeding a fresh install (default `'number'`)
- * kept rendering stacked dice because the child stayed on its own `'dice'`
- * default.
+ * child directly, or the child keeps its own default and the two fall out of
+ * sync (the original #19 desync).
+ *
+ * Because the app default is now itself `'dice'` (it matches the child's own
+ * constructor default), these tests deliberately apply the *divergent* mode
+ * (`'number'`) before `init()`. Otherwise the child would read `'dice'` by
+ * coincidence of its own default and a missing seed would go undetected.
  *
  * Only the GPU-touching PixiJS surface (`Application`, `Container`) and the
  * unrelated child renderers are stubbed; the real `DiceRenderer` is exercised
@@ -78,27 +82,35 @@ vi.mock('../../src/renderer/BattleAnimation.js', () => ({
 }));
 
 describe('GameRenderer init() dice-display sync', () => {
-  it("seeds the child renderer with the default 'number' mode (regression for #19)", async () => {
+  it('seeds the child from the pre-init mode, not the child default (regression for #19)', async () => {
     const renderer = new GameRenderer();
-    expect(renderer._diceDisplayMode).toBe('number'); // constructor default
+
+    /*
+     * Apply a mode that diverges from the child DiceRenderer's own 'dice'
+     * constructor default *before* the child exists. Pre-init, setDiceDisplayMode
+     * only updates the field — it returns at the !initialized guard.
+     */
+    renderer.setDiceDisplayMode('number');
+    expect(renderer._diceDisplayMode).toBe('number');
 
     await renderer.init(document.createElement('canvas'));
 
     /*
-     * Before the fix the child kept its own 'dice' constructor default, so a
-     * fresh install rendered stacked dice instead of number badges.
+     * The child's own default is 'dice', so it can only read 'number' if init()
+     * seeded it from GameRenderer._diceDisplayMode. Drop that seed and #19 regresses.
      */
     expect(renderer.dice._displayMode).toBe('number');
   });
 
   it('keeps the child in sync even when a later setDiceDisplayMode no-ops on the guard', async () => {
     const renderer = new GameRenderer();
+    renderer.setDiceDisplayMode('number'); // diverge from the child's 'dice' default pre-init
     await renderer.init(document.createElement('canvas'));
 
     /*
-     * main.jsx pushes the stored/default mode at startup; when it equals the
-     * GameRenderer default the equality guard short-circuits. The child must
-     * already be correct from init().
+     * A later push of the *same* mode short-circuits on the equality guard, so it
+     * cannot fix the child — the child must already be correct from init()'s seed.
+     * (This is the exact startup interaction #19 was filed for.)
      */
     renderer.setDiceDisplayMode('number');
     expect(renderer.dice._displayMode).toBe('number');
@@ -108,8 +120,8 @@ describe('GameRenderer init() dice-display sync', () => {
     const renderer = new GameRenderer();
     await renderer.init(document.createElement('canvas'));
 
-    renderer.setDiceDisplayMode('dice');
-    expect(renderer.dice._displayMode).toBe('dice');
+    renderer.setDiceDisplayMode('number');
+    expect(renderer.dice._displayMode).toBe('number');
   });
 });
 

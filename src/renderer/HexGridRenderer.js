@@ -33,8 +33,8 @@ import {
  *
  * Grids that would overflow the canvas (e.g. the Large preset, 36×40 → 972px
  * wide vs. BASE_WIDTH 840) are scaled down uniformly so they never clip; grids
- * that already fit (Small, Medium) return scale === 1, reproducing the original
- * layout exactly. Pure function — exported for unit testing.
+ * that already fit (Small, Medium) return scale === 1 and the original column
+ * positions. Pure function — exported for unit testing.
  *
  * @param {number} gridWidth  - Grid width in cells
  * @param {number} gridHeight - Grid height in cells
@@ -49,7 +49,14 @@ export function computeMapLayout(gridWidth, gridHeight) {
   const scale = Math.min(1, BASE_WIDTH / contentWidth, availHeight / mapPixelHeight);
   // Center horizontally (matching the original offset when scale === 1).
   const x = (BASE_WIDTH - mapPixelWidth * scale) / 2 - (CELL_WIDTH / 4) * scale;
-  const y = MAP_TOP_MARGIN;
+  /*
+   * Center vertically in the band between MAP_TOP_MARGIN and the HUD strip.
+   * Top-anchoring at MAP_TOP_MARGIN piled all the slack below the map, which
+   * left the top row (and its dice towers) under the fixed mode rail on the
+   * hub screens. scale caps at availHeight/mapPixelHeight, so y never rises
+   * above MAP_TOP_MARGIN.
+   */
+  const y = MAP_TOP_MARGIN + (availHeight - mapPixelHeight * scale) / 2;
   return { scale, x, y };
 }
 

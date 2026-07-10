@@ -8,7 +8,14 @@
  */
 
 import { computeMapLayout } from '../../src/renderer/HexGridRenderer.js';
-import { BASE_WIDTH, BASE_HEIGHT, CELL_WIDTH, CELL_HEIGHT } from '../../src/renderer/constants.js';
+import {
+  BASE_WIDTH,
+  BASE_HEIGHT,
+  CELL_WIDTH,
+  CELL_HEIGHT,
+  MAP_TOP_MARGIN,
+  HUD_BAR_HEIGHT,
+} from '../../src/renderer/constants.js';
 
 // Mirror MAP_SIZE_PRESETS (src/utils/config.js) — the dimensions that ship.
 const PRESETS = {
@@ -37,9 +44,24 @@ describe('computeMapLayout', () => {
         expect(layout.x + renderedWidth).toBeLessThanOrEqual(BASE_WIDTH + 0.5);
       });
 
-      it('fits vertically within the base canvas', () => {
+      it('never overlaps the HUD strip at the bottom', () => {
         const renderedHeight = height * CELL_HEIGHT * layout.scale;
-        expect(layout.y + renderedHeight).toBeLessThanOrEqual(BASE_HEIGHT + 0.5);
+        expect(layout.y + renderedHeight).toBeLessThanOrEqual(BASE_HEIGHT - HUD_BAR_HEIGHT + 0.5);
+      });
+
+      it('never rises above MAP_TOP_MARGIN', () => {
+        expect(layout.y).toBeGreaterThanOrEqual(MAP_TOP_MARGIN);
+      });
+
+      it('centers vertically between MAP_TOP_MARGIN and the HUD strip', () => {
+        // Regression: top-anchoring piled all slack below the map, pushing the
+        // top row under the fixed mode rail on the hub screens (~55px) while
+        // leaving a large empty band at the bottom.
+        const renderedHeight = height * CELL_HEIGHT * layout.scale;
+        const bandBottom = BASE_HEIGHT - HUD_BAR_HEIGHT;
+        const topGap = layout.y - MAP_TOP_MARGIN;
+        const bottomGap = bandBottom - (layout.y + renderedHeight);
+        expect(topGap).toBeCloseTo(bottomGap, 6);
       });
     });
   }
@@ -58,5 +80,16 @@ describe('computeMapLayout', () => {
     const mapPixelWidth = 28 * CELL_WIDTH;
     const expectedX = BASE_WIDTH / 2 - mapPixelWidth / 2 - CELL_WIDTH / 4;
     expect(computeMapLayout(28, 32).x).toBeCloseTo(expectedX, 6);
+  });
+
+  it('caps scale on height for tall grids and pins them to MAP_TOP_MARGIN', () => {
+    // No shipping preset is height-bound (Large is width-bound), so without
+    // this synthetic grid the availHeight/mapPixelHeight term in the scale
+    // Math.min could be deleted with every other test still passing.
+    const bandHeight = BASE_HEIGHT - MAP_TOP_MARGIN - HUD_BAR_HEIGHT;
+    const layout = computeMapLayout(20, 50); // 900px tall > the 740px band
+    expect(layout.scale).toBeCloseTo(bandHeight / (50 * CELL_HEIGHT), 6);
+    // Fully height-capped → zero slack to split, so y sits at the margin.
+    expect(layout.y).toBeCloseTo(MAP_TOP_MARGIN, 6);
   });
 });

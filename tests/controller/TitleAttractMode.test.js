@@ -1,9 +1,9 @@
 /**
  * TitleAttractMode tests
  *
- * The background AI game behind the title screen: it must draw and advance a
- * private engine game on a timer, honor reduced motion, survive a missing
- * renderer, and start/stop strictly with the title screen.
+ * The background AI game behind the title and bot-hub screens: it must draw
+ * and advance a private engine game on a timer, honor reduced motion, survive
+ * a missing renderer, and start/stop strictly with the attract screens.
  */
 
 import {
@@ -142,7 +142,7 @@ describe('TitleAttractMode', () => {
     uninit.destroy();
   });
 
-  it('attach() runs the mode exactly while the screen is "title"', async () => {
+  it('attach() runs the mode exactly while an attract screen is up', async () => {
     const renderer = makeRenderer();
     const store = createGameStore(); // initial screen: 'title'
     const mode = createTitleAttractMode({ store, renderer });
@@ -153,14 +153,22 @@ describe('TitleAttractMode', () => {
     await vi.waitFor(() => expect(renderer.drawMap).toHaveBeenCalledTimes(1));
     expect(mode.isRunning()).toBe(true);
 
-    // Leaving the title screen stops the background game…
-    store.setState({ screen: 'arena' });
+    // The bot-hub screens share the backdrop: hopping between them keeps the
+    // SAME board running — no stop, no fresh drawMap.
+    for (const screen of ['arena', 'tournament', 'onlineLeaderboard']) {
+      store.setState({ screen });
+      expect(mode.isRunning()).toBe(true);
+    }
+    expect(renderer.drawMap).toHaveBeenCalledTimes(1);
+
+    // Leaving for a game screen stops the background game…
+    store.setState({ screen: 'playing' });
     expect(mode.isRunning()).toBe(false);
     const before = renderCalls(renderer);
     vi.advanceTimersByTime(MAX_STEP_MS * 5);
     expect(renderCalls(renderer)).toBe(before);
 
-    // …and returning restarts it with a fresh board.
+    // …and returning to an attract screen restarts it with a fresh board.
     store.setState({ screen: 'title' });
     await vi.waitFor(() => expect(renderer.drawMap).toHaveBeenCalledTimes(2));
     expect(mode.isRunning()).toBe(true);

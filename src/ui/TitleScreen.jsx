@@ -19,6 +19,7 @@ import { DEFAULT_MAP_SIZE } from '../utils/config.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
+import { CHROME_CSS } from './menuChrome.jsx';
 import { TitleWordmark, TitleLogo } from './titleArt.jsx';
 import {
   PLAYER_COLORS_CSS,
@@ -53,77 +54,18 @@ const { selfPlay: SELF_PLAY_OPTIONS, general: GENERAL_OPTIONS } = getAIStrategie
 const COMMUNITY_OPTIONS = getCommunityBotList();
 
 /*
- * Classic-button and option-text states (hover/active/focus) can't be done
- * with inline styles, so the interactive styling lives in this scoped
- * stylesheet. The white button colors are the original art's exact values
- * (BT_GRAPH: #fff face, #ccc inner edge, #333 rim) and stay fixed across
- * themes — they're part of the game's identity, and read well over the
- * scrimmed board in both. Everything theme-dependent goes through var(--ui-*).
+ * The classic-button (.dw-btn), option-text (.dw-opt), and entrance-animation
+ * styles are shared with the other menu screens via menuChrome.jsx
+ * (CHROME_CSS, appended below). Only the title screen's own hero layout
+ * lives here.
  */
 const CSS = `
-.dw-btn {
-  font-family: Anton, sans-serif;
-  color: #111111;
-  background: #ffffff;
-  border: 3px solid #333333;
-  border-radius: 12px;
-  box-shadow: inset 0 0 0 3px #cccccc, 0 4px 0 rgba(0, 0, 0, 0.3);
-  letter-spacing: 0.06em;
-  cursor: pointer;
-  transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.12s ease;
-}
-.dw-btn:hover { border-color: #7a7a7a; }
-.dw-btn:active {
-  transform: translateY(3px);
-  box-shadow: inset 0 0 0 3px #cccccc, 0 1px 0 rgba(0, 0, 0, 0.3);
-}
-.dw-btn:focus-visible { outline: 3px solid var(--ui-accent); outline-offset: 3px; }
-
-.dw-opt {
-  font-family: Anton, sans-serif;
-  background: transparent;
-  border: none;
-  padding: 0.1rem 0.4rem;
-  color: var(--ui-text-muted);
-  text-shadow: 0 1px 4px var(--ui-bg);
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: color 0.12s ease;
-}
-.dw-opt:hover { color: var(--ui-text); }
-.dw-opt[aria-pressed='true'] { color: var(--ui-accent); }
-.dw-opt:focus-visible {
-  outline: 2px solid var(--ui-accent);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
 .dw-hero { display: flex; align-items: center; justify-content: center; }
 .dw-panel { display: flex; flex-direction: column; align-items: flex-start; }
 @media (max-width: 760px) {
   .dw-hero { flex-direction: column; gap: 1rem; }
   .dw-panel { align-items: center; }
   .dw-panel .dw-rows { justify-content: center; }
-}
-
-@keyframes dw-rise {
-  from { opacity: 0; transform: translateY(-14px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes dw-pop {
-  0% { opacity: 0; transform: scale(0.82) rotate(-3deg); }
-  70% { transform: scale(1.04) rotate(0.5deg); }
-  100% { opacity: 1; transform: none; }
-}
-@keyframes dw-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.dw-anim-rise { animation: dw-rise 0.4s ease-out both; }
-.dw-anim-pop { animation: dw-pop 0.45s ease-out 0.1s both; }
-.dw-anim-fade { animation: dw-fade 0.35s ease-out 0.2s both; }
-@media (prefers-reduced-motion: reduce) {
-  .dw-anim-rise, .dw-anim-pop, .dw-anim-fade { animation: none; }
 }
 `;
 
@@ -370,7 +312,7 @@ export function TitleScreen({ store, error, onStart, onArena, onTournament, onLe
 
   return (
     <div style={STYLE.container}>
-      <style>{CSS}</style>
+      <style>{CHROME_CSS + CSS}</style>
       <div style={STYLE.topSpacer} />
 
       <TitleWordmark className={animate ? 'dw-anim-rise' : ''} style={STYLE.wordmark} />

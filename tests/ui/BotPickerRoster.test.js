@@ -61,7 +61,7 @@ describe.each([
 
   it('groups the roster into Self-Play and General sections', () => {
     mount(Component);
-    expect(container.textContent).toContain('Self-Play');
-    expect(container.textContent).toContain('General');
+    expect(container.textContent).toContain('Self-play bots');
+    expect(container.textContent).toContain('General bots');
   });
 });

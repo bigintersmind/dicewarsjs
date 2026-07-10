@@ -18,6 +18,7 @@ import { PLAYER_VISIBLE_BOTS } from '../arena/builtInBots.js';
 import { createReplay } from '../arena/replayFormat.js';
 import { Leaderboard } from './Leaderboard.jsx';
 import { AddBotViaGithub } from './AddBotViaGithub.jsx';
+import { MenuScreen, MENU_STYLE } from './menuChrome.jsx';
 
 const GAME_COUNT_OPTIONS = [5, 10, 25, 50, 100];
 
@@ -29,121 +30,20 @@ const GAME_COUNT_OPTIONS = [5, 10, 25, 50, 100];
 const SELF_PLAY_BOTS = PLAYER_VISIBLE_BOTS.filter(b => b.persona);
 const GENERAL_BOTS = PLAYER_VISIBLE_BOTS.filter(b => !b.persona);
 
+/* Screen-specific styles; everything shared comes from MENU_STYLE / dw-* classes. */
 const STYLE = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    height: '100%',
-    pointerEvents: 'auto',
-    userSelect: 'none',
-    padding: '2rem',
-    overflowY: 'auto',
+  botOpt: {
+    fontSize: '1.05rem',
   },
-  title: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '2.5rem',
-    color: 'var(--ui-accent)',
-    textShadow: '2px 2px 8px rgba(0, 0, 0, 0.5)',
-    letterSpacing: '0.1em',
-    marginBottom: '1.5rem',
-  },
-  section: {
-    marginBottom: '1.5rem',
-    width: '100%',
-    maxWidth: '500px',
-  },
-  label: {
-    fontFamily: 'Anton, sans-serif',
+  countOpt: {
     fontSize: '1rem',
-    color: 'var(--ui-text-muted)',
-    marginBottom: '0.5rem',
-    display: 'block',
-    letterSpacing: '0.05em',
   },
-  groupLabel: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.75rem',
-    color: 'var(--ui-text-muted)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.08em',
-    display: 'block',
-    margin: '0.5rem 0 0.35rem',
-  },
-  botRow: {
-    display: 'flex',
-    gap: '0.5rem',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-  botBtn: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.9rem',
-    padding: '0.3rem 0.8rem',
-    background: 'transparent',
-    border: '2px solid var(--ui-border)',
-    color: 'var(--ui-text)',
-    cursor: 'pointer',
-    borderRadius: '4px',
-    transition: 'all 0.15s',
-  },
-  botBtnActive: {
-    color: 'var(--ui-accent)',
-    borderColor: 'var(--ui-accent)',
-  },
-  optionRow: {
-    display: 'flex',
-    gap: '0.5rem',
-    justifyContent: 'center',
-  },
-  optionBtn: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.85rem',
-    padding: '0.25rem 0.6rem',
-    background: 'transparent',
-    border: '2px solid var(--ui-border)',
-    color: 'var(--ui-text)',
-    cursor: 'pointer',
-    borderRadius: '4px',
-  },
-  optionBtnActive: {
-    color: 'var(--ui-accent)',
-    borderColor: 'var(--ui-accent)',
-  },
-  buttonRow: {
-    display: 'flex',
-    gap: '1rem',
-    marginTop: '1rem',
-    marginBottom: '1.5rem',
-  },
-  runBtn: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '1.3rem',
-    padding: '0.5rem 2rem',
-    background: 'var(--ui-accent)',
-    border: 'none',
-    color: '#fff',
-    cursor: 'pointer',
-    borderRadius: '6px',
-    letterSpacing: '0.05em',
-  },
-  runBtnDisabled: {
-    opacity: 0.5,
-    cursor: 'not-allowed',
-  },
-  backBtn: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '1rem',
-    padding: '0.5rem 1.5rem',
-    background: 'transparent',
-    border: '2px solid var(--ui-accent)',
-    color: 'var(--ui-accent)',
-    cursor: 'pointer',
-    borderRadius: '6px',
+  groupGap: {
+    marginTop: '0.5rem',
   },
   progress: {
     width: '100%',
-    maxWidth: '500px',
+    maxWidth: '560px',
     height: '6px',
     background: 'var(--ui-border)',
     borderRadius: '3px',
@@ -156,27 +56,12 @@ const STYLE = {
     transition: 'width 0.1s',
     borderRadius: '3px',
   },
-  statsRow: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.85rem',
-    color: 'var(--ui-text-muted)',
-    marginBottom: '1rem',
-    textAlign: 'center',
+  resultsSection: {
+    maxWidth: '620px',
   },
-  resultsContainer: {
-    width: '100%',
-    maxWidth: '600px',
-  },
-  errorBanner: {
-    background: 'var(--ui-accent-soft)',
-    border: '1px solid var(--ui-accent)',
-    color: 'var(--ui-accent)',
-    padding: '0.6rem 1.2rem',
-    borderRadius: '6px',
-    marginBottom: '1.5rem',
-    fontSize: '0.95rem',
-    maxWidth: '500px',
+  replayRow: {
     textAlign: 'center',
+    marginTop: '1rem',
   },
 };
 
@@ -299,10 +184,10 @@ export function ArenaScreen({ onBack, onViewReplay }) {
   const renderBotButton = bot => (
     <button
       key={bot.id}
-      style={{
-        ...STYLE.botBtn,
-        ...(selectedBots.has(bot.id) ? STYLE.botBtnActive : {}),
-      }}
+      type="button"
+      className="dw-opt"
+      style={STYLE.botOpt}
+      aria-pressed={selectedBots.has(bot.id)}
       onClick={() => toggleBot(bot.id)}
     >
       {bot.name}
@@ -310,33 +195,31 @@ export function ArenaScreen({ onBack, onViewReplay }) {
   );
 
   return (
-    <div style={STYLE.container}>
-      <h1 style={STYLE.title}>ARENA</h1>
+    <MenuScreen title="ARENA">
+      {error && <div style={MENU_STYLE.errorBanner}>{error}</div>}
 
-      {error && <div style={STYLE.errorBanner}>{error}</div>}
-
-      <div style={STYLE.section}>
-        <span style={STYLE.label}>SELECT BOTS (min 2)</span>
-        <span style={STYLE.groupLabel}>Self-Play</span>
-        <div style={STYLE.botRow}>{SELF_PLAY_BOTS.map(renderBotButton)}</div>
-        <span style={STYLE.groupLabel}>General</span>
-        <div style={STYLE.botRow}>{GENERAL_BOTS.map(renderBotButton)}</div>
+      <div className="dw-anim-fade" style={MENU_STYLE.section}>
+        <div style={MENU_STYLE.eyebrow}>Self-play bots</div>
+        <div style={MENU_STYLE.optRow} role="group" aria-label="Self-play bots">
+          {SELF_PLAY_BOTS.map(renderBotButton)}
+        </div>
+        <div style={{ ...MENU_STYLE.eyebrow, ...STYLE.groupGap }}>General bots</div>
+        <div style={MENU_STYLE.optRow} role="group" aria-label="General bots">
+          {GENERAL_BOTS.map(renderBotButton)}
+        </div>
+        <div style={MENU_STYLE.caption}>Pick at least two.</div>
       </div>
 
-      <div style={STYLE.section}>
-        <AddBotViaGithub />
-      </div>
-
-      <div style={STYLE.section}>
-        <span style={STYLE.label}>GAMES</span>
-        <div style={STYLE.optionRow}>
+      <div className="dw-anim-fade" style={MENU_STYLE.section}>
+        <div style={MENU_STYLE.eyebrow}>Games</div>
+        <div style={MENU_STYLE.optRow} role="group" aria-label="Number of games">
           {GAME_COUNT_OPTIONS.map(n => (
             <button
               key={n}
-              style={{
-                ...STYLE.optionBtn,
-                ...(n === gameCount ? STYLE.optionBtnActive : {}),
-              }}
+              type="button"
+              className="dw-opt"
+              style={STYLE.countOpt}
+              aria-pressed={n === gameCount}
               onClick={() => setGameCount(n)}
             >
               {n}
@@ -345,18 +228,21 @@ export function ArenaScreen({ onBack, onViewReplay }) {
         </div>
       </div>
 
-      <div style={STYLE.buttonRow}>
+      <div className="dw-anim-fade" style={MENU_STYLE.buttonRow}>
         <button
-          style={{
-            ...STYLE.runBtn,
-            ...(!canRun ? STYLE.runBtnDisabled : {}),
-          }}
+          className="dw-btn"
+          style={MENU_STYLE.primaryBtn}
           onClick={handleRun}
           disabled={!canRun}
         >
           {running ? 'RUNNING...' : 'RUN ARENA'}
         </button>
-        <button style={STYLE.backBtn} onClick={onBack} disabled={running}>
+        <button
+          className="dw-btn"
+          style={MENU_STYLE.secondaryBtn}
+          onClick={onBack}
+          disabled={running}
+        >
           BACK
         </button>
       </div>
@@ -368,17 +254,20 @@ export function ArenaScreen({ onBack, onViewReplay }) {
       )}
 
       {result && (
-        <div style={STYLE.resultsContainer}>
-          <div style={STYLE.statsRow}>
+        <div className="dw-anim-fade" style={{ ...MENU_STYLE.section, ...STYLE.resultsSection }}>
+          <div style={MENU_STYLE.statsRow}>
             {result.totalGames} games played
             {result.failedGames > 0 && ` (${result.failedGames} failed)`} — avg {result.avgTurns}{' '}
             turns/game
           </div>
-          <Leaderboard bots={result.bots} flagged={result.flagged} />
+          <div style={MENU_STYLE.panel}>
+            <Leaderboard bots={result.bots} flagged={result.flagged} />
+          </div>
           {replays.length > 0 && onViewReplay && (
-            <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+            <div style={STYLE.replayRow}>
               <button
-                style={STYLE.backBtn}
+                className="dw-btn"
+                style={MENU_STYLE.secondaryBtn}
                 onClick={() => onViewReplay(replays[replays.length - 1])}
               >
                 VIEW LAST REPLAY
@@ -387,6 +276,10 @@ export function ArenaScreen({ onBack, onViewReplay }) {
           )}
         </div>
       )}
-    </div>
+
+      <div style={MENU_STYLE.section}>
+        <AddBotViaGithub />
+      </div>
+    </MenuScreen>
   );
 }

@@ -34,9 +34,9 @@ import { AI_STRATEGIES } from '../ai/aiConfig.js';
 export const ATTRACT_BOT_IDS = ['ai_default', 'ai_defensive', 'ai_adaptive', 'ai_strategist'];
 
 /**
- * Screens that show the background game. Keep in sync with the canvas
- * visibility list in main.jsx — every attract screen must also show the
- * canvas, or the mode would step a board nobody can see.
+ * Screens that show the background game. main.jsx spreads this array into its
+ * canvas-visibility list, so every attract screen automatically shows the
+ * canvas — the mode must never step a board nobody can see.
  */
 export const ATTRACT_SCREENS = ['title', 'arena', 'tournament', 'onlineLeaderboard'];
 

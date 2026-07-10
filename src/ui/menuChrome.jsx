@@ -3,8 +3,9 @@
  *
  * The title screen's visual language, extracted so every menu screen (Arena,
  * Tournament, Leaderboard) is built from the same parts instead of inventing
- * its own: the original 2001 art's white double-rimmed button (`.dw-btn`) and
- * bare Anton text option (`.dw-opt`), the wordmark-style bevel headline
+ * its own: the original 2001 art's white double-rimmed button (`.dw-btn`,
+ * after BT_GRAPH: #fff face, #ccc inner edge, #333 rim) and bare Anton text
+ * option (`.dw-opt`), the wordmark-style bevel headline
  * (`.dw-screen-title`, set in the logotype's exact layer palette), the Roboto
  * eyebrow label, and the translucent panel that carries dense data over the
  * live attract-mode board. All of it floats on `var(--ui-scrim)` — the same
@@ -74,7 +75,7 @@ a.dw-btn { display: inline-block; text-decoration: none; }
  * Screen headline in the DICE WARS logotype's own bevel: yellow rim light
  * up-left, orange face, and the wordmark's brown layer stack extruded
  * down-right (#C57900 → #875300 → #4A2D00 are titleArt.jsx's exact values),
- * over the same soft drop shadow the wordmark carries.
+ * over a soft drop shadow like the one TitleScreen puts under the wordmark.
  */
 .dw-screen-title {
   font-family: Anton, sans-serif;

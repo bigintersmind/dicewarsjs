@@ -56,8 +56,8 @@ const COMMUNITY_OPTIONS = getCommunityBotList();
 /*
  * The classic-button (.dw-btn), option-text (.dw-opt), and entrance-animation
  * styles are shared with the other menu screens via menuChrome.jsx
- * (CHROME_CSS, appended below). Only the title screen's own hero layout
- * lives here.
+ * (CHROME_CSS, prepended to this screen's CSS below). Only the title screen's
+ * own hero layout lives here.
  */
 const CSS = `
 .dw-hero { display: flex; align-items: center; justify-content: center; }

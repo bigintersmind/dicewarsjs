@@ -10,6 +10,10 @@
  * `PLAYER_VISIBLE_BOTS`, and swapping that one import back would re-leak BC/PPO into
  * the picker with every data-layer test still green. These render tests assert the
  * actual rendered buttons, so that regression turns red here.
+ *
+ * Selection state on these pickers is conveyed solely by `aria-pressed`
+ * (menuChrome's `.dw-opt` styling keys off it), so its default + toggle wiring
+ * is pinned here too.
  */
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
@@ -59,9 +63,29 @@ describe.each([
     expect(labels).not.toContain('PPO');
   });
 
-  it('groups the roster into Self-Play and General sections', () => {
+  it('groups the personas under Self-play bots, apart from General bots', () => {
     mount(Component);
-    expect(container.textContent).toContain('Self-play bots');
-    expect(container.textContent).toContain('General bots');
+    const selfPlay = container.querySelector('[role="group"][aria-label="Self-play bots"]');
+    const general = container.querySelector('[role="group"][aria-label="General bots"]');
+    expect(selfPlay).not.toBeNull();
+    expect(general).not.toBeNull();
+    // The Self-play group holds exactly the three personas — a fourth entry or a
+    // stray general bot landing here should be a conscious roster decision.
+    const personas = [...selfPlay.querySelectorAll('button')].map(b => b.textContent.trim());
+    expect(personas).toEqual(['Conqueror', 'Blitz', 'Survivor']);
+  });
+
+  it('marks selection with aria-pressed and toggles it on click', () => {
+    mount(Component);
+    const conqueror = () =>
+      [...container.querySelectorAll('button')].find(b => b.textContent.trim() === 'Conqueror');
+    // Every player-visible bot starts selected.
+    expect(conqueror().getAttribute('aria-pressed')).toBe('true');
+
+    act(() => conqueror().click());
+    expect(conqueror().getAttribute('aria-pressed')).toBe('false');
+
+    act(() => conqueror().click());
+    expect(conqueror().getAttribute('aria-pressed')).toBe('true');
   });
 });

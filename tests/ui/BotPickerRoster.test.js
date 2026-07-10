@@ -88,4 +88,19 @@ describe.each([
     act(() => conqueror().click());
     expect(conqueror().getAttribute('aria-pressed')).toBe('true');
   });
+
+  it('renders the General group strongest-first without the trimmed bots (#164)', () => {
+    mount(Component);
+    const general = container.querySelector('[role="group"][aria-label="General bots"]');
+    const names = [...general.querySelectorAll('button')].map(b => b.textContent.trim());
+    expect(names).toEqual(['Lookahead', 'Strategist', 'Adaptive', 'Default']);
+  });
+
+  it('never renders the hidden trimmed bots (Example/Defensive/Expectimax) (#164)', () => {
+    mount(Component);
+    const labels = buttonLabels();
+    for (const name of ['Example', 'Defensive', 'Expectimax']) {
+      expect(labels).not.toContain(name);
+    }
+  });
 });

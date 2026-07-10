@@ -79,8 +79,9 @@ function timedBot(state) {
  * When benchmarking a built-in, replace it with the timed version
  * When benchmarking a file bot, add it alongside the player-visible roster (rename on collision).
  * Opponents are drawn from PLAYER_VISIBLE_BOTS, not the full registry: that excludes the hidden
- * BC/PPO dev-harness nets, which players never face. (The target bot may still BE a
- * hidden built-in resolved by name; only the opponent field is the visible roster.)
+ * bots (the BC/PPO dev nets plus the #164-trimmed heuristics), which players never face. (The
+ * target bot may still BE a hidden built-in resolved by name; only the opponent field is the
+ * visible roster.)
  */
 let targetName = targetBot.name;
 let opponents;

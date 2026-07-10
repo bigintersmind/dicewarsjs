@@ -97,7 +97,7 @@ src/
 ├── renderer/     PixiJS rendering (hex grid, dice, animations)
 ├── ui/           Preact components (screens, HUD, overlays)
 ├── arena/        Bot SDK (validation, execution, tournaments, ELO, replays)
-├── ai/           AI bots: 7 heuristic + the self-play persona roster (Conqueror, Blitz, Survivor); PPO/BC kept for the dev harness
+├── ai/           AI bots: the player roster (3 personas + 4 heuristics) + hidden dev-only bots (PPO/BC, trimmed heuristics)
 ├── store/        Observable GameStore (pub/sub shared state)
 ├── controller/   GameController (game loop orchestrator)
 ├── audio/        Web Audio sound manager
@@ -108,23 +108,25 @@ See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.
 
 ## AI Strategies
 
-| Bot                                 | Strategy                                                      |
-| ----------------------------------- | ------------------------------------------------------------- |
-| **Example** (`ai_example.js`)       | Simple implementation to learn from                           |
-| **Default** (`ai_default.js`)       | Original game's balanced AI                                   |
-| **Defensive** (`ai_defensive.js`)   | Prioritizes protecting vulnerable territories                 |
-| **Adaptive** (`ai_adaptive.js`)     | Adjusts strategy based on game state                          |
-| **Strategist** (`ai_strategist.js`) | Exact expected value using odds and income                    |
-| **Lookahead** (`ai_lookahead.js`)   | Shallow expectimax over win/loss branches                     |
-| **Expectimax** (`ai_expectimax.js`) | Chance-node expectimax over the exact battle distribution     |
-| **Conqueror** (`ai_conqueror.js`)   | Self-play net — balanced, plays the long game (the strongest) |
-| **Blitz** (`ai_blitz.js`)           | Self-play net — aggressive, presses hard and ends games fast  |
-| **Survivor** (`ai_survivor.js`)     | Self-play net — patient, outlasts rivals                      |
-| _PPO / BC_ (dev-only)               | Internal training nets — hidden from players (eval harness)   |
+| Bot                                 | Strategy                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| **Example** (`ai_example.js`)       | Simple implementation to learn from _(dev-only, hidden from players)_          |
+| **Default** (`ai_default.js`)       | Original game's balanced AI                                                    |
+| **Defensive** (`ai_defensive.js`)   | Prioritizes protecting vulnerable territories _(dev-only, hidden)_             |
+| **Adaptive** (`ai_adaptive.js`)     | Adjusts strategy based on game state                                           |
+| **Strategist** (`ai_strategist.js`) | Exact expected value using odds and income                                     |
+| **Lookahead** (`ai_lookahead.js`)   | Shallow expectimax over win/loss branches                                      |
+| **Expectimax** (`ai_expectimax.js`) | Chance-node expectimax over the exact battle distribution _(dev-only, hidden)_ |
+| **Conqueror** (`ai_conqueror.js`)   | Self-play net — balanced, plays the long game (the strongest)                  |
+| **Blitz** (`ai_blitz.js`)           | Self-play net — aggressive, presses hard and ends games fast                   |
+| **Survivor** (`ai_survivor.js`)     | Self-play net — patient, outlasts rivals                                       |
+| _PPO / BC_ (dev-only)               | Internal training nets — hidden from players (eval harness)                    |
 
+> Players see a curated 7-bot roster, strongest first (Conqueror, Blitz, Survivor, Lookahead, Strategist, Adaptive, Default); Example, Defensive, and Expectimax are hidden from the in-game lists but remain in the repo for the dev harness and CLI (`--bots` by name).
+>
 > **Strategist** and **Lookahead** are the strongest _heuristic_ built-in bots, each authored by an AI coding assistant: Strategist by **Claude Opus 4.8** and Lookahead by **GPT-5.5**. The names describe their technique (expected-value scoring vs. shallow search) rather than the tool that wrote them.
 >
-> **Expectimax** and the **self-play personas** make up the playable side of the [ML-bot initiative](docs/ml-bot/). **Expectimax** is the search-first baseline — a depth-2 chance-node search that scores the positions resulting from each attack's win/loss outcomes, weighted by exact dice odds. **Conqueror**, **Blitz**, and **Survivor** are neural nets trained by self-play reinforcement learning against a league of opponents; all three beat Lookahead head-to-head. They share the same in-browser forward pass and differ in their training recipe: Conqueror plays balanced to win — trained from scratch on the richer v3 board encoding, it is the strongest net the game ships; Blitz, fine-tuned from Conqueror on a short reward horizon, presses to finish games fast; and Survivor is trained for placement, outlasting the field even from losing positions. The internal **PPO** and **BC** nets that this roster grew out of are kept in the repo as the dev eval-harness baseline but are **hidden from players** ("PPO" is an internal training name; Conqueror shipped those weights under a friendlier name until its own v3 net replaced them). See [docs/ml-bot/](docs/ml-bot/) for the full story.
+> The **self-play personas** are the playable side of the [ML-bot initiative](docs/ml-bot/). **Expectimax** is the initiative's search-first baseline — a depth-2 chance-node search that scores the positions resulting from each attack's win/loss outcomes, weighted by exact dice odds — hidden from players since the #164 roster trim but kept for the dev harness. **Conqueror**, **Blitz**, and **Survivor** are neural nets trained by self-play reinforcement learning against a league of opponents; all three beat Lookahead head-to-head. They share the same in-browser forward pass and differ in their training recipe: Conqueror plays balanced to win — trained from scratch on the richer v3 board encoding, it is the strongest net the game ships; Blitz, fine-tuned from Conqueror on a short reward horizon, presses to finish games fast; and Survivor is trained for placement, outlasting the field even from losing positions. The internal **PPO** and **BC** nets that this roster grew out of are kept in the repo as the dev eval-harness baseline but are **hidden from players** ("PPO" is an internal training name; Conqueror shipped those weights under a friendlier name until its own v3 net replaced them). See [docs/ml-bot/](docs/ml-bot/) for the full story.
 
 ## Documentation
 

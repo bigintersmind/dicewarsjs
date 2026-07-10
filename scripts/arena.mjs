@@ -43,8 +43,9 @@ if (botFilter) {
   }
 } else {
   /*
-   * Default field = the player-visible roster. Excludes the hidden dev-harness
-   * nets (BC/PPO) — players never face them. Request them by name if needed.
+   * Default field = the player-visible roster. Excludes the hidden bots (the BC/PPO
+   * dev nets plus the #164-trimmed heuristics) — players never face them. Request
+   * them by name if needed.
    */
   bots = [...PLAYER_VISIBLE_BOTS];
 }

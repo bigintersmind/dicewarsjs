@@ -223,11 +223,11 @@ describe('TitleScreen', () => {
         'Survivor',
       ]);
 
-      // General holds the heuristics — and no persona leaks into it.
+      // General holds exactly the visible heuristics, strongest-first (#164) —
+      // the trimmed bots (Example/Defensive/Expectimax) must not render.
       const general = select.querySelector('optgroup[label="General"]');
       const genValues = [...general.querySelectorAll('option')].map(o => o.value);
-      expect(genValues).toContain('ai_default');
-      expect(genValues).not.toContain('ai_conqueror');
+      expect(genValues).toEqual(['ai_lookahead', 'ai_strategist', 'ai_adaptive', 'ai_default']);
 
       // Community option values are namespaced so the controller can route them.
       const community = select.querySelector('optgroup[label="Community"]');

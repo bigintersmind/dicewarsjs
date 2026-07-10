@@ -4,6 +4,10 @@
  * Central configuration for all AI strategies in the game.
  * This module provides a registry of AI strategies, metadata,
  * and utility functions for accessing them.
+ *
+ * `AI_STRATEGIES`' General (hand-written) entries are ordered strongest first, and
+ * entries flagged `hidden` (the #164 roster trim) are filtered out of the title-screen
+ * picker by {@link getAIStrategiesByCategory} while staying resolvable by id.
  */
 
 // Loader functions for each AI strategy using dynamic import
@@ -54,9 +58,37 @@ export const load_ai_survivor = async () => {
  * - description: Brief description of the AI's strategy
  * - difficulty: Relative difficulty (1-5)
  * - implementation: The actual AI function
+ * - hidden: (optional) excluded from the player picker; still resolvable by id
  */
 export const AI_STRATEGIES = {
-  // Default balanced AI
+  /*
+   * General (hand-written) heuristics, strongest first — getAIStrategiesByCategory()
+   * preserves this insertion order, and the title-screen picker renders it (#164).
+   */
+  ai_lookahead: {
+    id: 'ai_lookahead',
+    name: 'Lookahead AI',
+    description: 'Searches win/loss branches with exact dice odds and board-value evaluation',
+    difficulty: 5,
+    loader: load_ai_lookahead,
+    implementation: null,
+  },
+  ai_strategist: {
+    id: 'ai_strategist',
+    name: 'Strategist AI',
+    description: 'Scores every attack by exact expected value of income and risk',
+    difficulty: 5,
+    loader: load_ai_strategist,
+    implementation: null,
+  },
+  ai_adaptive: {
+    id: 'ai_adaptive',
+    name: 'Adaptive AI',
+    description: 'Adapts strategy based on game conditions',
+    difficulty: 4,
+    loader: load_ai_adaptive,
+    implementation: null,
+  },
   ai_default: {
     id: 'ai_default',
     name: 'Balanced AI',
@@ -66,62 +98,37 @@ export const AI_STRATEGIES = {
     implementation: null,
   },
 
-  // Defensive-focused AI
+  /*
+   * Hidden from the player picker (#164 roster trim) — getAIStrategiesByCategory()
+   * filters `hidden`, but the entries stay registered: getAIById/getAIImplementation
+   * still resolve them, attract mode reads `AI_STRATEGIES[id].loader` directly
+   * (ATTRACT_BOT_IDS includes ai_defensive), and the mirror flags live in
+   * builtInBots.js for the arena-side lists.
+   */
   ai_defensive: {
     id: 'ai_defensive',
     name: 'Defensive AI',
     description: 'Prioritizes protecting vulnerable territories',
     difficulty: 2,
+    hidden: true,
     loader: load_ai_defensive,
     implementation: null,
   },
-
-  // Example simple AI
   ai_example: {
     id: 'ai_example',
     name: 'Basic AI',
     description: 'Simple implementation for educational purposes',
     difficulty: 1,
+    hidden: true,
     loader: load_ai_example,
     implementation: null,
   },
-
-  // Adaptive AI that changes strategy
-  ai_adaptive: {
-    id: 'ai_adaptive',
-    name: 'Adaptive AI',
-    description: 'Adapts strategy based on game conditions',
-    difficulty: 4,
-    loader: load_ai_adaptive,
-    implementation: null,
-  },
-
-  // Expected-value AI using exact dice odds and connectivity economics
-  ai_strategist: {
-    id: 'ai_strategist',
-    name: 'Strategist AI',
-    description: 'Scores every attack by exact expected value of income and risk',
-    difficulty: 5,
-    loader: load_ai_strategist,
-    implementation: null,
-  },
-
-  // Shallow expectimax AI using exact dice odds and board-value search
-  ai_lookahead: {
-    id: 'ai_lookahead',
-    name: 'Lookahead AI',
-    description: 'Searches win/loss branches with exact dice odds and board-value evaluation',
-    difficulty: 5,
-    loader: load_ai_lookahead,
-    implementation: null,
-  },
-
-  // Chance-node expectimax search over the exact battle distribution
   ai_expectimax: {
     id: 'ai_expectimax',
     name: 'Expectimax AI',
     description: 'Chance-node expectimax over win/loss outcomes weighted by exact dice odds',
     difficulty: 5,
+    hidden: true,
     loader: load_ai_expectimax,
     implementation: null,
   },
@@ -189,6 +196,7 @@ export async function getAIImplementation(aiId) {
 
 /**
  * Get all available AI strategies
+ * Includes hidden entries — use getAIStrategiesByCategory() for player-facing lists.
  * @returns {Array} Array of AI strategy objects
  */
 export function getAllAIStrategies() {
@@ -196,34 +204,39 @@ export function getAllAIStrategies() {
 }
 
 /**
- * Partition the strategies into the picker's two built-in sections, preserving
- * registry insertion order within each. `selfPlay` is the learned neural roster
- * (`category: 'self-play'` — the personas); `general` is everything else (the
- * hand-written heuristic AIs). The Title Screen renders Self-Play above General.
+ * Partition the un-hidden strategies into the picker's two built-in sections,
+ * preserving registry insertion order within each. `selfPlay` is the learned
+ * neural roster (`category: 'self-play'` — the personas); `general` is
+ * everything else (the hand-written heuristic AIs), strongest first per the
+ * registry's insertion order (#164). Entries flagged `hidden` are filtered out
+ * of both — they remain resolvable via getAIById/getAIImplementation, just not
+ * listed in the picker. The Title Screen renders Self-Play above General.
  *
  * @returns {{ selfPlay: Array, general: Array }}
  */
 export function getAIStrategiesByCategory() {
-  const all = Object.values(AI_STRATEGIES);
+  const visible = Object.values(AI_STRATEGIES).filter(s => !s.hidden);
   return {
-    selfPlay: all.filter(s => s.category === 'self-play'),
-    general: all.filter(s => s.category !== 'self-play'),
+    selfPlay: visible.filter(s => s.category === 'self-play'),
+    general: visible.filter(s => s.category !== 'self-play'),
   };
 }
 
 /**
- * Default AI assignments
- * Maps player indices to AI strategy IDs
+ * Default AI assignments — mirrors slots 1-7 of GameStore's default lineup
+ * (the store's slot 0 is null, the human seat; slot 0 here is arbitrary since
+ * nothing consumes it). Currently unused at runtime (createAIFunctionMapping
+ * has no callers); GameController reads the store config instead.
  */
 export const DEFAULT_AI_ASSIGNMENTS = [
-  'ai_adaptive', // Player 0 (human by default, AI in spectator mode)
-  'ai_defensive', // Player 1
-  'ai_defensive', // Player 2
-  'ai_adaptive', // Player 3
-  'ai_default', // Player 4
-  'ai_default', // Player 5
-  'ai_strategist', // Player 6
-  'ai_lookahead', // Player 7
+  'ai_conqueror', // Player 0 (the store uses null here — the human seat)
+  'ai_conqueror', // Player 1
+  'ai_blitz', // Player 2
+  'ai_survivor', // Player 3
+  'ai_lookahead', // Player 4
+  'ai_strategist', // Player 5
+  'ai_adaptive', // Player 6
+  'ai_default', // Player 7
 ];
 
 /**

@@ -63,15 +63,21 @@ const DEFAULT_STATE = {
   config: {
     playerCount: 7,
     mapSize: 'medium',
+    /*
+     * Default battle lineup, strongest first (#164): the human faces the three
+     * self-play personas plus the strongest heuristics. At the default 7 players
+     * slots 1-6 are used; choosing 8 players adds Default (the classic original-game
+     * AI) — the full player-visible roster.
+     */
     aiAssignments: [
       null,
-      'ai_defensive',
-      'ai_defensive',
+      'ai_conqueror',
+      'ai_blitz',
+      'ai_survivor',
+      'ai_lookahead',
+      'ai_strategist',
       'ai_adaptive',
       'ai_default',
-      'ai_default',
-      'ai_strategist',
-      'ai_lookahead',
     ],
   },
 };

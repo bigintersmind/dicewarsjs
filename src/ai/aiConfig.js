@@ -225,14 +225,14 @@ export function getAIStrategiesByCategory() {
  * Maps player indices to AI strategy IDs
  */
 export const DEFAULT_AI_ASSIGNMENTS = [
-  'ai_adaptive', // Player 0 (human by default, AI in spectator mode)
-  'ai_defensive', // Player 1
-  'ai_defensive', // Player 2
-  'ai_adaptive', // Player 3
-  'ai_default', // Player 4
-  'ai_default', // Player 5
-  'ai_strategist', // Player 6
-  'ai_lookahead', // Player 7
+  'ai_conqueror', // Player 0 (human by default, AI in spectator mode — the flagship net)
+  'ai_conqueror', // Player 1
+  'ai_blitz', // Player 2
+  'ai_survivor', // Player 3
+  'ai_lookahead', // Player 4
+  'ai_strategist', // Player 5
+  'ai_adaptive', // Player 6
+  'ai_default', // Player 7
 ];
 
 /**

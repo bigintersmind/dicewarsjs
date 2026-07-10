@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { AI_STRATEGIES } from '../../src/ai/aiConfig.js';
 
 describe('GameStore', () => {
   it('creates with default state', () => {
@@ -119,5 +120,29 @@ describe('GameStore', () => {
     expect(s.selectedFrom).toBe(1);
     expect(s.selectedTo).toBe(5);
     expect(s.animationPhase).toBe('battle');
+  });
+
+  describe('defaults', () => {
+    it('defaults the battle lineup strongest-first: personas lead, classic Default last (#164)', () => {
+      const s = createGameStore().getState();
+      expect(s.config.aiAssignments).toEqual([
+        null, // slot 0: the human seat
+        'ai_conqueror',
+        'ai_blitz',
+        'ai_survivor',
+        'ai_lookahead',
+        'ai_strategist',
+        'ai_adaptive',
+        'ai_default',
+      ]);
+    });
+
+    it('assigns only ids that resolve to un-hidden picker entries', () => {
+      const s = createGameStore().getState();
+      for (const id of s.config.aiAssignments.slice(1)) {
+        expect(AI_STRATEGIES[id]).toBeDefined();
+        expect(AI_STRATEGIES[id].hidden).toBeUndefined();
+      }
+    });
   });
 });

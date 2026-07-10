@@ -42,7 +42,7 @@ describe('getAIStrategiesByCategory', () => {
     // Expectimax stays trimmed everywhere: strength-duplicate of Lookahead.
     expect(ids).not.toContain('ai_expectimax');
     expect(AI_STRATEGIES.ai_expectimax.hidden).toBe(true);
-    // Defensive/Basic are revived in the picker (Easy-mode ingredients, #167) …
+    // Defensive/Basic are revived in the picker (Easy-mode ingredients, #167).
     expect(ids).toContain('ai_defensive');
     expect(ids).toContain('ai_example');
   });

@@ -18,7 +18,7 @@
 
 import { useState } from 'preact/hooks';
 import { DEFAULT_MAP_SIZE } from '../utils/config.js';
-import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
+import { DIFFICULTY_MODES, lineupForMode } from '../ai/difficultyModes.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
@@ -278,15 +278,20 @@ export function TitleScreen({ store, error, onStart }) {
   };
 
   /*
-   * Build the lineup passed to the controller: slot 0 is always the human seat
-   * (null — the controller fills it with a default bot in spectator mode), and
-   * every AI slot resolves to a concrete strategy id so a null never gets
-   * mistaken for a human.
+   * Build the lineup passed to the controller. Preset modes derive it from the
+   * mode's own lineup — the seeded per-slot state may be truncated to a
+   * previous game's player count, and padding it with defaults could silently
+   * contradict the pressed preset's label. Custom uses the per-slot picker
+   * state: slot 0 is always the human seat (null — the controller fills it
+   * with a default bot in spectator mode), and every AI slot resolves to a
+   * concrete strategy id so a null never gets mistaken for a human.
    */
   const buildAssignments = () =>
-    Array.from({ length: playerCount }, (_, i) =>
-      i === 0 ? null : assignments[i] || 'ai_default'
-    );
+    difficulty === 'custom'
+      ? Array.from({ length: playerCount }, (_, i) =>
+          i === 0 ? null : assignments[i] || 'ai_default'
+        )
+      : lineupForMode(difficulty, playerCount);
 
   const handleStart = () => {
     onStart({

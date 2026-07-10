@@ -3,7 +3,9 @@
  * TitleScreen tests
  *
  * Covers the pre-game setup controls: player-count and the new map-size preset
- * selector, plus that both START and AI-vs-AI thread the choices into onStart.
+ * selector, the difficulty-mode row (#167, including preset lineups deriving
+ * correctly from a truncated store), plus that both START and AI-vs-AI thread
+ * the choices into onStart.
  */
 
 import { h, render } from 'preact';
@@ -312,6 +314,29 @@ describe('TitleScreen', () => {
       act(() => aiBtn().click());
       expect(onStart).toHaveBeenCalledWith(
         expect.objectContaining({ difficulty: 'hard', spectator: true })
+      );
+    });
+
+    it('derives a preset lineup even when the store holds a truncated one (#167)', () => {
+      // A finished 3-player game persists a 3-slot lineup; a fresh 7-player
+      // START on the still-pressed preset must send the full preset slice,
+      // not the truncated array padded with defaults under the same label.
+      const store = createGameStore({
+        config: {
+          playerCount: 3,
+          mapSize: 'medium',
+          difficulty: 'hard',
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz'],
+        },
+      });
+      const { onStart } = renderTitle({ store });
+      expect(modeBtn('Hard').getAttribute('aria-pressed')).toBe('true');
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulty: 'hard',
+          aiAssignments: lineupForMode('hard', 7),
+        })
       );
     });
   });

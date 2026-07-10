@@ -2238,3 +2238,24 @@ extension trains against the 464a2ee-era opponents (pre-#151, pre-press-to-close
 field the first 20M saw; all grading runs on current master (cross-commit eval-weights loading
 is established practice, and rows carry their own gitSha). (e) The box sits detached at
 `464a2ee` for ~30 h — no other shodan work should assume master meanwhile.
+
+**Outcome (2026-07-10) — EARLY-STOPPED at 34.2M; ship bar TIE → NO-SHIP (the default held).**
+Resume-health passed (21.1M: +31.37 BEAT — also the extension's best point); the curve then
+plateaued below the same-walk 20M reference (+31.57 [30.13, 33.01]) for 9 points and declined
+over the last four (+25.16 → +26.27 → +23.43 → +13.92, the last BEHIND the v2 PPO seat). The
+early-stop rule fired **with a calibration note**: the registered 32.2 threshold was quoted on
+the RESULTS-harness scale, and the mini's same-walk grading runs ~2.3 pp lower — applied
+literally it would have fired on the _base_ run at 3M–5M — so the operative threshold is the
+same-walk 20M reference's CI-lower **30.13** (what the launch-day calibration walk was built to
+provide): 31.1M/32.1M/33.1M are three consecutive CI-uppers below it, 34.1M made four. Ivan
+ratified the stop (run halted at ckpt 34,206,000; it had also been accidentally interrupted once
+at ~34.14M — console close — and cleanly resumed, LOG 2026-07-10). Final grading, fresh seeds
+(`--seedbase 40000000`), candidate `eval-021104880`: **PRIMARY vs shipped Conqueror TIE −0.3 ±
+2.9 [−3.3, 2.6]** → ship bar FAILED; floor vs `Lookahead@596f781` BEAT +29.7 ± 1.8; behavioral
+co-read moot. Per §3's no-ship default: **Conqueror keeps the 20M weights**, nothing reships;
+run archived (`ppo-v3-scratch-40m-noship-20260710` on shodan; SHA-verified backup + the
+mini-side curve record in the mini's `~/backup/`). **The budget question is answered: budget was
+not binding — ~20M was this recipe's ceiling** (third matched-objective continuation wash: v2
+fine-tune BEHIND, v3 fine-tune-control TIE, this same-recipe resume TIE). Per §5, #157's
+deferred once-only matrix measurement is unblocked against the unchanged roster. Full tables:
+RESULTS 2026-07-10.

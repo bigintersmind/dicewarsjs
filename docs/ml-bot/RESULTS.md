@@ -1314,3 +1314,88 @@ reinforces stopping-after-kills harder than killing. The offline counterfactual 
 mechanism: same trajectories, same critic, payment timing alone moved → the killing action becomes the
 turn's clearest positive-credit action. The [D-33] revisit clause (frame-level kill-attribution fix) is
 now evidence-backed rather than assumed.
+
+## Phase 3 — [D-35] 20M→40M budget extension EARLY-STOPPED at 34.2M: curve regressed, ship bar TIE → NO-SHIP (Conqueror keeps the 20M weights) · 2026-07-10
+
+`ppo-v3-scratch-40m` — the [D-35] pre-registered budget extension: `ppo-v3-scratch` resumed from
+its final state (step 20,004,864) with `TIMESTEPS=40000000` and every other knob at the campaign's
+original values, at the campaign pin `464a2ee`, in a copied run dir. Ran 2026-07-09 19:33 CDT →
+2026-07-10, stopped deliberately at checkpoint **34,206,000** (~14.2M extension steps, ~186 fps)
+when the early-stop rule was adjudicated as having fired at 33.1M — ④ (34.1M) had already
+graded by the time of the status check that prompted adjudication — see below. (Ops: the run was accidentally interrupted once at
+~34.14M — the interactive schtasks console window was closed — and cleanly relaunched via the
+proven resume path ~2 h before the stop decision; both events LOG 2026-07-10.) Curve graded live
+on the mini by the [D-29] watcher (fresh same-knob walk, 20×150, seedbase 0, ref PPO, 3,060
+games/point); [D-35] bars graded locally on the Mac.
+
+### The strength curve — the extension never exceeded its starting point, then regressed
+
+Same-walk 20M reference (the [D-35] launch-day calibration point) and the extension's 1M-grid
+eval stream. Candidate rows are `ppo:curve` paired Δs vs `Lookahead@596f781` and vs the seated
+v2 `PPO` baseline:
+
+| Checkpoint (step)      | Δ vs Lookahead [95% CI]    | Δ vs PPO     | win%      | Note                     |
+| ---------------------- | -------------------------- | ------------ | --------- | ------------------------ |
+| 20,004,864 (= shipped) | **+31.57 [30.13, 33.01]**  | +9.08 BEAT   | 38.7      | same-walk reference      |
+| 21,104,880             | +31.37 [29.28, 33.47]      | +9.77 BEAT   | 38.8      | resume-health ✓ · best   |
+| 22.1M–30.1M (9 points) | +27.25 … +31.05 (all BEAT) | +5.59…+10.98 | 34.6–38.8 | plateau, never above ref |
+| 31,104,960             | +25.16 [23.29, 27.04]      | +4.64 BEAT   | 33.6      | ① below ref CI-lo        |
+| 32,104,968             | +26.27 [24.07, 28.47]      | +6.80 BEAT   | 34.0      | ②                        |
+| 33,104,976             | +23.43 [21.37, 25.50]      | +2.19 TIE    | 31.9      | ③ — **rule fires**       |
+| 34,104,984             | +13.92 [12.04, 15.80]      | −6.63 BEHIND | 22.1      | ④ — collapse             |
+
+**Early-stop adjudication (with a threshold-calibration note).** [D-35] registered the trigger
+as three consecutive 1M-grid points with CI-upper below **32.2** — but 32.2 is the 20M point's
+lower bound _on the RESULTS-harness scale_ (+33.9 [32.2, 35.5], 2026-07-05). The mini's
+same-walk re-grade runs ~2.3 pp lower across the board (its 20M reference: +31.57 [30.13,
+33.01]), and applied literally the 32.2 trigger would have "stopped" the _base_ run at 3M–5M —
+the run that ended at its peak. The operative threshold is therefore the same-walk 20M
+reference's lower bound, **30.13** — exactly what the launch-day calibration walk existed to
+provide. Against it, points ①②③ (31.1M/32.1M/33.1M) are three consecutive CI-uppers below,
+and ④ made four with the tail in free fall. This was also the rule's _first_ firing: the
+plateau dipped under 30.13 three times (22.1M hi 29.65; 28.1M hi 28.71; 29.1M hi 29.47) but
+never three in a row — 23.1M and 30.1M broke those chains (per-point CIs in the mini-side
+`strength.jsonl`). Ivan ratified the stop 2026-07-10.
+
+### The [D-35] bars — ship bar FAILED
+
+Candidate = `eval-021104880` (the curve's best extension point; 103,779 params, parity 1.5e-4).
+Both gates fresh-seed (`--seedbase 40000000` — the default seedbase 0 would replay the mini
+walk's seed blocks, same knobs ⇒ same seeds), 20 runs, graded locally at `2cebf7b` (= master
+`bd300e2` + a UI-only branch commit; `src/arena`/`scripts` byte-identical to master).
+
+| Bar ([D-35])                               | Field       | Result (fresh seeds)                      | Verdict              |
+| ------------------------------------------ | ----------- | ----------------------------------------- | -------------------- |
+| **PRIMARY/SHIP** — shipped Conqueror (20M) | 10-seat h2h | **−0.3 ± 2.9 [−3.3, 2.6]** (30.2 vs 30.5) | ❌ **TIE → no-ship** |
+| _floor_ — `Lookahead@596f781`              | 9-seat gate | +29.7 ± 1.8 [28.0, 31.5] (37.0 vs 7.3)    | ✅ BEAT (retained)   |
+
+The behavioral co-read (flag → escalate) is a ship-time check — moot under no-ship, not run.
+
+### Read
+
+- **The budget question is answered: budget was NOT the binding constraint.** +14.2M extra steps
+  under the identical recipe produced a best candidate that TIEs the 20M net head-to-head (−0.3)
+  and never exceeded the same-walk reference on the curve. ~20M was the ceiling for this recipe.
+- **The 16M→20M rising tail was plateau oscillation, not an unfinished climb.** With the longer
+  horizon visible, the base run's final checkpoint sits at the top of the band the extension then
+  oscillated in — [D-31]'s final-is-peak read survives, but its "stopped by budget, not plateau"
+  suspicion does not.
+- **Third matched-objective continuation wash, now across both regimes:** v2 `ppo-conqueror`
+  fine-tune −7.6 BEHIND its base; v3 `ppo-v3-conq-ctl` fine-tune TIE +1.1; this same-recipe
+  resume TIE −0.3. Continuations of a converged net keep not paying.
+- **The 31M→34M decline is real but undiagnosed** — four consecutive fresh-seeded points, ending
+  BEHIND the v2 PPO baseline; candidate causes (PFSP league drift, entropy decay) are unprobed.
+  The archived run (checkpoints + league state through 34.2M) supports a future diagnosis if one
+  is ever worth funding.
+- **Consequences:** Conqueror keeps the 20M weights ([D-31] provenance unchanged — `ppo.pt` in
+  the pristine canonical dir); Blitz/Survivor unchanged; hidden `ai_ppo` gate baseline unchanged;
+  the conditional Blitz-re-fine-tune-off-40M wave ([D-35] §4) is moot. **#157's deferred
+  once-only matrix measurement is UNBLOCKED** — the roster it measures is now settled.
+
+**Artifacts:** run dir archived on shodan as `ml/runs/ppo-v3-scratch-40m-noship-20260710` (+
+`.boot.log` sibling); byte-exact backup on the mini `~/backup/ppo-v3-scratch-40m.tgz` (198 files,
+per-file SHA-verified) with the 35-point curve record `~/backup/strength.{jsonl,csv}` (the only
+copy — the watcher wrote it mini-side); gate logs shodan
+`ml/runs/_eval_logs/v3-scratch-40m.21M.{ship-bar,floor-gate}.log`. Training at pin `464a2ee`;
+curve rows carry gitSha `da07f8a`; final gates at `2cebf7b`; Lookahead pin `596f781`. Schtasks
+task + supervisor deleted, shodan back on master.

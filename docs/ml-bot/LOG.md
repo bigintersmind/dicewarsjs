@@ -21,6 +21,56 @@ Entry template:
 
 ---
 
+## 2026-07-10 — [D-35] extension EARLY-STOPPED at 34.2M (curve regression), ship bar TIE → NO-SHIP; Conqueror keeps the 20M weights
+
+**Phase:** flagship strength (adjudication + ops) · **Who:** Claude (diagnosis, grading, ops); Ivan (stop decision)
+
+**Did:**
+
+- **Found the run dead at ~34.14M** on a routine status check: schtasks Last Result `0xC000013A`
+  (console close) at ~16:24 CDT — event-log forensics ruled out reboot (host up since 7/6),
+  logoff, WSL/Store update, service crash, and execution-time-limit; the Task-Scheduler task runs
+  with an interactive token, so its wsl.exe console is a desktop window, and Ivan confirmed he'd
+  accidentally closed it. Relaunched via `Start-ScheduledTask`; resume verified in both halves
+  (launcher `resume step=34105992`, trainer `num_timesteps=34105992`, league 12/12 shards
+  `restoredPool 40, dropped 0`) — the third clean exercise of the [D-35] resume machinery.
+- **Curve adjudication (mini watcher, current through 34.1M):** the extension never exceeded the
+  same-walk 20M reference (+31.57 [30.13, 33.01]); best point 21.1M (+31.37, resume-health ✓);
+  then 31.1M→34.1M declined +25.16 → +26.27 → +23.43 → **+13.92** (BEHIND the v2 PPO seat,
+  −6.63). **Early-stop calibration call:** the pre-registered "CI-upper < 32.2" was written on
+  the RESULTS-harness scale — applied literally it would have fired on the _base_ run at 3M–5M;
+  the operative threshold is the same-walk 20M CI-lower **30.13** (what the launch-day
+  calibration walk was for), under which 31.1/32.1/33.1M fired the three-consecutive rule and
+  34.1M made four. Ivan ratified the stop; run halted at ckpt **34,206,000**, task deleted.
+- **[D-35] bars graded locally** (fresh seeds `--seedbase 40000000`; candidate `eval-021104880`):
+  PRIMARY vs shipped Conqueror **TIE −0.3 ± 2.9 [−3.3, 2.6]** → ship bar FAILED; floor vs
+  `Lookahead@596f781` BEAT +29.7 ± 1.8 [28.0, 31.5]. Behavioral co-read moot (no ship). →
+  **No-ship default applied.** Full tables: RESULTS 2026-07-10; outcome annotated on [D-35].
+- **Box hygiene (RUNBOOK §7):** schtasks task deleted, supervisor `~/launch-v3-40m.sh` recorded
+  in-session then removed, shodan checked out `464a2ee` → master; run dir backed up to the mini
+  (`~/backup/ppo-v3-scratch-40m.tgz`, 198 files per-file SHA-verified) plus the mini-only curve
+  record (`strength.{jsonl,csv}`); run dir renamed `ppo-v3-scratch-40m-noship-20260710`
+  (stale-attempt precedent); gate logs → `ml/runs/_eval_logs/v3-scratch-40m.21M.*`; mini
+  watcher and sync loop stopped.
+
+**Learned / decided:**
+
+- **Budget was not the binding constraint** — ~20M was this recipe's ceiling; the 16M→20M rising
+  tail was plateau oscillation, not an unfinished climb. Third matched-objective continuation
+  wash (v2 ft BEHIND, v3 ctl TIE, this resume TIE).
+- **Pre-registered thresholds must name their measurement scale.** 32.2 was a cross-harness
+  number; the rule was only adjudicable because the launch-day same-walk 20M reference existed.
+  Future pre-registrations should quote thresholds in the units of the walk that will be watched.
+- Interactive-token schtasks consoles die to a stray click on the desktop. Survivable (resume is
+  proven), but a future §4b launch could minimize the window or title it loudly.
+
+**Next:**
+
+- **#157 ladder-honesty matrix now unblocked** (roster ships unchanged: Conqueror/Blitz/Survivor
+  plus Lookahead/Strategist/Expectimax) + the picker copy that follows it.
+- 31M→34M late-run decline left undiagnosed (league drift? entropy decay?) — archived run
+  supports a future probe; not scheduled.
+
 ## 2026-07-09 — Pre-run sequence executed: #157 ratified-and-deferred, [D-35] pre-registered, the 20M→40M Conqueror extension RESUMED on shodan
 
 **Phase:** flagship strength (post-persona) · **Who:** Claude (pre-registration + ops); Ivan (approved the sequence)

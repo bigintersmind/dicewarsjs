@@ -4,8 +4,9 @@
  * Preset opponent lineups for the game-setup difficulty ladder. Each mode is
  * an explicit ordered 8-slot lineup of picker bot ids — slot 0 is the human
  * seat (null) — and the title screen slices it to the chosen player count, so
- * slot 1 is the mode's most representative opponent and small games get the
- * gentlest slice. Duplicate ids are legal: each slot resolves independently,
+ * slot 1 is the mode's most representative opponent (a 2-player Easy game
+ * faces the gentlest bot; a 2-player Hard game the strongest). Duplicate ids
+ * are legal: each slot resolves independently,
  * and the original game was literally ai_default in every seat.
  *
  * "Custom" is deliberately NOT an entry here. It has no preset lineup — it is

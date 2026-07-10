@@ -313,8 +313,48 @@ describe('TitleScreen', () => {
       act(() => modeBtn('Hard').click());
       act(() => aiBtn().click());
       expect(onStart).toHaveBeenCalledWith(
-        expect.objectContaining({ difficulty: 'hard', spectator: true })
+        expect.objectContaining({
+          difficulty: 'hard',
+          spectator: true,
+          // Slot 0 stays null even as a spectator — the controller fills it.
+          aiAssignments: lineupForMode('hard', 7),
+        })
       );
+    });
+
+    it('sends the full 8-slot Hard lineup for an 8-player game', () => {
+      // Guards the playerCount → lineupForMode wiring: a stale 7-slot lineup
+      // here would give player 7 a null slot — a phantom second human.
+      const { onStart } = renderTitle();
+      act(() => playerBtn(8).click());
+      act(() => modeBtn('Hard').click());
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulty: 'hard',
+          aiAssignments: lineupForMode('hard', 8),
+        })
+      );
+    });
+
+    it('slices a preset down to a 2-player game (Easy → its gentlest opponent)', () => {
+      const { onStart } = renderTitle();
+      act(() => playerBtn(2).click());
+      act(() => modeBtn('Easy').click());
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({ difficulty: 'easy', aiAssignments: [null, 'ai_example'] })
+      );
+    });
+
+    it('discards hand edits when a preset is clicked (Custom → edit → Easy → Custom)', () => {
+      renderTitle();
+      act(() => modeBtn('Custom').click());
+      chooseBot(2, 'ai_lookahead');
+      act(() => modeBtn('Easy').click());
+      act(() => modeBtn('Custom').click());
+      // Re-entering Custom seeds from the pressed preset, not the stale edit.
+      expect(slotSelect(2).value).toBe('ai_example');
     });
 
     it('derives a preset lineup even when the store holds a truncated one (#167)', () => {
@@ -336,6 +376,42 @@ describe('TitleScreen', () => {
         expect.objectContaining({
           difficulty: 'hard',
           aiAssignments: lineupForMode('hard', 7),
+        })
+      );
+    });
+
+    it("mounts with the per-slot panel open when the store persisted difficulty 'custom'", () => {
+      const store = createGameStore({
+        config: {
+          playerCount: 7,
+          mapSize: 'medium',
+          difficulty: 'custom',
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz'],
+        },
+      });
+      renderTitle({ store });
+      expect(modeBtn('Custom').getAttribute('aria-pressed')).toBe('true');
+      expect(slotSelect(2)).not.toBeNull();
+    });
+
+    it('pads Custom slots beyond a truncated store lineup with ai_default', () => {
+      // A previous 3-player Custom game persisted a 3-slot lineup; a fresh
+      // 7-player START in Custom must pad the unseeded slots, never send
+      // undefined entries (each would read as another human seat).
+      const store = createGameStore({
+        config: {
+          playerCount: 3,
+          mapSize: 'medium',
+          difficulty: 'custom',
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz'],
+        },
+      });
+      const { onStart } = renderTitle({ store });
+      act(() => startBtn().click()); // component default: 7 players
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulty: 'custom',
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz', ...Array(4).fill('ai_default')],
         })
       );
     });

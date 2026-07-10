@@ -229,7 +229,7 @@ const STYLE = {
 
 /**
  * @param {Object} props
- * @param {Object} props.store - GameStore, used to seed the default bot lineup
+ * @param {Object} props.store - GameStore, used to seed the bot lineup and difficulty selection
  * @param {string | null} [props.error] - Error message to display
  * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, difficulty: string, aiAssignments: (string | null)[] }) => void} props.onStart
  */
@@ -249,17 +249,19 @@ export function TitleScreen({ store, error, onStart }) {
     () => store.getState().config.difficulty ?? 'standard'
   );
   /*
-   * Per-slot AI strategy IDs (index = player slot). Seeded from store defaults.
-   * `store` is required (the useGameStore call above already depends on it).
+   * Per-slot AI strategy IDs (index = player slot). Seeded from the store's
+   * current assignments — the last game's persisted lineup (possibly truncated
+   * to its player count) or the Standard default on first launch. `store` is
+   * required (the useGameStore call above already depends on it).
    */
   const [assignments, setAssignments] = useState(() =>
     (store.getState().config.aiAssignments ?? []).slice()
   );
 
   /*
-   * A preset click replaces the whole lineup with the mode's; Custom keeps the
-   * current lineup (seeded from the last-selected preset — or the store
-   * default, i.e. Standard, when picked first) and reveals the per-slot
+   * A preset click replaces the whole lineup with the mode's — discarding any
+   * hand edits; Custom keeps the current lineup (the last-selected preset, or
+   * the store-seeded assignments when picked first) and reveals the per-slot
    * picker below.
    */
   const handleSelectMode = modeId => {

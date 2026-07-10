@@ -238,8 +238,8 @@ export function getAIStrategiesByCategory() {
  * Default AI assignments — mirrors the store's default lineup, which since
  * #167 is the Standard difficulty preset (DIFFICULTY_MODES.standard.lineup in
  * difficultyModes.js — literals here because that module imports this one;
- * hand-kept in sync). Slot 0 is arbitrary (the store uses null — the human
- * seat); nothing consumes it. Currently unused at runtime
+ * the sync is pinned by tests/ai/aiConfig.test.js). Slot 0 is arbitrary (the
+ * store uses null — the human seat); nothing consumes it. Currently unused at runtime
  * (createAIFunctionMapping has no callers); GameController reads the store
  * config instead.
  */

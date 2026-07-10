@@ -8,8 +8,7 @@
  *    tournament) see {@link PLAYER_VISIBLE_BOTS} — a strength-ordered roster of exactly 7
  *    bots (#164): the three self-play personas first, then hand-written heuristics by
  *    measured strength. The `hidden` flag covers both internal nets (`ai_bc`/`ai_ppo`) and
- *    trimmed heuristics (`ai_example`, `ai_defensive`, `ai_expectimax`). ArenaScreen,
- *    TournamentScreen, and the CLI default arena field import that derived list.
+ *    trimmed heuristics (`ai_example`, `ai_defensive`, `ai_expectimax`).
  *    `hidden` here means "not on competitive surfaces" — the game-setup picker is
  *    governed separately by aiConfig.js, where Defensive/Basic are visible again since
  *    #167 (difficulty-mode ingredients).
@@ -60,9 +59,9 @@ export const BUILT_IN_BOTS = [
   { id: 'ai_strategist', name: 'Strategist', fn: adaptLegacyBot(ai_strategist, 'Strategist') },
   { id: 'ai_lookahead', name: 'Lookahead', fn: adaptLegacyBot(ai_lookahead, 'Lookahead') },
   /*
-   * Hidden from players (#164): at strength-parity with Lookahead, so it reads as a
-   * duplicate in the picker. Stays registered as the ML search-first baseline for the
-   * dev harness (docs/ml-bot/).
+   * Off competitive surfaces (#164), and also picker-hidden in aiConfig.js — at
+   * strength-parity with Lookahead, so it reads as a duplicate on every surface.
+   * Stays registered as the ML search-first baseline for the dev harness (docs/ml-bot/).
    */
   {
     id: 'ai_expectimax',
@@ -104,12 +103,13 @@ export const BUILT_IN_BOTS = [
 ];
 
 /**
- * The player-facing roster, strongest first: the three self-play personas, then the
- * hand-written heuristics by measured strength. Every arena-side list a player sees —
+ * The competitive-surface roster, strongest first: the three self-play personas, then
+ * the hand-written heuristics by measured strength. Every competitive list —
  * the Arena/Tournament screens, the CLI arena default field, and the online
  * tournament — derives from this array (#164). The title-screen picker instead reads
- * the sibling aiConfig.js registry, whose insertion order must be edited by hand to
- * match this one; the cross-registry drift tests pin the two orders together.
+ * the sibling aiConfig.js registry, whose insertion order must keep this array as its
+ * hand-matched prefix, followed by the #167 picker-only revivals (Defensive/Basic);
+ * the cross-registry drift test pins that prefix + tail shape.
  *
  * An explicit id list (not a `.filter`) so the order is a deliberate roster decision;
  * the guards below throw at import time if it drifts from BUILT_IN_BOTS, so adding or

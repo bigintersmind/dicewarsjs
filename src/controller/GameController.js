@@ -179,8 +179,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *   (index = player slot, null = human). Falls back to the store's current
    *   assignments when omitted.
    * @param {string} [config.difficulty] - Difficulty mode id ('easy' | 'standard'
-   *   | 'hard' | 'custom') the lineup came from. Persisted for later display;
-   *   the controller itself only consumes aiAssignments.
+   *   | 'hard' | 'custom') the lineup came from. Persisted so the title screen
+   *   restores the selection on the next visit (and derives preset lineups from
+   *   it); the controller itself only consumes aiAssignments.
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn

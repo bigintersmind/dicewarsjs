@@ -14,8 +14,13 @@
  * Since #167, Defensive/Basic are picker-visible again (Easy-mode ingredients) while
  * staying hidden on the arena side — the two registries' hidden sets intentionally differ.
  */
-import { getAIStrategiesByCategory, AI_STRATEGIES } from '../../src/ai/aiConfig.js';
+import {
+  getAIStrategiesByCategory,
+  AI_STRATEGIES,
+  DEFAULT_AI_ASSIGNMENTS,
+} from '../../src/ai/aiConfig.js';
 import { BUILT_IN_BOTS, PLAYER_VISIBLE_BOTS } from '../../src/arena/builtInBots.js';
+import { DIFFICULTY_MODES } from '../../src/ai/difficultyModes.js';
 
 describe('getAIStrategiesByCategory', () => {
   it('puts exactly the self-play personas in the Self-Play group, in registry order', () => {
@@ -93,5 +98,15 @@ describe('getAIStrategiesByCategory', () => {
       .map(b => b.id)
       .sort();
     expect(registryHidden).toEqual(['ai_defensive', 'ai_example', 'ai_expectimax']);
+  });
+});
+
+describe('DEFAULT_AI_ASSIGNMENTS', () => {
+  it('mirrors the Standard difficulty preset (#167)', () => {
+    // The constant is documented as hand-kept in sync with the preset
+    // (aiConfig.js can't import difficultyModes.js — that module imports this
+    // one), so the sync gets its tripwire here. Slot 0 differs by design: the
+    // store uses null for the human seat, the constant an arbitrary id.
+    expect(DEFAULT_AI_ASSIGNMENTS.slice(1)).toEqual(DIFFICULTY_MODES.standard.lineup.slice(1));
   });
 });

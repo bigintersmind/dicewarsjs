@@ -2150,3 +2150,91 @@ parenthetical + the "unseeded-field noise" halt-rule wording), EVAL_HARNESS §3.
 STRENGTH_CURVE §"Test-retest calibration", `scripts/ppo-strength-curve.mjs` (the `--test-retest`
 log lines + header, exact-0 same-commit expectation + cross-commit caveat), and the LOG 2026-07-08
 OPEN item — all synced to this decision.
+
+## D-35 — Conqueror 20M→40M budget-extension pre-registered: resume `ppo-v3-scratch` at its pinned commit in a copied run dir; ship bar = BEAT the shipped Conqueror head-to-head; no-ship default · Accepted (2026-07-09) · follows [D-31](#d-31--observation-encoding-v3-owner-identity-income-economics-turn-order-clock--append-only-with-v2-slice-compat--accepted-2026-07-02--extends-d-encoding-and-d-18), sequences [#157](https://github.com/bigintersmind/dicewarsjs/issues/157)
+
+**Context.** The [D-31] v3 from-scratch run was stopped by budget, not by plateau: the 16M→20M
+curve tail rose monotonically and the final checkpoint is the peak (+33.9 [32.2, 35.5] vs
+Lookahead; RESULTS 2026-07-05). Ivan wants to know whether budget was the binding constraint —
+the 20M→40M question. The precedent record cuts both ways and is written down here so the bars
+stay honest: matched-objective _fine-tune continuations_ have been a wash or worse (v2
+`ppo-conqueror`, 3M @ LR 1e-4 off `ppo-long`: **−7.6 [−10.1, −5.1] BEHIND** its base; v3
+`ppo-v3-conq-ctl`, same recipe off the v3 base: TIE +1.1 [−1.3, 3.5]) — but both changed the
+regime (fine-tune LR, tiny budget, fresh run). This extension is a different object: the SAME
+campaign resumed under the PR-5 machinery with a raised absolute budget — identical LR/entropy/
+league/recipe, exactly as if the original launch had said 40M. The rising tail is the evidence
+the run wasn't done; the wash precedents are why the default below is no-ship. Ratification:
+Ivan approved executing the pre-run sequence (review #154/#157 → pre-register → launch) in
+session; this entry was written and pushed before any extension eval checkpoint existed, and
+merging the PR that adds it is the ratification record.
+
+**Decision (pre-registered).**
+
+1. **Mechanics — the only changed variable is the budget.** Resume from `ppo-v3-scratch`'s final
+   state (step 20,004,864) with `TIMESTEPS=40000000`; every other knob at the original campaign's
+   values (launcher defaults: LR 2.5e-4, ENT_COEF 0.01, N_ENVS 12, R=3, CHECKPOINT_EVERY 100k,
+   EVAL_EVERY 1M — the same eval grid as the base run's [D-29] curve). Run **at the campaign's
+   pinned commit `464a2ee`** (the box checked out to the pin for the duration, back to master
+   after): master has since materially changed the heuristic training opponents — the #128–#133
+   press-to-close/bounds behavior work and #151's seeded `game.random()` — so resuming on master
+   would swap the opponent distribution mid-campaign and confound the budget question. The
+   RUN_COMMIT drift halt exists to force exactly this choice to be conscious; it is satisfied,
+   not overridden. (Resume wins over `--from-scratch`/`--checkpoint` in the trainer — both inert
+   once `latest.json` is valid — and `learn(reset_num_timesteps=False)` caps at the absolute
+   `--timesteps`; RUNBOOK §0/§9.)
+2. **Run dir = a copy, `ppo-v3-scratch-40m`.** The canonical `ppo-v3-scratch/` stays
+   byte-pristine: its `ppo.pt` is the shipped Conqueror's provenance (`npm run conqueror:export`
+   pins it; [D-31] §5 verified bit-identical to `eval-020004864`), and an in-place continuation
+   would overwrite it even under a no-ship outcome. The copy carries both resume halves (SB3
+   `state/` + league state) and the RUN_COMMIT pin; the extension's eval stream accrues in the
+   copy.
+3. **Pre-registered bars** (graded off fixtured eval checkpoints on Mac/mini, fresh seeds, zero
+   load on the training box):
+   - **Resume-health tripwire (first eval point, ~21M):** still BEAT vs `ai_lookahead@596f781`.
+     A collapse at the first point is a resume-skew problem, not a strength answer → halt the run
+     and investigate; nothing is graded.
+   - **Early-stop rule (the [D-29] curve, watched live on the mini):** if **three consecutive**
+     1M-grid eval points grade with a Δ-vs-Lookahead 95% CI **upper** bound below **32.2** (the
+     20M point's lower bound), stop the run and jump to final grading with the best checkpoint so
+     far. Sustained regression below the starting strength is disqualifying by itself; a flat
+     plateau is NOT an early stop — flat-but-peaked is what the final gate adjudicates.
+   - **Primary / ship bar:** BEAT the **shipped Conqueror** (the 20M net, in-tree weights)
+     head-to-head — `ppo:gate --bar Conqueror`, paired seat-fair Δ win%, 95% CI lower bound > 0.
+     Candidate = the best checkpoint on the curve (the final 40M one if the tail is still rising,
+     the same final-is-peak logic [D-31] shipped on).
+   - **Floor:** retain BEAT vs `ai_lookahead@596f781` (the [D-24]/[D-7] gate).
+   - **Behavioral co-read (flag → escalate, never auto-ship):** `behavior:profile` of the
+     candidate vs the shipped Conqueror as control in the §10.3 calibration field; the §10.4
+     clock-hack panel (ratified 0.05/0.31/0.18) and the [D-30] basin axes read as flags. This is
+     the flagship win-objective, not a persona signature gate, so a fired panel escalates to Ivan
+     before any ship rather than auto-killing.
+   - **No-ship default:** any bar unmet → Conqueror keeps the 20M weights, the run dir is
+     archived (stale-attempt naming precedent), and the negative result is recorded in
+     RESULTS.md. Nothing reships partially.
+4. **Rollout on ship ([D-27] pattern).** The 40M net replaces `src/ai/conquerorPolicyWeights.js`
+   only (+ `conqueror:export` re-pinned to the new source checkpoint). Hidden `ai_ppo` keeps the
+   frozen v2 `ppo-long` weights as the `ppo:gate` baseline. **Blitz and Survivor ship
+   unchanged** — a Blitz re-fine-tune off the 40M base would be its own pre-registered wave,
+   worth considering only if this ships.
+5. **Sequencing (#157, ladder honesty).** The matrix field is **ratified as option (a)** — the
+   player-visible strong roster (Conqueror, Blitz, Survivor, Lookahead, Strategist, Expectimax);
+   the hidden dev bots (`ai_ppo`/`ai_bc`) stay out. Its once-only fresh-seed measurement is
+   **deferred until this run's ship/no-ship decision**, so the matrix ranks the roster that
+   actually ships ([D-32](c)'s "measured once" property preserved). Recorded here rather than on
+   the issue (the session's permission model withheld the GitHub comment); Ivan may drop a
+   pointer comment on #157.
+
+**Consequences / ops.** (a) ~20M more steps ≈ ~30 h on shodan (186 fps observed at resume, vs
+the base run's ~176 average); launched Task-Scheduler-owned per RUNBOOK §4b.5
+(`dicewars-ppo-v3-40m`, AtStartup + Interactive — **delete it after the run**, §7). (b) Resume
+verified in BOTH halves at launch: launcher `attempt #1 (resume step=20004864)`, trainer
+`resumed from … at num_timesteps=20004864`, league `restoredPool 40, dropped 0 future`; the §2
+rl resume tier passed 110/110 on the box at the pin first. (c) The [D-29] scorer runs on the
+mini as a fresh same-knob walk (20×150, seedbase 0, ref PPO, watch mode) over a mirrored eval
+dir — `--rsync-from` cannot traverse shodan's PowerShell landing shell, so a base64-over-ssh
+loop mirrors the text artifacts (RUNBOOK §9.5); re-grading the historical 0→20M points first
+gives the early-stop rule a same-walk, same-machine reference for the 20M baseline. (d) The
+extension trains against the 464a2ee-era opponents (pre-#151, pre-press-to-close) — the same
+field the first 20M saw; all grading runs on current master (cross-commit eval-weights loading
+is established practice, and rows carry their own gitSha). (e) The box sits detached at
+`464a2ee` for ~30 h — no other shodan work should assume master meanwhile.

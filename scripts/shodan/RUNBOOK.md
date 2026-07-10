@@ -566,3 +566,43 @@ nearCapDeathRate 0.05, lateGameAggressionSpike 0.31, truncationRate co-signal 0.
 per the pre-registration from the Conqueror-control's 0.5M/1M eval checkpoints vs the base in the
 §10.3 calibration field — see [docs/ml-bot/PERSONAS.md](../../docs/ml-bot/PERSONAS.md) §10.4
 (calibration numbers: RESULTS.md 2026-07-08).
+
+---
+
+## 9. Budget-extension resume of a FINISHED campaign (the [D-35] 20M→40M pattern)
+
+A completed campaign can be extended: resume it with a **raised absolute `TIMESTEPS`** (§0's
+"raise it deliberately" case). The [D-35] rules, in order — first executed 2026-07-09 for the
+Conqueror 20M→40M run (`ppo-v3-scratch` → `ppo-v3-scratch-40m`):
+
+1. **Extend at the campaign's pinned commit, not master.**
+   `git checkout $(cat ml/runs/<run>/RUN_COMMIT)` on the box for the duration, back out to
+   master after. Master may have changed the built-in opponents since the pin (e.g. the
+   #128–#133 press-to-close/bounds behavior work, #151's seeded bot RNG) — resuming on a drifted
+   HEAD swaps the training-opponent distribution mid-campaign and confounds the budget question.
+   The RUN_COMMIT halt is the tripwire for exactly this: satisfy it, don't edit the pin. Run the
+   §2 rl resume tier on the box at the pin before launching.
+2. **Copy the run dir; never resume in the canonical one.**
+   `cp -a ml/runs/<run> ml/runs/<run>-<ext>`. Continuing in place overwrites `ppo.pt` — the
+   SHIPPED weights' provenance (`conqueror:export` pins it) — even if the extension never ships.
+   The copy carries both resume halves (`state/`, league state) plus the RUN_COMMIT pin, and the
+   extension's eval stream accrues in the copy.
+3. **Relaunch = the original launch env with only `RUN_NAME` + `TIMESTEPS` changed.** Resume wins
+   over `--from-scratch`/`--checkpoint` (both inert once `latest.json` is valid; `build_model`
+   is skipped on resume). Verify BOTH halves in the logs before walking away: launcher
+   `attempt #1 (resume step=<final step>)`, trainer `resumed from … at num_timesteps=<final
+step>`, env-servers `resumed league … dropped 0 future`. A fresh-start line here means the
+   state didn't travel — stop immediately.
+4. **In-situ two-half smoke before leaving it unattended:** once the first NEW checkpoint lands
+   (`<resume step> + CHECKPOINT_EVERY`), `schtasks /end` + `schtasks /run` once and confirm the
+   relaunch resumes from the NEW step, not the original one.
+5. **Curve-watcher transport caveat:** `ppo:curve --rsync-from` assumes an rsync-capable remote;
+   shodan's ssh lands in PowerShell (no rsync server) and the `shodan-wsl` alias pins a
+   RemoteCommand, so rsync cannot traverse either. Mirror the TEXT artifacts (`index.jsonl`,
+   `*.weights.js`, `*.fixture.json`) to the mini via the §7 base64-over-ssh path — write
+   `index.jsonl` LAST each round (the producer's ordering guarantee) — and point the watcher at
+   the local mirror. Seeding the mirror from an existing local backup of the base run makes the
+   walk re-grade the historical points first: a same-walk, same-machine reference for the
+   early-stop comparison.
+6. **Post-run:** §7 applies unchanged (gate → record → back up → **delete the schtasks task**),
+   plus: check the box back out to master.

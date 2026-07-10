@@ -21,6 +21,61 @@ Entry template:
 
 ---
 
+## 2026-07-09 — Pre-run sequence executed: #157 ratified-and-deferred, [D-35] pre-registered, the 20M→40M Conqueror extension RESUMED on shodan
+
+**Phase:** flagship strength (post-persona) · **Who:** Claude (pre-registration + ops); Ivan (approved the sequence)
+
+**Did:**
+
+- With #158 ([D-34] enforcement) merged this morning, executed the approved pre-run sequence for
+  the 20M→40M question: **#157** ladder-honesty field **ratified as option (a)** (the
+  player-visible strong roster — Conqueror, Blitz, Survivor, Lookahead, Strategist, Expectimax)
+  with the once-only fresh-seed matrix **deferred** until the extension's ship/no-ship, so it
+  measures the roster that actually ships; **[D-35] pre-registered** (bars, early-stop rule,
+  no-ship default — see DECISIONS) before any extension eval checkpoint existed. (The #157
+  GitHub comment was withheld by the session's permission model — the record is [D-35] decision
+  5 + this entry; Ivan may drop a pointer comment on the issue.)
+- **Shodan ops (the extension launch):** §2 rl resume tier at the pin — **110/110 passed**; run
+  dir copied `ppo-v3-scratch` → `ppo-v3-scratch-40m` (latest.json step 20,004,864 + RUN_COMMIT
+  travel with it); box checked out `7dd5720` → **`464a2ee`** (the campaign pin — master's
+  #128–#133 press-to-close + #151 seeded-RNG work changed the heuristic opponents, and a
+  mid-campaign opponent swap would confound the budget question); supervisor + a fresh
+  Task-Scheduler task **`dicewars-ppo-v3-40m`** (AtStartup + Interactive, RUNBOOK §4b.5;
+  **delete after the run**). Resume verified in BOTH halves: launcher
+  `attempt #1 (resume step=20004864)` with the exact original recipe at `timesteps=40000000`,
+  trainer `resumed from … at num_timesteps=20004864`, league `restoredPool 40, dropped 0
+future`, training at **186 fps** (base run averaged ~176 → ~30 h to 40M).
+- **In-situ two-half kill+relaunch smoke PASSED:** after the first new checkpoint landed
+  (step 20,104,872 = resume + 100,008), `Stop-ScheduledTask` + `Start-ScheduledTask` — the
+  relaunch logged `attempt #1 (resume step=20104872)` / trainer
+  `resumed from … at num_timesteps=20104872`: resumed from the NEW step, not the original one,
+  not 0. The campaign is unattended-safe; left running (~30 h to 40M).
+- **Mini curve watcher:** fresh same-knob [D-29] walk (20×150, seedbase 0, ref PPO, `--watch`)
+  over `ml/runs/ppo-v3-scratch-40m/eval`, seeded from the local 20M backup so the historical
+  points re-grade first — a same-walk, same-machine 20M reference for the early-stop rule.
+  Discovered: `--rsync-from` cannot traverse shodan's PowerShell landing shell (no rsync server;
+  `shodan-wsl` pins a RemoteCommand) → wrote `~/sync-40m-eval.sh` on the mini, a base64-over-ssh
+  mirror of the text artifacts (index written LAST each round, per the producer ordering rule).
+
+**Learned / decided:**
+
+- **Budget extension = resume with a raised absolute `TIMESTEPS`, at the pinned commit, in a
+  COPIED run dir.** Never in the canonical dir (`ppo.pt` there is shipped-weights provenance —
+  `conqueror:export` pins it) and never on a drifted HEAD (the RUN_COMMIT halt is the tripwire;
+  satisfy it, don't override it). Resume wins over `--from-scratch`/`--checkpoint`, so the
+  original launch env relaunches verbatim with only RUN_NAME + TIMESTEPS changed. Now RUNBOOK §9.
+- The [D-29] scorer's mini transport assumption (`--rsync-from` an rsync-capable remote) does not
+  hold for shodan; the §9.5 mirror loop is the workaround of record.
+
+**Next:**
+
+- Watch the curve (early-stop: three consecutive points with CI-upper < 32.2 vs Lookahead);
+  first eval point ≈ 21M is the resume-health tripwire (must stay BEAT).
+- At 40M (or early stop): grade the [D-35] bars — `ppo:gate --bar Conqueror` primary, Lookahead
+  floor, behavioral co-read — then ship/no-ship; then the #157 matrix + picker copy.
+- Post-run box hygiene: delete `dicewars-ppo-v3-40m`, check shodan back out to master, back up
+  the run dir (RUNBOOK §7/§9).
+
 ## 2026-07-09 — Issue #154: NC1/NC2 re-registered as harness-determinism tripwires, ENFORCED ([D-34])
 
 **Phase:** eval-harness (decision + enforcement) · **Who:** Claude (scope + doc sync; review pass added the enforcement); Ivan (ratified the decision)

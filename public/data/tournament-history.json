@@ -3574,5 +3574,93 @@
       }
     ],
     "flagged": []
+  },
+  {
+    "date": "2026-07-10",
+    "gamesPlayed": 100,
+    "failedGames": 0,
+    "botCount": 13,
+    "champion": "Conqueror",
+    "standings": [
+      {
+        "name": "Conqueror",
+        "elo": 1394,
+        "wins": 29,
+        "errors": 0
+      },
+      {
+        "name": "Expectimax",
+        "elo": 1363,
+        "wins": 5,
+        "errors": 0
+      },
+      {
+        "name": "Lookahead",
+        "elo": 1353,
+        "wins": 6,
+        "errors": 0
+      },
+      {
+        "name": "Survivor",
+        "elo": 1244,
+        "wins": 13,
+        "errors": 0
+      },
+      {
+        "name": "Defensive",
+        "elo": 1226,
+        "wins": 5,
+        "errors": 0
+      },
+      {
+        "name": "Strategist",
+        "elo": 1219,
+        "wins": 6,
+        "errors": 0
+      },
+      {
+        "name": "Blitz",
+        "elo": 1213,
+        "wins": 30,
+        "errors": 0
+      },
+      {
+        "name": "Connector (bigintersmind)",
+        "elo": 1161,
+        "wins": 0,
+        "errors": 0
+      },
+      {
+        "name": "Adaptive",
+        "elo": 1118,
+        "wins": 1,
+        "errors": 0
+      },
+      {
+        "name": "Example",
+        "elo": 1111,
+        "wins": 1,
+        "errors": 0
+      },
+      {
+        "name": "Giant Slayer (bigintersmind)",
+        "elo": 1082,
+        "wins": 1,
+        "errors": 0
+      },
+      {
+        "name": "Berserker (bigintersmind)",
+        "elo": 1070,
+        "wins": 1,
+        "errors": 0
+      },
+      {
+        "name": "Default",
+        "elo": 1034,
+        "wins": 1,
+        "errors": 0
+      }
+    ],
+    "flagged": []
   }
 ]

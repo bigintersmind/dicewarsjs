@@ -195,6 +195,7 @@ export async function getAIImplementation(aiId) {
 
 /**
  * Get all available AI strategies
+ * Includes hidden entries — use getAIStrategiesByCategory() for player-facing lists.
  * @returns {Array} Array of AI strategy objects
  */
 export function getAllAIStrategies() {
@@ -221,11 +222,12 @@ export function getAIStrategiesByCategory() {
 }
 
 /**
- * Default AI assignments
- * Maps player indices to AI strategy IDs
+ * Default AI assignments — kept in sync with GameStore's default lineup.
+ * Currently unused at runtime (createAIFunctionMapping has no callers);
+ * GameController reads the store config instead.
  */
 export const DEFAULT_AI_ASSIGNMENTS = [
-  'ai_conqueror', // Player 0 (human by default, AI in spectator mode — the flagship net)
+  'ai_conqueror', // Player 0 (human seat; a bot only if used for spectator-style mapping)
   'ai_conqueror', // Player 1
   'ai_blitz', // Player 2
   'ai_survivor', // Player 3

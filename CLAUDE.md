@@ -112,7 +112,7 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 - **AI System** (src/ai/): Contains different AI strategies:
 
   - ai_default: Balanced approach from the original game
-  - ai_defensive: Prioritizes protecting vulnerable territories — **Hidden from players** (#164 roster trim) — dev/eval + CLI-by-name only
+  - ai_defensive: Prioritizes protecting vulnerable territories — **Hidden from players** (#164 roster trim) — dev/eval + CLI-by-name only, though attract mode's decorative board (ATTRACT_BOT_IDS) still plays it behind the menus
   - ai_example: Basic implementation for educational purposes — **Hidden from players** (#164 roster trim) — dev/eval + CLI-by-name only
   - ai_adaptive: Adapts strategy based on game conditions
   - ai_strategist: Expected-value strategy using exact dice odds and connectivity economics (strongest hand-written/heuristic bot; authored by Claude Opus 4.8)

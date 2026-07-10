@@ -1399,3 +1399,81 @@ copy — the watcher wrote it mini-side); gate logs shodan
 `ml/runs/_eval_logs/v3-scratch-40m.21M.{ship-bar,floor-gate}.log`. Training at pin `464a2ee`;
 curve rows carry gitSha `da07f8a`; final gates at `2cebf7b`; Lookahead pin `596f781`. Schtasks
 task + supervisor deleted, shodan back on master.
+
+## Phase 3 — #157 ladder honesty: the once-only fresh-seed `arena:ml` matrix — Blitz most outright wins, Survivor best placement, Conqueror keeps the h2h title · 2026-07-10
+
+The §10.5 "ladder honesty" measurement, unblocked by the [D-35] no-ship (the roster it ranks is
+settled). Field as **ratified in [D-35] §5, option (a)** — the player-visible strong roster:
+Conqueror, Blitz, Survivor, Lookahead, Strategist, Expectimax (hidden dev nets `ai_ppo`/`ai_bc`
+out). Seat-fair FFA per `npm run arena:ml`: **30 runs × 32 seeds × 6 rotations = 5,760 games**
+(the v2-audit Exp A budget), all completed, 73 stalemates (1.3%), no bot-health warnings,
+~21.5 min on the Mac at master `d211bbe`.
+
+**Seed freshness (the once-only property, [D-32](c)):** `--run-start 3000` → seed block
+[3.000e9 + 1, 3.029e9 + 32], the first non-zero run-start ever used. Verified disjoint from
+every prior harness range — prior `arena:ml` at run-start 0 (≤ ~30M), the seedbase 0/20/100
+gate walks (≤ ~130M), and the [D-35] seedbase-40M gates, whose `(seedbase + r)·1e6` arithmetic
+wraps mod 2³² into twenty ~200-seed blocks at ~970–989M (computed, not assumed) — and safely
+under `createRng`'s uint32 wrap at ~4.295e9.
+
+Harness output, verbatim (the durable copy — the raw log/JSON are gitignored local artifacts,
+`ml/runs/_eval_logs/d157-matrix.{log,json}` on the mini):
+
+```
+Rank  Bot         Win% (95% CI)  AvgPlace (95% CI)  Top2% (95% CI)
+----  ----------  -------------  -----------------  --------------
+1     Blitz       35.3 ± 1.2     3.29 ± 0.06        43.2 ± 1.3
+2     Conqueror   29.9 ± 0.8     3.29 ± 0.04        36.3 ± 1.2
+3     Survivor    23.9 ± 1.0     2.66 ± 0.04        54.9 ± 1.3
+4     Strategist  3.6 ± 0.5      4.12 ± 0.04        20.7 ± 1.3
+5     Expectimax  3.3 ± 0.4      3.81 ± 0.03        21.7 ± 1.1
+6     Lookahead   2.7 ± 0.4      3.83 ± 0.04        23.2 ± 1.0
+
+Pairwise paired Δ win% (row − col; SIG = 95% CI excludes 0):
+  SIG  Blitz − Lookahead: +32.5 ± 1.3 pp  [31.2, 33.9]
+  SIG  Blitz − Expectimax: +32.0 ± 1.4 pp  [30.7, 33.4]
+  SIG  Blitz − Strategist: +31.6 ± 1.5 pp  [30.2, 33.1]
+  SIG  Conqueror − Lookahead: +27.2 ± 0.9 pp  [26.2, 28.1]
+  SIG  Conqueror − Expectimax: +26.6 ± 0.9 pp  [25.7, 27.5]
+  SIG  Conqueror − Strategist: +26.3 ± 0.9 pp  [25.4, 27.2]
+  SIG  Survivor − Lookahead: +21.2 ± 1.2 pp  [20.0, 22.4]
+  SIG  Survivor − Expectimax: +20.7 ± 1.2 pp  [19.5, 21.9]
+  SIG  Survivor − Strategist: +20.3 ± 1.3 pp  [19.0, 21.6]
+  SIG  Blitz − Survivor: +11.4 ± 1.9 pp  [9.4, 13.3]
+  SIG  Conqueror − Survivor: +6.0 ± 1.3 pp  [4.6, 7.3]
+  SIG  Conqueror − Blitz: -5.4 ± 1.8 pp  [-7.2, -3.6]
+  SIG  Lookahead − Strategist: -0.9 ± 0.7 pp  [-1.6, -0.2]
+  SIG  Lookahead − Expectimax: -0.5 ± 0.5 pp  [-1.0, -0.0]
+  ~ns  Strategist − Expectimax: +0.4 ± 0.7 pp  [-0.3, 1.0]
+```
+
+### The co-read — win% and placement split in three places, exactly as §10.5 predicted
+
+- **Blitz out-wins Conqueror in the mixed field** (paired Δ −5.4 [−7.2, −3.6], SIG) — the
+  **first direct measurement of this pair anywhere** (no gate ever fielded both). Per the #157
+  scope note this is a field statistic, not a new head-to-head claim: Conqueror's title rests
+  on the gated chain ([D-31] BEAT Survivor +5.5, Lookahead +33.9; [D-35] the 40M candidate
+  could only TIE it), which this measurement does not re-open. On placement they tie exactly
+  (3.29 both).
+- **Survivor's persona is measurement-true**: 3rd on wins but best placement (2.66) and top-2
+  in **54.9%** of games — it really does outlast the field.
+- **The heuristic order flips between the two statistics too**: all three are farmed to ~3%
+  win% by the nets, with Strategist nosing ahead on wins (Lookahead − Strategist −0.9 SIG)
+  while placing **worst** (4.12 vs Expectimax 3.81 / Lookahead 3.83) — it dies swinging while
+  the searchers hang on. Sub-pp differences; no ordering consequence drawn.
+
+**Placement rungs (the §10.5 field-stable ladder):** Survivor 2.66 · Blitz/Conqueror 3.29 ·
+Expectimax 3.81 ≈ Lookahead 3.83 · Strategist 4.12.
+
+### Consequences — the copy ships the rungs (flat difficulty, Ivan-ratified)
+
+Ivan chose **flat `difficulty: 5` + rank carried by copy** over numeric differentiation or
+persona reordering. Implementation (same PR): `aiConfig.js` persona descriptions now carry one
+measured crown each — Blitz "most outright wins in the bot field", Survivor "best average
+placement in the bot field", Conqueror "the strongest bot head-to-head" — with the matrix cited
+in the block comment. The descriptions had been **dead copy** (no UI rendered them); they now
+surface as native `title` tooltips on the Custom-picker options (TitleScreen), including
+community bots. README bot-table rows + persona paragraph updated to the same three-crowns
+framing ("strongest net the game ships" → "strongest net head-to-head"). Heuristic descriptions
+untouched (technique-only, nothing contradicted); difficulty-mode blurbs already
+matrix-consistent; `STRENGTH_ORDER`/competitive surfaces unchanged.

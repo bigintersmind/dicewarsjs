@@ -31,7 +31,7 @@ export const load_ai_expectimax = async () => (await import('./ai_expectimax.js'
  * whose consumers already call `fn(botState)` directly, so no wrapper is needed there.
  *
  * Each persona ships its own weights: Conqueror the encoding-v3 net ([D-31], the strongest
- * net overall); Blitz and Survivor their v2 fine-tuned checkpoints. The internal
+ * net head-to-head); Blitz and Survivor their v2 fine-tuned checkpoints. The internal
  * `ai_ppo`/`ai_bc` nets are NOT in this player-facing picker — they stay in
  * `builtInBots.js` (hidden) for the dev harness.
  */
@@ -149,7 +149,7 @@ export const AI_STRATEGIES = {
    * Personas — the player-facing self-play roster (docs/ml-bot/PERSONAS.md). Each is a
    * single reactive forward pass (no search), so it plays on learned instinct. Conqueror
    * is the balanced flagship — since the [D-31] encoding-v3 ship, the strongest net
-   * overall; Blitz closes games fast; Survivor outlasts the field. The internal PPO/BC
+   * head-to-head; Blitz closes games fast; Survivor outlasts the field. The internal PPO/BC
    * nets are hidden — see builtInBots.js.
    *
    * The rank claims in the descriptions are measured, not aspirational (#157 ladder

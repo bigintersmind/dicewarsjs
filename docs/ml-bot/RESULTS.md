@@ -1403,9 +1403,9 @@ task + supervisor deleted, shodan back on master.
 ## Phase 3 — #157 ladder honesty: the once-only fresh-seed `arena:ml` matrix — Blitz most outright wins, Survivor best placement, Conqueror keeps the h2h title · 2026-07-10
 
 The §10.5 "ladder honesty" measurement, unblocked by the [D-35] no-ship (the roster it ranks is
-settled). Field as **ratified in [D-35] §5, option (a)** — the player-visible strong roster:
-Conqueror, Blitz, Survivor, Lookahead, Strategist, Expectimax (hidden dev nets `ai_ppo`/`ai_bc`
-out). Seat-fair FFA per `npm run arena:ml`: **30 runs × 32 seeds × 6 rotations = 5,760 games**
+settled). Field as **ratified in [D-35] §5, option (a)** — the strong roster: Conqueror, Blitz,
+Survivor, Lookahead, Strategist, Expectimax (hidden dev nets `ai_ppo`/`ai_bc` out; Expectimax
+stays in the field despite being picker-hidden since #164). Seat-fair FFA per `npm run arena:ml`: **30 runs × 32 seeds × 6 rotations = 5,760 games**
 (the v2-audit Exp A budget), all completed, 73 stalemates (1.3%), no bot-health warnings,
 ~21.5 min on the Mac at master `d211bbe`.
 
@@ -1453,8 +1453,8 @@ Pairwise paired Δ win% (row − col; SIG = 95% CI excludes 0):
   **first direct measurement of this pair anywhere** (no gate ever fielded both). Per the #157
   scope note this is a field statistic, not a new head-to-head claim: Conqueror's title rests
   on the gated chain ([D-31] BEAT Survivor +5.5, Lookahead +33.9; [D-35] the 40M candidate
-  could only TIE it), which this measurement does not re-open. On placement they tie exactly
-  (3.29 both).
+  could only TIE it), which this measurement does not re-open. On placement they tie at the reported precision
+  (3.29 ± 0.06 vs 3.29 ± 0.04).
 - **Survivor's persona is measurement-true**: 3rd on wins but best placement (2.66) and top-2
   in **54.9%** of games — it really does outlast the field.
 - **The heuristic order flips between the two statistics too**: all three are farmed to ~3%

@@ -2085,7 +2085,7 @@ deferred until the Predator slot resolves, so the fresh-seed `arena:ml` field is
 _(Outcome: (a) landed + ratified 2026-07-06 — PRs #123/#126/#127, tripwires 0.31/5.64/0.91, kills
 bar +0.26; (b) done 2026-07-08 — winPct floor ratified at 35 unchanged, clock-hack panel ratified
 at 0.05/0.31/0.18 off the control's 0.5M/1M checkpoints (RESULTS.md 2026-07-08) → Wave-2 pilot
-grading is unblocked; (c) done 2026-07-10 → PR #TBD-157 — the once-only fresh-seed matrix ran
+grading is unblocked; (c) done 2026-07-10 → PR #173 — the once-only fresh-seed matrix ran
 post-[D-35] on the settled roster ([D-35] §5 field; RESULTS.md 2026-07-10: Blitz most outright
 wins, Survivor best placement, Conqueror keeps the h2h title) and the picker copy shipped
 flat-difficulty with one measured crown per persona, surfaced as tooltips.)_

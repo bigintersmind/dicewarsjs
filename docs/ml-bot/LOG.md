@@ -21,6 +21,49 @@ Entry template:
 
 ---
 
+## 2026-07-10 (later) — #157 ladder honesty: fresh-seed matrix measured, picker copy shipped with one crown per persona
+
+**Phase:** persona program close-out (§10.5, the last deferred item) · **Who:** Claude (measurement + copy); Ivan (rung-signal decision)
+
+**Did:**
+
+- **Ran the once-only fresh-seed `arena:ml` matrix** (unblocked by the [D-35] no-ship): the
+  ratified option-(a) field (Conqueror, Blitz, Survivor, Lookahead, Strategist, Expectimax),
+  30×32×6 = 5,760 seat-fair games at `d211bbe`, ~21.5 min, zero failures. Seeds
+  `--run-start 3000` — the first non-zero run-start ever; verified disjoint from every prior
+  harness range,
+  including the [D-35] seedbase-40M gates whose seed arithmetic wraps mod 2³² into ~970–989M
+  (computed before running). Full tables: RESULTS 2026-07-10 (#157 section).
+- **Headline:** the ladder splits by statistic, exactly as §10.5 predicted. Blitz takes the most
+  outright wins (35.3%, and +5.4 pp over Conqueror in-field — the pair's first direct
+  measurement anywhere); Survivor is 3rd on wins but best placement (2.66, top-2 54.9%);
+  Conqueror ties Blitz on placement and keeps the gated h2h title (which the matrix, a field
+  statistic, does not re-open). Heuristics farmed to ~3% win% with their own win%/placement
+  flip (Strategist most wins, worst placement).
+- **Copy shipped (Ivan ratified flat difficulty + rank-in-copy** over numeric differentiation
+  or persona reordering**):** `aiConfig.js` persona descriptions now carry one measured crown
+  each; discovered the description strings were **dead copy** (no UI rendered them) and
+  surfaced them as native `title` tooltips on the Custom-picker options (TitleScreen), community
+  bots included. README bot table + persona paragraph aligned ("strongest net the game ships" →
+  "strongest net head-to-head" beside the three-crowns sentence). Heuristic strings untouched
+  (technique-only, uncontradicted); difficulty-mode blurbs already consistent.
+- **Docs:** RESULTS matrix section (verbatim harness output as the durable copy — the log/JSON
+  are gitignored local artifacts); §10.5 PERSONAS outcome annotation; [D-32](c) closed; ml-bot
+  README status rolled (also folding in the [D-35] close, which #172 had left stale).
+
+**Learned / decided:**
+
+- **There is no single "strongest bot" ordering to print** — the matrix is the proof (win-rate
+  rank flips with field composition even among the shipped six). Honest picker copy names the
+  statistic each claim rides on; that's the ladder-honesty doctrine, now implemented.
+- Copy that nothing renders is not copy. The registry descriptions predated any UI consumer;
+  wiring them as tooltips was one attribute per option.
+
+**Next:**
+
+- The §10 persona program is now **fully closed** — every §10.5/§10.8 item has an outcome
+  annotation. No follow-up scheduled from this session.
+
 ## 2026-07-10 — [D-35] extension EARLY-STOPPED at 34.2M (curve regression), ship bar TIE → NO-SHIP; Conqueror keeps the 20M weights
 
 **Phase:** flagship strength (adjudication + ops) · **Who:** Claude (diagnosis, grading, ops); Ivan (stop decision)

@@ -31,7 +31,7 @@ export const load_ai_expectimax = async () => (await import('./ai_expectimax.js'
  * whose consumers already call `fn(botState)` directly, so no wrapper is needed there.
  *
  * Each persona ships its own weights: Conqueror the encoding-v3 net ([D-31], the strongest
- * net overall); Blitz and Survivor their v2 fine-tuned checkpoints. The internal
+ * net head-to-head); Blitz and Survivor their v2 fine-tuned checkpoints. The internal
  * `ai_ppo`/`ai_bc` nets are NOT in this player-facing picker — they stay in
  * `builtInBots.js` (hidden) for the dev harness.
  */
@@ -149,8 +149,16 @@ export const AI_STRATEGIES = {
    * Personas — the player-facing self-play roster (docs/ml-bot/PERSONAS.md). Each is a
    * single reactive forward pass (no search), so it plays on learned instinct. Conqueror
    * is the balanced flagship — since the [D-31] encoding-v3 ship, the strongest net
-   * overall; Blitz closes games fast; Survivor outlasts the field. The internal PPO/BC
+   * head-to-head; Blitz closes games fast; Survivor outlasts the field. The internal PPO/BC
    * nets are hidden — see builtInBots.js.
+   *
+   * The rank claims in the descriptions are measured, not aspirational (#157 ladder
+   * honesty; RESULTS.md 2026-07-10 fresh-seed matrix): in the shipped six-bot field
+   * Blitz takes the most outright wins (35.3%), Survivor the best average placement
+   * (2.66, top-2 in 55% of games), and Conqueror — who ties Blitz on placement — keeps
+   * the head-to-head title from the [D-31]/[D-35] gates. Flat `difficulty: 5` across
+   * the strong pack is deliberate: rank is carried by this copy and by section order,
+   * because win-rate rank is field-dependent (§10.5) and a single number would lie.
    *
    * `category: 'self-play'` groups them under the picker's **Self-Play** section (shown
    * above the hand-written **General** bots) — see {@link getAIStrategiesByCategory}.
@@ -158,7 +166,7 @@ export const AI_STRATEGIES = {
   ai_conqueror: {
     id: 'ai_conqueror',
     name: 'Conqueror',
-    description: 'Balanced self-play net that plays the long game to win outright',
+    description: 'Balanced self-play net that plays the long game — the strongest bot head-to-head',
     difficulty: 5,
     category: 'self-play',
     loader: load_ai_conqueror,
@@ -167,7 +175,8 @@ export const AI_STRATEGIES = {
   ai_blitz: {
     id: 'ai_blitz',
     name: 'Blitz',
-    description: 'Aggressive self-play net that presses hard and ends games fast',
+    description:
+      'Aggressive self-play net that ends games fast — most outright wins in the bot field',
     difficulty: 5,
     category: 'self-play',
     loader: load_ai_blitz,
@@ -176,7 +185,8 @@ export const AI_STRATEGIES = {
   ai_survivor: {
     id: 'ai_survivor',
     name: 'Survivor',
-    description: 'Patient self-play net that outlasts rivals and climbs the standings',
+    description:
+      'Patient self-play net that outlasts rivals — best average placement in the bot field',
     difficulty: 5,
     category: 'self-play',
     loader: load_ai_survivor,

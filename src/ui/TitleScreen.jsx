@@ -409,14 +409,14 @@ export function TitleScreen({ store, error, onStart }) {
                       >
                         <optgroup label="Self-Play">
                           {SELF_PLAY_OPTIONS.map(ai => (
-                            <option key={ai.id} value={ai.id}>
+                            <option key={ai.id} value={ai.id} title={ai.description}>
                               {ai.name}
                             </option>
                           ))}
                         </optgroup>
                         <optgroup label="General">
                           {GENERAL_OPTIONS.map(ai => (
-                            <option key={ai.id} value={ai.id}>
+                            <option key={ai.id} value={ai.id} title={ai.description}>
                               {ai.name}
                             </option>
                           ))}
@@ -424,7 +424,11 @@ export function TitleScreen({ store, error, onStart }) {
                         {COMMUNITY_OPTIONS.length > 0 && (
                           <optgroup label="Community">
                             {COMMUNITY_OPTIONS.map(bot => (
-                              <option key={bot.id} value={`community:${bot.id}`}>
+                              <option
+                                key={bot.id}
+                                value={`community:${bot.id}`}
+                                title={bot.description}
+                              >
                                 {bot.name}
                               </option>
                             ))}

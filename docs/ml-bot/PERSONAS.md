@@ -643,7 +643,15 @@ behavior:preflight` — see EVAL_HARNESS §3.9. NC1 profiles the base against it
 - **Ladder honesty.** The v2 audit proved win-rate rank flips with field composition, and the
   premise itself says the base beat Survivor-v2 head-to-head — so no pre-written ladder. Label
   picker rungs from **fresh-seed measured placement in the mixed field** (the one field-stable
-  statistic), and write picker copy _after_ Wave 1 from the v3-era `arena:ml` matrix.
+  statistic), and write picker copy _after_ Wave 1 from the v3-era `arena:ml` matrix. _(Outcome
+  2026-07-10: measured — the once-only fresh-seed matrix (30×32×6 = 5,760 games, run-start 3000,
+  the [D-35] §5 option-(a) field; RESULTS 2026-07-10) ranked the settled roster. Placement rungs:
+  Survivor 2.66 (top-2 54.9%) · Blitz/Conqueror tie 3.29 · Expectimax 3.81 ≈ Lookahead 3.83 ·
+  Strategist 4.12. Win% split from placement exactly as predicted — Blitz takes the most outright
+  wins (35.3%, +5.4 pp over Conqueror in-field, the pair's first direct measurement) while
+  Conqueror keeps the gated h2h title. Copy shipped per Ivan's call: flat difficulty 5, rank
+  carried by the description strings — one measured crown each — now surfaced as picker
+  tooltips (#157).)_
 - **Tripwire panel** (unchanged [D-30] thresholds + the 10.4 addition), probed at 0.5M/1M from
   fixtured eval checkpoints: turtle basin ΔavgDiceReserve > +10, ΔzeroAttackTurnFrac > +0.05,
   ΔturnsToWin > +20; overextension basin ΔsurvivalTurn < −60 with co-signal (winPct < 40 or

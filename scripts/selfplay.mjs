@@ -292,7 +292,7 @@ async function runPool() {
               workerData: {
                 workerId: w,
                 seeds,
-                botNames: baseSeats,
+                baseSeats,
                 maxTurns,
                 outPath: partPaths[w],
               },

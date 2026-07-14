@@ -154,8 +154,15 @@ export function OnlineLeaderboardScreen({ onViewReplay }) {
         </p>
       )}
 
+      {/* Two ways to be empty: no tournament has ever run (the placeholder file), or every
+          bot in a real run was flagged — where "check back after the first run" would
+          contradict the tournament count above and the exclusion note below (#175). */}
       {!hasResults && (
-        <p style={STYLE.message}>No tournament results yet. Check back after the first run!</p>
+        <p style={STYLE.message}>
+          {data.tournamentCount > 0
+            ? 'No ranked bots this run.'
+            : 'No tournament results yet. Check back after the first run!'}
+        </p>
       )}
 
       {hasResults && (

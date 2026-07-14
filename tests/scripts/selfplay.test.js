@@ -142,6 +142,10 @@ describe('duplicate-seat support (D-Encoding: N×Lookahead mirror self-play)', (
       const bots = resolveSeats(['Lookahead', 'Lookahead']);
       expect(bots.map(b => b.displayName)).toEqual(['Lookahead#1', 'Lookahead#2']);
       expect(bots.map(b => b.baseName)).toEqual(['Lookahead', 'Lookahead']);
+      // `id` looks unused but feeds the CLI's non-deterministic-bot warning filter
+      // (NON_DETERMINISTIC_BOT_IDS) — currently unreachable with an empty set, so this
+      // pin is the only thing keeping the field from being silently dropped.
+      expect(bots.map(b => b.id)).toEqual(['ai_lookahead', 'ai_lookahead']);
       // Same policy in both seats — the whole point of mirror self-play.
       expect(bots[0].fn).toBe(bots[1].fn);
       expect(typeof bots[0].fn).toBe('function');

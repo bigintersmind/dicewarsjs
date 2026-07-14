@@ -156,7 +156,8 @@ export function assignSeatNames(names) {
  * @param {string[]} baseNames - Per-seat bot names (repeats allowed)
  * @returns {Array<{ id: string, baseName: string, displayName: string, fn: Function }>}
  *   One descriptor per seat: `baseName` = canonical registry name, `displayName` =
- *   unique `#n`-suffixed seat name.
+ *   unique per-seat name (`#n`-suffixed only when the bot fills multiple seats —
+ *   see {@link assignSeatNames}).
  * @throws {Error} If any name is unknown (via {@link resolveBotsByName}).
  */
 export function resolveSeats(baseNames) {
@@ -173,8 +174,8 @@ export function resolveSeats(baseNames) {
 /**
  * Project {@link resolveSeats} descriptors down to the `{ name, fn }` bots
  * {@link generateShard} / `runMatch` consume. `name` must be the *display* name:
- * matchRunner rejects a duplicate-name field, and trajectory metadata / the ELO
- * post-pass are keyed by it.
+ * matchRunner rejects a duplicate-name field, and trajectory metadata must carry
+ * the same display names the ELO post-pass reports under.
  *
  * @param {Array<{ displayName: string, fn: Function }>} seats - From {@link resolveSeats}
  * @returns {Array<{ name: string, fn: Function }>}
@@ -287,7 +288,8 @@ const ABORT_MIN_GAMES = 5;
  * {@link GameSummary} is kept — so a shard of any length is RAM-bounded (D-12).
  *
  * @param {Object} opts
- * @param {Array<{name: string, fn: Function}>} opts.bots - Resolved bots, seat order = bots[i] → player i
+ * @param {Array<{name: string, fn: Function}>} opts.bots - Match bots (see {@link toMatchBots});
+ *   names must be unique (runMatch's guard), seat order = bots[i] → player i
  * @param {number[]} opts.seeds - Seeds to play (typically a contiguous block)
  * @param {number}  [opts.maxTurns=500] - Stalemate cap per game
  * @param {(line: string) => void} [opts.write] - JSONL sink for clean trajectories (newline-terminated)

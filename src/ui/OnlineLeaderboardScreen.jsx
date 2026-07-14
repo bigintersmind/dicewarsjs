@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect } from 'preact/hooks';
-import { Leaderboard } from './Leaderboard.jsx';
+import { Leaderboard, flagBadgeText, FLAG_COLOR } from './Leaderboard.jsx';
 import { MenuScreen, MENU_STYLE } from './menuChrome.jsx';
 
 /* Screen-specific styles; everything shared comes from MENU_STYLE / dw-* classes. */
@@ -61,6 +61,18 @@ const STYLE = {
     color: 'var(--ui-accent)',
     textAlign: 'center',
     margin: '0.5rem 0 1rem',
+  },
+  flaggedNote: {
+    fontFamily: 'Roboto, sans-serif',
+    fontSize: '0.8rem',
+    color: 'var(--ui-text-muted)',
+    textShadow: 'var(--ui-text-halo)',
+    textAlign: 'left',
+    margin: '0.5rem 0.2rem 0',
+  },
+  flaggedBot: {
+    color: FLAG_COLOR,
+    whiteSpace: 'nowrap',
   },
 };
 
@@ -125,6 +137,10 @@ export function OnlineLeaderboardScreen({ onViewReplay }) {
   }
 
   const hasResults = data.bots && data.bots.length > 0;
+  // Read-side tolerance only: leaderboard.json published before #137 has no `flagged`
+  // field. The write side (scripts/lib/online-tournament.mjs) still refuses to build
+  // outputs without one — don't mirror this default there.
+  const flagged = data.flagged || [];
 
   return (
     <MenuScreen title="LEADERBOARD">
@@ -145,6 +161,32 @@ export function OnlineLeaderboardScreen({ onViewReplay }) {
           <div style={MENU_STYLE.panel}>
             <Leaderboard bots={data.bots} />
           </div>
+        </div>
+      )}
+
+      {/* Excluded bots get a note, not a ranked row: they're absent from `bots` by design
+          (a broken bot's ELO is noise), so without this the exclusion is invisible here.
+          Rendered outside the hasResults block so it survives an all-flagged run. */}
+      {flagged.length > 0 && (
+        <div className="dw-anim-fade" style={{ ...MENU_STYLE.section, ...STYLE.tableSection }}>
+          <p
+            style={STYLE.flaggedNote}
+            title={
+              'These bots errored on most of their turns this run, so their win% / ELO is ' +
+              'not a meaningful measurement. They are excluded from the rankings (and from ' +
+              'ELO carry-over) rather than ranked on noise.'
+            }
+          >
+            Excluded this run as broken:{' '}
+            {flagged.map((f, i) => (
+              <span key={f.name}>
+                {i > 0 && ', '}
+                <span style={STYLE.flaggedBot}>
+                  {f.name} ({flagBadgeText(f)})
+                </span>
+              </span>
+            ))}
+          </p>
         </div>
       )}
 

@@ -15,7 +15,7 @@ import { PLAYER_COLORS_CSS } from '../renderer/constants.js';
  * flagged row uses a self-contained desaturated red that reads on both light and dark
  * themes rather than colliding with the accent.
  */
-const FLAG_COLOR = '#e5534b';
+export const FLAG_COLOR = '#e5534b';
 const FLAG_ROW_BG = 'rgba(229, 83, 75, 0.1)';
 
 /**
@@ -23,10 +23,13 @@ const FLAG_ROW_BG = 'rgba(229, 83, 75, 0.1)';
  * fired so an author sees the failure mode (threw vs. submitted illegal moves), not a
  * misleading "0 error turns" when the flag came from invalid moves.
  *
+ * Exported so OnlineLeaderboardScreen's "excluded this run" note (#137) speaks with the
+ * same voice as the in-table badge.
+ *
  * @param {import('../arena/botErrorReport.js').FlaggedBot} f
  * @returns {string}
  */
-function flagBadgeText(f) {
+export function flagBadgeText(f) {
   if (f.errors > 0) return `⚠ ${f.errors} error turn${f.errors === 1 ? '' : 's'}`;
   if (f.invalidMoves > 0)
     return `⚠ ${f.invalidMoves} invalid move${f.invalidMoves === 1 ? '' : 's'}`;

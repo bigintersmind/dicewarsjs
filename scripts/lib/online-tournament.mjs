@@ -39,6 +39,24 @@ export function flaggedNameSet(result) {
 }
 
 /**
+ * Durable record of a run's flagged bots — the one shape shared by `leaderboard.json` and
+ * `tournament-history.json`, so a consumer of either artifact alone can tell "excluded
+ * because broken" from "didn't compete" (#137).
+ *
+ * @param {Array<Object>} flagged - `result.flagged` from the arena run
+ * @returns {Array<{name: string, errors: number, invalidMoves: number, maxMovesHit: number, errorFraction: number}>}
+ */
+function flaggedRecords(flagged) {
+  return flagged.map(f => ({
+    name: f.name,
+    errors: f.errors,
+    invalidMoves: f.invalidMoves,
+    maxMovesHit: f.maxMovesHit ?? 0,
+    errorFraction: +f.errorFraction.toFixed(3),
+  }));
+}
+
+/**
  * Build the persisted leaderboard object.
  *
  * Flagged (broken) bots are EXCLUDED from the published `bots` list. Because the next run
@@ -46,6 +64,11 @@ export function flaggedNameSet(result) {
  * corrupted rating from compounding day-over-day — the exact silent-failure class #53 set
  * out to kill, at the one consumer that publishes to users. Surviving bots additionally
  * carry their forced-end counts (`errors`/`invalidMoves`/`maxMovesHit`) for diagnosis.
+ *
+ * The exclusions themselves stay visible under a separate `flagged[]` field (mirroring
+ * `tournament-history.json`): dropping a bot from `bots` also drops it from next-day ELO
+ * seeding, and that erasure must be loud in the published artifact, not buried in the
+ * history file (#137).
  *
  * @param {Object} params
  * @param {import('../../src/arena/arenaRunner.js').ArenaResult} params.result
@@ -88,6 +111,7 @@ export function buildLeaderboard({
           maxMovesHit: bot.maxMovesHit,
         };
       }),
+    flagged: flaggedRecords(result.flagged),
     replays: replayFiles,
   };
 }
@@ -126,12 +150,6 @@ export function buildHistoryEntry({ result, date, botCount }) {
     // Champion is the top surviving bot: a flagged bot can't legitimately hold the crown.
     champion: standings.length > 0 ? standings[0].name : null,
     standings,
-    flagged: result.flagged.map(f => ({
-      name: f.name,
-      errors: f.errors,
-      invalidMoves: f.invalidMoves,
-      maxMovesHit: f.maxMovesHit ?? 0,
-      errorFraction: +f.errorFraction.toFixed(3),
-    })),
+    flagged: flaggedRecords(result.flagged),
   };
 }

@@ -82,6 +82,50 @@ describe('OnlineLeaderboardScreen', () => {
     expect(container.textContent).toContain('Conqueror');
     expect(container.textContent).toContain('42 turns');
     expect(button('WATCH')).toBeTruthy();
+    // FIXTURE deliberately has no `flagged` field (the pre-#137 published shape): the
+    // screen must treat that as "no exclusions", not crash or render a stray note.
+    expect(container.textContent).not.toContain('Excluded this run');
+  });
+
+  it('surfaces flagged (excluded) bots from leaderboard.json in a note (#137)', async () => {
+    // The flagged bot is NOT in `bots` — buildLeaderboard excludes it — so only this
+    // note distinguishes "excluded because broken" from "didn't compete".
+    const withFlagged = {
+      ...FIXTURE,
+      flagged: [{ name: 'Broken', errors: 30, invalidMoves: 0, maxMovesHit: 0, errorFraction: 1 }],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => okJson(withFlagged))
+    );
+    mount();
+
+    await vi.waitFor(() => expect(container.textContent).toContain('Excluded this run'));
+    // Visible text, not just a threaded prop: name + the same failure-mode wording the
+    // in-app badge uses (flagBadgeText).
+    expect(container.textContent).toContain('Broken');
+    expect(container.textContent).toContain('30 error turns');
+  });
+
+  it('still shows the exclusion note when every bot was flagged (empty rankings)', async () => {
+    const allFlagged = {
+      ...FIXTURE,
+      bots: [],
+      replays: [],
+      flagged: [{ name: 'Broken', errors: 0, invalidMoves: 12, maxMovesHit: 0, errorFraction: 1 }],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => okJson(allFlagged))
+    );
+    mount();
+
+    await vi.waitFor(() => expect(container.textContent).toContain('Excluded this run'));
+    expect(container.textContent).toContain('Broken');
+    expect(container.textContent).toContain('12 invalid moves');
+    // The empty-rankings message and the note coexist: nothing competed *and* the run
+    // excluded someone are both true, and both should be said.
+    expect(container.textContent).toContain('No tournament results yet');
   });
 
   it('WATCH fetches the replay, shows a busy label in flight, and hands the JSON to onViewReplay', async () => {

@@ -137,9 +137,32 @@ describe('OnlineLeaderboardScreen', () => {
     await vi.waitFor(() => expect(container.textContent).toContain('Excluded this run'));
     expect(container.textContent).toContain('Broken');
     expect(container.textContent).toContain('12 invalid moves');
-    // The empty-rankings message and the note coexist: nothing competed *and* the run
-    // excluded someone are both true, and both should be said.
-    expect(container.textContent).toContain('No tournament results yet');
+    // The empty-rankings message and the note coexist: no one ranked *and* the run
+    // excluded someone are both true, and both should be said. But tournaments HAVE
+    // run (tournamentCount > 0), so the copy must not claim "first run" (#175).
+    expect(container.textContent).toContain('No ranked bots this run');
+    expect(container.textContent).not.toContain('first run');
+  });
+
+  it('keeps the first-run copy when no tournament has ever run', async () => {
+    // The pre-first-run placeholder shape (run-online-tournament.mjs seeds
+    // tournamentCount: 0) — the one case where "check back after the first run" is true.
+    const neverRan = {
+      updatedAt: null,
+      tournamentCount: 0,
+      totalGamesPlayed: 0,
+      bots: [],
+      replays: [],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => okJson(neverRan))
+    );
+    mount();
+
+    await vi.waitFor(() => expect(container.textContent).toContain('No tournament results yet'));
+    expect(container.textContent).toContain('first run');
+    expect(container.textContent).not.toContain('No ranked bots');
   });
 
   it('WATCH fetches the replay, shows a busy label in flight, and hands the JSON to onViewReplay', async () => {

@@ -2,7 +2,8 @@
  * Tests for the parallel self-play harness (scripts/selfplay.mjs + lib).
  *
  * Node environment (touches fs + child_process, no DOM). Covers the testable
- * core directly and the worker-pool CLI end-to-end.
+ * core directly and the CLI end-to-end (both the worker-pool and the
+ * single-worker inline execution paths).
  */
 
 import fs from 'node:fs';
@@ -18,6 +19,7 @@ import {
   expandFieldTokens,
   assignSeatNames,
   resolveSeats,
+  toMatchBots,
   forcedEndReason,
   generateShard,
   aggregateStats,
@@ -137,9 +139,8 @@ describe('duplicate-seat support (D-Encoding: N×Lookahead mirror self-play)', (
 
   describe('resolveSeats', () => {
     it('resolves a mirror field to distinct display names sharing one policy fn', () => {
-      const { bots, displayNames } = resolveSeats(['Lookahead', 'Lookahead']);
-      expect(displayNames).toEqual(['Lookahead#1', 'Lookahead#2']);
-      expect(bots.map(b => b.name)).toEqual(['Lookahead#1', 'Lookahead#2']);
+      const bots = resolveSeats(['Lookahead', 'Lookahead']);
+      expect(bots.map(b => b.displayName)).toEqual(['Lookahead#1', 'Lookahead#2']);
       expect(bots.map(b => b.baseName)).toEqual(['Lookahead', 'Lookahead']);
       // Same policy in both seats — the whole point of mirror self-play.
       expect(bots[0].fn).toBe(bots[1].fn);
@@ -147,9 +148,14 @@ describe('duplicate-seat support (D-Encoding: N×Lookahead mirror self-play)', (
     });
 
     it('produces names aggregateStats accepts (the matchRunner unique-name contract)', () => {
-      const { displayNames } = resolveSeats(expandFieldTokens(['7xLookahead']));
+      const bots = resolveSeats(expandFieldTokens(['7xLookahead']));
       // Distinct names → aggregateStats does not throw its duplicate-name guard.
-      expect(() => aggregateStats([], displayNames)).not.toThrow();
+      expect(() =>
+        aggregateStats(
+          [],
+          bots.map(b => b.displayName)
+        )
+      ).not.toThrow();
     });
 
     it('throws on an unknown name (validation via resolveBotsByName)', () => {
@@ -163,7 +169,7 @@ describe('duplicate-seat support (D-Encoding: N×Lookahead mirror self-play)', (
      * matchRunner's "Bot names must be unique" guard, and the lean record must carry the
      * per-seat display names.
      */
-    const { bots } = resolveSeats(expandFieldTokens(['3xLookahead']));
+    const bots = toMatchBots(resolveSeats(expandFieldTokens(['3xLookahead'])));
     const lines = [];
     const { summaries, written } = generateShard({
       bots,
@@ -785,5 +791,42 @@ describe('selfplay CLI end-to-end (single-core inline path)', () => {
 
     // The inline path writes outPath directly — it must NOT create any .part shard files.
     expect(fs.readdirSync(tmpDir).filter(f => f.includes('.part'))).toHaveLength(0);
+  }, 60_000);
+
+  it('runs a mirror field (--bots 3xLookahead) inline with the same #n display names', () => {
+    /*
+     * The inline path projects seats for generateShard at its own call site (no
+     * worker boundary), so pin that it, too, hands over *display* names — a
+     * projection that passed base names would pass the distinct-name test above
+     * and only break on a mirror field (issue #47's rename seam).
+     */
+    const out = path.join(tmpDir, 'inline-mirror.jsonl');
+    execFileSync(
+      'node',
+      [
+        'scripts/selfplay.mjs',
+        '--workers',
+        '1',
+        '--seed-count',
+        '2',
+        '--out',
+        out,
+        '--bots',
+        '3xLookahead',
+      ],
+      { cwd: REPO_ROOT, stdio: 'pipe' }
+    );
+
+    const records = fs
+      .readFileSync(out, 'utf-8')
+      .trim()
+      .split('\n')
+      .map(line => deserializeTrajectory(line));
+
+    expect(records.length).toBeGreaterThan(0);
+    for (const r of records) {
+      expect(r.config.playerCount).toBe(3);
+      expect(r.metadata.bots).toEqual(['Lookahead#1', 'Lookahead#2', 'Lookahead#3']);
+    }
   }, 60_000);
 });

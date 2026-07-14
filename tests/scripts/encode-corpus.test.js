@@ -13,7 +13,12 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { generateShard, resolveSeats, rangeToSeeds } from '../../scripts/lib/selfplay-core.mjs';
+import {
+  generateShard,
+  resolveSeats,
+  toMatchBots,
+  rangeToSeeds,
+} from '../../scripts/lib/selfplay-core.mjs';
 import { deserializeTrajectory, trajectoryFromReplay } from '../../src/arena/trajectoryExport.js';
 import { encodeStep, teacherSeatsOf } from '../../src/arena/encodeObservation.js';
 
@@ -39,10 +44,10 @@ function readTyped(p, Ctor) {
  * filtering is exercised) using the deterministic seed-pure field, write JSONL.
  */
 function makeCorpus(file) {
-  const { bots } = resolveSeats(['Lookahead', 'Strategist', 'Lookahead', 'Defensive']);
+  const bots = toMatchBots(resolveSeats(['Lookahead', 'Strategist', 'Lookahead', 'Defensive']));
   const lines = [];
   generateShard({
-    bots: bots.map(b => ({ name: b.name, fn: b.fn })),
+    bots,
     seeds: rangeToSeeds(1, 3),
     maxTurns: 500,
     write: s => lines.push(s),
@@ -163,10 +168,10 @@ describe('encode-corpus CLI end-to-end', () => {
      * the CLI must reject the mixed corpus rather than emit a corrupt artifact.
      */
     const lineFor = names => {
-      const { bots } = resolveSeats(names);
+      const bots = toMatchBots(resolveSeats(names));
       const out = [];
       generateShard({
-        bots: bots.map(b => ({ name: b.name, fn: b.fn })),
+        bots,
         seeds: rangeToSeeds(1, 5),
         maxTurns: 500,
         write: s => out.push(s),

@@ -51,6 +51,7 @@ import {
   NON_DETERMINISTIC_BOT_IDS,
   expandFieldTokens,
   resolveSeats,
+  toMatchBots,
   generateShard,
   aggregateStats,
   isUnusableRun,
@@ -113,24 +114,23 @@ const fieldNames = (getArg(args, 'bots', DEFAULT_FIELD.join(',')) || '')
 
 /*
  * Expand `<count>x<Bot>` multipliers (e.g. `7xLookahead`) into a per-seat base-name
- * list, then resolve to `{ name, fn }` seats with unique `#n` display names so a
+ * list, then resolve to per-seat descriptors with unique `#n` display names so a
  * duplicate / mirror field (N copies of one policy) is legal — matchRunner rejects a
  * duplicate-name field and ELO is keyed by name. Workers re-resolve from `baseSeats`
  * (the expanded list) and derive the same display names.
  */
 let baseSeats;
-let resolved;
 let bots;
-let botNames;
 try {
   baseSeats = expandFieldTokens(fieldNames);
-  ({ bots, displayNames: botNames, resolved } = resolveSeats(baseSeats));
+  bots = resolveSeats(baseSeats);
 } catch (err) {
   fail(err.message);
 }
 if (bots.length < 2) {
   fail('Need at least 2 bots for a self-play field.');
 }
+const botNames = bots.map(b => b.displayName);
 
 /*
  * Warn (don't block) on non-reproducible bots — the seed-sharding merge story
@@ -138,7 +138,7 @@ if (bots.length < 2) {
  * base name so a mirror field reports the policy once, not once per seat.
  */
 const nonDeterministic = [
-  ...new Set(resolved.filter(b => NON_DETERMINISTIC_BOT_IDS.has(b.id)).map(b => b.name)),
+  ...new Set(bots.filter(b => NON_DETERMINISTIC_BOT_IDS.has(b.id)).map(b => b.baseName)),
 ];
 if (nonDeterministic.length > 0) {
   warnLine(
@@ -228,7 +228,7 @@ async function runInline() {
   const writer = makeFileWriter(outPath);
   try {
     return generateShard({
-      bots,
+      bots: toMatchBots(bots),
       seeds: rangeToSeeds(seedStart, seedCount),
       maxTurns,
       write: writer.write,

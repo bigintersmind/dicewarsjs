@@ -11,9 +11,10 @@ import { PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
 /*
  * Warning red for the broken-bot flag. The DOM theme (applyThemeVars) has no danger
- * color — `--ui-accent` is the app's brand hue and is reused for error banners — so a
- * flagged row uses a self-contained desaturated red that reads on both light and dark
- * themes rather than colliding with the accent.
+ * color — `--ui-accent` is the app's brand hue and is reused for error banners — so
+ * flag styling (the row/badge here, the exclusion note on OnlineLeaderboardScreen)
+ * uses a self-contained desaturated red that reads on both light and dark themes
+ * rather than colliding with the accent. Exported so that note shares the hue (#137).
  */
 export const FLAG_COLOR = '#e5534b';
 const FLAG_ROW_BG = 'rgba(229, 83, 75, 0.1)';

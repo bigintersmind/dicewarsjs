@@ -2,7 +2,9 @@
  * Online Leaderboard Screen
  *
  * Fetches leaderboard data from static JSON and displays bot rankings.
- * Lists notable replays and delegates viewing to the parent via onViewReplay.
+ * Surfaces the run's flagged (excluded) bots as a note, so an exclusion is visible
+ * rather than silent (#137). Lists notable replays and delegates viewing to the
+ * parent via onViewReplay.
  *
  * @module ui/OnlineLeaderboardScreen
  */

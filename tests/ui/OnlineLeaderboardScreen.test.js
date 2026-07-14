@@ -87,6 +87,20 @@ describe('OnlineLeaderboardScreen', () => {
     expect(container.textContent).not.toContain('Excluded this run');
   });
 
+  it('renders no note when the new-format flagged field is present but empty', async () => {
+    // The shape every clean run publishes from now on. Guards the `flagged.length > 0`
+    // gate: a truthy-check "simplification" would render a dangling "Excluded this run
+    // as broken:" lead-in on every clean day, since [] is truthy.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => okJson({ ...FIXTURE, flagged: [] }))
+    );
+    mount();
+
+    await vi.waitFor(() => expect(container.textContent).toContain('Conqueror'));
+    expect(container.textContent).not.toContain('Excluded this run');
+  });
+
   it('surfaces flagged (excluded) bots from leaderboard.json in a note (#137)', async () => {
     // The flagged bot is NOT in `bots` — buildLeaderboard excludes it — so only this
     // note distinguishes "excluded because broken" from "didn't compete".

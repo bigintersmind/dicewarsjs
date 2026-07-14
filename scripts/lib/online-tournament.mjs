@@ -43,7 +43,11 @@ export function flaggedNameSet(result) {
  * `tournament-history.json`, so a consumer of either artifact alone can tell "excluded
  * because broken" from "didn't compete" (#137).
  *
- * @param {Array<Object>} flagged - `result.flagged` from the arena run
+ * Callers must validate the result via {@link flaggedNameSet} first: this helper assumes
+ * the array exists, so an unguarded call would fail with a bare TypeError instead of the
+ * #53 contract error.
+ *
+ * @param {import('../../src/arena/botErrorReport.js').FlaggedBot[]} flagged - `result.flagged` from the arena run
  * @returns {Array<{name: string, errors: number, invalidMoves: number, maxMovesHit: number, errorFraction: number}>}
  */
 function flaggedRecords(flagged) {
@@ -66,9 +70,8 @@ function flaggedRecords(flagged) {
  * carry their forced-end counts (`errors`/`invalidMoves`/`maxMovesHit`) for diagnosis.
  *
  * The exclusions themselves stay visible under a separate `flagged[]` field (mirroring
- * `tournament-history.json`): dropping a bot from `bots` also drops it from next-day ELO
- * seeding, and that erasure must be loud in the published artifact, not buried in the
- * history file (#137).
+ * `tournament-history.json`): that drop — from the rankings and from seeding alike — must
+ * be loud in the artifact users consume, not buried in the history file (#137).
  *
  * @param {Object} params
  * @param {import('../../src/arena/arenaRunner.js').ArenaResult} params.result

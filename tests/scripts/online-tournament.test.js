@@ -80,11 +80,13 @@ describe('buildLeaderboard', () => {
     expect(lb.bots.map(b => b.name)).not.toContain('Broken');
   });
 
-  it('keeps excluded bots visible under a durable flagged[] field (#137)', () => {
-    // Same shape as tournament-history.json's flagged[], so a consumer of leaderboard.json
-    // alone can tell "excluded because broken" from "didn't compete".
+  it('keeps excluded bots visible under a durable flagged[] field mirroring tournament-history (#137)', () => {
+    // The mirrored shape IS the contract: a consumer of either artifact alone can tell
+    // "excluded because broken" from "didn't compete". The fixture omits maxMovesHit and
+    // uses an unrounded fraction so both normalizations are exercised, not echoed back.
     const result = {
       totalGames: 100,
+      failedGames: 0,
       flagged: [{ name: 'Broken', errors: 25, invalidMoves: 5, errorFraction: 0.66667 }],
       bots: [bot('Healthy', { elo: 1350 }), bot('Broken', { elo: 900, errors: 25, wins: 0 })],
     };
@@ -101,6 +103,10 @@ describe('buildLeaderboard', () => {
       // maxMovesHit defaults to 0 when absent; errorFraction rounds to 3 places.
       { name: 'Broken', errors: 25, invalidMoves: 5, maxMovesHit: 0, errorFraction: 0.667 },
     ]);
+    // Both durable artifacts publish the identical record — pinned here so re-inlining a
+    // divergent mapping in either builder fails loudly, whatever the shared helper does.
+    const entry = buildHistoryEntry({ result, date: '2026-07-08', botCount: 2 });
+    expect(entry.flagged).toEqual(lb.flagged);
   });
 
   it('records an empty flagged[] on a clean run', () => {

@@ -704,7 +704,7 @@ describe('selfplay worker error plumbing', () => {
       const worker = new Worker(WORKER_PATH, {
         workerData: {
           workerId: 3,
-          botNames: ['NotARealBot'],
+          baseSeats: ['NotARealBot'],
           seeds: [1],
           maxTurns: 500,
           outPath: null,

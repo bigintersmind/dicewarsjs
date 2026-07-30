@@ -5132,5 +5132,75 @@
       }
     ],
     "flagged": []
+  },
+  {
+    "date": "2026-07-30",
+    "gamesPlayed": 100,
+    "failedGames": 0,
+    "botCount": 10,
+    "champion": "Conqueror",
+    "standings": [
+      {
+        "name": "Conqueror",
+        "elo": 1384,
+        "wins": 31,
+        "errors": 0
+      },
+      {
+        "name": "Blitz",
+        "elo": 1335,
+        "wins": 31,
+        "errors": 0
+      },
+      {
+        "name": "Survivor",
+        "elo": 1324,
+        "wins": 25,
+        "errors": 0
+      },
+      {
+        "name": "Lookahead",
+        "elo": 1295,
+        "wins": 6,
+        "errors": 0
+      },
+      {
+        "name": "Connector (bigintersmind)",
+        "elo": 1222,
+        "wins": 0,
+        "errors": 0
+      },
+      {
+        "name": "Strategist",
+        "elo": 1192,
+        "wins": 1,
+        "errors": 0
+      },
+      {
+        "name": "Adaptive",
+        "elo": 1109,
+        "wins": 2,
+        "errors": 0
+      },
+      {
+        "name": "Giant Slayer (bigintersmind)",
+        "elo": 1102,
+        "wins": 1,
+        "errors": 0
+      },
+      {
+        "name": "Default",
+        "elo": 1071,
+        "wins": 0,
+        "errors": 0
+      },
+      {
+        "name": "Berserker (bigintersmind)",
+        "elo": 1038,
+        "wins": 1,
+        "errors": 0
+      }
+    ],
+    "flagged": []
   }
 ]

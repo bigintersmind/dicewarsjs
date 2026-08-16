@@ -1,12 +1,18 @@
 /**
  * Player Status HUD
  *
- * Shows player stats at the bottom of the screen.
+ * Shows player stats at the bottom of the screen, and — during play — the QUIT
+ * control that opens the abandon-game confirm (#181). QUIT sits at the far left
+ * of the bar, bare muted text at the small end of the scale: END TURN is the
+ * centered button just above, and the way out of a game must not compete with
+ * the way through it. A hidden twin on the right keeps the player chips
+ * optically centered in the bar.
  *
  * @module ui/GameHUD
  */
 
 import { useGameStore } from './hooks/useGameStore.js';
+import { CHROME_CSS } from './menuChrome.jsx';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
 const STYLE = {
@@ -16,11 +22,23 @@ const STYLE = {
     left: 0,
     right: 0,
     display: 'flex',
-    justifyContent: 'center',
-    gap: '0.5rem',
+    alignItems: 'center',
     padding: '0.5rem',
     background: 'var(--ui-bg)',
     pointerEvents: 'auto',
+  },
+  /* Takes the space between QUIT and its hidden twin, so the chips stay
+     centered in the bar; wraps rather than overflowing on a phone. */
+  players: {
+    flex: 1,
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: '0.5rem',
+  },
+  quit: {
+    fontSize: '0.8rem',
+    flexShrink: 0,
   },
   player: {
     display: 'flex',
@@ -54,8 +72,10 @@ const STYLE = {
 /**
  * @param {Object} props
  * @param {Object} props.store - GameStore instance
+ * @param {() => void} [props.onQuit] - Opens the abandon-game confirm. Supplied
+ *   only while playing; on the game-over screen there is already a way out.
  */
-export function GameHUD({ store }) {
+export function GameHUD({ store, onQuit }) {
   const gameState = useGameStore(store, s => s.gameState);
   const prefs = useGameStore(store, s => s.preferences);
   if (!gameState) return null;
@@ -66,24 +86,48 @@ export function GameHUD({ store }) {
 
   return (
     <div style={STYLE.bar}>
-      {players.map(p => {
-        if (p.eliminated) return null;
-        const isCurrent = p.id === currentPlayerId;
-        const color = colorPalette[p.id % colorPalette.length];
-        return (
-          <div
-            key={p.id}
-            style={{
-              ...STYLE.player,
-              ...(isCurrent ? STYLE.current : {}),
-            }}
+      {onQuit && (
+        <>
+          {/* .dw-opt lives in the shared chrome stylesheet, which no menu
+              screen mounts during play (duplicate mounts are harmless). */}
+          <style>{CHROME_CSS}</style>
+          <button
+            type="button"
+            className="dw-opt"
+            style={STYLE.quit}
+            onClick={onQuit}
+            aria-label="Quit to title"
+            title="Quit to title (Esc)"
           >
-            <span style={{ ...STYLE.swatch, background: color }} />
-            <span>{p.territoryCount}</span>
-            {p.stock > 0 && <span style={STYLE.stock}>+{p.stock}</span>}
-          </div>
-        );
-      })}
+            QUIT
+          </button>
+        </>
+      )}
+      <div style={STYLE.players}>
+        {players.map(p => {
+          if (p.eliminated) return null;
+          const isCurrent = p.id === currentPlayerId;
+          const color = colorPalette[p.id % colorPalette.length];
+          return (
+            <div
+              key={p.id}
+              style={{
+                ...STYLE.player,
+                ...(isCurrent ? STYLE.current : {}),
+              }}
+            >
+              <span style={{ ...STYLE.swatch, background: color }} />
+              <span>{p.territoryCount}</span>
+              {p.stock > 0 && <span style={STYLE.stock}>+{p.stock}</span>}
+            </div>
+          );
+        })}
+      </div>
+      {onQuit && (
+        <span className="dw-opt" style={{ ...STYLE.quit, visibility: 'hidden' }} aria-hidden="true">
+          QUIT
+        </span>
+      )}
     </div>
   );
 }

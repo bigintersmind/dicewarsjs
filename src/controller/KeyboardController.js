@@ -5,6 +5,12 @@
  * Arrow keys move focus between territories, Enter/Space confirms,
  * Escape cancels selection, Tab cycles own territories.
  *
+ * Escape is shared with the quit-to-title confirm (#181): it cancels a
+ * half-made attack when there is one, and is otherwise left uncancelled so
+ * QuitConfirm's window-level handler — later in the bubble path — can raise
+ * the "Abandon this game?" dialog. While that dialog is open the board takes
+ * no keys at all.
+ *
  * @module controller/KeyboardController
  */
 
@@ -22,6 +28,11 @@ export function createKeyboardController(store, controller, renderer) {
   function handleKeyDown(e) {
     const state = store.getState();
     if (state.screen !== 'playing') return;
+    /*
+     * The quit confirm is modal: board navigation is suspended, and Escape
+     * passes through untouched so the dialog's own handler can close it.
+     */
+    if (state.quitConfirmOpen) return;
     if (state.animationPhase !== 'idle') return;
 
     const humanIdx = state.humanPlayerIndex;
@@ -47,8 +58,11 @@ export function createKeyboardController(store, controller, renderer) {
         confirmFocus(state);
         break;
       case 'Escape':
-        e.preventDefault();
-        cancelSelection();
+        /*
+         * Only claim the key when there was actually a selection to cancel;
+         * an uncancelled Escape is what QuitConfirm listens for (#181).
+         */
+        if (cancelSelection()) e.preventDefault();
         break;
       case 'Tab':
         e.preventDefault();
@@ -121,16 +135,18 @@ export function createKeyboardController(store, controller, renderer) {
 
   /**
    * Cancel current selection and return to selectFrom.
+   *
+   * @returns {boolean} True when a half-made attack was actually cancelled.
    */
   function cancelSelection() {
     const storeState = store.getState();
-    if (storeState.awaitingInput === 'selectTo') {
-      store.setState({
-        selectedFrom: null,
-        awaitingInput: 'selectFrom',
-      });
-      if (renderer) renderer.hexGrid.clearHighlights();
-    }
+    if (storeState.awaitingInput !== 'selectTo') return false;
+    store.setState({
+      selectedFrom: null,
+      awaitingInput: 'selectFrom',
+    });
+    if (renderer) renderer.hexGrid.clearHighlights();
+    return true;
   }
 
   /**

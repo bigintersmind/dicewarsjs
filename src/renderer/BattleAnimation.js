@@ -30,7 +30,7 @@ const SETTLE_FRAMES = 15;
  * Create a battle animation manager.
  *
  * @param {import('pixi.js').Application} app - PixiJS app (for ticker)
- * @returns {{ play: Function, destroy: Function, container: Container }}
+ * @returns {{ play: Function, cancel: Function, destroy: Function, container: Container }}
  */
 export function createBattleAnimation(app) {
   const container = new Container();
@@ -39,6 +39,8 @@ export function createBattleAnimation(app) {
 
   /** @type {(() => void) | null} Resolve function for pending animation */
   let pendingResolve = null;
+  /** @type {(() => void) | null} Ticker callback driving the current roll */
+  let activeTick = null;
   /** @type {boolean} Color-blind mode */
   let colorBlindMode = false;
 
@@ -81,7 +83,13 @@ export function createBattleAnimation(app) {
       return Promise.resolve();
     }
 
-    // Resolve any pending animation
+    // Resolve any pending animation, and take its ticker callback off the
+    // ticker — left on, it would keep running against the dice this play is
+    // about to dispose.
+    if (activeTick) {
+      app.ticker.remove(activeTick);
+      activeTick = null;
+    }
     if (pendingResolve) pendingResolve();
 
     return new Promise(resolve => {
@@ -150,6 +158,7 @@ export function createBattleAnimation(app) {
 
           if (phase === 3) {
             app.ticker.remove(tick);
+            activeTick = null;
             container.visible = false;
             disposeChildren();
             pendingResolve = null;
@@ -158,6 +167,7 @@ export function createBattleAnimation(app) {
         } catch (err) {
           console.error('[BattleAnimation] tick error, aborting:', err);
           app.ticker.remove(tick);
+          activeTick = null;
           container.visible = false;
           disposeChildren();
           pendingResolve = null;
@@ -165,11 +175,34 @@ export function createBattleAnimation(app) {
         }
       }
 
+      activeTick = tick;
       app.ticker.add(tick);
     });
   }
 
+  /**
+   * Stop the roll in flight and clear the dice off the canvas, resolving the
+   * promise `play()` handed out so its awaiting caller isn't left hanging.
+   * Used when a game is abandoned mid-battle (#181) — without it the dice keep
+   * tumbling over whatever the canvas shows next.
+   */
+  function cancel() {
+    if (activeTick) {
+      app.ticker.remove(activeTick);
+      activeTick = null;
+    }
+    container.visible = false;
+    disposeChildren();
+    const resolveFn = pendingResolve;
+    pendingResolve = null;
+    if (resolveFn) resolveFn();
+  }
+
   function destroy() {
+    if (activeTick) {
+      app.ticker.remove(activeTick);
+      activeTick = null;
+    }
     if (pendingResolve) {
       pendingResolve();
       pendingResolve = null;
@@ -177,7 +210,7 @@ export function createBattleAnimation(app) {
     container.destroy({ children: true, context: true });
   }
 
-  return { play, destroy, container, setColorBlindMode };
+  return { play, cancel, destroy, container, setColorBlindMode };
 }
 
 /**

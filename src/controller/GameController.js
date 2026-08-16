@@ -79,6 +79,22 @@ export function createGameController(store, renderer, soundManager, preferencesM
   let aiAborted = false;
   /** @type {import('../engine/types.js').GameState | null} Last state drawn by the replay viewer */
   let replayRenderedState = null;
+  /**
+   * @type {ReturnType<typeof setTimeout> | null} Pending "start the next turn"
+   * timer scheduled by endTurn. Held so leaving the game can cancel it: a
+   * stray startTurn() firing after goToTitle() has nulled `gameState` would
+   * read that as a finished game and throw the player onto the game-over
+   * screen (#181).
+   */
+  let nextTurnTimer = null;
+
+  /** Cancel a pending next-turn timer, if any. */
+  function clearNextTurnTimer() {
+    if (nextTurnTimer !== null) {
+      clearTimeout(nextTurnTimer);
+      nextTurnTimer = null;
+    }
+  }
 
   /**
    * Build AI assignment array from config.
@@ -185,6 +201,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
+    clearNextTurnTimer();
     store.setState({ error: null, aiLoadWarnings: [] });
 
     if (!renderer) {
@@ -298,9 +315,19 @@ export function createGameController(store, renderer, soundManager, preferencesM
     }
   }
 
-  /** Go back to the title screen. */
+  /**
+   * Go back to the title screen, abandoning any game in progress (#181).
+   *
+   * Everything the running game owns has to stop here, or it surfaces on the
+   * title screen a moment later: the AI loop (aiAborted, checked after every
+   * await), the pending next-turn timer, and the dice animation still rolling
+   * on the canvas. `currentReplay` is dropped with the rest — an abandoned
+   * game is not a result worth reviewing, and nothing counts it.
+   */
   function goToTitle() {
     aiAborted = true;
+    clearNextTurnTimer();
+    if (renderer && renderer.battle && renderer.battle.cancel) renderer.battle.cancel();
     store.setState({
       screen: 'title',
       gameState: null,
@@ -313,7 +340,22 @@ export function createGameController(store, renderer, soundManager, preferencesM
       replayOrigin: null,
       humanEliminated: false,
       gameOverReason: null,
+      quitConfirmOpen: false,
     });
+  }
+
+  /**
+   * Ask to abandon the game in progress: raises the confirm dialog (#181).
+   * Only meaningful while playing — the title screen has nothing to abandon.
+   */
+  function openQuitConfirm() {
+    if (store.getState().screen !== 'playing') return;
+    store.setState({ quitConfirmOpen: true });
+  }
+
+  /** Dismiss the quit confirm, leaving the game exactly as it was. */
+  function closeQuitConfirm() {
+    store.setState({ quitConfirmOpen: false });
   }
 
   function goToArena() {
@@ -451,6 +493,25 @@ export function createGameController(store, renderer, soundManager, preferencesM
         await delay(300 / speed);
       }
 
+      /*
+       * The player may have quit while that animation played (#181): the loop's
+       * top-of-iteration abort check is too late — the rest of this iteration
+       * would write battle state onto the title screen and, on the deciding
+       * attack, hand off to triggerGameOver().
+       */
+      if (aiAborted) {
+        // Leave no half-played attack behind, whichever navigation aborted us.
+        store.setState({
+          battleResult: null,
+          animationPhase: 'idle',
+          selectedFrom: null,
+          selectedTo: null,
+        });
+        if (renderer) renderer.hexGrid.clearHighlights();
+        aiRunning = false;
+        return;
+      }
+
       // Sound effects (after animation)
       if (soundManager && battleResult) {
         soundManager.play(battleResult.success ? 'success' : 'fail');
@@ -503,7 +564,12 @@ export function createGameController(store, renderer, soundManager, preferencesM
       if (state.phase === GAME_PHASES.GAME_OVER) break;
     }
 
-    if (!aiAborted && state && state.phase !== GAME_PHASES.GAME_OVER) {
+    if (aiAborted) {
+      aiRunning = false;
+      return;
+    }
+
+    if (state && state.phase !== GAME_PHASES.GAME_OVER) {
       await endTurn();
     } else if (state && state.phase === GAME_PHASES.GAME_OVER) {
       await triggerGameOver(state);
@@ -523,6 +589,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const state = storeState.gameState;
     if (!state || storeState.screen !== 'playing') return;
     if (storeState.animationPhase !== 'idle') return;
+    if (storeState.quitConfirmOpen) return; // the confirm dialog owns input while it is up
 
     const currentPlayerId = state.turnOrder[state.currentPlayerIndex];
     if (currentPlayerId !== storeState.humanPlayerIndex) return;
@@ -622,6 +689,13 @@ export function createGameController(store, renderer, soundManager, preferencesM
     } else {
       await delay(400);
     }
+
+    /*
+     * Quitting mid-animation abandons this attack's aftermath too (#181):
+     * goToTitle() has already cleared the board state, so re-arming input (or
+     * showing game over) here would fire on the title screen.
+     */
+    if (store.getState().screen !== 'playing') return;
 
     if (soundManager && battleResult) {
       soundManager.play(battleResult.success ? 'success' : 'fail');
@@ -881,8 +955,12 @@ export function createGameController(store, renderer, soundManager, preferencesM
       return;
     }
 
-    // Small delay before next turn
-    setTimeout(() => startTurn(), 100);
+    // Small delay before next turn (cancelled by goToTitle if the player quits)
+    clearNextTurnTimer();
+    nextTurnTimer = setTimeout(() => {
+      nextTurnTimer = null;
+      startTurn();
+    }, 100);
   }
 
   return {
@@ -890,6 +968,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
     acceptMap,
     rejectMap,
     goToTitle,
+    openQuitConfirm,
+    closeQuitConfirm,
     goToArena,
     goToTournament,
     goToOnlineLeaderboard,

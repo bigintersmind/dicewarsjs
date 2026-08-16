@@ -446,6 +446,30 @@ describe('GameController', () => {
       expect(state.animationPhase).toBe('idle');
       expect(state.currentReplay).toBeNull();
     });
+
+    it('backs out of the map preview without discarding the setup choices (#180)', async () => {
+      await controller.startNewGame({
+        playerCount: 4,
+        spectator: false,
+        mapSize: 'large',
+        difficulty: 'hard',
+        aiAssignments: [null, 'ai_conqueror', 'ai_blitz', 'ai_survivor'],
+      });
+      expect(store.getState().screen).toBe('mapPreview');
+
+      controller.goToTitle();
+
+      const state = store.getState();
+      expect(state.screen).toBe('title');
+      expect(state.gameState).toBeNull();
+      // The title screen re-seeds itself from config, so the round-trip is lossless.
+      expect(state.config).toMatchObject({
+        playerCount: 4,
+        mapSize: 'large',
+        difficulty: 'hard',
+        aiAssignments: [null, 'ai_conqueror', 'ai_blitz', 'ai_survivor'],
+      });
+    });
   });
 
   describe('goToReplay', () => {

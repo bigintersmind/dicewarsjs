@@ -149,6 +149,7 @@ export function App({ store, controller, preferencesManager }) {
           store={store}
           onAccept={() => controller.acceptMap()}
           onReject={() => controller.rejectMap()}
+          onBack={() => controller.goToTitle()}
         />
       );
     }

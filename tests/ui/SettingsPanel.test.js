@@ -291,6 +291,28 @@ describe('SettingsPanel', () => {
     expect(dieBtn.getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('consumes Escape while open so a screen-level handler does not also fire (#180)', () => {
+    renderPanel();
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
+
+    // MapPreview's back-on-Escape listens on window, one hop up the bubble path.
+    const onWindowEscape = vi.fn();
+    window.addEventListener('keydown', onWindowEscape);
+    try {
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+        );
+      });
+    } finally {
+      window.removeEventListener('keydown', onWindowEscape);
+    }
+
+    expect(dieBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(onWindowEscape).not.toHaveBeenCalled();
+  });
+
   it('closes panel on click outside', () => {
     renderPanel();
     const dieBtn = container.querySelector('button[aria-label="Settings"]');

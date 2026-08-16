@@ -134,6 +134,44 @@ describe('TitleScreen', () => {
     );
   });
 
+  describe('seeding from the persisted config (#180)', () => {
+    it('restores the player count and map size the player last chose', () => {
+      // What the store holds after a START that was backed out of on the map preview.
+      const store = createGameStore({
+        config: {
+          playerCount: 4,
+          mapSize: 'large',
+          difficulty: 'standard',
+          aiAssignments: [null, ...Array(3).fill('ai_default')],
+        },
+      });
+      const { onStart } = renderTitle({ store });
+
+      expect(playerBtn(4).getAttribute('aria-pressed')).toBe('true');
+      expect(playerBtn(7).getAttribute('aria-pressed')).toBe('false');
+      expect(sizeBtn('Large').getAttribute('aria-pressed')).toBe('true');
+      expect(sizeBtn('Medium').getAttribute('aria-pressed')).toBe('false');
+
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({ playerCount: 4, mapSize: 'large' })
+      );
+    });
+
+    it('keeps the first-launch defaults when the config carries neither', () => {
+      const store = createGameStore({ config: {} });
+      const { onStart } = renderTitle({ store });
+
+      expect(playerBtn(7).getAttribute('aria-pressed')).toBe('true');
+      expect(sizeBtn('Medium').getAttribute('aria-pressed')).toBe('true');
+
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({ playerCount: 7, mapSize: 'medium' })
+      );
+    });
+  });
+
   it('renders an error banner when error prop is set', () => {
     renderTitle({ error: 'Map generation failed' });
     expect(container.textContent).toContain('Map generation failed');
@@ -371,6 +409,8 @@ describe('TitleScreen', () => {
       });
       const { onStart } = renderTitle({ store });
       expect(modeBtn('Hard').getAttribute('aria-pressed')).toBe('true');
+      // The count now seeds from the store (#180), so bump it back up by hand.
+      act(() => playerBtn(7).click());
       act(() => startBtn().click());
       expect(onStart).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -407,7 +447,9 @@ describe('TitleScreen', () => {
         },
       });
       const { onStart } = renderTitle({ store });
-      act(() => startBtn().click()); // component default: 7 players
+      // The count now seeds from the store (#180), so bump it back up by hand.
+      act(() => playerBtn(7).click());
+      act(() => startBtn().click());
       expect(onStart).toHaveBeenCalledWith(
         expect.objectContaining({
           difficulty: 'custom',

@@ -287,7 +287,15 @@ export function SettingsPanel({ store, preferencesManager }) {
   useEffect(() => {
     if (!open) return;
     function handleKey(e) {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      /*
+       * The dropdown owns Escape while it is open: stop the event here so a
+       * screen-level Escape handler further up the bubble path (MapPreview's
+       * back-to-title, #180) does not also fire on the same keypress.
+       */
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
     }
     function handleClickOutside(e) {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {

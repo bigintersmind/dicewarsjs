@@ -22,7 +22,7 @@ import { DIFFICULTY_MODES, lineupForMode } from '../ai/difficultyModes.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
-import { CHROME_CSS, REPO_URL } from './menuChrome.jsx';
+import { CHROME_CSS, MENU_STYLE, REPO_URL } from './menuChrome.jsx';
 import { TitleWordmark, TitleLogo } from './titleArt.jsx';
 import {
   PLAYER_COLORS_CSS,
@@ -142,14 +142,6 @@ const STYLE = {
     gap: '1rem',
     flexWrap: 'wrap',
     marginTop: '0.4rem',
-  },
-  startBtn: {
-    fontSize: 'clamp(1.35rem, 3vw, 1.6rem)',
-    padding: '0.7rem 2.8rem',
-  },
-  aiBtn: {
-    fontSize: '1.05rem',
-    padding: '0.6rem 1.3rem',
   },
   copyright: {
     fontFamily: 'Roboto, sans-serif',
@@ -460,10 +452,10 @@ export function TitleScreen({ store, error, onStart }) {
           )}
 
           <div style={STYLE.buttonRow}>
-            <button className="dw-btn" style={STYLE.startBtn} onClick={handleStart}>
+            <button className="dw-btn" style={MENU_STYLE.heroBtn} onClick={handleStart}>
               START
             </button>
-            <button className="dw-btn" style={STYLE.aiBtn} onClick={handleAIvsAI}>
+            <button className="dw-btn" style={MENU_STYLE.heroSecondaryBtn} onClick={handleAIvsAI}>
               AI vs AI
             </button>
           </div>

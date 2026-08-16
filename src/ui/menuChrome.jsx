@@ -187,6 +187,19 @@ export const MENU_STYLE = {
     fontSize: '0.95rem',
     padding: '0.55rem 1.2rem',
   },
+  /*
+   * The title's START / AI vs AI pair — the biggest button in the game and its
+   * smaller sibling. Shared with the map preview's PLAY / NEW MAP so the two
+   * screens read as one flow (START → PLAY) instead of drifting apart.
+   */
+  heroBtn: {
+    fontSize: 'clamp(1.35rem, 3vw, 1.6rem)',
+    padding: '0.7rem 2.8rem',
+  },
+  heroSecondaryBtn: {
+    fontSize: '1.05rem',
+    padding: '0.6rem 1.3rem',
+  },
   /** Translucent card for dense data — the title's customizePanel idiom. */
   panel: {
     width: '100%',

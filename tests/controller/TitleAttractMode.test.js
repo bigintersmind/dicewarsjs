@@ -177,6 +177,27 @@ describe('TitleAttractMode', () => {
     expect(mode.isRunning()).toBe(false);
   });
 
+  it('restarts the attract board when the player backs out of the map preview (#180)', async () => {
+    const renderer = makeRenderer();
+    const store = createGameStore(); // initial screen: 'title'
+    const mode = createTitleAttractMode({ store, renderer });
+
+    mode.attach();
+    await vi.waitFor(() => expect(renderer.drawMap).toHaveBeenCalledTimes(1));
+
+    // START hands the canvas to the real game's preview board…
+    store.setState({ screen: 'mapPreview' });
+    expect(mode.isRunning()).toBe(false);
+
+    // …and backing out redraws the attract board over it — no renderer cleanup
+    // needed on the way back.
+    store.setState({ screen: 'title' });
+    await vi.waitFor(() => expect(renderer.drawMap).toHaveBeenCalledTimes(2));
+    expect(mode.isRunning()).toBe(true);
+
+    mode.destroy();
+  });
+
   it('start() while already running is a no-op (no duplicate boards)', async () => {
     const renderer = makeRenderer();
     const mode = createTitleAttractMode({ store: createGameStore(), renderer });

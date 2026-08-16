@@ -239,7 +239,8 @@ const STYLE = {
 
 /**
  * @param {Object} props
- * @param {Object} props.store - GameStore, used to seed the bot lineup and difficulty selection
+ * @param {Object} props.store - GameStore, used to seed the setup controls (player count,
+ *   map size, difficulty, bot lineup) from the last game's persisted config
  * @param {string | null} [props.error] - Error message to display
  * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, difficulty: string, aiAssignments: (string | null)[] }) => void} props.onStart
  */
@@ -253,8 +254,15 @@ export function TitleScreen({ store, error, onStart }) {
    */
   const animate = prefs?.reducedMotion !== 'on';
 
-  const [playerCount, setPlayerCount] = useState(7);
-  const [mapSize, setMapSize] = useState(DEFAULT_MAP_SIZE);
+  /*
+   * Player count and map size are seeded from the store's persisted config —
+   * the choices the player made for the last game — so a title -> map preview
+   * -> back round-trip returns them exactly as they were left (#180). The
+   * fallbacks match the store's own first-launch defaults (7 players, medium),
+   * so a fresh load looks unchanged.
+   */
+  const [playerCount, setPlayerCount] = useState(() => store.getState().config.playerCount ?? 7);
+  const [mapSize, setMapSize] = useState(() => store.getState().config.mapSize ?? DEFAULT_MAP_SIZE);
   const [difficulty, setDifficulty] = useState(
     () => store.getState().config.difficulty ?? 'standard'
   );

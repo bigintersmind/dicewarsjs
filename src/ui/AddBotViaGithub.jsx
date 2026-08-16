@@ -9,8 +9,9 @@
  * @module ui/AddBotViaGithub
  */
 
-const BOT_GUIDE_URL =
-  'https://github.com/bigintersmind/dicewarsjs/blob/master/docs/BOT_GUIDE.md#submitting-your-bot';
+import { REPO_URL } from './menuChrome.jsx';
+
+const BOT_GUIDE_URL = `${REPO_URL}/blob/master/docs/BOT_GUIDE.md#submitting-your-bot`;
 
 /*
  * Styled with the shared menu-chrome idioms (overlay panel + classic white

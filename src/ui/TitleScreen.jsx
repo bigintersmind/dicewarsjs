@@ -22,7 +22,7 @@ import { DIFFICULTY_MODES, lineupForMode } from '../ai/difficultyModes.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
-import { CHROME_CSS } from './menuChrome.jsx';
+import { CHROME_CSS, REPO_URL } from './menuChrome.jsx';
 import { TitleWordmark, TitleLogo } from './titleArt.jsx';
 import {
   PLAYER_COLORS_CSS,
@@ -158,9 +158,18 @@ const STYLE = {
     textShadow: 'var(--ui-text-halo)',
     marginTop: 'auto',
     paddingTop: '2rem',
+    /* One row at every width down to a 390px phone; if a narrower viewport
+       does force a wrap, the nowrap links keep it off the link text and the
+       centered lines stay balanced. */
+    textAlign: 'center',
   },
   copyrightLink: {
     color: 'inherit',
+    whiteSpace: 'nowrap',
+  },
+  /* Roomier than a plain space so the dot reads as a separator, not punctuation. */
+  copyrightSep: {
+    margin: '0 0.5em',
   },
   errorBanner: {
     background: 'var(--ui-accent-soft)',
@@ -453,6 +462,8 @@ export function TitleScreen({ store, error, onStart }) {
         </div>
       </div>
 
+      {/* Both links live in the copyright <p> so the repo link rides the same
+          pinned-to-the-viewport-floor footer line. */}
       <p className={animate ? 'dw-anim-fade' : ''} style={STYLE.copyright}>
         Copyright (C) 2001{' '}
         <a
@@ -462,6 +473,12 @@ export function TitleScreen({ store, error, onStart }) {
           style={STYLE.copyrightLink}
         >
           GAMEDESIGN
+        </a>
+        <span style={STYLE.copyrightSep} aria-hidden="true">
+          &middot;
+        </span>
+        <a href={REPO_URL} target="_blank" rel="noopener noreferrer" style={STYLE.copyrightLink}>
+          Source on GitHub
         </a>
       </p>
     </div>

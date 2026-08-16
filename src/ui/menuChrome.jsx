@@ -238,6 +238,14 @@ export function MenuScreen({ title, children }) {
 }
 
 /**
+ * Canonical URL of the project's source repository. Single source of truth for
+ * every in-app GitHub link (the title screen's footer, the settings panel's
+ * footer, and AddBotViaGithub's deep link into docs/BOT_GUIDE.md), so the repo
+ * can move without hunting down hardcoded URLs.
+ */
+export const REPO_URL = 'https://github.com/bigintersmind/dicewarsjs';
+
+/**
  * The hub screens, in rail order. `id` values are `store.screen` names; this
  * list is also how App decides where the rail shows (and so must stay in sync
  * with ATTRACT_SCREENS in TitleAttractMode.js — the rail belongs exactly where

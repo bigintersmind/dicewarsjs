@@ -174,7 +174,7 @@ export function QuitConfirm({ store, onOpen, onCancel, onConfirm }) {
         <h2 id="dw-quit-title" style={STYLE.title}>
           Abandon this game?
         </h2>
-        <p style={STYLE.body}>This board is lost and you go back to the setup screen.</p>
+        <p style={STYLE.body}>The board is discarded and you go back to the setup screen.</p>
         <div style={STYLE.row}>
           <button
             type="button"

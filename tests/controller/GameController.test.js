@@ -613,6 +613,21 @@ describe('GameController', () => {
       await flushPromises();
     });
 
+    it('drops the open confirm when the game ends underneath it', async () => {
+      // The dialog does not pause play: an AI can finish the game while it is up.
+      const finishBattle = await startAIBattle({ attackEndsGame: true });
+      controller.openQuitConfirm();
+      expect(store.getState().quitConfirmOpen).toBe(true);
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('gameOver');
+      // Otherwise a later Spectate (back to 'playing') would resurrect a stale dialog.
+      expect(store.getState().quitConfirmOpen).toBe(false);
+    });
+
     it('abandoning mid-AI-turn does not resume the loop or end the game', async () => {
       const { applyAction } = await import('../../src/engine/index.js');
       const finishBattle = await startAIBattle({ attackEndsGame: true });

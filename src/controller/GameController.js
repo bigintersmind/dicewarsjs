@@ -791,6 +791,12 @@ export function createGameController(store, renderer, soundManager, preferencesM
       currentReplay: replay,
       humanEliminated,
       gameOverReason: drawReason,
+      /*
+       * The game the quit dialog was asking about is over (#181): the dialog
+       * doesn't pause play, so an AI can finish the game while it is up. Drop
+       * the flag here or a later Spectate would return to a stale open dialog.
+       */
+      quitConfirmOpen: false,
     });
     if (soundManager) soundManager.play('over');
   }

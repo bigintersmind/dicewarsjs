@@ -13,6 +13,7 @@ import { act } from 'preact/test-utils';
 import { TitleScreen } from '../../src/ui/TitleScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { lineupForMode } from '../../src/ai/difficultyModes.js';
+import { REPO_URL } from '../../src/ui/menuChrome.jsx';
 import {
   PLAYER_COLOR_NAMES,
   PLAYER_COLORS_CSS,
@@ -453,6 +454,40 @@ describe('TitleScreen', () => {
       );
       expect(container.querySelector('select[aria-label="Bot for Teal player"]')).toBeTruthy();
       expect(container.querySelector('select[aria-label="Bot for Green player"]')).toBeNull();
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Footer links (#183)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('footer links (#183)', () => {
+    const footerLink = text =>
+      [...container.querySelectorAll('a')].find(a => a.textContent.trim() === text);
+
+    it('keeps the GAMEDESIGN credit link', () => {
+      renderTitle();
+      const link = footerLink('GAMEDESIGN');
+      expect(link).toBeTruthy();
+      expect(link.getAttribute('href')).toBe('https://www.gamedesign.jp/');
+    });
+
+    it('links to the source repository in a new tab', () => {
+      renderTitle();
+      const link = footerLink('Source on GitHub');
+      expect(link).toBeTruthy();
+      expect(link.getAttribute('href')).toBe(REPO_URL);
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.getAttribute('rel')).toContain('noopener');
+    });
+
+    it('carries both links on the single copyright line', () => {
+      renderTitle();
+      const line = footerLink('Source on GitHub').closest('p');
+      expect(line).toBe(footerLink('GAMEDESIGN').closest('p'));
+      expect(line.textContent).toContain('Copyright (C) 2001 GAMEDESIGN');
     });
   });
 });

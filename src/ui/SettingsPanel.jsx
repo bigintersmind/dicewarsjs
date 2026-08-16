@@ -26,7 +26,7 @@
 import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 import { DEFAULTS as PREF_DEFAULTS } from '../store/PreferencesManager.js';
-import { CHROME_CSS } from './menuChrome.jsx';
+import { CHROME_CSS, REPO_URL } from './menuChrome.jsx';
 
 /*
  * The legacy die geometry, as SVG path data: DiceRenderer.js's decoded Flash
@@ -228,6 +228,23 @@ const SETTINGS_CSS = `
   text-transform: uppercase;
   padding: 0.12rem 0.45rem;
 }
+/* Understated closing line: the panel's eyebrow scale in muted Roboto, set
+   off by a hairline rule. The panel's own flex gap supplies the space above
+   the rule, so only the space below it is declared here. */
+.dw-set-footer {
+  border-top: 1px solid var(--ui-border);
+  padding-top: 0.6rem;
+  font-family: Roboto, sans-serif;
+  font-size: 0.7rem;
+  text-align: center;
+}
+.dw-set-footer a {
+  color: var(--ui-text-muted);
+  text-decoration: none;
+}
+.dw-set-footer a:hover { color: var(--ui-text); text-decoration: underline; }
+.dw-set-footer a:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
   .dw-set-die svg { transition: none; }
   .dw-set-panel-anim { animation: none; }
@@ -376,6 +393,15 @@ export function SettingsPanel({ store, preferencesManager }) {
             value={prefs.reducedMotion}
             onSelect={v => setPref('reducedMotion', v)}
           />
+
+          {/* The panel mounts on every screen, so this is the one repo link
+              that stays reachable mid-game (the title screen's footer is the
+              prominent one). */}
+          <div className="dw-set-footer">
+            <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
+              Source on GitHub
+            </a>
+          </div>
         </div>
       )}
     </div>

@@ -7,6 +7,7 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { SettingsPanel } from '../../src/ui/SettingsPanel.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { REPO_URL } from '../../src/ui/menuChrome.jsx';
 
 /*
  * ---------------------------------------------------------------------------
@@ -346,6 +347,30 @@ describe('SettingsPanel', () => {
 
     const panel = container.querySelector('.dw-set-panel');
     expect(panel.classList.contains('dw-set-panel-anim')).toBe(false);
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Source link (#183)
+   * -----------------------------------------------------------------------
+   */
+
+  it('offers a source-repository link in the open panel', () => {
+    renderPanel();
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
+
+    const link = container.querySelector('.dw-set-footer a');
+    expect(link).toBeTruthy();
+    expect(link.textContent.trim()).toBe('Source on GitHub');
+    expect(link.getAttribute('href')).toBe(REPO_URL);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('hides the source link while the panel is closed', () => {
+    renderPanel();
+    expect(container.querySelector('.dw-set-footer')).toBeNull();
   });
 
   /*

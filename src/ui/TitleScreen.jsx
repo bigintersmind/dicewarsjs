@@ -15,9 +15,12 @@
  * START — so START is its only filled control (AI vs AI is a bare .dw-opt
  * beside it), a one-line caption names that path, and the bot-author screens
  * (Arena / Tournament / Leaderboard) are footer material: menuChrome's
- * FooterNav, mounted beside the credits, not the mode rail App shows on the
- * other hub screens. This is still the rail's "Battle" tab — every other hub
- * screen's rail leads back here.
+ * FooterNav at the foot of the page, not the mode rail App shows on the other
+ * hub screens. This is still the rail's "Battle" tab — every other hub
+ * screen's rail leads back here. The footer is that link row and nothing
+ * else: the original game's copyright line and the repo link that rode it
+ * are gone — the source is credited in the repository and the settings panel
+ * links "Source on GitHub", so the landing page ends on its own controls.
  *
  * @module ui/TitleScreen
  */
@@ -28,7 +31,7 @@ import { DIFFICULTY_MODES, lineupForMode } from '../ai/difficultyModes.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
-import { CHROME_CSS, MENU_STYLE, REPO_URL, FooterNav } from './menuChrome.jsx';
+import { CHROME_CSS, MENU_STYLE, FooterNav } from './menuChrome.jsx';
 import { TitleWordmark, TitleLogo } from './titleArt.jsx';
 import {
   PLAYER_COLORS_CSS,
@@ -109,8 +112,8 @@ const STYLE = {
   },
   /*
    * Two auto margins split the free vertical space (this one and STYLE.footer's):
-   * the spacer centers the main block in the space above the footer block — the
-   * link row over the credits — which stays pinned to the viewport bottom. On
+   * the spacer centers the main block in the space above the footer — the
+   * More-game-modes link row — which stays pinned to the viewport bottom. On
    * short viewports both collapse to zero and the screen scrolls normally.
    */
   topSpacer: {
@@ -184,39 +187,17 @@ const STYLE = {
   },
   /*
    * Footer, pinned to the viewport floor by the auto margin (see topSpacer):
-   * the More-game-modes link row over the credits line. One centered column
-   * so both stay balanced if a narrow viewport forces either to wrap.
+   * just the More-game-modes link row, centered so it stays balanced if a
+   * narrow viewport forces it to wrap. The bottom padding keeps the row off
+   * the floor (on top of the container's own).
    */
   footer: {
     marginTop: 'auto',
-    paddingTop: '2rem',
+    padding: '2rem 0 0.6rem',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    /* 8px, not 4: the 0.85rem footer links and the credits links are both
-       undersized targets, so WCAG 2.2 §2.5.8 only exempts them while their
-       centres stay 24px apart — a 4px row gap leaves them just short of that,
-       8px clears it. */
-    gap: '0.5rem',
     textAlign: 'center',
-  },
-  /* One row at every width down to a 390px phone; if a narrower viewport does
-     force a wrap, the nowrap links keep it off the link text and the footer's
-     centering keeps the lines balanced. */
-  copyright: {
-    fontFamily: 'Roboto, sans-serif',
-    fontSize: '0.78rem',
-    color: 'var(--ui-text-muted)',
-    textShadow: 'var(--ui-text-halo)',
-    margin: '0 0 0.6rem',
-  },
-  copyrightLink: {
-    color: 'inherit',
-    whiteSpace: 'nowrap',
-  },
-  /* Roomier than a plain space so the dot reads as a separator, not punctuation. */
-  copyrightSep: {
-    margin: '0 0.5em',
   },
   errorBanner: {
     background: 'var(--ui-accent-soft)',
@@ -293,7 +274,7 @@ const STYLE = {
  * @param {(screenId: string) => void} [props.onNavigate] - Footer link row
  *   (Arena / Tournament / Leaderboard): called with the tapped screen id, as
  *   the mode rail's onNavigate is. Omitted only in isolated renders — App
- *   always supplies it — and the row is left out without it.
+ *   always supplies it — and the footer is left out without it.
  */
 export function TitleScreen({ store, error, onStart, onNavigate }) {
   const prefs = useGameStore(store, s => s.preferences);
@@ -546,28 +527,13 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
         </div>
       </div>
 
-      <footer className={animate ? 'dw-anim-fade' : ''} style={STYLE.footer}>
-        {onNavigate && <FooterNav onNavigate={onNavigate} />}
-        {/* Both links live in the copyright <p> so the repo link rides the same
-            credits line. */}
-        <p style={STYLE.copyright}>
-          Copyright (C) 2001{' '}
-          <a
-            href="https://www.gamedesign.jp/"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={STYLE.copyrightLink}
-          >
-            GAMEDESIGN
-          </a>
-          <span style={STYLE.copyrightSep} aria-hidden="true">
-            &middot;
-          </span>
-          <a href={REPO_URL} target="_blank" rel="noopener noreferrer" style={STYLE.copyrightLink}>
-            Source on GitHub
-          </a>
-        </p>
-      </footer>
+      {/* The footer is the link row alone, so it only mounts with it: an
+          isolated render with no onNavigate gets no empty landmark. */}
+      {onNavigate && (
+        <footer className={animate ? 'dw-anim-fade' : ''} style={STYLE.footer}>
+          <FooterNav onNavigate={onNavigate} />
+        </footer>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGameStore } from '../../src/store/GameStore.js';
+import { createGameStore, playerName, HUMAN_PLAYER_NAME } from '../../src/store/GameStore.js';
 import { AI_STRATEGIES } from '../../src/ai/aiConfig.js';
 import { DIFFICULTY_MODES } from '../../src/ai/difficultyModes.js';
 
@@ -145,6 +145,27 @@ describe('GameStore', () => {
         expect(AI_STRATEGIES[id]).toBeDefined();
         expect(AI_STRATEGIES[id].hidden).toBeUndefined();
       }
+    });
+
+    it('starts with no lineup recorded (playerNames empty)', () => {
+      expect(createGameStore().getState().playerNames).toEqual([]);
+    });
+  });
+
+  // The seat-label helper the in-game text goes through ("<name> is thinking...").
+  describe('playerName', () => {
+    it('returns the recorded name for the seat', () => {
+      expect(playerName(['You', 'Conqueror', 'Blitz'], 2)).toBe('Blitz');
+      expect(playerName([HUMAN_PLAYER_NAME, 'Conqueror'], 0)).toBe('You');
+    });
+
+    it('falls back to the 1-based seat number when the lineup was never recorded', () => {
+      expect(playerName([], 2)).toBe('Player 3');
+      expect(playerName(undefined, 0)).toBe('Player 1');
+    });
+
+    it('falls back for an index past the recorded lineup', () => {
+      expect(playerName(['You', 'Conqueror'], 5)).toBe('Player 6');
     });
   });
 });

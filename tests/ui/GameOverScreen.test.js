@@ -55,6 +55,14 @@ describe('GameOverScreen', () => {
     expect(container.textContent).not.toContain('turn limit reached');
   });
 
+  // The human seat's recorded name is "You": the win heading carries a human
+  // win, and the generic "<name> wins!" subtitle must not render "You wins!".
+  it('shows the win heading, and no "You wins!" subtitle, when the human wins', () => {
+    renderGameOver({ gameState: { winner: 0 }, humanPlayerIndex: 0 });
+    expect(container.textContent).toContain('W I N');
+    expect(container.textContent).not.toContain('wins!');
+  });
+
   // A store that never went through startNewGame (no lineup recorded) still
   // gets a readable subtitle — the seat number, as before bots were named.
   it('falls back to the seat number when no player names are recorded', () => {

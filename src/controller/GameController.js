@@ -16,11 +16,11 @@ import {
   GAME_PHASES,
 } from '../engine/index.js';
 import { runAI } from '../engine/AIAdapter.js';
-import { getAIById, getAIImplementation } from '../ai/aiConfig.js';
+import { AI_STRATEGIES, getAIById, getAIImplementation } from '../ai/aiConfig.js';
 import { createReplayFromState } from '../arena/replayFormat.js';
 import { getCommunityBotList, loadCommunityBot } from '../arena/communityBots.js';
 import { adaptModernBot } from '../arena/modernBotAdapter.js';
-import { HUMAN_PLAYER_NAME } from '../store/GameStore.js';
+import { HUMAN_PLAYER_NAME, playerName } from '../store/GameStore.js';
 import { resolveMapSize } from '../utils/config.js';
 
 /** Prefix marking a per-slot assignment id as a curated community bot. */
@@ -66,8 +66,11 @@ async function resolveAIFunction(aiId) {
  * Player-facing name for a per-slot assignment id — the same label the title
  * screen's picker shows for that bot, so a seat reads in-game the way it was
  * chosen ("Conqueror is thinking...", not "Player 3"). Community ids resolve
- * through the registry; an unregistered one falls back to its bare id.
- * Built-in ids resolve like getAIImplementation does (unknown → ai_default).
+ * through the registry (the `?? id` is defensive only: loadCommunityBot throws
+ * first for an id the registry doesn't know, so that seat takes the fallback
+ * path in loadAIFunctions and is named for ai_default). Built-in ids resolve
+ * like getAIImplementation does (unknown → ai_default), so name and function
+ * agree even for a stale id.
  *
  * @param {string} aiId
  * @returns {string}
@@ -119,12 +122,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * Build AI assignment array from config.
    *
    * Returns the per-slot functions, the per-slot display names, and any
-   * player-facing notices: when a community bot (the player's explicit
-   * per-slot choice) fails to load we fall back to ai_default, but silently
-   * swapping it in would misrepresent who the player is up against — so those
-   * failures are surfaced (see startNewGame). The names describe what actually
-   * loaded, fallback included, so the in-game label never claims a bot that
-   * isn't playing.
+   * player-facing notices: when a chosen bot fails to load we fall back to
+   * ai_default, but silently swapping it in would misrepresent who the player
+   * is up against — so those failures are surfaced (see startNewGame). The
+   * names describe what actually loaded, fallback included, so the in-game
+   * label never claims a bot that isn't playing.
    *
    * @param {number} playerCount
    * @param {boolean} spectator
@@ -134,9 +136,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const storeState = store.getState();
     const assignments = [...storeState.config.aiAssignments].slice(0, playerCount);
 
-    // In spectator mode, all players are AI
+    // In spectator mode, all players are AI (playerCount, not assignments.length:
+    // a lineup shorter than the seat count must not leave a seat human-and-idle).
     if (spectator) {
-      for (let i = 0; i < assignments.length; i++) {
+      for (let i = 0; i < playerCount; i++) {
         if (!assignments[i]) assignments[i] = 'ai_default';
       }
     }
@@ -150,28 +153,46 @@ export function createGameController(store, renderer, soundManager, preferencesM
         fns.push(null); // human
         names.push(HUMAN_PLAYER_NAME);
       } else {
+        if (!aiId.startsWith(COMMUNITY_PREFIX) && !AI_STRATEGIES[aiId]) {
+          // Not reachable from the title screen (it only emits registry ids), but
+          // both resolvers substitute ai_default for an unknown id without a
+          // throw — so say so, or a stale/renamed id would seat and label
+          // Balanced AI as if it were chosen.
+          console.warn(
+            `[GameController] Unknown AI id "${aiId}" for player ${i} — substituting ai_default.`
+          );
+        }
         try {
-          fns.push(await resolveAIFunction(aiId));
-          names.push(displayNameFor(aiId));
+          // Resolve both before pushing either: a throw between the two pushes
+          // would leave fns one longer than names and shift every later seat.
+          const fn = await resolveAIFunction(aiId);
+          const name = displayNameFor(aiId);
+          fns.push(fn);
+          names.push(name);
         } catch (err) {
           console.error(
             `Failed to load AI "${aiId}" for player ${i}, falling back to ai_default:`,
             err
           );
           /*
-           * Built-in id failures are internal bugs that shouldn't happen in
-           * normal use; community-bot failures are expected (a curated bot can
-           * have a bug) and are the player's explicit choice, so surface those.
+           * Surface the swap either way. A community bot can have a bug, and a
+           * built-in is a dynamic import (the personas pull a weights chunk on
+           * top) that a network blip or a stale deploy can reject. Seating
+           * ai_default silently would misrepresent who the player is up against
+           * — all the more now that the seat is labeled by what actually loaded,
+           * which would make the downgrade look deliberate. The notice names
+           * the fallback the way the seat will (its picker label).
            */
-          if (aiId.startsWith(COMMUNITY_PREFIX)) {
-            warnings.push(
-              `Player ${i + 1}: community bot "${aiId.slice(COMMUNITY_PREFIX.length)}" ` +
-                `could not load — using Default AI instead.`
-            );
-          }
+          const fallbackName = getAIById('ai_default').name;
+          const chosen = aiId.startsWith(COMMUNITY_PREFIX)
+            ? `community bot "${aiId.slice(COMMUNITY_PREFIX.length)}"`
+            : `"${AI_STRATEGIES[aiId]?.name ?? aiId}"`;
+          warnings.push(
+            `Player ${i + 1}: ${chosen} could not load — using ${fallbackName} instead.`
+          );
           try {
             fns.push(await getAIImplementation('ai_default'));
-            names.push(getAIById('ai_default').name);
+            names.push(fallbackName);
           } catch (fallbackErr) {
             throw new Error(
               `Cannot load any AI for player ${i}: both "${aiId}" and "ai_default" failed`,
@@ -193,14 +214,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
   function buildGameReplay(state) {
     if (!state || !state.config) return null;
     try {
-      const { humanPlayerIndex: humanIdx, playerNames } = store.getState();
+      const { playerNames } = store.getState();
       const playerCount = state.config.playerCount;
-      const bots = [];
-      for (let i = 0; i < playerCount; i++) {
-        // The seat's real name (set with the lineup in startNewGame); a store
-        // that skipped that path still gets a readable label.
-        bots.push(playerNames[i] ?? (i === humanIdx ? HUMAN_PLAYER_NAME : `Player ${i + 1}`));
-      }
+      // The seat's real names (set with the lineup in startNewGame); playerName()
+      // supplies the seat-number label for a lineup that was never recorded.
+      const bots = Array.from({ length: playerCount }, (_, i) => playerName(playerNames, i));
       return createReplayFromState(state, {
         bots,
         winner: state.winner,
@@ -230,7 +248,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
     clearNextTurnTimer();
-    store.setState({ error: null, aiLoadWarnings: [] });
+    store.setState({ error: null, aiLoadWarnings: [], playerNames: [] });
 
     if (!renderer) {
       store.setState({ error: 'Cannot start game: graphics engine not available.' });
@@ -395,6 +413,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       humanEliminated: false,
       gameOverReason: null,
       quitConfirmOpen: false,
+      playerNames: [],
     });
     /*
      * `battle` and `hexGrid` are both null until init() succeeds, and quitting
@@ -915,7 +934,12 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const { gameState } = store.getState();
     if (!gameState || gameState.phase === GAME_PHASES.GAME_OVER) return;
 
-    // Ensure every player slot has an AI function
+    /*
+     * Ensure every player slot has an AI function. playerNames is left alone on
+     * purpose: the human's seat is eliminated (that is how we got here), so the
+     * bot filling it never acts and can't win, and the replay's `bots` should
+     * record the lineup as it was played — that seat was the human's.
+     */
     for (let i = 0; i < aiFunctions.length; i++) {
       if (!aiFunctions[i]) {
         try {

@@ -150,6 +150,64 @@ describe('ScreenReaderAnnouncer', () => {
     expect(getText()).toContain('Player 2 is thinking');
   });
 
+  // Names are indexed by seat (turnOrder[currentPlayerIndex]), not by turn slot — real games
+  // shuffle turnOrder, and the identity-order fixture above cannot tell the two apart.
+  it('names the seat whose turn it is under a shuffled turn order', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ turnOrder: [1, 0], currentPlayerIndex: 0 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Blitz is thinking');
+  });
+
+  // A live region has no color to tell two seats running the same bot apart (the visual
+  // label's disambiguator), so a repeated name is spoken with its seat number — the whole
+  // Standard lineup is Balanced AI. A unique name is spoken bare (see the Blitz cases).
+  it('speaks the seat number too when the lineup repeats the bot name', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Balanced AI', 'Balanced AI'],
+      gameState: makeGameState({
+        turnOrder: [0, 1, 2],
+        currentPlayerIndex: 2,
+        players: [
+          { id: 0, alive: true, territoryCount: 2 },
+          { id: 1, alive: true, territoryCount: 1 },
+          { id: 2, alive: true, territoryCount: 1 },
+        ],
+      }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Balanced AI, player 3, is thinking.');
+  });
+
+  // The effect must re-run on a lineup change alone: two back-to-back games can agree on
+  // every other dependency (screen, turn index, human seat, winner, phase) and differ only in
+  // who sits where — without `playerNames` in the deps the old game's bot would be announced.
+  it('re-announces when the lineup changes under the same turn state', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Blitz is thinking');
+
+    act(() => store.setState({ playerNames: ['You', 'Conqueror'] }));
+    expect(getText()).toContain('Conqueror is thinking');
+  });
+
   it('announces a human win as "You win!"', () => {
     store.setState({
       screen: 'gameOver',
@@ -174,6 +232,19 @@ describe('ScreenReaderAnnouncer', () => {
 
     const { getText } = renderAnnouncer(store);
     expect(getText()).toContain('Game over. Blitz wins!');
+  });
+
+  it('announces a bot win with its seat number when the lineup repeats the name', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Balanced AI', 'Balanced AI'],
+      gameState: makeGameState({ winner: 2 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Game over. Balanced AI, player 3, wins!');
   });
 
   it('announces battle result', () => {

@@ -231,19 +231,56 @@ describe('KeyboardController', () => {
         selectedFrom: 1,
       });
 
-      fireKey('Escape');
+      const event = fireKey('Escape');
 
       expect(store.getState().awaitingInput).toBe('selectFrom');
       expect(store.getState().selectedFrom).toBeNull();
       expect(mockRenderer.hexGrid.clearHighlights).toHaveBeenCalled();
+      // Claimed: the quit confirm must not also open on this keypress (#181).
+      expect(event.defaultPrevented).toBe(true);
     });
 
     it('does nothing when already in selectFrom', () => {
       store.setState({ awaitingInput: 'selectFrom' });
-      fireKey('Escape');
+      const event = fireKey('Escape');
       // Should still be selectFrom, clearHighlights not called
       expect(store.getState().awaitingInput).toBe('selectFrom');
       expect(mockRenderer.hexGrid.clearHighlights).not.toHaveBeenCalled();
+      // Left uncancelled so QuitConfirm's window-level handler can act (#181).
+      expect(event.defaultPrevented).toBe(false);
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Quit confirm (#181)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('quit confirm', () => {
+    beforeEach(() => {
+      store.setState({ quitConfirmOpen: true });
+    });
+
+    it('suspends board navigation while the dialog is open', () => {
+      fireKey('ArrowRight');
+      expect(store.getState().focusedAreaId).toBeNull();
+
+      store.setState({ focusedAreaId: 1 });
+      fireKey('Enter');
+      expect(mockController.handleTerritoryClick).not.toHaveBeenCalled();
+
+      fireKey('Tab');
+      expect(store.getState().focusedAreaId).toBe(1);
+    });
+
+    it('leaves Escape alone so the dialog can close itself', () => {
+      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+
+      const event = fireKey('Escape');
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(store.getState().awaitingInput).toBe('selectTo');
     });
   });
 

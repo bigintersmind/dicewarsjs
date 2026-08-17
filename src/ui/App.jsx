@@ -19,6 +19,7 @@ import { GameHUD } from './GameHUD.jsx';
 import { MapPreview } from './MapPreview.jsx';
 import { GameOverlay } from './GameOverlay.jsx';
 import { GameOverScreen } from './GameOverScreen.jsx';
+import { QuitConfirm } from './QuitConfirm.jsx';
 import { OnlineLeaderboardScreen } from './OnlineLeaderboardScreen.jsx';
 import { ReplayViewer } from './ReplayViewer.jsx';
 import { SettingsPanel } from './SettingsPanel.jsx';
@@ -173,8 +174,15 @@ export function App({ store, controller, preferencesManager }) {
     return (
       <div style={{ height: '100%', position: 'relative' }}>
         {announcer}
-        <GameHUD store={store} />
+        <GameHUD store={store} onQuit={() => controller.openQuitConfirm()} />
         <GameOverlay store={store} onEndTurn={() => controller.endHumanTurn()} />
+        {/* Mounted whether or not the dialog is up: it also owns Escape (#181). */}
+        <QuitConfirm
+          store={store}
+          onOpen={() => controller.openQuitConfirm()}
+          onCancel={() => controller.closeQuitConfirm()}
+          onConfirm={() => controller.goToTitle()}
+        />
       </div>
     );
   })();

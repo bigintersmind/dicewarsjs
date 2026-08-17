@@ -28,6 +28,11 @@ import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
  * @property {'turnLimit' | null} gameOverReason - Why a game ended without a conqueror.
  *   'turnLimit' when the browser turn cap (GameController MAX_GAME_TURNS) drew a stalled
  *   AI-vs-AI board; null for a normal conquest win or a still-running game.
+ * @property {boolean} quitConfirmOpen - True while the in-game "Abandon this
+ *   game?" dialog is up (#181). Lives in the store rather than in component
+ *   state because the controller layer reads it too: KeyboardController
+ *   suspends board navigation and handleTerritoryClick ignores clicks while it
+ *   is open.
  * @property {number} aiSpeed
  * @property {boolean} soundEnabled
  * @property {string | null} error
@@ -48,6 +53,7 @@ const DEFAULT_STATE = {
   humanPlayerIndex: 0,
   humanEliminated: false,
   gameOverReason: null,
+  quitConfirmOpen: false,
   aiSpeed: 1,
   soundEnabled: true,
   error: null,

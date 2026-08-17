@@ -27,7 +27,7 @@ export class GameRenderer {
     this.hexGrid = null;
     /** @type {DiceRenderer | null} */
     this.dice = null;
-    /** @type {{ play, destroy } | null} */
+    /** @type {{ play, cancel, destroy, setColorBlindMode, container } | null} */
     this.battle = null;
     /** @type {boolean} */
     this.initialized = false;

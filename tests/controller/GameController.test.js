@@ -136,6 +136,7 @@ function createMockRenderer() {
     getPlayerColor: vi.fn(() => 0xffffff),
     battle: {
       play: vi.fn(async () => {}),
+      cancel: vi.fn(),
       destroy: vi.fn(),
     },
     dice: { destroy: vi.fn() },
@@ -469,6 +470,452 @@ describe('GameController', () => {
         difficulty: 'hard',
         aiAssignments: [null, 'ai_conqueror', 'ai_blitz', 'ai_survivor'],
       });
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Abandoning a game in progress (#181)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('quit to title', () => {
+    /*
+     * The engine mocks are module-level and shared with every later test in
+     * this file, so any implementation swapped in here is put back afterwards.
+     */
+    let restoreMocks = [];
+    function override(mockFn, implementation) {
+      const original = mockFn.getMockImplementation();
+      restoreMocks.push(() => mockFn.mockImplementation(original));
+      mockFn.mockImplementation(implementation);
+    }
+    afterEach(() => {
+      for (const restore of restoreMocks) restore();
+      restoreMocks = [];
+    });
+
+    const ATTACK_RESULT = {
+      success: true,
+      attackerRoll: { values: [6], total: 6 },
+      defenderRoll: { values: [1], total: 1 },
+    };
+
+    /**
+     * Hold the next battle animation open so a quit lands mid-roll, and make the
+     * cancel mock do what the real BattleAnimation.cancel() does: resolve the
+     * promise play() handed out. With a no-op cancel these tests would pass
+     * while the controller left its caller awaiting a promise nobody resolves —
+     * exactly the wedge cancel() exists to prevent.
+     *
+     * @returns {() => void} Release the held animation, as the ticker would.
+     */
+    function holdBattlePlay() {
+      let finishBattle = () => {};
+      renderer.battle.play.mockImplementation(
+        () =>
+          new Promise(resolve => {
+            finishBattle = resolve;
+          })
+      );
+      renderer.battle.cancel.mockImplementation(() => finishBattle());
+      return () => finishBattle();
+    }
+
+    /**
+     * Play up to the point where an AI attack is mid-animation.
+     *
+     * @param {Object} [options]
+     * @param {boolean} [options.attackEndsGame] - The attack conquers the board.
+     * @param {boolean} [options.eliminatesHuman] - The attack knocks the human out
+     *   while the game plays on, which is the AI loop's in-flight hand-off to
+     *   triggerGameOver(). Implies a non-spectator game, on the AI's turn.
+     */
+    async function startAIBattle({ attackEndsGame = false, eliminatesHuman = false } = {}) {
+      const { runAI } = await import('../../src/engine/AIAdapter.js');
+      const { createGame, getValidMoves, applyAction } = await import('../../src/engine/index.js');
+
+      override(runAI, () => ({ from: 1, to: 2 }));
+      override(getValidMoves, () => [{ from: 1, to: 2 }]);
+      if (attackEndsGame) {
+        override(applyAction, (state, action) => {
+          if (action.type !== 'ATTACK') return state;
+          return {
+            ...state,
+            phase: 'gameOver',
+            winner: 0,
+            history: [...state.history, { type: 'ATTACK', result: ATTACK_RESULT }],
+          };
+        });
+      }
+      if (eliminatesHuman) {
+        // Start on the AI's turn — slot 0 is the human and would just wait for input.
+        override(createGame, () => makeGameState({ currentPlayerIndex: 1 }));
+        override(applyAction, (state, action) => {
+          if (action.type !== 'ATTACK') return state;
+          return {
+            ...state,
+            // The human is out, but the surviving AIs play on: phase stays 'playing'.
+            players: state.players.map((p, i) => (i === 0 ? { ...p, eliminated: true } : p)),
+            history: [...state.history, { type: 'ATTACK', result: ATTACK_RESULT }],
+          };
+        });
+      }
+
+      const finishBattle = holdBattlePlay();
+
+      // Spectator by default: every seat is an AI, so player 0's turn runs the loop.
+      await controller.startNewGame({ playerCount: 2, spectator: !eliminatesHuman });
+      controller.acceptMap();
+      await flushPromises();
+
+      expect(renderer.battle.play).toHaveBeenCalled();
+      return finishBattle;
+    }
+
+    it('opens and closes the confirm only while playing', async () => {
+      controller.openQuitConfirm();
+      expect(store.getState().quitConfirmOpen).toBe(false); // still on the title
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      controller.openQuitConfirm();
+      expect(store.getState().quitConfirmOpen).toBe(true);
+
+      controller.closeQuitConfirm();
+      expect(store.getState().quitConfirmOpen).toBe(false);
+      // Cancelling changes nothing else: the game is exactly where it was.
+      expect(store.getState().screen).toBe('playing');
+      expect(store.getState().gameState).toBeTruthy();
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+    });
+
+    it('confirming from the dialog returns to the title and closes it', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      controller.openQuitConfirm();
+
+      controller.goToTitle();
+
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().quitConfirmOpen).toBe(false);
+      expect(store.getState().gameState).toBeNull();
+    });
+
+    it('ignores board clicks while the confirm is open', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      // Arm the attack first, so a click that slips through would really attack.
+      controller.handleTerritoryClick(1);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      controller.openQuitConfirm();
+
+      controller.handleTerritoryClick(2); // area 2 is an enemy neighbour of 1
+
+      expect(applyAction).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'ATTACK' })
+      );
+      // The half-made attack is untouched: cancelling the dialog resumes it.
+      expect(store.getState().selectedFrom).toBe(1);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+    });
+
+    it('cancels the pending next-turn timer so the title screen stays put', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      controller.endHumanTurn(); // schedules startTurn() ~100ms out
+      await flushPromises();
+
+      controller.goToTitle();
+      await vi.runAllTimersAsync();
+
+      // Without the cancel, startTurn() fires with a null gameState and reads
+      // it as a finished game — bouncing the player onto the game-over screen.
+      expect(store.getState().screen).toBe('title');
+    });
+
+    it('stops the in-flight dice animation', async () => {
+      const finishBattle = await startAIBattle();
+
+      controller.goToTitle();
+      expect(renderer.battle.cancel).toHaveBeenCalled();
+
+      finishBattle();
+      await flushPromises();
+    });
+
+    it('drops the open confirm when the game ends underneath it', async () => {
+      // The dialog does not pause play: an AI can finish the game while it is up.
+      const finishBattle = await startAIBattle({ attackEndsGame: true });
+      controller.openQuitConfirm();
+      expect(store.getState().quitConfirmOpen).toBe(true);
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('gameOver');
+      // Otherwise a later Spectate (back to 'playing') would resurrect a stale dialog.
+      expect(store.getState().quitConfirmOpen).toBe(false);
+    });
+
+    it('abandoning mid-AI-turn drops the rest of the attack and the loop', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      // A non-terminal attack: the loop would otherwise take another move.
+      const finishBattle = await startAIBattle();
+
+      controller.goToTitle();
+      applyAction.mockClear();
+      renderer.hexGrid.clearHighlights.mockClear();
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().gameState).toBeNull();
+      // Everything the rest of the iteration would have done to the title screen.
+      expect(soundManager.play).not.toHaveBeenCalledWith('success');
+      expect(soundManager.play).not.toHaveBeenCalledWith('fail');
+      expect(renderer.playParticleEffect).not.toHaveBeenCalled();
+      expect(applyAction).not.toHaveBeenCalled(); // no further move, no end of turn
+      // The abandoned attack leaves no highlight on the canvas behind the title.
+      expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
+    });
+
+    it('abandoning the attack that eliminates the human skips the game-over hand-off', async () => {
+      // Non-spectator: this is the one place the AI loop calls triggerGameOver mid-turn.
+      const finishBattle = await startAIBattle({ eliminatesHuman: true });
+
+      controller.goToTitle();
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().humanEliminated).toBe(false);
+      expect(renderer.playCelebration).not.toHaveBeenCalled();
+      expect(soundManager.play).not.toHaveBeenCalledWith('over');
+      expect(soundManager.play).not.toHaveBeenCalledWith('success');
+      expect(renderer.playParticleEffect).not.toHaveBeenCalled();
+    });
+
+    it('abandoning a human attack mid-roll does not re-arm input on the title', async () => {
+      const finishBattle = holdBattlePlay();
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      controller.handleTerritoryClick(1); // pick the attacker
+      controller.handleTerritoryClick(2); // ...and the target: the roll starts
+      await flushPromises();
+      expect(renderer.battle.play).toHaveBeenCalled();
+
+      controller.goToTitle();
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('title');
+      // Re-arming would leave the title screen listening for the next click of an
+      // abandoned attack (and the sting would play over the menu).
+      expect(store.getState().awaitingInput).toBeNull();
+      expect(soundManager.play).not.toHaveBeenCalledWith('success');
+      expect(renderer.playParticleEffect).not.toHaveBeenCalled();
+    });
+
+    it('abandoning the winning human attack mid-roll skips the game-over screen', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      override(applyAction, (state, action) => {
+        if (action.type !== 'ATTACK') return state;
+        return {
+          ...state,
+          phase: 'gameOver',
+          winner: 0,
+          history: [...state.history, { type: 'ATTACK', result: ATTACK_RESULT }],
+        };
+      });
+      const finishBattle = holdBattlePlay();
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      controller.handleTerritoryClick(1);
+      controller.handleTerritoryClick(2);
+      await flushPromises();
+
+      controller.goToTitle();
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().gameState).toBeNull();
+      expect(renderer.playCelebration).not.toHaveBeenCalled();
+      expect(soundManager.play).not.toHaveBeenCalledWith('over');
+      expect(soundManager.play).not.toHaveBeenCalledWith('success');
+    });
+
+    it('quitting during the reinforcement flash does not schedule another turn', async () => {
+      const { createGame, applyAction } = await import('../../src/engine/index.js');
+      /*
+       * The shared game state indexes areas by key; the reinforcement diff walks
+       * `areas.length`, so this test needs a real array with a real dice change
+       * to reach `await renderer.animateReinforcements()` at all.
+       */
+      const baseApplyAction = applyAction.getMockImplementation();
+      override(createGame, () =>
+        makeGameState({
+          areas: [
+            null,
+            { owner: 0, dice: 3, neighborAreaIds: [2, 3] },
+            { owner: 1, dice: 2, neighborAreaIds: [1, 3] },
+            { owner: 0, dice: 1, neighborAreaIds: [1, 2] },
+          ],
+        })
+      );
+      override(applyAction, (state, action) => {
+        const next = baseApplyAction(state, action);
+        if (action.type !== 'END_TURN') return next;
+        return { ...next, areas: next.areas.map((a, i) => (i === 1 && a ? { ...a, dice: 8 } : a)) };
+      });
+
+      let finishReinforcements;
+      renderer.animateReinforcements.mockImplementation(
+        () =>
+          new Promise(resolve => {
+            finishReinforcements = resolve;
+          })
+      );
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      controller.endHumanTurn();
+      await flushPromises();
+      expect(renderer.animateReinforcements).toHaveBeenCalled();
+
+      controller.goToTitle();
+
+      finishReinforcements();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      /*
+       * The flash runs with animationPhase already 'idle', so QUIT is live across
+       * it. Resuming would schedule startTurn() with a null gameState — which
+       * reads as a finished game and lands on the game-over screen.
+       */
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().gameState).toBeNull();
+    });
+
+    it('quitting during the win celebration leaves the title screen alone', async () => {
+      let finishCelebration;
+      renderer.playCelebration.mockImplementation(
+        () =>
+          new Promise(resolve => {
+            finishCelebration = resolve;
+          })
+      );
+      const finishBattle = await startAIBattle({ attackEndsGame: true });
+
+      finishBattle();
+      await flushPromises();
+      expect(renderer.playCelebration).toHaveBeenCalled();
+
+      controller.goToTitle();
+
+      finishCelebration();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      // The celebration holds 'playing' for 1.5s, so the quit lands inside it.
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().gameState).toBeNull();
+      expect(store.getState().currentReplay).toBeNull();
+      expect(soundManager.play).not.toHaveBeenCalledWith('over');
+    });
+
+    it('the next game after a mid-battle quit still runs its AI', async () => {
+      const { runAI } = await import('../../src/engine/AIAdapter.js');
+      await startAIBattle();
+
+      controller.goToTitle(); // cancel() releases the roll the AI loop is awaiting
+      await flushPromises();
+
+      // A second game: its loop can only start if the first one let go of aiRunning.
+      runAI.mockImplementation(() => null); // end the turn immediately this time
+      renderer.battle.play.mockImplementation(async () => {});
+      renderer.battle.cancel.mockImplementation(() => {});
+      runAI.mockClear();
+
+      await controller.startNewGame({ playerCount: 2, spectator: true });
+      controller.acceptMap();
+      await flushPromises();
+
+      expect(runAI).toHaveBeenCalled();
+    });
+
+    it('clears the board highlight and keyboard focus a half-made attack left behind', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      controller.handleTerritoryClick(1); // gold outline on the canvas
+      store.setState({ focusedAreaId: 1 }); // as keyboard navigation would
+      renderer.hexGrid.clearHighlights.mockClear();
+
+      controller.goToTitle();
+
+      // drawMap() doesn't clear highlights, so the outline would sit over the attract board.
+      expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
+      expect(store.getState().focusedAreaId).toBeNull();
+    });
+
+    it('an engine failure on the way to the title takes the confirm with it', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      const baseApplyAction = applyAction.getMockImplementation();
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      controller.openQuitConfirm();
+      override(applyAction, (state, action) => {
+        if (action.type === 'END_TURN') throw new Error('engine blew up');
+        return baseApplyAction(state, action);
+      });
+
+      controller.endHumanTurn();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('title');
+      // Otherwise the next game opens with "Abandon this game?" already up.
+      expect(store.getState().quitConfirmOpen).toBe(false);
+    });
+
+    it('a failed game start takes the confirm with it', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      controller.openQuitConfirm();
+      override(createGame, () => {
+        throw new Error('map generation blew up');
+      });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().quitConfirmOpen).toBe(false);
+    });
+
+    it('a new game never inherits an open confirm or a stale focus', async () => {
+      // Belt and braces: whatever left these set, the new game starts clean.
+      store.setState({ quitConfirmOpen: true, focusedAreaId: 3 });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(store.getState().quitConfirmOpen).toBe(false);
+      expect(store.getState().focusedAreaId).toBeNull();
     });
   });
 

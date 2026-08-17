@@ -14,6 +14,8 @@ import { QuitConfirm } from '../../src/ui/QuitConfirm.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 
 let container;
+/** Stand-in for the HUD's QUIT button — whatever had focus before the dialog. */
+let opener;
 
 function renderConfirm(overrides = {}) {
   const store = createGameStore({ screen: 'playing', ...overrides });
@@ -54,6 +56,12 @@ afterEach(() => {
     act(() => render(null, container));
     if (container.parentNode) document.body.removeChild(container);
     container = null;
+  }
+  // Cleaned up here, not inline, so a failed assertion can't leak it into the
+  // next test's document.
+  if (opener) {
+    opener.remove();
+    opener = null;
   }
 });
 
@@ -130,7 +138,7 @@ describe('QuitConfirm', () => {
   });
 
   it('focuses KEEP PLAYING on open and hands focus back on close', () => {
-    const opener = document.createElement('button');
+    opener = document.createElement('button');
     document.body.appendChild(opener);
     opener.focus();
 
@@ -140,8 +148,6 @@ describe('QuitConfirm', () => {
 
     act(() => store.setState({ quitConfirmOpen: false }));
     expect(document.activeElement).toBe(opener);
-
-    document.body.removeChild(opener);
   });
 
   it('keeps Tab inside the dialog', () => {
@@ -149,19 +155,31 @@ describe('QuitConfirm', () => {
     const keep = buttonByText('KEEP PLAYING');
     const quit = buttonByText('QUIT');
 
-    const tab = (shiftKey = false) =>
-      act(() => {
-        document.activeElement.dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true })
-        );
+    const tab = (shiftKey = false) => {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
       });
+      act(() => {
+        document.activeElement.dispatchEvent(event);
+      });
+      return event;
+    };
 
+    /*
+     * The focus assertions alone can't see a lost preventDefault() — jsdom
+     * never moves focus on Tab, so the handler's own focus() call would still
+     * land. Assert the cancellation too, or the real browser would move focus
+     * a second time and hop straight out of the dialog.
+     */
     expect(document.activeElement).toBe(keep);
-    tab();
+    expect(tab().defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(quit);
     tab();
     expect(document.activeElement).toBe(keep);
-    tab(true);
+    expect(tab(true).defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(quit);
   });
 

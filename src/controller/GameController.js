@@ -260,8 +260,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
         battleResult: null,
         animationPhase: 'idle',
         awaitingInput: null,
+        focusedAreaId: null,
         humanEliminated: false,
         gameOverReason: null,
+        // No path may carry a previous game's open quit dialog into this one (#181).
+        quitConfirmOpen: false,
         aiLoadWarnings: warnings,
       });
 
@@ -271,11 +274,18 @@ export function createGameController(store, renderer, soundManager, preferencesM
       }
     } catch (err) {
       console.error('Failed to start new game:', err);
+      /*
+       * This is a trip back to the title, so it has to leave the same state
+       * goToTitle() would (#181) — a confirm dialog raised over the previous
+       * game must not still be flagged open on the title screen. (aiAborted
+       * and the next-turn timer were already dealt with on the way in.)
+       */
       store.setState({
         screen: 'title',
         gameState: null,
         animationPhase: 'idle',
         awaitingInput: null,
+        quitConfirmOpen: false,
         error: 'Failed to start game. Please try again.',
       });
     }
@@ -318,16 +328,30 @@ export function createGameController(store, renderer, soundManager, preferencesM
   /**
    * Go back to the title screen, abandoning any game in progress (#181).
    *
-   * Everything the running game owns has to stop here, or it surfaces on the
-   * title screen a moment later: the AI loop (aiAborted, checked after every
-   * await), the pending next-turn timer, and the dice animation still rolling
-   * on the canvas. `currentReplay` is dropped with the rest — an abandoned
-   * game is not a result worth reviewing, and nothing counts it.
+   * Everything the running game *drives* has to stop here, or it surfaces on
+   * the title screen a moment later: the AI loop (aiAborted, checked after
+   * every await), the pending next-turn timer, and the dice animation still
+   * rolling on the canvas. The board's own selection highlight goes with them —
+   * drawMap() doesn't clear highlights, so a stale gold outline would sit over
+   * the attract-mode board. `currentReplay` is dropped with the rest — an
+   * abandoned game is not a result worth reviewing, and nothing counts it.
+   *
+   * Two cosmetic animations are *not* stopped, because neither exposes a
+   * handle to stop it with: the end-of-turn reinforcement flash and the win
+   * celebration fade both run their ~1s out over the attract board. What
+   * matters is that neither can act on the abandoned game afterwards — endTurn
+   * and triggerGameOver both bail on the screen change once their await
+   * returns.
    */
   function goToTitle() {
     aiAborted = true;
     clearNextTurnTimer();
-    if (renderer && renderer.battle && renderer.battle.cancel) renderer.battle.cancel();
+    /*
+     * Commit the navigation before touching the renderer: a throw out of a
+     * renderer call would otherwise leave the store on 'playing' with the
+     * confirm dialog still up (a throw from a UI event handler never reaches
+     * the ErrorBoundary).
+     */
     store.setState({
       screen: 'title',
       gameState: null,
@@ -336,12 +360,22 @@ export function createGameController(store, renderer, soundManager, preferencesM
       battleResult: null,
       animationPhase: 'idle',
       awaitingInput: null,
+      focusedAreaId: null,
       currentReplay: null,
       replayOrigin: null,
       humanEliminated: false,
       gameOverReason: null,
       quitConfirmOpen: false,
     });
+    /*
+     * `battle` and `hexGrid` are both null until init() succeeds, and quitting
+     * is reachable (via the menu screens) even after the renderer failed to come
+     * up — so both are null-checked, unlike the mid-game call sites.
+     */
+    if (renderer) {
+      if (renderer.battle) renderer.battle.cancel();
+      if (renderer.hexGrid) renderer.hexGrid.clearHighlights();
+    }
   }
 
   /**
@@ -496,8 +530,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
       /*
        * The player may have quit while that animation played (#181): the loop's
        * top-of-iteration abort check is too late — the rest of this iteration
-       * would write battle state onto the title screen and, on the deciding
-       * attack, hand off to triggerGameOver().
+       * would write battle state, sound and particles onto the title screen
+       * and, if that attack eliminated the human, hand off to triggerGameOver()
+       * at the elimination check below.
        */
       if (aiAborted) {
         // Leave no half-played attack behind, whichever navigation aborted us.
@@ -564,6 +599,13 @@ export function createGameController(store, renderer, soundManager, preferencesM
       if (state.phase === GAME_PHASES.GAME_OVER) break;
     }
 
+    /*
+     * Belt and braces: a quit that lands while the loop is awaiting is caught by
+     * the in-loop check above (which returns), and nothing yields between there
+     * and the top of the next iteration — so this is only reachable if something
+     * flips the flag synchronously mid-iteration. Kept so the loop can never
+     * fall through to endTurn()/triggerGameOver() after a quit (#181).
+     */
     if (aiAborted) {
       aiRunning = false;
       return;
@@ -785,6 +827,18 @@ export function createGameController(store, renderer, soundManager, preferencesM
         console.error('[GameController] Celebration animation failed:', err);
       }
     }
+    /*
+     * The celebration holds the playing screen for a full 1.5s, so QUIT/Escape
+     * are live throughout it (#181). Claiming the screen for a game the player
+     * has already walked away from would bounce them off the title screen — and
+     * restore the abandoned game's state behind it. The screen is the test to
+     * make, not `aiAborted`: that flag is only meaningful inside the AI loop —
+     * every navigation (startNewGame included) sets it and only runAITurn
+     * clears it, so on a human turn it holds a stale value (true until the
+     * first AI turn has run) and would suppress legitimate game overs.
+     */
+    if (store.getState().screen !== 'playing') return;
+
     store.setState({
       gameState: state,
       screen: 'gameOver',
@@ -792,9 +846,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
       humanEliminated,
       gameOverReason: drawReason,
       /*
-       * The game the quit dialog was asking about is over (#181): the dialog
-       * doesn't pause play, so an AI can finish the game while it is up. Drop
-       * the flag here or a later Spectate would return to a stale open dialog.
+       * The playing screen is going away (#181): the dialog doesn't pause play,
+       * so an AI can finish the game — or eliminate the human — while it is up.
+       * Drop the flag here, or Spectate (which flips back to 'playing' without
+       * touching it) would resurrect a stale dialog.
        */
       quitConfirmOpen: false,
     });
@@ -909,9 +964,18 @@ export function createGameController(store, renderer, soundManager, preferencesM
       nextState = applyAction(prevState, { type: ACTION_TYPES.END_TURN });
     } catch (err) {
       console.error('End turn action failed:', err);
+      /*
+       * Bouncing to the title has to leave the game as thoroughly stopped as a
+       * deliberate quit does (#181): stop the AI loop, drop any pending
+       * next-turn timer, and clear a confirm dialog raised over this game so it
+       * can't be flagged open on the title screen (or in the next game).
+       */
+      aiAborted = true;
+      clearNextTurnTimer();
       store.setState({
         screen: 'title',
         gameState: null,
+        quitConfirmOpen: false,
         error: 'An error occurred. Returning to title screen.',
       });
       return;
@@ -945,6 +1009,17 @@ export function createGameController(store, renderer, soundManager, preferencesM
     } else if (renderer) {
       renderer.update(prevState, nextState);
     }
+
+    /*
+     * The reinforcement flash runs with animationPhase already back to 'idle',
+     * so QUIT/Escape are live across it (#181). Everything below drives the game
+     * forward — scheduling the next turn or ending it — which on the title
+     * screen means a stray startTurn() with a null gameState, or a game-over
+     * screen for a game the player abandoned. The screen is the test to make,
+     * not `aiAborted` — that flag is stale outside the AI loop (see the note in
+     * triggerGameOver), and a human END TURN lands here too.
+     */
+    if (store.getState().screen !== 'playing') return;
 
     if (nextState.phase === GAME_PHASES.GAME_OVER) {
       await triggerGameOver(nextState);

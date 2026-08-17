@@ -30,7 +30,8 @@ const SETTLE_FRAMES = 15;
  * Create a battle animation manager.
  *
  * @param {import('pixi.js').Application} app - PixiJS app (for ticker)
- * @returns {{ play: Function, cancel: Function, destroy: Function, container: Container }}
+ * @returns {{ play: Function, cancel: Function, destroy: Function, container: Container,
+ *   setColorBlindMode: Function }}
  */
 export function createBattleAnimation(app) {
   const container = new Container();
@@ -79,7 +80,14 @@ export function createBattleAnimation(app) {
     const speed = options.speed || 1;
 
     if (!battleResult?.attackerRoll?.values || !battleResult?.defenderRoll?.values) {
-      container.visible = false;
+      /*
+       * Nothing to roll. Go out through cancel() rather than just hiding the
+       * container: a roll already in flight owns a ticker callback and an
+       * unresolved promise, and returning past that bookkeeping would leave it
+       * animating invisibly with its caller awaiting forever.
+       */
+      console.warn('[BattleAnimation] Malformed battleResult, skipping roll:', battleResult);
+      cancel();
       return Promise.resolve();
     }
 
@@ -191,11 +199,19 @@ export function createBattleAnimation(app) {
       app.ticker.remove(activeTick);
       activeTick = null;
     }
-    container.visible = false;
-    disposeChildren();
+    /*
+     * Take the resolver first and release it in a `finally`, so a throw while
+     * tearing down the display objects still frees the awaiting caller — the AI
+     * loop is parked on this promise, and leaking it wedges every later turn.
+     */
     const resolveFn = pendingResolve;
     pendingResolve = null;
-    if (resolveFn) resolveFn();
+    try {
+      container.visible = false;
+      disposeChildren();
+    } finally {
+      if (resolveFn) resolveFn();
+    }
   }
 
   function destroy() {

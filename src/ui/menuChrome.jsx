@@ -27,9 +27,16 @@
 
 /*
  * Interactive states (hover/active/focus/disabled) can't be done with inline
- * styles, so the shared classes live in this stylesheet. Rendered by
- * MenuScreen and by TitleScreen — only one screen mounts at a time, and the
- * rules are identical either way.
+ * styles, so the shared classes live in this stylesheet. Everything that uses
+ * the classes mounts its own copy — MenuScreen, TitleScreen, MapPreview,
+ * SettingsPanel, GameHUD, QuitConfirm — so each is self-contained instead of
+ * relying on some other component happening to be on screen. Several are
+ * therefore mounted at once (SettingsPanel rides along on every screen, and the
+ * quit confirm sits on top of the HUD), which is harmless: the rules are
+ * identical, so whichever copy wins declares the same thing. The one rule any
+ * of them overrides — SettingsPanel's `.dw-opt.dw-set-opt` padding — is doubled
+ * up to win on specificity rather than source order, so mount order never
+ * decides anything.
  */
 export const CHROME_CSS = `
 .dw-btn {

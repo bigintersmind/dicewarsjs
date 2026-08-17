@@ -28,11 +28,15 @@ const STYLE = {
     pointerEvents: 'auto',
   },
   /* Takes the space between QUIT and its hidden twin, so the chips stay
-     centered in the bar; wraps rather than overflowing on a phone. */
+     centered in the bar. Deliberately does not wrap: the bar's height is a
+     contract with the renderer (HUD_BAR_HEIGHT in renderer/constants.js is a
+     hard-coded 50, and GameRenderer, HexGridRenderer and GameOverlay all size
+     themselves against it), so a crowded row on a narrow phone overflows the
+     way it always has rather than growing a second line the map has no room
+     for. */
   players: {
     flex: 1,
     display: 'flex',
-    flexWrap: 'wrap',
     justifyContent: 'center',
     gap: '0.5rem',
   },
@@ -88,8 +92,11 @@ export function GameHUD({ store, onQuit }) {
     <div style={STYLE.bar}>
       {onQuit && (
         <>
-          {/* .dw-opt lives in the shared chrome stylesheet, which no menu
-              screen mounts during play (duplicate mounts are harmless). */}
+          {/* .dw-opt lives in the shared chrome stylesheet. SettingsPanel
+              happens to mount a copy on every screen, but the HUD carries its
+              own so it doesn't depend on that — it stays styled in a
+              standalone render (a test, a future screen without the settings
+              die). Duplicate mounts are harmless: identical rules. */}
           <style>{CHROME_CSS}</style>
           <button
             type="button"

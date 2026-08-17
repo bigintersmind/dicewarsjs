@@ -40,6 +40,10 @@ function renderHUD({ onQuit, gameState = makeGameState() } = {}) {
 }
 
 const quitBtn = () => container.querySelector('button[aria-label="Quit to title"]');
+/** The hidden width-matched twin that keeps the chips optically centered. */
+const quitTwin = () => container.querySelector('span[aria-hidden="true"]');
+/** The chips row — the only <div> child of the HUD bar. */
+const playersRow = () => Array.from(container.firstChild.children).find(el => el.tagName === 'DIV');
 
 afterEach(() => {
   if (container) {
@@ -55,12 +59,14 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('5');
     expect(container.textContent).toContain('+2');
     // The eliminated player is dropped from the bar.
-    expect(container.querySelectorAll('span[style*="border-radius: 3px"]').length).toBe(2);
+    expect(playersRow().children.length).toBe(2);
   });
 
   it('renders no QUIT control without a handler (game over keeps its own way out)', () => {
     renderHUD();
     expect(quitBtn()).toBeNull();
+    // No button, no twin — nothing to balance, and the chips stay centered.
+    expect(quitTwin()).toBeNull();
   });
 
   it('renders QUIT as a muted text control and reports clicks', () => {
@@ -72,6 +78,13 @@ describe('GameHUD', () => {
     expect(button.textContent.trim()).toBe('QUIT');
     // .dw-opt is the bare-text idiom; .dw-btn would make it a primary action.
     expect(button.className).toBe('dw-opt');
+
+    // Same text in the same class on the other side, so the two ends of the
+    // bar measure the same and the chips sit centered rather than pushed right.
+    const twin = quitTwin();
+    expect(twin).toBeTruthy();
+    expect(twin.textContent.trim()).toBe('QUIT');
+    expect(twin.className).toBe('dw-opt');
 
     act(() => button.click());
     expect(onQuit).toHaveBeenCalledTimes(1);

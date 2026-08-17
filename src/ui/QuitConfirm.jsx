@@ -15,10 +15,14 @@
  * This component is mounted for the whole `playing` screen, dialog or not,
  * because it also owns Escape: pressed with nothing else to cancel, Escape
  * raises the dialog; pressed again, it closes it. The listener sits on `window`
- * (MapPreview's idiom) so the settings dropdown — whose own Escape handler is
- * on `document`, strictly earlier in the bubble path, and stops the event
- * there — keeps Escape while it is open, and so KeyboardController (also on
- * `document`) can claim the key first when it has a half-made attack to cancel.
+ * (MapPreview's idiom), which is deliberately last — every `document` listener
+ * on a bubbling keydown runs before any `window` one. So the settings dropdown,
+ * whose Escape handler is on `document` and stops propagation, keeps the key
+ * while it is open: the event never reaches `window`, and the dialog cannot
+ * open behind the dropdown. KeyboardController (also `document`, so likewise
+ * ahead of this handler) gets first refusal, and preventDefault()s Escape only
+ * when it actually cancelled a half-made attack. This handler honors
+ * defaultPrevented, so one Escape does exactly one thing.
  *
  * @module ui/QuitConfirm
  */
@@ -160,8 +164,10 @@ export function QuitConfirm({ store, onOpen, onCancel, onConfirm }) {
 
   return (
     <div style={STYLE.scrim} onClick={handleScrimClick}>
-      {/* No menu screen is mounted during play, so the dialog carries its own
-          copy of the shared chrome (duplicate mounts are harmless). */}
+      {/* The dialog carries its own copy of the shared chrome so it is
+          self-contained — SettingsPanel happens to mount one on every screen,
+          but nothing here leans on that, and a standalone render (a test) still
+          gets .dw-opt/.dw-btn. Duplicate mounts are harmless: identical rules. */}
       <style>{CHROME_CSS + QUIT_CSS}</style>
       <div
         role="dialog"

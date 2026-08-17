@@ -5,7 +5,9 @@
  * Covers the pre-game setup controls: player-count and the new map-size preset
  * selector, the difficulty-mode row (#167, including preset lineups deriving
  * correctly from a truncated store), plus that both START and AI-vs-AI thread
- * the choices into onStart.
+ * the choices into onStart; and the landing page's hierarchy (#182): START the
+ * one filled control, the happy-path caption, and the footer link row that
+ * took over from the mode rail on this screen.
  */
 
 import { h, render } from 'preact';
@@ -504,6 +506,82 @@ describe('TitleScreen', () => {
    * Footer links (#183)
    * -----------------------------------------------------------------------
    */
+
+  /*
+   * -----------------------------------------------------------------------
+   * Landing-page hierarchy (#182)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('happy-path hierarchy (#182)', () => {
+    const footerNav = () => container.querySelector('nav[aria-label="More game modes"]');
+    const footLinks = () => [...container.querySelectorAll('.dw-footlink')];
+
+    it('makes START the only filled button — AI vs AI is a bare text link beside it', () => {
+      renderTitle();
+      const filled = [...container.querySelectorAll('.dw-btn')];
+      expect(filled.map(b => b.textContent)).toEqual(['START']);
+      expect(aiBtn().classList.contains('dw-opt')).toBe(true);
+      expect(aiBtn().classList.contains('dw-btn')).toBe(false);
+      // Still a real button in the same row: it shares START's parent.
+      expect(aiBtn().parentElement).toBe(startBtn().parentElement);
+    });
+
+    it('names the happy path in one caption right above the START row', () => {
+      renderTitle();
+      const caption = startBtn().parentElement.previousElementSibling;
+      expect(caption.textContent).toBe('Pick your players, map and difficulty, then START.');
+    });
+
+    it('labels the player-count group with an eyebrow like map size and difficulty', () => {
+      renderTitle();
+      const groupLabel = label => container.querySelector(`[role="group"][aria-label="${label}"]`);
+      ['Players', 'Map size', 'Difficulty'].forEach(label => {
+        expect(groupLabel(label).previousElementSibling.textContent).toBe(label);
+      });
+    });
+
+    it('offers Arena, Tournament and Leaderboard in a footer row, in rail order', () => {
+      renderTitle({ onNavigate: vi.fn() });
+      expect(footerNav()).toBeTruthy();
+      expect(footLinks().map(b => b.textContent)).toEqual(['Arena', 'Tournament', 'Leaderboard']);
+    });
+
+    it('routes footer taps through onNavigate with the screen id', () => {
+      const onNavigate = vi.fn();
+      renderTitle({ onNavigate });
+      footLinks().forEach(link => act(() => link.click()));
+      expect(onNavigate.mock.calls.map(c => c[0])).toEqual([
+        'arena',
+        'tournament',
+        'onlineLeaderboard',
+      ]);
+    });
+
+    // The scan path IS the tab path: every setup control and START come
+    // before the bot-author screens, and the footer row shares the credits'
+    // footer at the foot of the page.
+    it('places the footer row after START and beside the credits', () => {
+      renderTitle({ onNavigate: vi.fn() });
+      const first = footLinks()[0];
+      expect(
+        startBtn().compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+      expect(
+        aiBtn().compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+      const footer = footerNav().closest('footer');
+      expect(footer).toBeTruthy();
+      expect(footer.textContent).toContain('Copyright (C) 2001 GAMEDESIGN');
+    });
+
+    it('leaves the footer row out of an isolated render with no onNavigate', () => {
+      renderTitle();
+      expect(footerNav()).toBeNull();
+      // The credits still stand on their own.
+      expect(container.textContent).toContain('Copyright (C) 2001 GAMEDESIGN');
+    });
+  });
 
   describe('footer links (#183)', () => {
     const footerLink = text =>

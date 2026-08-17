@@ -3,9 +3,9 @@
  *
  * Routes between screens based on GameStore state. Renders two layers: a
  * persistent chrome layer (settings die, plus the TopNav mode rail on the
- * hub screens) and the current screen. The chrome sits outside the screen
- * switch so it survives navigation — the rail must not remount (and replay
- * its entrance) on every tab change.
+ * hub screens other than the title) and the current screen. The chrome sits
+ * outside the screen switch so it survives navigation — the rail must not
+ * remount (and replay its entrance) on every tab change.
  *
  * @module ui/App
  */
@@ -45,7 +45,7 @@ const TournamentScreen = lazy(() =>
   import('./TournamentScreen.jsx').then(m => ({ default: m.TournamentScreen }))
 );
 
-/** Mode-rail tab id → GameController navigation method. */
+/** Mode-rail / footer-row tab id → GameController navigation method. */
 const NAV_METHODS = {
   title: 'goToTitle',
   arena: 'goToArena',
@@ -99,8 +99,12 @@ export function App({ store, controller, preferencesManager }) {
 
   const announcer = <ScreenReaderAnnouncer store={store} />;
 
-  /* The rail lives exactly on the hub screens (the ATTRACT_SCREENS set). */
-  const isHub = NAV_TABS.some(tab => tab.id === screen);
+  /*
+   * The rail lives on the hub screens (the ATTRACT_SCREENS set) minus the
+   * title: the landing page reaches the same screens through TitleScreen's
+   * footer row instead (#182), and the rail on each of them is the way back.
+   */
+  const showRail = screen !== 'title' && NAV_TABS.some(tab => tab.id === screen);
 
   const content = (() => {
     if (screen === 'title') {
@@ -109,6 +113,7 @@ export function App({ store, controller, preferencesManager }) {
           store={store}
           error={error}
           onStart={config => controller.startNewGame(config)}
+          onNavigate={id => controller[NAV_METHODS[id]]()}
         />
       );
     }
@@ -195,7 +200,7 @@ export function App({ store, controller, preferencesManager }) {
        * it down (nor vice versa).
        */}
       <ErrorBoundary>{settings}</ErrorBoundary>
-      {isHub && (
+      {showRail && (
         <ErrorBoundary>
           <TopNav
             active={screen}

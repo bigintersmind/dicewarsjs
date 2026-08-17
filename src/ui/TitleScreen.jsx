@@ -6,12 +6,18 @@
  * the live attract-mode board (TitleAttractMode draws on the canvas behind
  * this screen; the container's `--ui-scrim` tint keeps the UI legible on top
  * of it). Options follow the original's bare-text language — player counts as
- * a 4/3 grid of Anton text, red when selected — and START / AI vs AI are the
- * original's white double-rimmed buttons. Modern additions (map size,
- * difficulty row, per-slot bot picker) share those idioms rather than
+ * a 4/3 grid of Anton text, red when selected — and START is the original's
+ * white double-rimmed button. Modern additions (map size, difficulty row,
+ * per-slot bot picker, the AI vs AI text link) share those idioms rather than
  * introducing new chrome.
- * This is the "Battle" tab of the mode rail (menuChrome's TopNav, mounted by
- * App) — navigation to Arena/Tournament/Leaderboard lives there, not here.
+ *
+ * Hierarchy (#182, playtest feedback): the page has one happy path — setup →
+ * START — so START is its only filled control (AI vs AI is a bare .dw-opt
+ * beside it), a one-line caption names that path, and the bot-author screens
+ * (Arena / Tournament / Leaderboard) are footer material: menuChrome's
+ * FooterNav, mounted beside the credits, not the mode rail App shows on the
+ * other hub screens. This is still the rail's "Battle" tab — every other hub
+ * screen's rail leads back here.
  *
  * @module ui/TitleScreen
  */
@@ -22,7 +28,7 @@ import { DIFFICULTY_MODES, lineupForMode } from '../ai/difficultyModes.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
-import { CHROME_CSS, MENU_STYLE, REPO_URL } from './menuChrome.jsx';
+import { CHROME_CSS, MENU_STYLE, REPO_URL, FooterNav } from './menuChrome.jsx';
 import { TitleWordmark, TitleLogo } from './titleArt.jsx';
 import {
   PLAYER_COLORS_CSS,
@@ -69,6 +75,10 @@ const CSS = `
   .dw-hero { flex-direction: column; gap: 1rem; }
   .dw-panel { align-items: center; }
   .dw-panel .dw-rows { justify-content: center; }
+  /* Labels and the caption follow their (now centered) rows; the players
+     eyebrow in particular would otherwise sit at the far left edge, since a
+     wrapping row is as wide as the panel. */
+  .dw-panel .dw-eyebrow, .dw-panel .dw-hint { text-align: center; }
 }
 `;
 
@@ -80,8 +90,9 @@ const STYLE = {
     flexDirection: 'column',
     alignItems: 'center',
     overflowY: 'auto',
-    /* Top padding clears the fixed mode rail (~55px). */
-    padding: '4.6rem 1rem 1.2rem',
+    /* Top padding clears the fixed settings die (0.75rem + ~34px); there is
+       no mode rail on this screen (#182). */
+    padding: '3rem 1rem 1.2rem',
     background: 'var(--ui-scrim)',
     pointerEvents: 'auto',
     userSelect: 'none',
@@ -136,6 +147,16 @@ const STYLE = {
     textShadow: 'var(--ui-text-halo)',
     marginBottom: '0.15rem',
   },
+  /*
+   * The one line of onboarding copy on the page: names the happy path right
+   * where it ends. MENU_STYLE.caption's Roboto helper idiom, sitting flush on
+   * the button row below it.
+   */
+  hint: {
+    ...MENU_STYLE.caption,
+    marginTop: 0,
+    marginBottom: '0.15rem',
+  },
   buttonRow: {
     display: 'flex',
     alignItems: 'center',
@@ -143,17 +164,38 @@ const STYLE = {
     flexWrap: 'wrap',
     marginTop: '0.4rem',
   },
+  /*
+   * Tertiary by design (the map preview's ← BACK idiom): bare muted Anton
+   * beside the one filled button, so START is the decision and this reads as
+   * the side door. Sized under the option text so it never competes with the
+   * setup rows either.
+   */
+  aiLink: {
+    fontSize: '1rem',
+  },
+  /*
+   * Footer, pinned to the viewport floor by the auto margin (see topSpacer):
+   * the More-game-modes link row over the credits line. One centered column
+   * so both stay balanced if a narrow viewport forces either to wrap.
+   */
+  footer: {
+    marginTop: 'auto',
+    paddingTop: '2rem',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '0.25rem',
+    textAlign: 'center',
+  },
+  /* One row at every width down to a 390px phone; if a narrower viewport does
+     force a wrap, the nowrap links keep it off the link text and the footer's
+     centering keeps the lines balanced. */
   copyright: {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '0.78rem',
     color: 'var(--ui-text-muted)',
     textShadow: 'var(--ui-text-halo)',
-    marginTop: 'auto',
-    paddingTop: '2rem',
-    /* One row at every width down to a 390px phone; if a narrower viewport
-       does force a wrap, the nowrap links keep it off the link text and the
-       centered lines stay balanced. */
-    textAlign: 'center',
+    margin: '0 0 0.6rem',
   },
   copyrightLink: {
     color: 'inherit',
@@ -235,8 +277,12 @@ const STYLE = {
  *   map size, difficulty, bot lineup) from the last game's persisted config
  * @param {string | null} [props.error] - Error message to display
  * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, difficulty: string, aiAssignments: (string | null)[] }) => void} props.onStart
+ * @param {(screenId: string) => void} [props.onNavigate] - Footer link row
+ *   (Arena / Tournament / Leaderboard): called with the tapped screen id, as
+ *   the mode rail's onNavigate is. Omitted only in isolated renders — App
+ *   always supplies it — and the row is left out without it.
  */
-export function TitleScreen({ store, error, onStart }) {
+export function TitleScreen({ store, error, onStart, onNavigate }) {
   const prefs = useGameStore(store, s => s.preferences);
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const colorNames = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLOR_NAMES : PLAYER_COLOR_NAMES;
@@ -338,24 +384,31 @@ export function TitleScreen({ store, error, onStart }) {
         <TitleLogo className={animate ? 'dw-anim-pop' : ''} style={STYLE.logo} />
 
         <div className={`dw-panel ${animate ? 'dw-anim-fade' : ''}`} style={STYLE.panel}>
-          <div className="dw-rows" role="group" aria-label="Players" style={STYLE.optionRows}>
-            {[2, 3, 4, 5, 6, 7, 8].map(n => (
-              <button
-                key={n}
-                type="button"
-                className="dw-opt"
-                aria-label={`Play with ${n} players`}
-                aria-pressed={n === playerCount}
-                style={STYLE.playerOpt}
-                onClick={() => setPlayerCount(n)}
-              >
-                {n} players
-              </button>
-            ))}
+          <div>
+            <div className="dw-eyebrow" style={STYLE.eyebrow}>
+              Players
+            </div>
+            <div className="dw-rows" role="group" aria-label="Players" style={STYLE.optionRows}>
+              {[2, 3, 4, 5, 6, 7, 8].map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  className="dw-opt"
+                  aria-label={`Play with ${n} players`}
+                  aria-pressed={n === playerCount}
+                  style={STYLE.playerOpt}
+                  onClick={() => setPlayerCount(n)}
+                >
+                  {n} players
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>
-            <div style={STYLE.eyebrow}>Map size</div>
+            <div className="dw-eyebrow" style={STYLE.eyebrow}>
+              Map size
+            </div>
             <div className="dw-rows" role="group" aria-label="Map size" style={STYLE.optionRows}>
               {MAP_SIZE_OPTIONS.map(opt => (
                 <button
@@ -374,7 +427,9 @@ export function TitleScreen({ store, error, onStart }) {
           </div>
 
           <div>
-            <div style={STYLE.eyebrow}>Difficulty</div>
+            <div className="dw-eyebrow" style={STYLE.eyebrow}>
+              Difficulty
+            </div>
             <div className="dw-rows" role="group" aria-label="Difficulty" style={STYLE.optionRows}>
               {[...Object.values(DIFFICULTY_MODES), { id: 'custom', name: 'Custom' }].map(mode => (
                 <button
@@ -451,36 +506,50 @@ export function TitleScreen({ store, error, onStart }) {
             </div>
           )}
 
-          <div style={STYLE.buttonRow}>
-            <button className="dw-btn" style={MENU_STYLE.heroBtn} onClick={handleStart}>
-              START
-            </button>
-            <button className="dw-btn" style={MENU_STYLE.heroSecondaryBtn} onClick={handleAIvsAI}>
-              AI vs AI
-            </button>
+          <div>
+            <div className="dw-hint" style={STYLE.hint}>
+              Pick your players, map and difficulty, then START.
+            </div>
+            <div className="dw-rows" style={STYLE.buttonRow}>
+              <button className="dw-btn" style={MENU_STYLE.heroBtn} onClick={handleStart}>
+                START
+              </button>
+              <button
+                type="button"
+                className="dw-opt"
+                style={STYLE.aiLink}
+                onClick={handleAIvsAI}
+                title="Sit this one out and watch the bots play your setup"
+              >
+                AI vs AI
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Both links live in the copyright <p> so the repo link rides the same
-          pinned-to-the-viewport-floor footer line. */}
-      <p className={animate ? 'dw-anim-fade' : ''} style={STYLE.copyright}>
-        Copyright (C) 2001{' '}
-        <a
-          href="https://www.gamedesign.jp/"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={STYLE.copyrightLink}
-        >
-          GAMEDESIGN
-        </a>
-        <span style={STYLE.copyrightSep} aria-hidden="true">
-          &middot;
-        </span>
-        <a href={REPO_URL} target="_blank" rel="noopener noreferrer" style={STYLE.copyrightLink}>
-          Source on GitHub
-        </a>
-      </p>
+      <footer className={animate ? 'dw-anim-fade' : ''} style={STYLE.footer}>
+        {onNavigate && <FooterNav onNavigate={onNavigate} />}
+        {/* Both links live in the copyright <p> so the repo link rides the same
+            credits line. */}
+        <p style={STYLE.copyright}>
+          Copyright (C) 2001{' '}
+          <a
+            href="https://www.gamedesign.jp/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={STYLE.copyrightLink}
+          >
+            GAMEDESIGN
+          </a>
+          <span style={STYLE.copyrightSep} aria-hidden="true">
+            &middot;
+          </span>
+          <a href={REPO_URL} target="_blank" rel="noopener noreferrer" style={STYLE.copyrightLink}>
+            Source on GitHub
+          </a>
+        </p>
+      </footer>
     </div>
   );
 }

@@ -241,3 +241,43 @@ describe('tournament error observability (#53)', () => {
     warnSpy.mockRestore();
   });
 });
+
+describe('competitive-surface handicap guard (issue #179)', () => {
+  /*
+   * Tournament standings feed the published leaderboard, so no game there may be
+   * handicapped. Both formats build their matches through runMatch without a
+   * handicap; this pins the resulting engine config.
+   */
+  const expectUnhandicapped = rounds => {
+    let games = 0;
+    for (const roundMatches of rounds) {
+      for (const match of roundMatches) {
+        expect(match.result.finalState.config.handicap).toBeNull();
+        games++;
+      }
+    }
+    expect(games).toBeGreaterThan(0);
+  };
+
+  it('round-robin plays every game un-handicapped', () => {
+    const result = runRoundRobin({
+      bots: [exampleBot, defaultBot],
+      gamesPerPairing: 2,
+      baseSeed: 1,
+      maxTurns: 30,
+      handicap: { playerId: 0, level: 2 },
+    });
+    expectUnhandicapped(result.rounds);
+  });
+
+  it('single-elimination plays every game un-handicapped', () => {
+    const result = runSingleElimination({
+      bots: [exampleBot, defaultBot],
+      gamesPerRound: 1,
+      baseSeed: 1,
+      maxTurns: 30,
+      handicap: { playerId: 0, level: 2 },
+    });
+    expectUnhandicapped(result.rounds);
+  });
+});

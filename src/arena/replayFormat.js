@@ -11,13 +11,28 @@
 
 import { createGame, replayGame } from '../engine/GameRunner.js';
 
-/** Replay format version. Bump when the on-disk shape changes incompatibly. */
-export const REPLAY_VERSION = 1;
+/**
+ * Replay format version written by this build. Bump when the on-disk shape
+ * changes incompatibly.
+ *
+ * v2 (issue #179) added `config.handicap` — the per-seat luck handicap. It is a
+ * purely additive field, so v1 payloads stay readable: they predate the handicap
+ * and are unhandicapped by construction (`handicap: null`).
+ */
+export const REPLAY_VERSION = 2;
+
+/**
+ * Replay versions this build can read. Writers always emit REPLAY_VERSION; the
+ * reader accepts every version here so shipped v1 replays
+ * (`public/data/replays/replay-*.json`, consumed by the online-leaderboard
+ * replay viewer) keep working.
+ */
+export const SUPPORTED_REPLAY_VERSIONS = Object.freeze([1, 2]);
 
 /**
  * @typedef {Object} Replay
  * @property {number}         version  - Format version (REPLAY_VERSION)
- * @property {Object}         config   - Game config { seed, playerCount, mapWidth, mapHeight, maxAreas, dicePerArea }
+ * @property {Object}         config   - Game config { seed, playerCount, mapWidth, mapHeight, maxAreas, dicePerArea, handicap }
  * @property {CompactAction[]} actions  - Ordered list of game actions
  * @property {ReplayMetadata}  metadata - Summary metadata
  */
@@ -69,6 +84,7 @@ export function createReplay(matchResult, botNames) {
       mapHeight: matchResult.finalState.config.mapHeight,
       maxAreas: matchResult.finalState.config.maxAreas,
       dicePerArea: matchResult.finalState.config.dicePerArea,
+      handicap: matchResult.finalState.config.handicap ?? null,
     },
     {
       bots: botNames,
@@ -111,7 +127,7 @@ export function createReplayFromState(finalState, metadata) {
  * build a valid, replayable record.
  *
  * @param {CompactAction[]} actions - Ordered compact actions ({type, from?, to?})
- * @param {Object} config - Resolved game config (seed + map/player params + dicePerArea)
+ * @param {Object} config - Resolved game config (seed + map/player params + dicePerArea + handicap)
  * @param {Object} metadata - { bots?: string[], winner?, turnCount?, timestamp? }
  * @returns {Replay}
  */
@@ -125,6 +141,13 @@ export function createReplayFromActions(actions, config, metadata = {}) {
       mapHeight: config.mapHeight,
       maxAreas: config.maxAreas,
       dicePerArea: config.dicePerArea,
+      /*
+       * The luck handicap changes how battles are rolled, so it must survive the
+       * whitelist or a handicapped game replays as a different game (the same
+       * failure mode dicePerArea had). Normalized to null so every v2 replay
+       * states its handicap explicitly.
+       */
+      handicap: config.handicap ?? null,
     },
     actions,
     metadata: {
@@ -174,7 +197,7 @@ export function deserializeReplay(encoded) {
     throw new Error('Invalid replay data: not an object');
   }
 
-  if (replay.version !== REPLAY_VERSION) {
+  if (!SUPPORTED_REPLAY_VERSIONS.includes(replay.version)) {
     throw new Error(`Unsupported replay version: ${replay.version}`);
   }
 
@@ -189,7 +212,8 @@ export function deserializeReplay(encoded) {
  * Reconstruct the game state at a specific action index in a replay.
  *
  * Uses the engine's createGame (seeded) + replayGame to deterministically
- * reproduce the exact state.
+ * reproduce the exact state. A v1 replay carries no `config.handicap`, which
+ * createGame resolves to null — correct, since v1 predates the handicap.
  *
  * @param {Replay} replay
  * @param {number} actionIndex - Number of actions to apply (0 = initial state)

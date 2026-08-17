@@ -48,6 +48,18 @@ The game ends when only one player has territories remaining. That player wins.
 
 If no player has been eliminated after 500 turns (the default limit, configurable), the game is declared a **stalemate**.
 
+## Luck handicap (advantage dice)
+
+An optional, off-by-default difficulty aid for one seat — a second axis next to the Easy / Standard / Hard bot lineups.
+
+At handicap level `k`, the handicapped player rolls `n + k` dice wherever they would normally roll `n`, then **drops the `k` lowest** and keeps the rest. It applies to **both** attacking and defending, and only to the configured seat — every other player rolls normally. Everything else is unchanged: the kept dice are the real faces shown by the battle animation and they sum to the displayed total, and **ties still go to the defender**.
+
+Levels: `0` = "Normal" (no handicap), `1` = "Lucky", `2` = "Very lucky".
+
+At level 1 an even 3-dice-vs-3-dice attack goes from a 45.4% to a 62.2% win for a lucky attacker; a lucky defender drops the attacker's odds to 29.2%. The effect holds at every stack size, unlike a flat bonus.
+
+The handicap is part of the game config (`handicap: { playerId, level } | null`), so it is recorded in replays and reproduces exactly on replay. It is always `null` on the arena, tournament and leaderboard surfaces — bot-vs-bot ratings are never handicapped.
+
 ## Key Numbers
 
 | Constant                | Value                                    |

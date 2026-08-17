@@ -302,6 +302,16 @@ describe('live capture + round-trip (integration)', () => {
     expect(result.trajectory.metadata.placements).toEqual(result.placements);
   });
 
+  it('records handicap: null — self-play corpora are never luck-handicapped (#179)', () => {
+    /*
+     * A trajectory is re-derived by feeding its config straight to createGame, so a
+     * handicap in the corpus would silently train the net on tilted battle odds.
+     * runMatch never sets one; this pins that the recorded config says so explicitly.
+     */
+    expect(result.trajectory.config.handicap).toBeNull();
+    expect(result.finalState.config.handicap).toBeNull();
+  });
+
   it('the lean record replays to an identical final state', () => {
     const replayed = replayToState(result.trajectory, getReplayLength(result.trajectory));
     expect(replayed.winner).toBe(result.finalState.winner);

@@ -30,7 +30,11 @@ import { createGame } from '../engine/GameRunner.js';
 import { applyAction, getValidMoves } from '../engine/StateManager.js';
 import { ACTION_TYPES } from '../engine/constants.js';
 import { createBotState } from './botState.js';
-import { createReplayFromActions, replayToState, REPLAY_VERSION } from './replayFormat.js';
+import {
+  createReplayFromActions,
+  replayToState,
+  SUPPORTED_REPLAY_VERSIONS,
+} from './replayFormat.js';
 
 /**
  * Version of the fat observation/step schema. The on-disk record is lean, but
@@ -332,7 +336,13 @@ export function deserializeTrajectory(line) {
   if (!record || typeof record !== 'object') {
     throw new Error('Invalid trajectory data: not an object');
   }
-  if (record.version !== REPLAY_VERSION) {
+  /*
+   * A trajectory record embeds a replay envelope, so it tracks the replay format's
+   * supported-version set rather than only the version this build writes — the
+   * committed v1 corpora (tests/fixtures/trajectories/sample.jsonl and any earlier
+   * self-play dataset) must stay readable across a REPLAY_VERSION bump.
+   */
+  if (!SUPPORTED_REPLAY_VERSIONS.includes(record.version)) {
     throw new Error(`Unsupported trajectory replay version: ${record.version}`);
   }
   if (record.observationSchemaVersion !== OBSERVATION_SCHEMA_VERSION) {

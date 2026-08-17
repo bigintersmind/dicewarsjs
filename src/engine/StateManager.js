@@ -206,9 +206,26 @@ function applyAttack(state, action) {
     throw new Error(`Territory ${from} is not adjacent to ${to}`);
   }
 
+  /*
+   * Luck handicap (issue #179): `config.handicap` optionally grants one seat
+   * advantage dice — it rolls `n + level` and drops the `level` lowest — on both
+   * attack and defense. The engine stays human-agnostic: it only knows a seat
+   * index, so the same mechanism works for any player and stays `null` (off) on
+   * every competitive surface. `config` is already read here for
+   * `recordHistory`, so this follows the established precedent. The draw count is
+   * a pure function of state + config, so replays that carry `handicap` reproduce
+   * exactly. A player never attacks itself, so at most one side is boosted.
+   */
+  const handicap = state.config?.handicap ?? null;
+  const attackerAdvantage = handicap && handicap.playerId === currentPlayer ? handicap.level : 0;
+  const defenderAdvantage = handicap && handicap.playerId === toArea.owner ? handicap.level : 0;
+
   // Resolve battle
   const rng = createRng(state.rngState);
-  const battle = resolveBattle(fromArea.dice, toArea.dice, rng);
+  const battle = resolveBattle(fromArea.dice, toArea.dice, rng, {
+    attackerAdvantage,
+    defenderAdvantage,
+  });
   const newRngState = rng.state();
 
   if (battle.success) {

@@ -12,8 +12,20 @@
  * @property {number} [playerCount=7]        - Number of players
  * @property {number} [dicePerArea=3]        - Average starting dice per territory
  * @property {number} [seed]                 - RNG seed (random if omitted)
+ * @property {LuckHandicap|null} [handicap=null] - Optional per-seat advantage dice (issue #179);
+ *                                             null (default) means no handicap.
  * @property {boolean} [recordHistory=true]  - When false (training mode), suppresses the
  *                                             per-move history append; requires an explicit seed.
+ */
+
+/**
+ * Luck handicap: the named seat rolls `n + level` dice and drops the `level`
+ * lowest, both when attacking and when defending. Never set on competitive
+ * surfaces (arena / tournament / leaderboard).
+ *
+ * @typedef {Object} LuckHandicap
+ * @property {number} playerId - Seat index that gets the advantage dice
+ * @property {number} level    - Extra dice rolled and dropped (integer >= 1)
  */
 
 /**
@@ -99,8 +111,8 @@
 
 /**
  * @typedef {Object} BattleResult
- * @property {{values: number[], total: number}} attackerRoll
- * @property {{values: number[], total: number}} defenderRoll
+ * @property {{values: number[], total: number, dropped: number[]}} attackerRoll
+ * @property {{values: number[], total: number, dropped: number[]}} defenderRoll
  * @property {boolean} success - True if attacker wins
  */
 

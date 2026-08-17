@@ -1,4 +1,6 @@
 import {
+  REPLAY_VERSION,
+  SUPPORTED_REPLAY_VERSIONS,
   createReplay,
   createReplayFromState,
   serializeReplay,
@@ -12,6 +14,8 @@ import { ai_example } from '../../src/ai/ai_example.js';
 import { createGame } from '../../src/engine/GameRunner.js';
 import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
 import { ACTION_TYPES } from '../../src/engine/constants.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 function playTestGame(seed = 42) {
   let state = createGame({ seed, playerCount: 3 });
@@ -41,7 +45,7 @@ describe('createReplayFromState', () => {
       bots: ['bot1', 'bot2', 'bot3'],
     });
 
-    expect(replay.version).toBe(1);
+    expect(replay.version).toBe(REPLAY_VERSION);
     expect(replay.config).toBeDefined();
     expect(replay.config.seed).toBe(42);
     expect(replay.config.playerCount).toBe(3);
@@ -169,7 +173,7 @@ describe('createReplay (from MatchResult)', () => {
 
     const replay = createReplay(result, ['bot1', 'bot2']);
 
-    expect(replay.version).toBe(1);
+    expect(replay.version).toBe(REPLAY_VERSION);
     expect(replay.config.seed).toBe(result.config.seed);
     expect(replay.config.playerCount).toBe(2);
     expect(replay.config.mapWidth).toBeDefined();
@@ -197,5 +201,110 @@ describe('getReplayLength', () => {
     const state = playTestGame();
     const replay = createReplayFromState(state, { bots: [] });
     expect(getReplayLength(replay)).toBe(replay.actions.length);
+  });
+});
+
+describe('replay version + luck handicap (issue #179)', () => {
+  it('writes version 2 and reads versions 1 and 2', () => {
+    expect(REPLAY_VERSION).toBe(2);
+    expect([...SUPPORTED_REPLAY_VERSIONS]).toEqual([1, 2]);
+  });
+
+  it('carries handicap: null through the whitelist for an un-handicapped game', () => {
+    const replay = createReplayFromState(playTestGame(), { bots: [] });
+    expect(replay.config.handicap).toBeNull();
+  });
+
+  it('carries a handicap through the whitelist and the base64 round-trip', () => {
+    const handicap = { playerId: 1, level: 2 };
+    let state = createGame({ seed: 42, playerCount: 3, handicap });
+    for (let turn = 0; turn < 5; turn++) {
+      const moves = getValidMoves(state);
+      if (moves.length > 0) {
+        state = applyAction(state, {
+          type: ACTION_TYPES.ATTACK,
+          from: moves[0].from,
+          to: moves[0].to,
+        });
+      }
+      if (state.phase === 'gameOver') break;
+      state = applyAction(state, { type: ACTION_TYPES.END_TURN });
+      if (state.phase === 'gameOver') break;
+    }
+
+    const replay = createReplayFromState(state, { bots: ['a', 'b', 'c'] });
+    expect(replay.config.handicap).toEqual(handicap);
+
+    const decoded = deserializeReplay(serializeReplay(replay));
+    expect(decoded.version).toBe(2);
+    expect(decoded.config.handicap).toEqual(handicap);
+
+    // ...and the rehydrated game actually rolls with the handicap again.
+    const reconstructed = replayToState(decoded, decoded.actions.length);
+    expect(reconstructed.config.handicap).toEqual(handicap);
+    expect(reconstructed.rngState).toBe(state.rngState);
+  });
+
+  it('createReplay (from a MatchResult) records the finalState handicap', () => {
+    const result = runMatch({
+      bots: [
+        { name: 'bot1', fn: adaptLegacyBot(ai_example) },
+        { name: 'bot2', fn: adaptLegacyBot(ai_example) },
+      ],
+      seed: 42,
+      maxTurns: 20,
+    });
+    expect(createReplay(result, ['bot1', 'bot2']).config.handicap).toBeNull();
+  });
+
+  it('accepts a version-1 payload and replays it as un-handicapped', () => {
+    const v1 = {
+      version: 1,
+      config: {
+        seed: 42,
+        playerCount: 3,
+        mapWidth: 28,
+        mapHeight: 32,
+        maxAreas: 32,
+        dicePerArea: 3,
+      },
+      actions: [{ type: 'END_TURN' }],
+      metadata: { bots: [], winner: null, turnCount: 0, timestamp: new Date().toISOString() },
+    };
+
+    const decoded = deserializeReplay(serializeReplay(v1));
+    expect(decoded.version).toBe(1);
+    expect(decoded.config.handicap).toBeUndefined();
+
+    const state = replayToState(decoded, decoded.actions.length);
+    expect(state.config.handicap).toBeNull();
+  });
+
+  it('replays a shipped v1 leaderboard replay end to end', () => {
+    /*
+     * public/data/replays/replay-*.json are the real v1 artifacts the online
+     * leaderboard's replay viewer fetches — the backward-compatibility case the
+     * REPLAY_VERSION bump must not break.
+     */
+    const path = fileURLToPath(new URL('../../public/data/replays/replay-1.json', import.meta.url));
+    const shipped = JSON.parse(readFileSync(path, 'utf8'));
+    expect(shipped.version).toBe(1);
+    expect(shipped.config.handicap).toBeUndefined();
+
+    const decoded = deserializeReplay(serializeReplay(shipped));
+    expect(decoded.version).toBe(1);
+
+    const initial = replayToState(decoded, 0);
+    expect(initial.config.handicap).toBeNull();
+
+    const final = replayToState(decoded, getReplayLength(decoded));
+    expect(final.winner).toBe(decoded.metadata.winner);
+  });
+
+  it('rejects a version beyond the supported set', () => {
+    const replay = { version: 3, config: {}, actions: [], metadata: {} };
+    expect(() => deserializeReplay(btoa(JSON.stringify(replay)))).toThrow(
+      /Unsupported replay version/
+    );
   });
 });

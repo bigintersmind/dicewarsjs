@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+# Bare form too: a worktree helper symlink named node_modules is a file, not a dir
+node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

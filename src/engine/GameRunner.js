@@ -23,6 +23,45 @@ import {
 } from './constants.js';
 
 /**
+ * Validate and copy the optional luck handicap (issue #179).
+ *
+ * Shape: `{ playerId: number, level: number } | null`. `null`/absent means "off"
+ * — the default everywhere, so competitive surfaces (arena, tournament,
+ * leaderboard) are provably unhandicapped by construction. Anything else is
+ * rejected at this boundary rather than silently ignored: an unvalidated
+ * handicap would either be dropped by the config whitelist (a setting that
+ * appears to apply but doesn't) or reach `rollAdvantage` deep inside the battle
+ * reducer, where the error is far from its cause.
+ *
+ * Returns a fresh object so a caller can't mutate engine config mid-game and
+ * desync a replay.
+ *
+ * @param {unknown} handicap
+ * @param {number} playerCount - Resolved player count; playerId must be a valid seat
+ * @returns {{playerId: number, level: number}|null}
+ */
+function validateHandicap(handicap, playerCount) {
+  if (handicap == null) return null;
+  if (typeof handicap !== 'object' || Array.isArray(handicap)) {
+    throw new Error(
+      `createGame: config.handicap must be null or an object { playerId, level }, got ${typeof handicap}`
+    );
+  }
+  const { playerId, level } = handicap;
+  if (!Number.isInteger(playerId) || playerId < 0 || playerId >= playerCount) {
+    throw new Error(
+      `createGame: config.handicap.playerId must be an integer seat index in [0, ${playerCount}), got ${playerId}`
+    );
+  }
+  if (!Number.isInteger(level) || level < 1) {
+    throw new Error(
+      `createGame: config.handicap.level must be an integer >= 1 (use null for no handicap), got ${level}`
+    );
+  }
+  return { playerId, level };
+}
+
+/**
  * Create a new game with the given config and seed.
  *
  * Training mode (`recordHistory: false`, used by the self-play harness) requires
@@ -51,12 +90,15 @@ export function createGame(config = {}) {
     );
   }
 
+  const playerCount = config.playerCount ?? DEFAULT_PLAYER_COUNT;
+
   const fullConfig = {
     mapWidth: config.mapWidth ?? DEFAULT_XMAX,
     mapHeight: config.mapHeight ?? DEFAULT_YMAX,
     maxAreas: config.maxAreas ?? DEFAULT_AREA_MAX,
-    playerCount: config.playerCount ?? DEFAULT_PLAYER_COUNT,
+    playerCount,
     dicePerArea: config.dicePerArea ?? DEFAULT_DICE_PER_AREA,
+    handicap: validateHandicap(config.handicap, playerCount),
     recordHistory,
     seed: config.seed ?? Math.floor(Math.random() * 0xffffffff),
   };

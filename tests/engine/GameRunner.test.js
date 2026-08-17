@@ -25,6 +25,94 @@ describe('createGame', () => {
   });
 });
 
+describe('createGame — luck handicap config (issue #179)', () => {
+  it('defaults to null when the key is absent', () => {
+    expect(createGame({ seed: 1 }).config.handicap).toBeNull();
+  });
+
+  it('accepts an explicit null', () => {
+    expect(createGame({ seed: 1, handicap: null }).config.handicap).toBeNull();
+  });
+
+  it('stores a valid handicap on state.config', () => {
+    const state = createGame({ seed: 1, playerCount: 4, handicap: { playerId: 2, level: 1 } });
+    expect(state.config.handicap).toEqual({ playerId: 2, level: 1 });
+  });
+
+  it('copies the handicap so the caller cannot mutate engine config mid-game', () => {
+    const handicap = { playerId: 0, level: 1 };
+    const state = createGame({ seed: 1, playerCount: 4, handicap });
+    handicap.level = 99;
+    handicap.playerId = 3;
+    expect(state.config.handicap).toEqual({ playerId: 0, level: 1 });
+  });
+
+  it('ignores extra keys on the handicap object (whitelist, not passthrough)', () => {
+    const state = createGame({
+      seed: 1,
+      playerCount: 4,
+      handicap: { playerId: 1, level: 2, cheat: true },
+    });
+    expect(state.config.handicap).toEqual({ playerId: 1, level: 2 });
+  });
+
+  it('throws on a non-object handicap', () => {
+    expect(() => createGame({ seed: 1, handicap: 1 })).toThrow(/handicap/);
+    expect(() => createGame({ seed: 1, handicap: 'lucky' })).toThrow(/handicap/);
+    expect(() => createGame({ seed: 1, handicap: true })).toThrow(/handicap/);
+    expect(() => createGame({ seed: 1, handicap: [] })).toThrow(/handicap/);
+  });
+
+  it('throws on an out-of-range or non-integer playerId', () => {
+    expect(() =>
+      createGame({ seed: 1, playerCount: 4, handicap: { playerId: 4, level: 1 } })
+    ).toThrow(/playerId/);
+    expect(() =>
+      createGame({ seed: 1, playerCount: 4, handicap: { playerId: -1, level: 1 } })
+    ).toThrow(/playerId/);
+    expect(() =>
+      createGame({ seed: 1, playerCount: 4, handicap: { playerId: 1.5, level: 1 } })
+    ).toThrow(/playerId/);
+    expect(() => createGame({ seed: 1, playerCount: 4, handicap: { level: 1 } })).toThrow(
+      /playerId/
+    );
+  });
+
+  it('throws on a level below 1 or non-integer (null is the way to turn it off)', () => {
+    expect(() =>
+      createGame({ seed: 1, playerCount: 4, handicap: { playerId: 0, level: 0 } })
+    ).toThrow(/level/);
+    expect(() =>
+      createGame({ seed: 1, playerCount: 4, handicap: { playerId: 0, level: -1 } })
+    ).toThrow(/level/);
+    expect(() =>
+      createGame({ seed: 1, playerCount: 4, handicap: { playerId: 0, level: 1.5 } })
+    ).toThrow(/level/);
+    expect(() => createGame({ seed: 1, playerCount: 4, handicap: { playerId: 0 } })).toThrow(
+      /level/
+    );
+  });
+
+  it('validates playerId against the resolved (defaulted) player count', () => {
+    // Default playerCount is 7, so seat 6 is valid and seat 7 is not.
+    expect(createGame({ seed: 1, handicap: { playerId: 6, level: 1 } }).config.handicap).toEqual({
+      playerId: 6,
+      level: 1,
+    });
+    expect(() => createGame({ seed: 1, handicap: { playerId: 7, level: 1 } })).toThrow(/playerId/);
+  });
+
+  it('does not change map generation (the handicap only affects battles)', () => {
+    const plain = createGame({ seed: 5, playerCount: 4 });
+    const lucky = createGame({ seed: 5, playerCount: 4, handicap: { playerId: 0, level: 2 } });
+    expect(lucky.rngState).toBe(plain.rngState);
+    expect(lucky.turnOrder).toEqual(plain.turnOrder);
+    expect(lucky.areas.map(a => [a.owner, a.dice])).toEqual(
+      plain.areas.map(a => [a.owner, a.dice])
+    );
+  });
+});
+
 describe('simulateGame', () => {
   it('runs a full game with all ai_example players', () => {
     const aiAssignments = new Array(7).fill(ai_example);

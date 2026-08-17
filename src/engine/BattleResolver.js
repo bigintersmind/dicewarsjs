@@ -28,22 +28,93 @@ export function rollDice(count, rng) {
 }
 
 /**
+ * Roll `count + advantage` dice and keep the `count` highest ("advantage dice").
+ *
+ * The luck handicap (issue #179): a handicapped seat rolls extra dice and drops
+ * the lowest ones, on both attack and defense. The mechanism is deliberately
+ * *visually honest* — the kept `values` are real faces that sum to `total`, so
+ * the battle animation can render them unchanged.
+ *
+ * Determinism: exactly `count + advantage` draws are consumed from `rng`, so the
+ * draw count is a pure function of (count, advantage) and a replay that carries
+ * the same handicap config reproduces the game exactly.
+ *
+ * Kept dice are returned in their original roll order (not sorted), which keeps
+ * the animation stable; ties among the lowest values drop the earliest-rolled
+ * die first, so the split is deterministic for any input.
+ *
+ * @param {number} count     - Number of dice to keep (must be an integer >= 1)
+ * @param {number} advantage - Number of extra dice to roll and drop (integer >= 0)
+ * @param {Object} rng       - Seeded RNG instance (from createRng)
+ * @returns {{values: number[], total: number, dropped: number[]}} Kept values (roll
+ *   order) and their sum, plus the dropped values (roll order; `[]` when advantage is 0).
+ */
+export function rollAdvantage(count, advantage, rng) {
+  if (!Number.isInteger(count) || count < 1) {
+    throw new RangeError(`rollAdvantage: count must be an integer >= 1, got ${count}`);
+  }
+  if (!Number.isInteger(advantage) || advantage < 0) {
+    throw new RangeError(`rollAdvantage: advantage must be an integer >= 0, got ${advantage}`);
+  }
+
+  // Fast path: no handicap → identical values, total and RNG consumption as rollDice.
+  if (advantage === 0) {
+    const { values, total } = rollDice(count, rng);
+    return { values, total, dropped: [] };
+  }
+
+  const rolled = new Array(count + advantage);
+  for (let i = 0; i < rolled.length; i++) {
+    rolled[i] = rng.nextInt(1, 6);
+  }
+
+  /*
+   * Pick the `advantage` lowest dice to drop. Sorting indices (value asc, then
+   * index asc) makes the tie-break explicit and deterministic, and lets both
+   * output arrays stay in original roll order.
+   */
+  const order = rolled.map((_, i) => i);
+  order.sort((a, b) => rolled[a] - rolled[b] || a - b);
+  const isDropped = new Array(rolled.length).fill(false);
+  for (let i = 0; i < advantage; i++) {
+    isDropped[order[i]] = true;
+  }
+
+  const values = [];
+  const dropped = [];
+  let total = 0;
+  for (let i = 0; i < rolled.length; i++) {
+    if (isDropped[i]) {
+      dropped.push(rolled[i]);
+    } else {
+      values.push(rolled[i]);
+      total += rolled[i];
+    }
+  }
+  return { values, total, dropped };
+}
+
+/**
  * Resolve a battle between attacker and defender dice pools.
  * Ties go to the defender (attacker must strictly exceed defender total to win).
  *
  * @param {number} attackerDice - Number of attacker dice (1-8)
  * @param {number} defenderDice - Number of defender dice (1-8)
  * @param {Object} rng          - Seeded RNG instance
+ * @param {Object} [options]    - Luck handicap (issue #179); omit for an even fight
+ * @param {number} [options.attackerAdvantage=0] - Extra dice the attacker rolls and drops
+ * @param {number} [options.defenderAdvantage=0] - Extra dice the defender rolls and drops
  * @returns {import('./types.js').BattleResult}
  */
-export function resolveBattle(attackerDice, defenderDice, rng) {
+export function resolveBattle(attackerDice, defenderDice, rng, options = {}) {
   if (attackerDice < 1 || defenderDice < 1) {
     throw new RangeError(
       `resolveBattle: dice counts must be positive, got attacker=${attackerDice}, defender=${defenderDice}`
     );
   }
-  const attackerRoll = rollDice(attackerDice, rng);
-  const defenderRoll = rollDice(defenderDice, rng);
+  const { attackerAdvantage = 0, defenderAdvantage = 0 } = options;
+  const attackerRoll = rollAdvantage(attackerDice, attackerAdvantage, rng);
+  const defenderRoll = rollAdvantage(defenderDice, defenderAdvantage, rng);
   return {
     attackerRoll,
     defenderRoll,

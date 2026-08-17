@@ -123,30 +123,57 @@ describe('ScreenReaderAnnouncer', () => {
     expect(getText()).toContain('Select a neighboring territory');
   });
 
-  it('announces AI thinking on non-human turn', () => {
+  it('announces the AI by its bot name on a non-human turn', () => {
     store.setState({
       screen: 'playing',
       awaitingInput: null,
       humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
       gameState: makeGameState({ currentPlayerIndex: 1 }),
     });
 
     const { getText } = renderAnnouncer(store);
-    expect(getText()).toContain('Player 2');
-    expect(getText()).toContain('thinking');
+    expect(getText()).toContain('Blitz is thinking');
+    expect(getText()).not.toContain('Player 2');
   });
 
-  it('announces game over with winner', () => {
+  it('falls back to the seat number when no player names are recorded', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: [],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Player 2 is thinking');
+  });
+
+  it('announces a human win as "You win!"', () => {
     store.setState({
       screen: 'gameOver',
       awaitingInput: null,
       humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
       gameState: makeGameState({ winner: 0 }),
     });
 
     const { getText } = renderAnnouncer(store);
-    expect(getText()).toContain('Game over');
-    expect(getText()).toContain('Player 1 wins');
+    expect(getText()).toContain('Game over. You win!');
+  });
+
+  it('announces a bot win by its bot name', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ winner: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Game over. Blitz wins!');
   });
 
   it('announces battle result', () => {

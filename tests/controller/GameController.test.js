@@ -281,6 +281,86 @@ describe('GameController', () => {
       expect(warnings[0]).toContain('broken/bot');
     });
 
+    /*
+     * Per-seat display names (store.playerNames): the in-game text names an
+     * opponent by its bot ("Conqueror is thinking...") rather than its seat
+     * number, so the controller records the picker label of whatever actually
+     * loaded in each seat.
+     */
+    describe('playerNames', () => {
+      it('records the picker name of each built-in bot, and "You" for the human seat', async () => {
+        await controller.startNewGame({
+          playerCount: 4,
+          spectator: false,
+          aiAssignments: [null, 'ai_conqueror', 'ai_lookahead', 'ai_default'],
+        });
+
+        expect(store.getState().playerNames).toEqual([
+          'You',
+          'Conqueror',
+          'Lookahead AI',
+          'Balanced AI',
+        ]);
+      });
+
+      it('names a community seat from the registry entry', async () => {
+        const { getCommunityBotList } = await import('../../src/arena/communityBots.js');
+        getCommunityBotList.mockReturnValueOnce([
+          { id: 'bigintersmind/connector', name: 'Connector', author: 'x', description: '' },
+        ]);
+
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          aiAssignments: [null, 'community:bigintersmind/connector'],
+        });
+
+        expect(store.getState().playerNames).toEqual(['You', 'Connector']);
+      });
+
+      it('names the fallback bot — not the failed choice — when a community bot fails to load', async () => {
+        const { loadCommunityBot } = await import('../../src/arena/communityBots.js');
+        loadCommunityBot.mockImplementationOnce(() => {
+          throw new Error('compile failed');
+        });
+
+        await controller.startNewGame({
+          playerCount: 3,
+          spectator: false,
+          aiAssignments: [null, 'community:broken/bot', 'ai_blitz'],
+        });
+
+        // Seat 1 is really playing ai_default now; the label must say so.
+        expect(store.getState().playerNames).toEqual(['You', 'Balanced AI', 'Blitz']);
+      });
+
+      it('names every seat by its bot in spectator mode (no human seat)', async () => {
+        await controller.startNewGame({
+          playerCount: 3,
+          spectator: true,
+          aiAssignments: [null, 'ai_survivor', 'ai_strategist'],
+        });
+
+        // The empty seat is filled with ai_default in spectator mode.
+        expect(store.getState().playerNames).toEqual(['Balanced AI', 'Survivor', 'Strategist AI']);
+      });
+
+      it('is replaced wholesale by the next game (no stale seats from a larger lineup)', async () => {
+        await controller.startNewGame({
+          playerCount: 4,
+          spectator: false,
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz', 'ai_survivor'],
+        });
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          aiAssignments: [null, 'ai_lookahead'],
+        });
+
+        expect(store.getState().playerNames).toEqual(['You', 'Lookahead AI']);
+      });
+    });
+
     it('resets to title screen on createGame failure', async () => {
       const { createGame } = await import('../../src/engine/index.js');
       createGame.mockImplementationOnce(() => {
@@ -1421,6 +1501,31 @@ describe('GameController', () => {
 
       expect(store.getState().screen).toBe('gameOver');
       expect(soundManager.play).toHaveBeenCalledWith('over');
+    });
+
+    it('labels the replay seats with the same names the game showed', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({
+        playerCount: 3,
+        spectator: false,
+        aiAssignments: [null, 'ai_conqueror', 'ai_blitz'],
+      });
+      controller.acceptMap();
+
+      // END_TURN ends the game; `config` lets buildGameReplay run.
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          return { ...state, phase: 'gameOver', winner: 1, config: { playerCount: 3 } };
+        }
+        return state;
+      });
+
+      await controller.endHumanTurn();
+
+      expect(store.getState().screen).toBe('gameOver');
+      // The replay viewer's "You vs Conqueror vs Blitz — Winner: Conqueror" line reads these.
+      expect(store.getState().currentReplay.metadata.bots).toEqual(['You', 'Conqueror', 'Blitz']);
     });
 
     it('transitions to gameOver screen when endTurn results in game over', async () => {

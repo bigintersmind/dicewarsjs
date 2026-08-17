@@ -38,6 +38,13 @@ import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
  * @property {string | null} error
  * @property {string[]} aiLoadWarnings - Per-slot notices when a chosen bot
  *   failed to load and was replaced by the default AI (shown on map preview).
+ * @property {string[]} playerNames - Player-facing name of whoever holds each
+ *   seat, indexed by player id: the picker's label for the bot that actually
+ *   loaded there (post-fallback), or HUMAN_PLAYER_NAME for the human. Set by
+ *   the controller once per game; the in-game text ("Conqueror is thinking...",
+ *   "Blitz wins!") reads it via playerName() so an opponent has an identity
+ *   rather than a seat number — the seat color already tells two Conquerors
+ *   apart.
  * @property {Object} config
  * @property {Object | null} currentReplay
  */
@@ -58,6 +65,7 @@ const DEFAULT_STATE = {
   soundEnabled: true,
   error: null,
   aiLoadWarnings: [],
+  playerNames: [],
   currentReplay: null,
   replayOrigin: null,
   focusedAreaId: null,
@@ -82,6 +90,22 @@ const DEFAULT_STATE = {
     aiAssignments: [...DIFFICULTY_MODES.standard.lineup],
   },
 };
+
+/** The human seat's entry in `playerNames` (and in a game replay's `bots`). */
+export const HUMAN_PLAYER_NAME = 'You';
+
+/**
+ * Player-facing name for a seat: the store's `playerNames` entry, or the seat
+ * number ("Player 3") when no name is recorded — a store that never went
+ * through startNewGame (a mock, an older test) still gets a readable label.
+ *
+ * @param {string[] | undefined} playerNames - StoreState.playerNames
+ * @param {number} playerId
+ * @returns {string}
+ */
+export function playerName(playerNames, playerId) {
+  return playerNames?.[playerId] ?? `Player ${playerId + 1}`;
+}
 
 /**
  * Create an observable game store.

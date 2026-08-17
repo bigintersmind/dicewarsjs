@@ -16,10 +16,11 @@ import {
   GAME_PHASES,
 } from '../engine/index.js';
 import { runAI } from '../engine/AIAdapter.js';
-import { getAIImplementation } from '../ai/aiConfig.js';
+import { getAIById, getAIImplementation } from '../ai/aiConfig.js';
 import { createReplayFromState } from '../arena/replayFormat.js';
-import { loadCommunityBot } from '../arena/communityBots.js';
+import { getCommunityBotList, loadCommunityBot } from '../arena/communityBots.js';
 import { adaptModernBot } from '../arena/modernBotAdapter.js';
+import { HUMAN_PLAYER_NAME } from '../store/GameStore.js';
 import { resolveMapSize } from '../utils/config.js';
 
 /** Prefix marking a per-slot assignment id as a curated community bot. */
@@ -62,6 +63,24 @@ async function resolveAIFunction(aiId) {
 }
 
 /**
+ * Player-facing name for a per-slot assignment id — the same label the title
+ * screen's picker shows for that bot, so a seat reads in-game the way it was
+ * chosen ("Conqueror is thinking...", not "Player 3"). Community ids resolve
+ * through the registry; an unregistered one falls back to its bare id.
+ * Built-in ids resolve like getAIImplementation does (unknown → ai_default).
+ *
+ * @param {string} aiId
+ * @returns {string}
+ */
+function displayNameFor(aiId) {
+  if (aiId.startsWith(COMMUNITY_PREFIX)) {
+    const communityId = aiId.slice(COMMUNITY_PREFIX.length);
+    return getCommunityBotList().find(bot => bot.id === communityId)?.name ?? communityId;
+  }
+  return getAIById(aiId).name;
+}
+
+/**
  * Create a game controller.
  *
  * @param {Object} store - GameStore instance from createGameStore()
@@ -99,14 +118,17 @@ export function createGameController(store, renderer, soundManager, preferencesM
   /**
    * Build AI assignment array from config.
    *
-   * Returns the per-slot functions plus any player-facing notices: when a
-   * community bot (the player's explicit per-slot choice) fails to load we fall
-   * back to ai_default, but silently swapping it in would misrepresent who the
-   * player is up against — so those failures are surfaced (see startNewGame).
+   * Returns the per-slot functions, the per-slot display names, and any
+   * player-facing notices: when a community bot (the player's explicit
+   * per-slot choice) fails to load we fall back to ai_default, but silently
+   * swapping it in would misrepresent who the player is up against — so those
+   * failures are surfaced (see startNewGame). The names describe what actually
+   * loaded, fallback included, so the in-game label never claims a bot that
+   * isn't playing.
    *
    * @param {number} playerCount
    * @param {boolean} spectator
-   * @returns {Promise<{ fns: (Function | null)[], warnings: string[] }>}
+   * @returns {Promise<{ fns: (Function | null)[], names: string[], warnings: string[] }>}
    */
   async function loadAIFunctions(playerCount, spectator) {
     const storeState = store.getState();
@@ -120,14 +142,17 @@ export function createGameController(store, renderer, soundManager, preferencesM
     }
 
     const fns = [];
+    const names = [];
     const warnings = [];
     for (let i = 0; i < playerCount; i++) {
       const aiId = assignments[i];
       if (!aiId) {
         fns.push(null); // human
+        names.push(HUMAN_PLAYER_NAME);
       } else {
         try {
           fns.push(await resolveAIFunction(aiId));
+          names.push(displayNameFor(aiId));
         } catch (err) {
           console.error(
             `Failed to load AI "${aiId}" for player ${i}, falling back to ai_default:`,
@@ -146,6 +171,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
           }
           try {
             fns.push(await getAIImplementation('ai_default'));
+            names.push(getAIById('ai_default').name);
           } catch (fallbackErr) {
             throw new Error(
               `Cannot load any AI for player ${i}: both "${aiId}" and "ai_default" failed`,
@@ -155,7 +181,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         }
       }
     }
-    return { fns, warnings };
+    return { fns, names, warnings };
   }
 
   /**
@@ -167,11 +193,13 @@ export function createGameController(store, renderer, soundManager, preferencesM
   function buildGameReplay(state) {
     if (!state || !state.config) return null;
     try {
-      const humanIdx = store.getState().humanPlayerIndex;
+      const { humanPlayerIndex: humanIdx, playerNames } = store.getState();
       const playerCount = state.config.playerCount;
       const bots = [];
       for (let i = 0; i < playerCount; i++) {
-        bots.push(i === humanIdx ? 'You' : `AI ${i + 1}`);
+        // The seat's real name (set with the lineup in startNewGame); a store
+        // that skipped that path still gets a readable label.
+        bots.push(playerNames[i] ?? (i === humanIdx ? HUMAN_PLAYER_NAME : `Player ${i + 1}`));
       }
       return createReplayFromState(state, {
         bots,
@@ -243,7 +271,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     try {
       // Load AI functions
-      const { fns, warnings } = await loadAIFunctions(playerCount, spectator);
+      const { fns, names, warnings } = await loadAIFunctions(playerCount, spectator);
       aiFunctions = fns;
 
       // Create game via engine
@@ -266,6 +294,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         // No path may carry a previous game's open quit dialog into this one (#181).
         quitConfirmOpen: false,
         aiLoadWarnings: warnings,
+        playerNames: names,
       });
 
       // Draw the map in the renderer

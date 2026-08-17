@@ -38,6 +38,17 @@ import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
  * @property {string | null} error
  * @property {string[]} aiLoadWarnings - Per-slot notices when a chosen bot
  *   failed to load and was replaced by the default AI (shown on map preview).
+ * @property {string[]} playerNames - Player-facing name of whoever holds each
+ *   seat, indexed by player id: the picker's label for the bot that actually
+ *   loaded there (post-fallback), or HUMAN_PLAYER_NAME for the human. Recorded
+ *   by the controller with the lineup at game start (written in the same
+ *   setState as the new gameState, cleared with the rest of the per-game state)
+ *   and not revised afterwards — startSpectate's takeover of the eliminated
+ *   human seat leaves its "You" in place, deliberately. The in-game text
+ *   ("Conqueror is thinking...", "Blitz wins!") reads it via playerName() so an
+ *   opponent has an identity rather than a seat number; the visual labels lean
+ *   on the seat color to tell two Conquerors apart, and the screen-reader
+ *   announcer, which has no color, speaks the seat number for a repeated name.
  * @property {Object} config
  * @property {Object | null} currentReplay
  */
@@ -58,6 +69,7 @@ const DEFAULT_STATE = {
   soundEnabled: true,
   error: null,
   aiLoadWarnings: [],
+  playerNames: [],
   currentReplay: null,
   replayOrigin: null,
   focusedAreaId: null,
@@ -82,6 +94,23 @@ const DEFAULT_STATE = {
     aiAssignments: [...DIFFICULTY_MODES.standard.lineup],
   },
 };
+
+/** The human seat's entry in `playerNames` (and in a game replay's `bots`). */
+export const HUMAN_PLAYER_NAME = 'You';
+
+/**
+ * Player-facing name for a seat: the store's `playerNames` entry, or the seat
+ * number ("Player 3") when none is recorded for it — a lineup that was never
+ * recorded (`playerNames: []`, the store default) or an index past its end
+ * still gets a readable label rather than a blank.
+ *
+ * @param {string[] | undefined} playerNames - StoreState.playerNames
+ * @param {number} playerId
+ * @returns {string}
+ */
+export function playerName(playerNames, playerId) {
+  return playerNames?.[playerId] ?? `Player ${playerId + 1}`;
+}
 
 /**
  * Create an observable game store.

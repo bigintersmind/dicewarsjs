@@ -275,10 +275,170 @@ describe('GameController', () => {
       expect(store.getState().screen).toBe('mapPreview');
       expect(getAIImplementation).toHaveBeenCalledWith('ai_default');
 
-      // The player's discarded choice is surfaced, not silently swapped.
+      // The player's discarded choice is surfaced, not silently swapped — and
+      // the fallback is named the way the seat will be labeled in-game.
       const warnings = store.getState().aiLoadWarnings;
-      expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain('broken/bot');
+      expect(warnings).toEqual([
+        'Player 2: community bot "broken/bot" could not load — using Balanced AI instead.',
+      ]);
+    });
+
+    /*
+     * Per-seat display names (store.playerNames): the in-game text names an
+     * opponent by its bot ("Conqueror is thinking...") rather than its seat
+     * number, so the controller records the picker label of whatever actually
+     * loaded in each seat.
+     */
+    describe('playerNames', () => {
+      it('records the picker name of each built-in bot, and "You" for the human seat', async () => {
+        await controller.startNewGame({
+          playerCount: 4,
+          spectator: false,
+          aiAssignments: [null, 'ai_conqueror', 'ai_lookahead', 'ai_default'],
+        });
+
+        expect(store.getState().playerNames).toEqual([
+          'You',
+          'Conqueror',
+          'Lookahead AI',
+          'Balanced AI',
+        ]);
+      });
+
+      it('names a community seat from the registry entry', async () => {
+        const { getCommunityBotList } = await import('../../src/arena/communityBots.js');
+        getCommunityBotList.mockReturnValueOnce([
+          { id: 'bigintersmind/connector', name: 'Connector', author: 'x', description: '' },
+        ]);
+
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          aiAssignments: [null, 'community:bigintersmind/connector'],
+        });
+
+        expect(store.getState().playerNames).toEqual(['You', 'Connector']);
+      });
+
+      it('names the fallback bot — not the failed choice — when a community bot fails to load', async () => {
+        const { loadCommunityBot } = await import('../../src/arena/communityBots.js');
+        loadCommunityBot.mockImplementationOnce(() => {
+          throw new Error('compile failed');
+        });
+
+        await controller.startNewGame({
+          playerCount: 3,
+          spectator: false,
+          aiAssignments: [null, 'community:broken/bot', 'ai_blitz'],
+        });
+
+        // Seat 1 is really playing ai_default now; the label must say so.
+        expect(store.getState().playerNames).toEqual(['You', 'Balanced AI', 'Blitz']);
+      });
+
+      it('names every seat by its bot in spectator mode (no human seat)', async () => {
+        await controller.startNewGame({
+          playerCount: 3,
+          spectator: true,
+          aiAssignments: [null, 'ai_survivor', 'ai_strategist'],
+        });
+
+        // The empty seat is filled with ai_default in spectator mode.
+        expect(store.getState().playerNames).toEqual(['Balanced AI', 'Survivor', 'Strategist AI']);
+      });
+
+      it('names a failed built-in seat for the fallback and surfaces the swap', async () => {
+        const { getAIImplementation } = await import('../../src/ai/aiConfig.js');
+        // Seat 1's dynamic import rejects (a network blip, a stale deploy chunk);
+        // the fallback load succeeds.
+        getAIImplementation
+          .mockRejectedValueOnce(new Error('chunk load failed'))
+          .mockResolvedValueOnce(vi.fn(() => 0));
+
+        await controller.startNewGame({
+          playerCount: 3,
+          spectator: false,
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz'],
+        });
+
+        // The seat is labeled by what actually loaded — and the player is told,
+        // in the same words the seat will use, that this isn't the bot they picked.
+        expect(store.getState().playerNames).toEqual(['You', 'Balanced AI', 'Blitz']);
+        expect(store.getState().aiLoadWarnings).toEqual([
+          'Player 2: "Conqueror" could not load — using Balanced AI instead.',
+        ]);
+      });
+
+      it('labels a stale/unknown built-in id with what actually loads', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          await controller.startNewGame({
+            playerCount: 2,
+            spectator: false,
+            aiAssignments: [null, 'ai_removed_in_v9'],
+          });
+          // Neither resolver throws for an unknown id (both substitute ai_default),
+          // so no player-facing notice — but the substitution is logged.
+          expect(store.getState().playerNames).toEqual(['You', 'Balanced AI']);
+          expect(store.getState().aiLoadWarnings).toEqual([]);
+          expect(warn).toHaveBeenCalledWith(expect.stringContaining('ai_removed_in_v9'));
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('survives a NEW MAP (rejectMap keeps the lineup, so it keeps the names)', async () => {
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          aiAssignments: [null, 'ai_lookahead'],
+        });
+        await controller.rejectMap();
+
+        expect(store.getState().playerNames).toEqual(['You', 'Lookahead AI']);
+      });
+
+      it('is cleared with the rest of the per-game state on the way out', async () => {
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          aiAssignments: [null, 'ai_lookahead'],
+        });
+        controller.goToTitle();
+        expect(store.getState().playerNames).toEqual([]);
+      });
+
+      it('is cleared when a start fails back to the title', async () => {
+        const { createGame } = await import('../../src/engine/index.js');
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          aiAssignments: [null, 'ai_lookahead'],
+        });
+        createGame.mockImplementationOnce(() => {
+          throw new Error('Map generation failed');
+        });
+
+        await controller.startNewGame({ playerCount: 2, spectator: false });
+
+        expect(store.getState().screen).toBe('title');
+        expect(store.getState().playerNames).toEqual([]);
+      });
+
+      it('is replaced wholesale by the next game (no stale seats from a larger lineup)', async () => {
+        await controller.startNewGame({
+          playerCount: 4,
+          spectator: false,
+          aiAssignments: [null, 'ai_conqueror', 'ai_blitz', 'ai_survivor'],
+        });
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          aiAssignments: [null, 'ai_lookahead'],
+        });
+
+        expect(store.getState().playerNames).toEqual(['You', 'Lookahead AI']);
+      });
     });
 
     it('resets to title screen on createGame failure', async () => {
@@ -1421,6 +1581,52 @@ describe('GameController', () => {
 
       expect(store.getState().screen).toBe('gameOver');
       expect(soundManager.play).toHaveBeenCalledWith('over');
+    });
+
+    it('labels the replay seats with the same names the game showed', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({
+        playerCount: 3,
+        spectator: false,
+        aiAssignments: [null, 'ai_conqueror', 'ai_blitz'],
+      });
+      controller.acceptMap();
+
+      // END_TURN ends the game; `config` lets buildGameReplay run.
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          return { ...state, phase: 'gameOver', winner: 1, config: { playerCount: 3 } };
+        }
+        return state;
+      });
+
+      await controller.endHumanTurn();
+
+      expect(store.getState().screen).toBe('gameOver');
+      // ReplayViewer's header line joins these ("You vs Conqueror vs Blitz — … — Winner: …").
+      expect(store.getState().currentReplay.metadata.bots).toEqual(['You', 'Conqueror', 'Blitz']);
+    });
+
+    it('labels replay seats by number when no lineup is recorded (never a dropped replay)', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      // A store whose lineup was never recorded — the helper's fallback, not a throw
+      // inside buildGameReplay's try (which would silently cost the player the replay).
+      store.setState({ playerNames: [] });
+
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          return { ...state, phase: 'gameOver', winner: 1, config: { playerCount: 2 } };
+        }
+        return state;
+      });
+
+      await controller.endHumanTurn();
+
+      expect(store.getState().currentReplay.metadata.bots).toEqual(['Player 1', 'Player 2']);
     });
 
     it('transitions to gameOver screen when endTurn results in game over', async () => {

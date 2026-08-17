@@ -9,6 +9,24 @@
 
 import { useState, useEffect } from 'preact/hooks';
 import { useGameStore } from './useGameStore.js';
+import { playerName } from '../../store/GameStore.js';
+
+/**
+ * Spoken name for a seat. The visual labels lean on the seat color to tell two
+ * seats running the same bot apart; a live region has no color, so when the
+ * lineup repeats a name the seat number is spoken too — "Balanced AI, player 3"
+ * (the whole Standard lineup is Balanced AI). A name unique in the lineup is
+ * spoken bare.
+ *
+ * @param {string[] | undefined} playerNames - StoreState.playerNames
+ * @param {number} playerId
+ * @returns {string}
+ */
+function spokenName(playerNames, playerId) {
+  const name = playerName(playerNames, playerId);
+  const repeated = (playerNames ?? []).filter(n => n === name).length > 1;
+  return repeated ? `${name}, player ${playerId + 1},` : name;
+}
 
 /**
  * @param {Object} store - GameStore instance
@@ -22,6 +40,7 @@ export function useAnnouncer(store) {
   const battleResult = useGameStore(store, s => s.battleResult);
   const gameState = useGameStore(store, s => s.gameState);
   const humanPlayerIndex = useGameStore(store, s => s.humanPlayerIndex);
+  const playerNames = useGameStore(store, s => s.playerNames);
 
   useEffect(() => {
     if (!gameState) return;
@@ -30,7 +49,15 @@ export function useAnnouncer(store) {
     const isHumanTurn = currentPlayerId === humanPlayerIndex;
 
     if (screen === 'gameOver' && gameState.winner !== null) {
-      setAnnouncement(`Game over. Player ${gameState.winner + 1} wins!`);
+      // The visible screen names the winner too (GameOverScreen), so a bot's
+      // seat is announced by its bot name. The human seat's recorded name is
+      // "You", which the generic template would render as "You wins!" — hence
+      // its own branch.
+      setAnnouncement(
+        gameState.winner === humanPlayerIndex
+          ? 'Game over. You win!'
+          : `Game over. ${spokenName(playerNames, gameState.winner)} wins!`
+      );
       return;
     }
 
@@ -48,7 +75,7 @@ export function useAnnouncer(store) {
     }
 
     if (!isHumanTurn && humanPlayerIndex !== null) {
-      setAnnouncement(`Player ${currentPlayerId + 1} is thinking.`);
+      setAnnouncement(`${spokenName(playerNames, currentPlayerId)} is thinking.`);
       return;
     }
   }, [
@@ -56,6 +83,7 @@ export function useAnnouncer(store) {
     awaitingInput,
     gameState?.currentPlayerIndex,
     humanPlayerIndex,
+    playerNames,
     gameState?.winner,
     gameState?.phase,
   ]);

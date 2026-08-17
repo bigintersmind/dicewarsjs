@@ -22,6 +22,7 @@ function renderGameOver(overrides = {}) {
     humanPlayerIndex: overrides.humanPlayerIndex ?? null,
     humanEliminated: overrides.humanEliminated ?? false,
     gameOverReason: overrides.gameOverReason ?? null,
+    playerNames: overrides.playerNames ?? ['You', 'Blitz', 'Conqueror'],
   });
 
   const onTitle = overrides.onTitle ?? vi.fn();
@@ -47,10 +48,26 @@ describe('GameOverScreen', () => {
     expect(container.textContent).toContain('turn limit reached');
   });
 
-  it('names the winning player when there is a winner', () => {
+  it('names the winning bot when there is a winner', () => {
     renderGameOver({ gameState: { winner: 2 }, humanPlayerIndex: 0 });
-    expect(container.textContent).toContain('Player 3 wins');
+    expect(container.textContent).toContain('Conqueror wins');
+    expect(container.textContent).not.toContain('Player 3');
     expect(container.textContent).not.toContain('turn limit reached');
+  });
+
+  // The human seat's recorded name is "You": the win heading carries a human
+  // win, and the generic "<name> wins!" subtitle must not render "You wins!".
+  it('shows the win heading, and no "You wins!" subtitle, when the human wins', () => {
+    renderGameOver({ gameState: { winner: 0 }, humanPlayerIndex: 0 });
+    expect(container.textContent).toContain('W I N');
+    expect(container.textContent).not.toContain('wins!');
+  });
+
+  // A store that never went through startNewGame (no lineup recorded) still
+  // gets a readable subtitle — the seat number, as before bots were named.
+  it('falls back to the seat number when no player names are recorded', () => {
+    renderGameOver({ gameState: { winner: 2 }, humanPlayerIndex: 0, playerNames: [] });
+    expect(container.textContent).toContain('Player 3 wins');
   });
 
   it('shows the elimination subtitle (not a draw) when the human was eliminated', () => {
@@ -81,7 +98,7 @@ describe('GameOverScreen', () => {
   // game could wrongly read "Draw" — this guards against that.
   it('prefers the winner subtitle over a stale turnLimit reason', () => {
     renderGameOver({ gameState: { winner: 2 }, gameOverReason: 'turnLimit' });
-    expect(container.textContent).toContain('Player 3 wins');
+    expect(container.textContent).toContain('Conqueror wins');
     expect(container.textContent).not.toContain('turn limit reached');
   });
 });

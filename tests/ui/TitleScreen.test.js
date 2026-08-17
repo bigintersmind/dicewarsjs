@@ -15,7 +15,6 @@ import { act } from 'preact/test-utils';
 import { TitleScreen } from '../../src/ui/TitleScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { lineupForMode } from '../../src/ai/difficultyModes.js';
-import { REPO_URL } from '../../src/ui/menuChrome.jsx';
 import {
   PLAYER_COLOR_NAMES,
   PLAYER_COLORS_CSS,
@@ -568,9 +567,8 @@ describe('TitleScreen', () => {
     });
 
     // The scan path IS the tab path: every setup control and START come
-    // before the bot-author screens, and the footer row shares the credits'
-    // footer at the foot of the page.
-    it('places the footer row after START and beside the credits', () => {
+    // before the bot-author screens, which sit in the page footer.
+    it('places the footer row after START, in the page footer', () => {
       renderTitle({ onNavigate: vi.fn() });
       const first = footLinks()[0];
       expect(
@@ -579,50 +577,26 @@ describe('TitleScreen', () => {
       expect(
         aiBtn().compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy();
-      const footer = footerNav().closest('footer');
-      expect(footer).toBeTruthy();
-      expect(footer.textContent).toContain('Copyright (C) 2001 GAMEDESIGN');
+      expect(footerNav().closest('footer')).toBeTruthy();
     });
 
-    it('leaves the footer row out of an isolated render with no onNavigate', () => {
+    // The link row is the footer's only content, so without it there is no
+    // (empty) footer landmark either.
+    it('leaves the footer out of an isolated render with no onNavigate', () => {
       renderTitle();
       expect(footerNav()).toBeNull();
-      // The credits still stand on their own.
-      expect(container.textContent).toContain('Copyright (C) 2001 GAMEDESIGN');
-    });
-  });
-
-  /*
-   * -----------------------------------------------------------------------
-   * Footer links (#183)
-   * -----------------------------------------------------------------------
-   */
-
-  describe('footer links (#183)', () => {
-    const footerLink = text =>
-      [...container.querySelectorAll('a')].find(a => a.textContent.trim() === text);
-
-    it('keeps the GAMEDESIGN credit link', () => {
-      renderTitle();
-      const link = footerLink('GAMEDESIGN');
-      expect(link).toBeTruthy();
-      expect(link.getAttribute('href')).toBe('https://www.gamedesign.jp/');
+      expect(container.querySelector('footer')).toBeNull();
     });
 
-    it('links to the source repository in a new tab', () => {
-      renderTitle();
-      const link = footerLink('Source on GitHub');
-      expect(link).toBeTruthy();
-      expect(link.getAttribute('href')).toBe(REPO_URL);
-      expect(link.getAttribute('target')).toBe('_blank');
-      expect(link.getAttribute('rel')).toContain('noopener');
-    });
-
-    it('carries both links on the single copyright line', () => {
-      renderTitle();
-      const line = footerLink('Source on GitHub').closest('p');
-      expect(line).toBe(footerLink('GAMEDESIGN').closest('p'));
-      expect(line.textContent).toContain('Copyright (C) 2001 GAMEDESIGN');
+    // The original game's copyright line (and the repo link that rode it,
+    // #183) is gone from the landing page: the source is credited in the
+    // repository and the settings panel carries the "Source on GitHub" link,
+    // so the footer ends on the link row alone.
+    it('carries no copyright line or outbound links in the footer', () => {
+      renderTitle({ onNavigate: vi.fn() });
+      expect(container.textContent).not.toMatch(/Copyright|GAMEDESIGN/);
+      expect(container.querySelector('footer a')).toBeNull();
+      expect(container.querySelectorAll('a')).toHaveLength(0);
     });
   });
 });

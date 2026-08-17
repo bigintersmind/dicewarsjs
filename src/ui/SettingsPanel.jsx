@@ -402,9 +402,10 @@ export function SettingsPanel({ store, preferencesManager }) {
             onSelect={v => setPref('reducedMotion', v)}
           />
 
-          {/* The panel mounts on every screen, so this is the one repo link
-              that stays reachable mid-game (the title screen's footer is the
-              prominent one). */}
+          {/* The panel mounts on every screen, so this repo link is reachable
+              everywhere, mid-game included — it's the game's one link to the
+              source (the title screen's footer carried a copy until the
+              copyright line it rode was retired). */}
           <div className="dw-set-footer">
             <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
               Source on GitHub

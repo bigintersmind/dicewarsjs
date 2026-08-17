@@ -19,8 +19,8 @@
  * the game's own lettering. The title screen itself does NOT carry the rail:
  * playtesting found it gave the bot-author screens the same weight as
  * starting a game (#182), so there the same destinations sit in a footer link
- * row (`FooterNav`) beside the credits, and the landing page's scan path is
- * setup → START.
+ * row (`FooterNav`) at the foot of the page, and the landing page's scan path
+ * is setup → START.
  *
  * The white button, the headline bevel, and the rail's active-tab bevel keep
  * fixed colors across themes: like the wordmark itself, they're part of the
@@ -422,13 +422,12 @@ export function TopNav({ active, onNavigate, animate = true }) {
 }
 
 /*
- * Self-contained like NAV_CSS: the footer row is a sibling of the credits at
- * the foot of the title screen and must read the same whether or not any
- * other chrome stylesheet is mounted. Anton, not the credits' Roboto, on
- * purpose — the title's rule is Anton for in-game actions (option text,
- * START, tabs) and Roboto for meta text (eyebrows, captions, credits, links
- * out) — but small, muted and unbevelled, so it reads as the way to the bot
- * screens rather than as a peer of the game setup.
+ * Self-contained like NAV_CSS: the footer row is the title screen's whole
+ * footer and must read the same whether or not any other chrome stylesheet
+ * is mounted. Anton, not Roboto, on purpose — the title's rule is Anton for
+ * in-game actions (option text, START, tabs) and Roboto for meta text
+ * (eyebrows, captions, links out) — but small, muted and unbevelled, so it
+ * reads as the way to the bot screens rather than as a peer of the game setup.
  */
 const FOOTER_NAV_CSS = `
 .dw-footnav {
@@ -471,8 +470,8 @@ const FOOTER_NAV_CSS = `
  * NAV_TABS minus the title's own Battle tab — the row only mounts on the
  * title. Same contract as TopNav: taps report the target screen id through
  * onNavigate and App owns the navigation. Placed at the foot of the page
- * beside the credits (#182): these are the bot-author screens, footer
- * material, and the rail on each of them is the way back to Battle.
+ * (#182): these are the bot-author screens, footer material, and the rail on
+ * each of them is the way back to Battle.
  *
  * @param {Object} props
  * @param {(screenId: string) => void} props.onNavigate - Called with the

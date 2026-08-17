@@ -1,12 +1,12 @@
 /**
- * Game configuration — map-size presets.
+ * Game configuration — the title screen's per-game setup axes.
  *
- * The live game uses only the map-size presets below: the title screen lets the
- * player pick a size, and the controller resolves it to concrete engine
- * dimensions via `resolveMapSize`. The earlier CreateJS/Webpack-era config
- * plumbing (DEFAULT_CONFIG, getConfig/updateConfig/loadConfig/resetConfig/
- * applyConfigToGame, and the `window.*` globals) has been removed — it had no
- * remaining consumers.
+ * Two tables live here, both picked on the title screen and both resolved by
+ * the controller into engine config: the map-size presets (`resolveMapSize`)
+ * and the luck ladder (`luckToHandicap`, issue #179). The earlier
+ * CreateJS/Webpack-era config plumbing (DEFAULT_CONFIG, getConfig/updateConfig/
+ * loadConfig/resetConfig/applyConfigToGame, and the `window.*` globals) has
+ * been removed — it had no remaining consumers.
  */
 
 /**
@@ -53,4 +53,56 @@ export function resolveMapSize(size) {
     console.warn(`resolveMapSize: unknown map size "${size}" — falling back to "${DEFAULT_MAP_SIZE}".`);
   }
   return preset ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
+}
+
+/**
+ * "Your luck" ladder (issue #179) — the second, orthogonal difficulty axis
+ * beside the Easy/Standard/Hard bot lineups.
+ *
+ * At level `k` the player's seat rolls `k` extra dice and drops the `k` lowest,
+ * attacking *and* defending (see docs/GAME_RULES.md, "Luck handicap"). The ids
+ * are the engine's `handicap.level` values, so this table is the whole ladder:
+ * a new rung is a new entry here plus its blurb, nothing else.
+ */
+export const LUCK_LEVELS = [
+  { id: 0, name: 'Normal', blurb: 'Fair dice — everyone rolls the same.' },
+  {
+    id: 1,
+    name: 'Lucky',
+    blurb: 'You roll one extra die and drop the lowest — attacking and defending.',
+  },
+  {
+    id: 2,
+    name: 'Very lucky',
+    blurb: 'You roll two extra dice and drop the two lowest — attacking and defending.',
+  },
+];
+
+/** Default luck rung: no handicap. */
+export const DEFAULT_LUCK = 0;
+
+/**
+ * Turn the UI's luck rung into the engine's handicap config — the single place
+ * the player-facing axis becomes `{ playerId, level }`.
+ *
+ * Returns `null` (handicap off) for the Normal rung and for a seatless game:
+ * `playerId` is the store's `humanPlayerIndex`, which is `null` in spectator
+ * (AI vs AI) mode, where there is no human seat to favour.
+ *
+ * Unlike `resolveMapSize`, an unknown rung throws rather than falling back: the
+ * value changes how battles resolve and is recorded in the replay, so silently
+ * substituting a different one would ship a game that isn't the one the player
+ * picked. (`createGame` rejects a malformed handicap for the same reason.)
+ *
+ * @param {number} luck - Rung id from LUCK_LEVELS
+ * @param {number | null} playerId - Seat to favour (the human's), or null for none
+ * @returns {{ playerId: number, level: number } | null}
+ */
+export function luckToHandicap(luck, playerId) {
+  if (!LUCK_LEVELS.some(level => level.id === luck)) {
+    const ids = LUCK_LEVELS.map(level => level.id).join(', ');
+    throw new Error(`luckToHandicap: unknown luck level ${JSON.stringify(luck)} (expected ${ids})`);
+  }
+  if (luck < 1 || typeof playerId !== 'number') return null;
+  return { playerId, level: luck };
 }

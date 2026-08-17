@@ -71,6 +71,26 @@ describe('describeSetup', () => {
     expect(describeSetup({ playerCount: '7', mapSize: 42 })).toBe('');
     expect(describeSetup()).toBe('');
   });
+
+  it('names a luck rung the player turned on (#179)', () => {
+    expect(describeSetup({ playerCount: 7, mapSize: 'medium', difficulty: 'hard', luck: 1 })).toBe(
+      '7 players · medium map · hard · lucky'
+    );
+    expect(describeSetup({ playerCount: 7, mapSize: 'medium', difficulty: 'hard', luck: 2 })).toBe(
+      '7 players · medium map · hard · very lucky'
+    );
+  });
+
+  it('says nothing about luck at Normal — or for a rung off the ladder', () => {
+    const plain = '7 players · medium map · hard';
+    expect(describeSetup({ playerCount: 7, mapSize: 'medium', difficulty: 'hard', luck: 0 })).toBe(
+      plain
+    );
+    expect(describeSetup({ playerCount: 7, mapSize: 'medium', difficulty: 'hard' })).toBe(plain);
+    expect(describeSetup({ playerCount: 7, mapSize: 'medium', difficulty: 'hard', luck: 9 })).toBe(
+      plain
+    );
+  });
 });
 
 describe('MapPreview', () => {

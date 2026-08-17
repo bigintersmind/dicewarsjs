@@ -8,8 +8,8 @@
  * of it). Options follow the original's bare-text language — player counts as
  * a 4/3 grid of Anton text, red when selected — and START is the original's
  * white double-rimmed button. Modern additions (map size, difficulty row,
- * per-slot bot picker, the AI vs AI text link) share those idioms rather than
- * introducing new chrome.
+ * per-slot bot picker, the luck row, the AI vs AI text link) share those
+ * idioms rather than introducing new chrome.
  *
  * Hierarchy (#182, playtest feedback): the page has one happy path — setup →
  * START — so START is its only filled control (AI vs AI is a bare .dw-opt
@@ -26,7 +26,7 @@
  */
 
 import { useState } from 'preact/hooks';
-import { DEFAULT_MAP_SIZE } from '../utils/config.js';
+import { DEFAULT_MAP_SIZE, DEFAULT_LUCK, LUCK_LEVELS } from '../utils/config.js';
 import { DIFFICULTY_MODES, lineupForMode } from '../ai/difficultyModes.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
@@ -81,7 +81,7 @@ const CSS = `
   /* Labels and the caption follow their (now centered) rows; the players
      eyebrow in particular would otherwise sit at the far left edge, since a
      wrapping row is as wide as the panel. */
-  .dw-panel .dw-eyebrow, .dw-panel .dw-hint { text-align: center; }
+  .dw-panel .dw-eyebrow, .dw-panel .dw-hint, .dw-panel .dw-luck-hint { text-align: center; }
 }
 `;
 
@@ -149,6 +149,17 @@ const STYLE = {
   sizeOpt: {
     fontSize: '1rem',
     textTransform: 'uppercase',
+  },
+  /*
+   * The selected luck rung's one-line explanation. A touch device has no hover,
+   * so the row's meaning has to be on the page rather than in a `title`; muted
+   * Roboto keeps it helper text rather than a fourth option.
+   */
+  luckBlurb: {
+    ...MENU_STYLE.caption,
+    marginTop: '0.1rem',
+    /* Matches optionRows, so the sentence wraps on the row's own width. */
+    maxWidth: '440px',
   },
   eyebrow: {
     fontFamily: 'Roboto, sans-serif',
@@ -268,9 +279,9 @@ const STYLE = {
 /**
  * @param {Object} props
  * @param {Object} props.store - GameStore, used to seed the setup controls (player count,
- *   map size, difficulty, bot lineup) from the last game's persisted config
+ *   map size, difficulty, luck, bot lineup) from the last game's persisted config
  * @param {string | null} [props.error] - Error message to display
- * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, difficulty: string, aiAssignments: (string | null)[] }) => void} props.onStart
+ * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, difficulty: string, aiAssignments: (string | null)[], luck: number }) => void} props.onStart
  * @param {(screenId: string) => void} [props.onNavigate] - Footer link row
  *   (Arena / Tournament / Leaderboard): called with the tapped screen id, as
  *   the mode rail's onNavigate is. Omitted only in isolated renders — App
@@ -298,6 +309,12 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
   const [difficulty, setDifficulty] = useState(
     () => store.getState().config.difficulty ?? 'standard'
   );
+  /*
+   * "Your luck" (#179) is a second axis, not a part of the preset: switching
+   * Easy↔Hard leaves it alone and vice-versa, so it gets its own state and its
+   * own seed from the store (Normal on first launch).
+   */
+  const [luck, setLuck] = useState(() => store.getState().config.luck ?? DEFAULT_LUCK);
   /*
    * Per-slot AI strategy IDs (index = player slot). Seeded from the store's
    * current assignments — the last game's persisted lineup (possibly truncated
@@ -351,16 +368,23 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
       spectator: false,
       mapSize,
       difficulty,
+      luck,
       aiAssignments: buildAssignments(),
     });
   };
 
+  /*
+   * The spectator payload carries `luck` too: there is no human seat to favour,
+   * so the controller drops the handicap, but the store still remembers the
+   * rung — an AI-vs-AI detour must not quietly reset the player's choice.
+   */
   const handleAIvsAI = () => {
     onStart({
       playerCount,
       spectator: true,
       mapSize,
       difficulty,
+      luck,
       aiAssignments: buildAssignments(),
     });
   };
@@ -438,6 +462,41 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
                   {mode.name}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="dw-eyebrow" style={STYLE.eyebrow}>
+              Your luck
+            </div>
+            <div
+              className="dw-rows"
+              role="group"
+              aria-label="Your luck"
+              aria-describedby="dw-luck-blurb"
+              style={STYLE.optionRows}
+            >
+              {LUCK_LEVELS.map(level => (
+                <button
+                  key={level.id}
+                  type="button"
+                  className="dw-opt"
+                  /* "Lucky luck" would be the natural `${name} luck` phrasing;
+                     the prefix form keeps the axis in the name without it. */
+                  aria-label={`Luck: ${level.name}`}
+                  aria-pressed={level.id === luck}
+                  style={STYLE.sizeOpt}
+                  onClick={() => setLuck(level.id)}
+                >
+                  {level.name}
+                </button>
+              ))}
+            </div>
+            {/* Its own class, not .dw-hint: that one is the page's single
+                happy-path caption above START (#182). Both centre on a narrow
+                viewport, per the rule in CSS above. */}
+            <div id="dw-luck-blurb" className="dw-luck-hint" style={STYLE.luckBlurb}>
+              {LUCK_LEVELS.find(level => level.id === luck)?.blurb}
             </div>
           </div>
 

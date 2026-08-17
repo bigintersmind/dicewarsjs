@@ -7,7 +7,8 @@
  * correctly from a truncated store), plus that both START and AI-vs-AI thread
  * the choices into onStart; and the landing page's hierarchy (#182): START the
  * one filled control, the happy-path caption, and the footer link row that
- * took over from the mode rail on this screen.
+ * took over from the mode rail on this screen; and the luck axis (#179), which
+ * has to stay independent of the difficulty presets.
  */
 
 import { h, render } from 'preact';
@@ -15,6 +16,7 @@ import { act } from 'preact/test-utils';
 import { TitleScreen } from '../../src/ui/TitleScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { lineupForMode } from '../../src/ai/difficultyModes.js';
+import { LUCK_LEVELS } from '../../src/utils/config.js';
 import {
   PLAYER_COLOR_NAMES,
   PLAYER_COLORS_CSS,
@@ -44,6 +46,7 @@ const startBtn = () =>
 const aiBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent === 'AI vs AI');
 const modeBtn = name => container.querySelector(`button[aria-label="${name} difficulty"]`);
+const luckBtn = name => container.querySelector(`button[aria-label="Luck: ${name}"]`);
 /*
  * Slots are labelled by player color now; `n` stays the 1-indexed player number.
  * Assumes the default palette — color-blind-mode tests query by name directly.
@@ -461,6 +464,107 @@ describe('TitleScreen', () => {
     });
   });
 
+  describe('your luck (#179)', () => {
+    it('renders the three rungs with Normal pre-selected', () => {
+      renderTitle();
+      for (const name of ['Normal', 'Lucky', 'Very lucky']) {
+        expect(luckBtn(name)).not.toBeNull();
+      }
+      expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('true');
+      expect(luckBtn('Lucky').getAttribute('aria-pressed')).toBe('false');
+      expect(luckBtn('Very lucky').getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it("shows the selected rung's explanation, and swaps it on selection", () => {
+      renderTitle();
+      const blurbOf = id => LUCK_LEVELS.find(level => level.id === id).blurb;
+
+      expect(container.textContent).toContain(blurbOf(0));
+      expect(container.textContent).not.toContain(blurbOf(1));
+
+      act(() => luckBtn('Lucky').click());
+
+      expect(luckBtn('Lucky').getAttribute('aria-pressed')).toBe('true');
+      expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('false');
+      // Visible copy, not a hover-only title: a touch device has no hover.
+      expect(container.textContent).toContain(blurbOf(1));
+      expect(container.textContent).not.toContain(blurbOf(0));
+    });
+
+    it('describes the row for screen readers via the caption', () => {
+      renderTitle();
+      const group = container.querySelector('[role="group"][aria-label="Your luck"]');
+      expect(group).not.toBeNull();
+      const describedBy = group.getAttribute('aria-describedby');
+      expect(container.querySelector(`#${describedBy}`).textContent).toBe(
+        LUCK_LEVELS.find(level => level.id === 0).blurb
+      );
+    });
+
+    it('threads the default (Normal) rung into onStart', () => {
+      const { onStart } = renderTitle();
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 0 }));
+    });
+
+    it('threads the chosen rung into onStart via START', () => {
+      const { onStart } = renderTitle();
+      act(() => luckBtn('Very lucky').click());
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 2, spectator: false }));
+    });
+
+    it('threads the chosen rung through the AI-vs-AI (spectator) path too', () => {
+      // The controller drops the handicap for a spectator game; the payload
+      // still carries the rung so the store remembers the player's choice.
+      const { onStart } = renderTitle();
+      act(() => luckBtn('Lucky').click());
+      act(() => aiBtn().click());
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 1, spectator: true }));
+    });
+
+    it('is a second axis: a difficulty preset never resets it, or vice-versa', () => {
+      const { onStart } = renderTitle();
+
+      act(() => luckBtn('Lucky').click());
+      act(() => modeBtn('Hard').click());
+      expect(luckBtn('Lucky').getAttribute('aria-pressed')).toBe('true');
+
+      // ...including Custom, which reveals the per-slot picker.
+      act(() => modeBtn('Custom').click());
+      expect(luckBtn('Lucky').getAttribute('aria-pressed')).toBe('true');
+
+      // And the reverse: picking a rung leaves the lineup axis alone.
+      act(() => luckBtn('Very lucky').click());
+      expect(modeBtn('Custom').getAttribute('aria-pressed')).toBe('true');
+
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({ luck: 2, difficulty: 'custom' })
+      );
+    });
+
+    it('seeds the rung from the persisted config (#180 round-trip)', () => {
+      const store = createGameStore({
+        config: { playerCount: 4, mapSize: 'medium', difficulty: 'hard', luck: 2 },
+      });
+      const { onStart } = renderTitle({ store });
+
+      expect(luckBtn('Very lucky').getAttribute('aria-pressed')).toBe('true');
+      expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('false');
+
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 2 }));
+    });
+
+    it('falls back to Normal when the config carries no rung', () => {
+      const { onStart } = renderTitle({ store: createGameStore({ config: {} }) });
+      expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('true');
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 0 }));
+    });
+  });
+
   describe('color-blind mode', () => {
     const cbStore = () => createGameStore({ preferences: { colorBlindMode: true } });
 
@@ -541,7 +645,7 @@ describe('TitleScreen', () => {
     it('labels the player-count group with an eyebrow like map size and difficulty', () => {
       renderTitle();
       const groupLabel = label => container.querySelector(`[role="group"][aria-label="${label}"]`);
-      ['Players', 'Map size', 'Difficulty'].forEach(label => {
+      ['Players', 'Map size', 'Difficulty', 'Your luck'].forEach(label => {
         const prev = groupLabel(label).previousElementSibling;
         expect(prev.textContent).toBe(label);
         // Same reason as the caption: `.dw-eyebrow` feeds the ≤760px centering rule.

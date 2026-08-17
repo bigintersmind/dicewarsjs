@@ -59,6 +59,20 @@ describe('TitleAttractMode', () => {
     mode.destroy();
   });
 
+  it('never handicaps the decorative board (#179)', async () => {
+    // The attract game is bot-vs-bot with no human seat, so it must be created
+    // exactly like a competitive one: handicap off. A luck rung sitting in the
+    // store (the player's title-screen choice) must not leak onto it.
+    const renderer = makeRenderer();
+    const store = createGameStore({ config: { luck: 2 } });
+    const mode = createTitleAttractMode({ store, renderer });
+
+    await mode.start();
+
+    expect(renderer.drawMap.mock.calls[0][0].config.handicap).toBeNull();
+    mode.destroy();
+  });
+
   it('advances the background game on each timer step', async () => {
     const renderer = makeRenderer();
     const mode = createTitleAttractMode({ store: createGameStore(), renderer });

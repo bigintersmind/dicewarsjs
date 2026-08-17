@@ -103,7 +103,13 @@ vi.mock('../../src/arena/modernBotAdapter.js', () => ({
   }),
 }));
 
-vi.mock('../../src/utils/config.js', () => ({
+vi.mock('../../src/utils/config.js', async importOriginal => ({
+  /*
+   * Only resolveMapSize is stubbed. The luck ladder (LUCK_LEVELS / DEFAULT_LUCK
+   * / luckToHandicap) stays real: it is the mapping under test here — a stub
+   * would let the controller pass the engine a shape the real one never emits.
+   */
+  ...(await importOriginal()),
   // Mirror the real preset table so assertions on dimensions are meaningful.
   resolveMapSize: vi.fn(size => {
     const presets = {
@@ -586,6 +592,96 @@ describe('GameController', () => {
       store.setState({ config: { ...store.getState().config, difficulty: 'easy' } });
       await controller.startNewGame({ playerCount: 2, spectator: false });
       expect(store.getState().config.difficulty).toBe('easy');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * luck handicap (#179)
+   * -----------------------------------------------------------------------
+   */
+
+  describe('luck handicap', () => {
+    it('passes no handicap at the default (Normal) rung', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false, luck: 0 });
+
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ handicap: null }));
+    });
+
+    it('passes no handicap when the caller omits luck entirely', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ handicap: null }));
+      expect(store.getState().config.luck).toBe(0);
+    });
+
+    it('hands the engine the human seat and the chosen level for each lucky rung', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      for (const level of [1, 2]) {
+        createGame.mockClear();
+        await controller.startNewGame({ playerCount: 2, spectator: false, luck: level });
+        expect(createGame).toHaveBeenCalledWith(
+          expect.objectContaining({ handicap: { playerId: 0, level } })
+        );
+      }
+    });
+
+    it('persists the chosen rung in store config', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false, luck: 2 });
+      expect(store.getState().config.luck).toBe(2);
+    });
+
+    it('keeps the stored rung when the caller omits it', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+      store.setState({ config: { ...store.getState().config, luck: 1 } });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(createGame).toHaveBeenCalledWith(
+        expect.objectContaining({ handicap: { playerId: 0, level: 1 } })
+      );
+      expect(store.getState().config.luck).toBe(1);
+    });
+
+    it('forces the handicap off in spectator mode, but remembers the choice', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: true, luck: 2 });
+
+      // No human seat to favour — an AI-vs-AI board is never handicapped.
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ handicap: null }));
+      expect(store.getState().humanPlayerIndex).toBeNull();
+      // ...but the title screen gets the rung back on the next visit.
+      expect(store.getState().config.luck).toBe(2);
+    });
+
+    it('rejectMap regenerates with the same handicap (NEW MAP is not a reset)', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false, luck: 1 });
+      createGame.mockClear();
+
+      await controller.rejectMap();
+
+      expect(createGame).toHaveBeenCalledWith(
+        expect.objectContaining({ handicap: { playerId: 0, level: 1 } })
+      );
+    });
+
+    it('rejectMap keeps a spectator board unhandicapped', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: true, luck: 2 });
+      createGame.mockClear();
+
+      await controller.rejectMap();
+
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ handicap: null }));
     });
   });
 
@@ -1627,6 +1723,52 @@ describe('GameController', () => {
       await controller.endHumanTurn();
 
       expect(store.getState().currentReplay.metadata.bots).toEqual(['Player 1', 'Player 2']);
+    });
+
+    /*
+     * The replay is rebuilt by re-running the actions through createGame, so a
+     * handicap missing from its config would replay the game with different
+     * dice — the failure mode dicePerArea already has a pin for. The mocked
+     * engine doesn't copy config onto the state, so these mirror what the
+     * controller handed createGame and check it survives the replay whitelist.
+     */
+    it("records the game's luck handicap in the replay (#179)", async () => {
+      const { createGame, applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false, luck: 2 });
+      controller.acceptMap();
+      const engineConfig = createGame.mock.calls.at(-1)[0];
+
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          return { ...state, phase: 'gameOver', winner: 0, config: engineConfig };
+        }
+        return state;
+      });
+
+      await controller.endHumanTurn();
+
+      expect(engineConfig.handicap).toEqual({ playerId: 0, level: 2 });
+      expect(store.getState().currentReplay.config.handicap).toEqual({ playerId: 0, level: 2 });
+    });
+
+    it('records a null handicap for an ordinary (Normal) game (#179)', async () => {
+      const { createGame, applyAction } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      const engineConfig = createGame.mock.calls.at(-1)[0];
+
+      applyAction.mockImplementationOnce((state, action) => {
+        if (action.type === 'END_TURN') {
+          return { ...state, phase: 'gameOver', winner: 0, config: engineConfig };
+        }
+        return state;
+      });
+
+      await controller.endHumanTurn();
+
+      expect(store.getState().currentReplay.config.handicap).toBeNull();
     });
 
     it('transitions to gameOver screen when endTurn results in game over', async () => {

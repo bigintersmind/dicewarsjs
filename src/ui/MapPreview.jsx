@@ -19,6 +19,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 import { CHROME_CSS, MENU_STYLE } from './menuChrome.jsx';
 import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
+import { LUCK_LEVELS } from '../utils/config.js';
 
 const STYLE = {
   /*
@@ -89,15 +90,25 @@ const difficultyLabel = difficulty =>
   DIFFICULTY_MODES[difficulty]?.name.toLowerCase() ?? (difficulty === 'custom' ? 'custom' : null);
 
 /**
- * "7 players · medium map · hard" — what ← BACK takes you to change. Rendered
- * uppercase by the eyebrow style, so it's authored in plain case for screen
- * readers.
+ * "lucky" / "very lucky" (#179) — the rung's own name. Normal is the default
+ * and says nothing about this game, so it (and any unknown rung) is left out.
+ */
+const luckLabel = luck => {
+  const level = luck >= 1 ? LUCK_LEVELS.find(entry => entry.id === luck) : null;
+  return level ? level.name.toLowerCase() : null;
+};
+
+/**
+ * "7 players · medium map · hard · lucky" — what ← BACK takes you to change.
+ * Rendered uppercase by the eyebrow style, so it's authored in plain case for
+ * screen readers.
  */
 export function describeSetup(config = {}) {
   const parts = [
     Number.isInteger(config.playerCount) ? `${config.playerCount} players` : null,
     mapSizeLabel(config.mapSize),
     difficultyLabel(config.difficulty),
+    luckLabel(config.luck),
   ].filter(Boolean);
   return parts.join(' · ');
 }

@@ -21,7 +21,7 @@ import { createReplayFromState } from '../arena/replayFormat.js';
 import { getCommunityBotList, loadCommunityBot } from '../arena/communityBots.js';
 import { adaptModernBot } from '../arena/modernBotAdapter.js';
 import { HUMAN_PLAYER_NAME, playerName } from '../store/GameStore.js';
-import { resolveMapSize } from '../utils/config.js';
+import { resolveMapSize, luckToHandicap, DEFAULT_LUCK } from '../utils/config.js';
 
 /** Prefix marking a per-slot assignment id as a curated community bot. */
 const COMMUNITY_PREFIX = 'community:';
@@ -244,6 +244,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *   | 'hard' | 'custom') the lineup came from. Persisted so the title screen
    *   restores the selection on the next visit (and derives preset lineups from
    *   it); the controller itself only consumes aiAssignments.
+   * @param {number} [config.luck] - "Your luck" rung (#179): 0 = Normal, 1 = Lucky,
+   *   2 = Very lucky. Persisted like mapSize, and turned into the engine's
+   *   `config.handicap` for the human seat. Forced off in spectator mode.
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
@@ -279,12 +282,29 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const difficulty = config.difficulty ?? store.getState().config.difficulty;
 
     /*
-     * Update store config. Persist mapSize so a later rejectMap() regenerates
-     * at the same size the player chose.
+     * "Your luck" rung (#179). Stored as the player picked it even in spectator
+     * mode — the choice belongs to the title screen and must survive an AI-vs-AI
+     * detour — but the handicap itself is derived from humanPlayerIndex, which is
+     * null when nobody is playing, so a spectator game is unhandicapped.
+     */
+    const luck = config.luck ?? store.getState().config.luck ?? DEFAULT_LUCK;
+    const humanPlayerIndex = spectator ? null : 0;
+    const handicap = luckToHandicap(luck, humanPlayerIndex);
+
+    /*
+     * Update store config. Persist mapSize and luck so a later rejectMap()
+     * regenerates at the same size, and with the same dice, the player chose.
      */
     store.setState({
-      config: { ...store.getState().config, playerCount, mapSize, aiAssignments, difficulty },
-      humanPlayerIndex: spectator ? null : 0,
+      config: {
+        ...store.getState().config,
+        playerCount,
+        mapSize,
+        aiAssignments,
+        difficulty,
+        luck,
+      },
+      humanPlayerIndex,
     });
 
     try {
@@ -296,6 +316,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       const gameState = createGame({
         playerCount,
         ...resolveMapSize(mapSize),
+        handicap,
       });
 
       store.setState({
@@ -349,12 +370,22 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const storeState = store.getState();
     const playerCount = storeState.config.playerCount;
     const mapSize = storeState.config.mapSize;
+    /*
+     * NEW MAP re-rolls the board, not the setup: the handicap has to be rebuilt
+     * from the same stored luck rung and human seat, or the player's luck would
+     * silently switch off the moment they rejected a map.
+     */
+    const handicap = luckToHandicap(
+      storeState.config.luck ?? DEFAULT_LUCK,
+      storeState.humanPlayerIndex
+    );
 
     let gameState;
     try {
       gameState = createGame({
         playerCount,
         ...resolveMapSize(mapSize),
+        handicap,
       });
     } catch (err) {
       console.error('Failed to regenerate map:', err);

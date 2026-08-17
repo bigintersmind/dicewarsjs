@@ -9,6 +9,7 @@
  */
 
 import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
+import { DEFAULT_LUCK } from '../utils/config.js';
 
 /** @typedef {'title' | 'mapPreview' | 'playing' | 'gameOver' | 'arena' | 'tournament' | 'replay' | 'onlineLeaderboard'} Screen */
 /** @typedef {'idle' | 'battle'} AnimationPhase */
@@ -49,7 +50,8 @@ import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
  *   opponent has an identity rather than a seat number; the visual labels lean
  *   on the seat color to tell two Conquerors apart, and the screen-reader
  *   announcer, which has no color, speaks the seat number for a repeated name.
- * @property {Object} config
+ * @property {Object} config - Per-game setup carried between the title screen and
+ *   the controller: { playerCount, mapSize, difficulty, aiAssignments, luck }.
  * @property {Object | null} currentReplay
  */
 
@@ -92,6 +94,14 @@ const DEFAULT_STATE = {
      */
     difficulty: 'standard',
     aiAssignments: [...DIFFICULTY_MODES.standard.lineup],
+    /*
+     * "Your luck" rung (#179): the second, orthogonal difficulty axis — the
+     * human seat rolls `luck` extra dice and drops the lowest, attacking and
+     * defending. 0 = Normal (off, the default). LUCK_LEVELS in
+     * src/utils/config.js owns the ladder; the controller turns it into the
+     * engine's `config.handicap` and forces it off for spectator games.
+     */
+    luck: DEFAULT_LUCK,
   },
 };
 

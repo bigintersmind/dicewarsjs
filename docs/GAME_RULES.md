@@ -54,11 +54,13 @@ An optional, off-by-default difficulty aid for one seat — a second axis next t
 
 At handicap level `k`, the handicapped player rolls `n + k` dice wherever they would normally roll `n`, then **drops the `k` lowest** and keeps the rest. It applies to **both** attacking and defending, and only to the configured seat — every other player rolls normally. Everything else is unchanged: the kept dice are the real faces shown by the battle animation and they sum to the displayed total, and **ties still go to the defender**.
 
-Levels: `0` = "Normal" (no handicap), `1` = "Lucky", `2` = "Very lucky".
+Two vocabularies, one axis. The title screen offers three **rungs** — `0` = "Normal", `1` = "Lucky", `2` = "Very lucky". Rung `0` means _no handicap at all_: it resolves to `handicap: null`, not to a level. The engine's `level` is therefore always `1` or `2` here, and at most `MAX_HANDICAP_LEVEL` (8, the max dice on a territory — more extra dice than a full stack has no meaning).
 
 At level 1 an even 3-dice-vs-3-dice attack goes from a 45.4% to a 62.2% win for a lucky attacker; a lucky defender drops the attacker's odds to 29.2%. The effect holds at every stack size, unlike a flat bonus.
 
 The handicap is part of the game config (`handicap: { playerId, level } | null`), so it is recorded in replays and reproduces exactly on replay. It is always `null` on the arena, tournament and leaderboard surfaces — bot-vs-bot ratings are never handicapped.
+
+The bots do not know about it. Every AI that reasons about odds (`ai_strategist`, `ai_lookahead`, the self-play personas) models the **fair** distribution, and the observation the ML bots see has no handicap feature — so a lucky player is fighting opponents that consistently under-rate their attacks and over-rate their own.
 
 ## Key Numbers
 

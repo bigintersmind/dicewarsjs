@@ -683,6 +683,67 @@ describe('GameController', () => {
 
       expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ handicap: null }));
     });
+
+    it('round-trips the rung through a title detour (#180)', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false, luck: 2 });
+      controller.goToTitle();
+      expect(store.getState().config.luck).toBe(2);
+    });
+
+    /*
+     * A rung off the ladder makes luckToHandicap throw. That has to surface on
+     * the store's error path like every other start failure: START discards
+     * startNewGame's promise, so an escaping rejection would just look like a
+     * dead button, with the banner already cleared by the reset at the top.
+     */
+    describe('a rung that is not on the ladder', () => {
+      let errorSpy;
+      beforeEach(() => {
+        errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      });
+      afterEach(() => {
+        errorSpy.mockRestore();
+      });
+
+      it('startNewGame resolves, shows an error, and starts nothing', async () => {
+        const { createGame } = await import('../../src/engine/index.js');
+        createGame.mockClear();
+
+        await expect(
+          controller.startNewGame({ playerCount: 2, spectator: false, luck: 9 })
+        ).resolves.toBeUndefined();
+
+        const state = store.getState();
+        expect(state.error).toMatch(/luck/i);
+        expect(state.screen).toBe('title');
+        expect(createGame).not.toHaveBeenCalled();
+        // ...and the bad rung is never persisted.
+        expect(state.config.luck).toBe(0);
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('[GameController]'),
+          expect.any(Error)
+        );
+      });
+
+      it('rejectMap resolves, shows an error, and regenerates nothing', async () => {
+        const { createGame } = await import('../../src/engine/index.js');
+        await controller.startNewGame({ playerCount: 2, spectator: false, luck: 1 });
+        store.setState({ config: { ...store.getState().config, luck: 9 } });
+        createGame.mockClear();
+
+        await expect(controller.rejectMap()).resolves.toBeUndefined();
+
+        const state = store.getState();
+        expect(state.error).toMatch(/luck/i);
+        expect(state.screen).toBe('title');
+        expect(createGame).not.toHaveBeenCalled();
+        expect(state.config.luck).toBe(9);
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('[GameController]'),
+          expect.any(Error)
+        );
+      });
+    });
   });
 
   /*

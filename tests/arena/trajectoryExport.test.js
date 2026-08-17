@@ -551,4 +551,22 @@ describe('deserializeTrajectory reward-label & config validation (boundary harde
     const bad = { ...record, config: { ...record.config, maxAreas: 0 } };
     expect(() => deserializeTrajectory(serializeTrajectory(bad))).toThrow(/maxAreas/);
   });
+
+  /*
+   * A handicapped game (issue #179) is not training data: the encoder has no
+   * handicap feature, so the net would be fitted on battle odds it cannot see.
+   * runMatch refuses to play one, so this can only arrive from a hand-written or
+   * corrupted corpus — the reader is the last place to catch it.
+   */
+  it('rejects a handicapped record, and still accepts an explicit handicap: null', () => {
+    const record = buildRecord();
+    const handicapped = {
+      ...record,
+      config: { ...record.config, handicap: { playerId: 0, level: 1 } },
+    };
+    expect(() => deserializeTrajectory(serializeTrajectory(handicapped))).toThrow(/handicap/);
+
+    const unhandicapped = { ...record, config: { ...record.config, handicap: null } };
+    expect(() => deserializeTrajectory(serializeTrajectory(unhandicapped))).not.toThrow();
+  });
 });

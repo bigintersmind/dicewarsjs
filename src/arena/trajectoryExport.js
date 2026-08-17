@@ -375,6 +375,19 @@ export function deserializeTrajectory(line) {
       );
     }
   }
+  /*
+   * A luck handicap (issue #179) makes the record unusable as training data: the
+   * observation encoder has no handicap feature, so the net cannot see the
+   * changed odds and would learn a battle model that is simply wrong for the
+   * games it was fitted on. runMatch refuses to play one at all, so this can
+   * only reach the reader from a hand-written or corrupted corpus — reject it
+   * here rather than let it re-derive silently through createGame.
+   */
+  if (record.config.handicap != null) {
+    throw new Error(
+      `Invalid trajectory data: handicapped games are not valid training data — the encoder has no handicap feature, so the net cannot see the changed odds (got ${JSON.stringify(record.config.handicap)})`
+    );
+  }
 
   /*
    * Validate the terminal reward labels — the fields that make this a *trajectory* rather

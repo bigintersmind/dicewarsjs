@@ -43,6 +43,12 @@ export function rollDice(count, rng) {
  * the animation stable; ties among the lowest values drop the earliest-rolled
  * die first, so the split is deterministic for any input.
  *
+ * `dropped` is part of the return even though nothing renders it today: it is the
+ * only record of what the handicap actually bought, and the battle animation may
+ * show the dropped die falling away (an open question on issue #179). Computing
+ * it here is free — the split already exists — and it is what the odds-calibration
+ * tests assert the drop rule against.
+ *
  * @param {number} count     - Number of dice to keep (must be an integer >= 1)
  * @param {number} advantage - Number of extra dice to roll and drop (integer >= 0)
  * @param {Object} rng       - Seeded RNG instance (from createRng)
@@ -57,7 +63,11 @@ export function rollAdvantage(count, advantage, rng) {
     throw new RangeError(`rollAdvantage: advantage must be an integer >= 0, got ${advantage}`);
   }
 
-  // Fast path: no handicap → identical values, total and RNG consumption as rollDice.
+  /*
+   * Allocation fast path: with advantage 0 the general path below would yield
+   * the same values, the same total and the same number of draws — this just
+   * skips the index sort and its scratch arrays.
+   */
   if (advantage === 0) {
     const { values, total } = rollDice(count, rng);
     return { values, total, dropped: [] };
@@ -69,9 +79,9 @@ export function rollAdvantage(count, advantage, rng) {
   }
 
   /*
-   * Pick the `advantage` lowest dice to drop. Sorting indices (value asc, then
-   * index asc) makes the tie-break explicit and deterministic, and lets both
-   * output arrays stay in original roll order.
+   * Pick the `advantage` lowest dice to drop: sort the *indices* (value asc,
+   * then index asc) and mark the first `advantage` of them, which leaves both
+   * output arrays in original roll order.
    */
   const order = rolled.map((_, i) => i);
   order.sort((a, b) => rolled[a] - rolled[b] || a - b);
@@ -101,7 +111,7 @@ export function rollAdvantage(count, advantage, rng) {
  * @param {number} attackerDice - Number of attacker dice (1-8)
  * @param {number} defenderDice - Number of defender dice (1-8)
  * @param {Object} rng          - Seeded RNG instance
- * @param {Object} [options]    - Luck handicap (issue #179); omit for an even fight
+ * @param {Object|null} [options] - Luck handicap (issue #179); omit or pass null for an even fight
  * @param {number} [options.attackerAdvantage=0] - Extra dice the attacker rolls and drops
  * @param {number} [options.defenderAdvantage=0] - Extra dice the defender rolls and drops
  * @returns {import('./types.js').BattleResult}
@@ -112,7 +122,13 @@ export function resolveBattle(attackerDice, defenderDice, rng, options = {}) {
       `resolveBattle: dice counts must be positive, got attacker=${attackerDice}, defender=${defenderDice}`
     );
   }
-  const { attackerAdvantage = 0, defenderAdvantage = 0 } = options;
+  /*
+   * `= {}` only covers an omitted/undefined argument; `?? {}` also covers an
+   * explicit null, which callers that thread an optional options object through
+   * do pass — destructuring that would throw an opaque TypeError instead of
+   * simply meaning "no handicap".
+   */
+  const { attackerAdvantage = 0, defenderAdvantage = 0 } = options ?? {};
   const attackerRoll = rollAdvantage(attackerDice, attackerAdvantage, rng);
   const defenderRoll = rollAdvantage(defenderDice, defenderAdvantage, rng);
   return {

@@ -205,6 +205,11 @@ describe('getReplayLength', () => {
 });
 
 describe('replay version + luck handicap (issue #179)', () => {
+  /*
+   * The one tripwire that spells the numbers out: everything else below derives
+   * from these constants, so a bump is a deliberate edit here (plus the docblock
+   * in replayFormat.js) rather than a silent sweep through the suite.
+   */
   it('writes version 2 and reads versions 1 and 2', () => {
     expect(REPLAY_VERSION).toBe(2);
     expect([...SUPPORTED_REPLAY_VERSIONS]).toEqual([1, 2]);
@@ -236,7 +241,7 @@ describe('replay version + luck handicap (issue #179)', () => {
     expect(replay.config.handicap).toEqual(handicap);
 
     const decoded = deserializeReplay(serializeReplay(replay));
-    expect(decoded.version).toBe(2);
+    expect(decoded.version).toBe(REPLAY_VERSION);
     expect(decoded.config.handicap).toEqual(handicap);
 
     // ...and the rehydrated game actually rolls with the handicap again.
@@ -302,9 +307,22 @@ describe('replay version + luck handicap (issue #179)', () => {
   });
 
   it('rejects a version beyond the supported set', () => {
-    const replay = { version: 3, config: {}, actions: [], metadata: {} };
+    const replay = {
+      version: Math.max(...SUPPORTED_REPLAY_VERSIONS) + 1,
+      config: {},
+      actions: [],
+      metadata: {},
+    };
     expect(() => deserializeReplay(btoa(JSON.stringify(replay)))).toThrow(
       /Unsupported replay version/
+    );
+  });
+
+  // The check is `includes`, so a stringified version fails it — and the message says so.
+  it('names a string version as a string, not a number that would have passed', () => {
+    const replay = { version: String(REPLAY_VERSION), config: {}, actions: [], metadata: {} };
+    expect(() => deserializeReplay(btoa(JSON.stringify(replay)))).toThrow(
+      new RegExp(`Unsupported replay version: "${REPLAY_VERSION}"`)
     );
   });
 });

@@ -18,6 +18,7 @@ import {
   DEFAULT_YMAX,
   DEFAULT_AREA_MAX,
   DEFAULT_DICE_PER_AREA,
+  MAX_HANDICAP_LEVEL,
   ACTION_TYPES,
   GAME_PHASES,
 } from './constants.js';
@@ -28,17 +29,24 @@ import {
  * Shape: `{ playerId: number, level: number } | null`. `null`/absent means "off"
  * — the default everywhere, so competitive surfaces (arena, tournament,
  * leaderboard) are provably unhandicapped by construction. Anything else is
- * rejected at this boundary rather than silently ignored: an unvalidated
- * handicap would either be dropped by the config whitelist (a setting that
- * appears to apply but doesn't) or reach `rollAdvantage` deep inside the battle
- * reducer, where the error is far from its cause.
+ * rejected at this boundary rather than silently ignored. The silent failure
+ * mode this prevents is a handicap that *looks* applied but never fires: the
+ * battle reducer only boosts a side when `handicap.playerId` equals the seat
+ * taking (or defending) the attack, so an out-of-range seat plays a completely
+ * ordinary game while `state.config` advertises a handicap. An out-of-range
+ * `level` fails the other way — it reaches `rollAdvantage` deep inside the
+ * reducer, where the error is far from its cause (and `level: 1e9`, e.g. from a
+ * hand-edited replay, stalls there rather than erroring at all).
  *
- * Returns a fresh object so a caller can't mutate engine config mid-game and
- * desync a replay.
+ * Returns a fresh, frozen object: the copy means later mutation of the caller's
+ * input object can't change the running game's config, and the freeze means the
+ * stored handicap can't be edited through `gameState.config` either. Together
+ * they keep the config a replay is re-derived from equal to the one the game was
+ * actually played with.
  *
  * @param {unknown} handicap
  * @param {number} playerCount - Resolved player count; playerId must be a valid seat
- * @returns {{playerId: number, level: number}|null}
+ * @returns {Readonly<{playerId: number, level: number}>|null}
  */
 function validateHandicap(handicap, playerCount) {
   if (handicap == null) return null;
@@ -58,7 +66,12 @@ function validateHandicap(handicap, playerCount) {
       `createGame: config.handicap.level must be an integer >= 1 (use null for no handicap), got ${level}`
     );
   }
-  return { playerId, level };
+  if (level > MAX_HANDICAP_LEVEL) {
+    throw new Error(
+      `createGame: config.handicap.level must be <= MAX_HANDICAP_LEVEL (${MAX_HANDICAP_LEVEL}), got ${level}`
+    );
+  }
+  return Object.freeze({ playerId, level });
 }
 
 /**

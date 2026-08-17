@@ -7,7 +7,12 @@
 export { createRng } from './rng.js';
 export * from './constants.js';
 export { createHexGrid, getNeighbor } from './HexGrid.js';
-export { rollDice, resolveBattle, calculateAttackProbability } from './BattleResolver.js';
+export {
+  rollDice,
+  rollAdvantage,
+  resolveBattle,
+  calculateAttackProbability,
+} from './BattleResolver.js';
 export {
   createTurnOrder,
   findLargestConnectedGroup,

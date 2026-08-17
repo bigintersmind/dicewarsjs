@@ -90,11 +90,20 @@ const difficultyLabel = difficulty =>
   DIFFICULTY_MODES[difficulty]?.name.toLowerCase() ?? (difficulty === 'custom' ? 'custom' : null);
 
 /**
- * "lucky" / "very lucky" (#179) — the rung's own name. Normal is the default
- * and says nothing about this game, so it (and any unknown rung) is left out.
+ * "lucky" / "very lucky" (#179) — the name of the rung the *engine* is playing,
+ * read off the game's own `config.handicap`, not the remembered preference.
+ *
+ * They differ: the controller stores the picked rung even for an AI-vs-AI game,
+ * which has no human seat and so derives `handicap: null`. Reading the store's
+ * `config.luck` there would label a spectator board "very lucky". A null
+ * handicap (and a level that isn't on the ladder) is left out, the same way the
+ * sibling labels omit what they can't name.
+ *
+ * @param {{ level: number } | null} [handicap] - GameState.config.handicap
  */
-const luckLabel = luck => {
-  const level = luck >= 1 ? LUCK_LEVELS.find(entry => entry.id === luck) : null;
+const luckLabel = handicap => {
+  const level =
+    handicap?.level >= 1 ? LUCK_LEVELS.find(entry => entry.id === handicap.level) : null;
   return level ? level.name.toLowerCase() : null;
 };
 
@@ -102,13 +111,19 @@ const luckLabel = luck => {
  * "7 players · medium map · hard · lucky" — what ← BACK takes you to change.
  * Rendered uppercase by the eyebrow style, so it's authored in plain case for
  * screen readers.
+ *
+ * The luck part comes from the engine's resolved handicap rather than `config`,
+ * so a printed rung always describes *this game* (see luckLabel).
+ *
+ * @param {Object} [config] - StoreState.config (players, map size, difficulty)
+ * @param {{ level: number } | null} [handicap] - GameState.config.handicap
  */
-export function describeSetup(config = {}) {
+export function describeSetup(config = {}, handicap = null) {
   const parts = [
     Number.isInteger(config.playerCount) ? `${config.playerCount} players` : null,
     mapSizeLabel(config.mapSize),
     difficultyLabel(config.difficulty),
-    luckLabel(config.luck),
+    luckLabel(handicap),
   ].filter(Boolean);
   return parts.join(' · ');
 }
@@ -124,6 +139,8 @@ export function describeSetup(config = {}) {
 export function MapPreview({ store, onAccept, onReject, onBack }) {
   const warnings = useGameStore(store, s => s.aiLoadWarnings);
   const config = useGameStore(store, s => s.config);
+  // The engine's own resolved handicap — the game being previewed, not the remembered pick.
+  const handicap = useGameStore(store, s => s.gameState?.config?.handicap ?? null);
   const playRef = useRef(null);
 
   /*
@@ -157,7 +174,7 @@ export function MapPreview({ store, onAccept, onReject, onBack }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [onBack]);
 
-  const setup = describeSetup(config);
+  const setup = describeSetup(config, handicap);
 
   return (
     <div style={STYLE.dock}>

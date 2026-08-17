@@ -3,10 +3,7 @@
  *
  * Two tables live here, both picked on the title screen and both resolved by
  * the controller into engine config: the map-size presets (`resolveMapSize`)
- * and the luck ladder (`luckToHandicap`, issue #179). The earlier
- * CreateJS/Webpack-era config plumbing (DEFAULT_CONFIG, getConfig/updateConfig/
- * loadConfig/resetConfig/applyConfigToGame, and the `window.*` globals) has
- * been removed — it had no remaining consumers.
+ * and the luck ladder (`luckToHandicap`, issue #179).
  */
 
 /**
@@ -60,9 +57,16 @@ export function resolveMapSize(size) {
  * beside the Easy/Standard/Hard bot lineups.
  *
  * At level `k` the player's seat rolls `k` extra dice and drops the `k` lowest,
- * attacking *and* defending (see docs/GAME_RULES.md, "Luck handicap"). The ids
- * are the engine's `handicap.level` values, so this table is the whole ladder:
- * a new rung is a new entry here plus its blurb, nothing else.
+ * attacking *and* defending (see docs/GAME_RULES.md, "Luck handicap").
+ *
+ * Rung ids >= 1 are also the engine's `handicap.level` values (capped by
+ * MAX_HANDICAP_LEVEL); rung 0 is UI-only — it means "no handicap", which the
+ * engine spells `handicap: null` and rejects as a level. `luckToHandicap` owns
+ * that translation.
+ *
+ * This table is the ladder itself, but it is not the only place a rung is
+ * named: README.md, CLAUDE.md and docs/GAME_RULES.md enumerate the rungs too,
+ * so adding one means updating them alongside this entry and its blurb.
  */
 export const LUCK_LEVELS = [
   { id: 0, name: 'Normal', blurb: 'Fair dice — everyone rolls the same.' },
@@ -86,23 +90,33 @@ export const DEFAULT_LUCK = 0;
  * the player-facing axis becomes `{ playerId, level }`.
  *
  * Returns `null` (handicap off) for the Normal rung and for a seatless game:
- * `playerId` is the store's `humanPlayerIndex`, which is `null` in spectator
- * (AI vs AI) mode, where there is no human seat to favour.
+ * `playerId` is the store's `humanPlayerIndex`, and `null` is its documented
+ * spectator (AI vs AI) sentinel — there is no human seat to favour.
  *
- * Unlike `resolveMapSize`, an unknown rung throws rather than falling back: the
- * value changes how battles resolve and is recorded in the replay, so silently
+ * Unlike `resolveMapSize`, bad input throws rather than falling back. An unknown
+ * rung changes how battles resolve and is recorded in the replay, so silently
  * substituting a different one would ship a game that isn't the one the player
- * picked. (`createGame` rejects a malformed handicap for the same reason.)
+ * picked. A `playerId` that is neither `null` nor a seat index is a caller bug:
+ * treating it as "no seat" would quietly play an unhandicapped game after the
+ * player asked for luck, and passing it through would surface far away, inside
+ * `createGame`. (`createGame` rejects a malformed handicap for the same reason.)
  *
  * @param {number} luck - Rung id from LUCK_LEVELS
  * @param {number | null} playerId - Seat to favour (the human's), or null for none
  * @returns {{ playerId: number, level: number } | null}
+ * @throws {Error} On a rung off the ladder, or a playerId that is not null or a seat index
  */
 export function luckToHandicap(luck, playerId) {
   if (!LUCK_LEVELS.some(level => level.id === luck)) {
     const ids = LUCK_LEVELS.map(level => level.id).join(', ');
     throw new Error(`luckToHandicap: unknown luck level ${JSON.stringify(luck)} (expected ${ids})`);
   }
-  if (luck < 1 || typeof playerId !== 'number') return null;
+  if (playerId === null) return null;
+  if (!Number.isInteger(playerId) || playerId < 0) {
+    throw new Error(
+      `luckToHandicap: playerId must be null (no human seat) or a non-negative integer seat index, got ${JSON.stringify(playerId)}`
+    );
+  }
+  if (luck < 1) return null;
   return { playerId, level: luck };
 }

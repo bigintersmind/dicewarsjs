@@ -7,7 +7,7 @@
  * @module arena/tournament
  */
 
-import { runMatch } from './matchRunner.js';
+import { runMatch, assertNoHandicap } from './matchRunner.js';
 import { updateEloRatings, DEFAULT_RATING } from './elo.js';
 import { reportBotErrors } from './botErrorReport.js';
 
@@ -64,6 +64,7 @@ import { reportBotErrors } from './botErrorReport.js';
  * @param {number} [config.maxTurns=500]
  * @param {Function} [config.onMatchComplete] - (roundIndex, matchIndex, result)
  * @returns {TournamentResult}
+ * @throws {Error} If `config.handicap` is set — tournament standings are always unhandicapped.
  */
 export function runRoundRobin(config) {
   const {
@@ -74,6 +75,8 @@ export function runRoundRobin(config) {
     maxTurns = 500,
     onMatchComplete,
   } = config;
+
+  assertNoHandicap(config, 'runRoundRobin');
 
   const botNames = new Set(bots.map(b => b.name));
   if (botNames.size !== bots.length) {
@@ -200,9 +203,12 @@ export function runRoundRobin(config) {
  * @param {number} [config.maxTurns=500]
  * @param {Function} [config.onMatchComplete]
  * @returns {TournamentResult}
+ * @throws {Error} If `config.handicap` is set — tournament standings are always unhandicapped.
  */
 export function runSingleElimination(config) {
   const { bots, gamesPerRound = 3, baseSeed = 1, maxTurns = 500, onMatchComplete } = config;
+
+  assertNoHandicap(config, 'runSingleElimination');
 
   const botNames = new Set(bots.map(b => b.name));
   if (botNames.size !== bots.length) {

@@ -18,6 +18,17 @@ export const DEFAULT_AREA_MAX = 32;
 /** Maximum dice per territory */
 export const MAX_DICE = 8;
 
+/**
+ * Maximum luck-handicap level (issue #179) — the ceiling `createGame` enforces
+ * on `config.handicap.level`.
+ *
+ * Set to MAX_DICE: the handicapped seat rolls `n + level` dice and drops the
+ * `level` lowest, so more extra dice than a full stack holds has no meaning. It
+ * is also the guard that keeps an untrusted record (a replay JSON claiming
+ * `level: 1e9`) from stalling the battle reducer in `rollAdvantage`.
+ */
+export const MAX_HANDICAP_LEVEL = MAX_DICE;
+
 /** Maximum reinforcement stock a player can hold */
 export const STOCK_MAX = 64;
 

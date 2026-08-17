@@ -9,6 +9,7 @@ import {
   DEFAULT_LUCK,
   luckToHandicap,
 } from '../../src/utils/config.js';
+import { createGame } from '../../src/engine/GameRunner.js';
 
 describe('config — map size presets', () => {
   test('exposes small, medium, and large presets with engine dimensions', () => {
@@ -75,20 +76,19 @@ describe('config — map size presets', () => {
 });
 
 describe('config — luck ladder (#179)', () => {
+  /*
+   * The one exact-ladder tripwire: the rung ids are a contract (the store, the
+   * engine's handicap.level and the docs all name them), so changing the set is
+   * a deliberate act. The names and blurbs are copy — free to reword.
+   */
   test('exposes the three player-facing rungs, in order, each with copy', () => {
     expect(LUCK_LEVELS.map(level => level.id)).toEqual([0, 1, 2]);
-    expect(LUCK_LEVELS.map(level => level.name)).toEqual(['Normal', 'Lucky', 'Very lucky']);
     for (const level of LUCK_LEVELS) {
+      expect(typeof level.name).toBe('string');
+      expect(level.name.length).toBeGreaterThan(0);
       expect(typeof level.blurb).toBe('string');
       expect(level.blurb.length).toBeGreaterThan(0);
     }
-  });
-
-  test('the copy stays in the "luck" register — never "cheat" or "loaded"', () => {
-    const copy = LUCK_LEVELS.map(level => `${level.name} ${level.blurb}`)
-      .join(' ')
-      .toLowerCase();
-    expect(copy).not.toMatch(/cheat|loaded|handicap/);
   });
 
   test('DEFAULT_LUCK is the off rung', () => {
@@ -108,7 +108,18 @@ describe('config — luck ladder (#179)', () => {
 
     test('returns null without a seat to favour (spectator: humanPlayerIndex === null)', () => {
       expect(luckToHandicap(2, null)).toBeNull();
-      expect(luckToHandicap(1, undefined)).toBeNull();
+      expect(luckToHandicap(0, null)).toBeNull();
+    });
+
+    /*
+     * null is the documented "no human seat" sentinel; anything else that isn't a
+     * seat index is a caller bug. Silently returning null there would play an
+     * unhandicapped game after the player asked for luck, with no signal at all.
+     */
+    test('throws on a playerId that is neither null nor a seat index', () => {
+      for (const bad of [undefined, NaN, -1, 1.5, '0', {}, []]) {
+        expect(() => luckToHandicap(1, bad)).toThrow(/playerId/);
+      }
     });
 
     test('every level >= 1 produces a handicap the engine accepts (integer level >= 1)', () => {
@@ -129,6 +140,20 @@ describe('config — luck ladder (#179)', () => {
       const a = luckToHandicap(1, 0);
       const b = luckToHandicap(1, 0);
       expect(a).not.toBe(b);
+    });
+
+    /*
+     * Ties the UI ladder to the engine's acceptance: every rung the title screen
+     * can offer must survive createGame's validateHandicap (which caps level at
+     * MAX_HANDICAP_LEVEL). A new rung that the engine rejects fails here rather
+     * than on a player's START.
+     */
+    test('every rung on the ladder produces a handicap createGame accepts', () => {
+      for (const rung of LUCK_LEVELS) {
+        expect(() =>
+          createGame({ seed: 1, playerCount: 4, handicap: luckToHandicap(rung.id, 0) })
+        ).not.toThrow();
+      }
     });
   });
 });

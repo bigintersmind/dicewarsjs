@@ -25,7 +25,9 @@
  *
  * @typedef {Object} LuckHandicap
  * @property {number} playerId - Seat index that gets the advantage dice
- * @property {number} level    - Extra dice rolled and dropped (integer >= 1)
+ * @property {number} level    - Extra dice rolled and dropped (integer in
+ *                               [1, MAX_HANDICAP_LEVEL] — see engine/constants.js;
+ *                               more extra dice than a full stack has no meaning)
  */
 
 /**

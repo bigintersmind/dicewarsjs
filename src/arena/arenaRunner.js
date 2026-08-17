@@ -7,7 +7,7 @@
  * @module arena/arenaRunner
  */
 
-import { runMatch } from './matchRunner.js';
+import { runMatch, assertNoHandicap } from './matchRunner.js';
 import { createArenaAccumulator, accumulateMatch, finalizeArenaStats } from './arenaAccumulator.js';
 
 /**
@@ -61,6 +61,7 @@ import { createArenaAccumulator, accumulateMatch, finalizeArenaStats } from './a
  * @param {(step: import('./trajectoryExport.js').TrajectoryStep) => void} [config.onStep] -
  *   Forwarded per-decision callback (custom streaming sink).
  * @returns {ArenaResult}
+ * @throws {Error} If `config.handicap` is set — arena ELO is always unhandicapped.
  */
 export function runArena(config) {
   const {
@@ -74,6 +75,8 @@ export function runArena(config) {
     recordTrajectory,
     onStep,
   } = config;
+
+  assertNoHandicap(config, 'runArena');
 
   const names = new Set(bots.map(b => b.name));
   if (names.size !== bots.length) {

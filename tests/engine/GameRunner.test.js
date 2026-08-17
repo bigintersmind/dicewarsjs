@@ -1,4 +1,5 @@
 import { createGame, simulateGame, replayGame } from '../../src/engine/GameRunner.js';
+import { MAX_HANDICAP_LEVEL } from '../../src/engine/constants.js';
 import { ai_example } from '../../src/ai/ai_example.js';
 import { ai_default } from '../../src/ai/ai_default.js';
 import { ai_defensive } from '../../src/ai/ai_defensive.js';
@@ -47,6 +48,25 @@ describe('createGame — luck handicap config (issue #179)', () => {
     expect(state.config.handicap).toEqual({ playerId: 0, level: 1 });
   });
 
+  /*
+   * Two doors onto the same object: the caller's input (closed by the copy) and
+   * `state.config.handicap` itself (closed by the freeze). Both would change how
+   * battles roll mid-game and desync the replay re-derived from that config.
+   */
+  it('freezes the stored handicap — neither door can change it after createGame', () => {
+    const handicap = { playerId: 0, level: 1 };
+    const state = createGame({ seed: 1, playerCount: 4, handicap });
+
+    handicap.level = 99;
+    expect(Object.isFrozen(state.config.handicap)).toBe(true);
+    // ESM is strict mode, so assigning through a frozen object throws.
+    expect(() => {
+      state.config.handicap.level = 99;
+    }).toThrow(TypeError);
+
+    expect(state.config.handicap).toEqual({ playerId: 0, level: 1 });
+  });
+
   it('ignores extra keys on the handicap object (whitelist, not passthrough)', () => {
     const state = createGame({
       seed: 1,
@@ -91,6 +111,33 @@ describe('createGame — luck handicap config (issue #179)', () => {
     expect(() => createGame({ seed: 1, playerCount: 4, handicap: { playerId: 0 } })).toThrow(
       /level/
     );
+  });
+
+  /*
+   * MAX_HANDICAP_LEVEL is the max dice a territory can hold: more extra dice than
+   * a full stack has no meaning, and an unbounded level from an untrusted record
+   * (a hand-edited replay saying `level: 1e9`) would stall rollAdvantage inside
+   * the battle reducer rather than fail here.
+   */
+  it('accepts a level up to MAX_HANDICAP_LEVEL and rejects one beyond it', () => {
+    expect(
+      createGame({
+        seed: 1,
+        playerCount: 4,
+        handicap: { playerId: 0, level: MAX_HANDICAP_LEVEL },
+      }).config.handicap
+    ).toEqual({ playerId: 0, level: MAX_HANDICAP_LEVEL });
+
+    expect(() =>
+      createGame({
+        seed: 1,
+        playerCount: 4,
+        handicap: { playerId: 0, level: MAX_HANDICAP_LEVEL + 1 },
+      })
+    ).toThrow(/level/);
+    expect(() =>
+      createGame({ seed: 1, playerCount: 4, handicap: { playerId: 0, level: 1e9 } })
+    ).toThrow(/level/);
   });
 
   it('validates playerId against the resolved (defaulted) player count', () => {

@@ -12,20 +12,31 @@
 import { createGame, replayGame } from '../engine/GameRunner.js';
 
 /**
- * Replay format version written by this build. Bump when the on-disk shape
- * changes incompatibly.
+ * Replay format version written by this build. Bump on **any** change to the
+ * on-disk shape, additive or not — the version says which shape a file is, not
+ * whether old readers cope. `SUPPORTED_REPLAY_VERSIONS` is the separate,
+ * explicit statement of what this build still reads.
  *
- * v2 (issue #179) added `config.handicap` — the per-seat luck handicap. It is a
- * purely additive field, so v1 payloads stay readable: they predate the handicap
- * and are unhandicapped by construction (`handicap: null`).
+ * v2 (issue #179) appends `config.handicap`, the per-seat luck handicap. The
+ * compatibility that buys: new builds read v1 (see below), older builds reject
+ * v2 outright rather than replaying a handicapped game on fair dice.
  */
 export const REPLAY_VERSION = 2;
 
 /**
  * Replay versions this build can read. Writers always emit REPLAY_VERSION; the
- * reader accepts every version here so shipped v1 replays
- * (`public/data/replays/replay-*.json`, consumed by the online-leaderboard
- * replay viewer) keep working.
+ * reader accepts every version listed here.
+ *
+ * v1 has to stay in the set because v1 files are shipped in the repo —
+ * `public/data/replays/replay-*.json`, fetched by the online leaderboard's
+ * replay viewer, and `tests/fixtures/trajectories/sample.jsonl`. They carry no
+ * `config.handicap` key at all, which `createGame` resolves to null — correct,
+ * since v1 predates the handicap.
+ *
+ * The set gates the two readers that check it: {@link deserializeReplay} and
+ * trajectoryExport's `deserializeTrajectory`. It is not a universal gate — the
+ * leaderboard viewer hands a parsed JSON file straight to {@link replayToState},
+ * never through `deserializeReplay`.
  */
 export const SUPPORTED_REPLAY_VERSIONS = Object.freeze([1, 2]);
 
@@ -198,7 +209,12 @@ export function deserializeReplay(encoded) {
   }
 
   if (!SUPPORTED_REPLAY_VERSIONS.includes(replay.version)) {
-    throw new Error(`Unsupported replay version: ${replay.version}`);
+    /*
+     * JSON.stringify, not interpolation: the check is `includes`, so a string
+     * "2" fails it, and a bare `2` in the message would read as the number that
+     * would have passed.
+     */
+    throw new Error(`Unsupported replay version: ${JSON.stringify(replay.version)}`);
   }
 
   if (!replay.config || !Array.isArray(replay.actions) || !replay.metadata) {
@@ -212,8 +228,9 @@ export function deserializeReplay(encoded) {
  * Reconstruct the game state at a specific action index in a replay.
  *
  * Uses the engine's createGame (seeded) + replayGame to deterministically
- * reproduce the exact state. A v1 replay carries no `config.handicap`, which
- * createGame resolves to null — correct, since v1 predates the handicap.
+ * reproduce the exact state. A v1 replay carries no `config.handicap` key at
+ * all, which createGame resolves to null — correct, since v1 predates the
+ * handicap.
  *
  * @param {Replay} replay
  * @param {number} actionIndex - Number of actions to apply (0 = initial state)

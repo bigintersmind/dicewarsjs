@@ -16,7 +16,7 @@ import { act } from 'preact/test-utils';
 import { TitleScreen } from '../../src/ui/TitleScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { lineupForMode } from '../../src/ai/difficultyModes.js';
-import { LUCK_LEVELS } from '../../src/utils/config.js';
+import { LUCK_LEVELS, DEFAULT_LUCK } from '../../src/utils/config.js';
 import {
   PLAYER_COLOR_NAMES,
   PLAYER_COLORS_CSS,
@@ -465,14 +465,17 @@ describe('TitleScreen', () => {
   });
 
   describe('your luck (#179)', () => {
-    it('renders the three rungs with Normal pre-selected', () => {
+    // Derived from the ladder, so a new rung is covered without editing this test.
+    it('renders every rung on the ladder, with exactly one pressed', () => {
       renderTitle();
-      for (const name of ['Normal', 'Lucky', 'Very lucky']) {
-        expect(luckBtn(name)).not.toBeNull();
-      }
-      expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('true');
-      expect(luckBtn('Lucky').getAttribute('aria-pressed')).toBe('false');
-      expect(luckBtn('Very lucky').getAttribute('aria-pressed')).toBe('false');
+      const buttons = LUCK_LEVELS.map(level => luckBtn(level.name));
+      expect(buttons.every(Boolean)).toBe(true);
+      expect(buttons.filter(b => b.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+      // ...and on first launch it is the default rung.
+      const pressed = LUCK_LEVELS.find(
+        level => luckBtn(level.name).getAttribute('aria-pressed') === 'true'
+      );
+      expect(pressed.id).toBe(DEFAULT_LUCK);
     });
 
     it("shows the selected rung's explanation, and swaps it on selection", () => {
@@ -563,6 +566,51 @@ describe('TitleScreen', () => {
       act(() => startBtn().click());
       expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 0 }));
     });
+
+    /*
+     * A stored rung that is no longer on the ladder would render a row with
+     * nothing pressed and no blurb, and START would hand the controller a value
+     * luckToHandicap throws on. Fall back to Normal, and say which value was
+     * discarded — a stale rung is a bug worth seeing.
+     */
+    it('discards an off-ladder stored rung, naming it', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { onStart } = renderTitle({ store: createGameStore({ config: { luck: 5 } }) });
+
+      expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('true');
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('5'));
+
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: DEFAULT_LUCK }));
+      warnSpy.mockRestore();
+    });
+
+    /*
+     * Reading/tab order: Difficulty sits next to the Custom panel it opens, and
+     * the luck row follows both — so the disclosure is never separated from its
+     * trigger.
+     */
+    it('places the row after the Custom per-slot panel, before START', () => {
+      renderTitle();
+      act(() => modeBtn('Custom').click());
+
+      const luckGroup = container.querySelector('[role="group"][aria-label="Your luck"]');
+      const difficultyGroup = container.querySelector('[role="group"][aria-label="Difficulty"]');
+      const firstSlot = slotSelect(2);
+      expect(firstSlot).not.toBeNull();
+
+      const follows = (a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
+      expect(follows(difficultyGroup, firstSlot)).toBeTruthy();
+      expect(follows(firstSlot, luckGroup)).toBeTruthy();
+      expect(follows(luckGroup, startBtn())).toBeTruthy();
+    });
+
+    // The group's aria-describedby is only announced on entry; the live region
+    // is what speaks the new meaning when the rung changes under the cursor.
+    it('announces the blurb change politely', () => {
+      renderTitle();
+      expect(container.querySelector('#dw-luck-blurb').getAttribute('aria-live')).toBe('polite');
+    });
   });
 
   describe('color-blind mode', () => {
@@ -636,7 +684,7 @@ describe('TitleScreen', () => {
     it('names the happy path in one caption right above the START row', () => {
       renderTitle();
       const caption = container.querySelector('.dw-hint');
-      expect(caption.textContent).toBe('Pick your players, map and difficulty, then START.');
+      expect(caption.textContent).toBe('Pick your players, map, difficulty and luck, then START.');
       expect(
         caption.compareDocumentPosition(startBtn()) & Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy();

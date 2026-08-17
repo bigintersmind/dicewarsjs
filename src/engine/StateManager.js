@@ -211,10 +211,9 @@ function applyAttack(state, action) {
    * advantage dice — it rolls `n + level` and drops the `level` lowest — on both
    * attack and defense. The engine stays human-agnostic: it only knows a seat
    * index, so the same mechanism works for any player and stays `null` (off) on
-   * every competitive surface. `config` is already read here for
-   * `recordHistory`, so this follows the established precedent. The draw count is
-   * a pure function of state + config, so replays that carry `handicap` reproduce
-   * exactly. A player never attacks itself, so at most one side is boosted.
+   * every competitive surface. The draw count is a pure function of state +
+   * config, so replays that carry `handicap` reproduce exactly. A player never
+   * attacks itself, so at most one side is boosted.
    */
   const handicap = state.config?.handicap ?? null;
   const attackerAdvantage = handicap && handicap.playerId === currentPlayer ? handicap.level : 0;

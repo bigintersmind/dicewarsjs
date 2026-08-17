@@ -313,8 +313,21 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
    * "Your luck" (#179) is a second axis, not a part of the preset: switching
    * Easy↔Hard leaves it alone and vice-versa, so it gets its own state and its
    * own seed from the store (Normal on first launch).
+   *
+   * The seed is checked against the ladder: a rung that isn't on it would render
+   * a row with nothing pressed and no blurb, and START would hand the controller
+   * a value luckToHandicap throws on. Fall back to Normal and name the discarded
+   * value, since a stale/renamed rung is a bug worth seeing.
    */
-  const [luck, setLuck] = useState(() => store.getState().config.luck ?? DEFAULT_LUCK);
+  const [luck, setLuck] = useState(() => {
+    const stored = store.getState().config.luck;
+    if (stored == null) return DEFAULT_LUCK;
+    if (LUCK_LEVELS.some(level => level.id === stored)) return stored;
+    console.warn(
+      `TitleScreen: ignoring luck rung ${JSON.stringify(stored)} — not on the LUCK_LEVELS ladder; falling back to Normal.`
+    );
+    return DEFAULT_LUCK;
+  });
   /*
    * Per-slot AI strategy IDs (index = player slot). Seeded from the store's
    * current assignments — the last game's persisted lineup (possibly truncated
@@ -465,41 +478,6 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
             </div>
           </div>
 
-          <div>
-            <div className="dw-eyebrow" style={STYLE.eyebrow}>
-              Your luck
-            </div>
-            <div
-              className="dw-rows"
-              role="group"
-              aria-label="Your luck"
-              aria-describedby="dw-luck-blurb"
-              style={STYLE.optionRows}
-            >
-              {LUCK_LEVELS.map(level => (
-                <button
-                  key={level.id}
-                  type="button"
-                  className="dw-opt"
-                  /* "Lucky luck" would be the natural `${name} luck` phrasing;
-                     the prefix form keeps the axis in the name without it. */
-                  aria-label={`Luck: ${level.name}`}
-                  aria-pressed={level.id === luck}
-                  style={STYLE.sizeOpt}
-                  onClick={() => setLuck(level.id)}
-                >
-                  {level.name}
-                </button>
-              ))}
-            </div>
-            {/* Its own class, not .dw-hint: that one is the page's single
-                happy-path caption above START (#182). Both centre on a narrow
-                viewport, per the rule in CSS above. */}
-            <div id="dw-luck-blurb" className="dw-luck-hint" style={STYLE.luckBlurb}>
-              {LUCK_LEVELS.find(level => level.id === luck)?.blurb}
-            </div>
-          </div>
-
           {difficulty === 'custom' && (
             <div style={STYLE.customizePanel}>
               {Array.from({ length: playerCount }, (_, i) => {
@@ -560,8 +538,52 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
           )}
 
           <div>
+            <div className="dw-eyebrow" style={STYLE.eyebrow}>
+              Your luck
+            </div>
+            <div
+              className="dw-rows"
+              role="group"
+              aria-label="Your luck"
+              aria-describedby="dw-luck-blurb"
+              style={STYLE.optionRows}
+            >
+              {LUCK_LEVELS.map(level => (
+                <button
+                  key={level.id}
+                  type="button"
+                  className="dw-opt"
+                  /* "Lucky luck" would be the natural `${name} luck` phrasing;
+                     the prefix form keeps the axis in the name without it. */
+                  aria-label={`Luck: ${level.name}`}
+                  aria-pressed={level.id === luck}
+                  style={STYLE.sizeOpt}
+                  onClick={() => setLuck(level.id)}
+                >
+                  {level.name}
+                </button>
+              ))}
+            </div>
+            {/* Its own class, not .dw-hint: that one is the page's single
+                happy-path caption above START (#182). Both centre on a narrow
+                viewport, per the rule in CSS above.
+
+                aria-live: the group's aria-describedby is only announced on
+                entry, so without it a screen-reader user tabbing between rungs
+                hears the name change but never what it means. */}
+            <div
+              id="dw-luck-blurb"
+              className="dw-luck-hint"
+              aria-live="polite"
+              style={STYLE.luckBlurb}
+            >
+              {LUCK_LEVELS.find(level => level.id === luck)?.blurb}
+            </div>
+          </div>
+
+          <div>
             <div className="dw-hint" style={STYLE.hint}>
-              Pick your players, map and difficulty, then START.
+              Pick your players, map, difficulty and luck, then START.
             </div>
             <div className="dw-rows" style={STYLE.buttonRow}>
               <button className="dw-btn" style={MENU_STYLE.heroBtn} onClick={handleStart}>

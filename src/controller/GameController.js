@@ -245,8 +245,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *   restores the selection on the next visit (and derives preset lineups from
    *   it); the controller itself only consumes aiAssignments.
    * @param {number} [config.luck] - "Your luck" rung (#179): 0 = Normal, 1 = Lucky,
-   *   2 = Very lucky. Persisted like mapSize, and turned into the engine's
-   *   `config.handicap` for the human seat. Forced off in spectator mode.
+   *   2 = Very lucky. Carried in the store for the session (not localStorage) like
+   *   mapSize, and turned into the engine's `config.handicap` for the human seat;
+   *   stored as picked even in spectator mode, where the derived handicap is null
+   *   (no human seat).
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
@@ -289,7 +291,29 @@ export function createGameController(store, renderer, soundManager, preferencesM
      */
     const luck = config.luck ?? store.getState().config.luck ?? DEFAULT_LUCK;
     const humanPlayerIndex = spectator ? null : 0;
-    const handicap = luckToHandicap(luck, humanPlayerIndex);
+    /*
+     * luckToHandicap throws on a rung that isn't on the ladder. That has to land
+     * on the store's error path like every other start failure: START discards
+     * this promise, so an escaping rejection would read as a dead button (and the
+     * `error: null` reset above would already have wiped any visible banner).
+     * Bailing here also keeps the bad rung out of store.config — the setState
+     * that persists it is below.
+     */
+    let handicap;
+    try {
+      handicap = luckToHandicap(luck, humanPlayerIndex);
+    } catch (err) {
+      console.error('[GameController] Cannot start game: invalid luck setting', err);
+      store.setState({
+        screen: 'title',
+        gameState: null,
+        animationPhase: 'idle',
+        awaitingInput: null,
+        quitConfirmOpen: false,
+        error: "That luck setting isn't available. Pick another and try again.",
+      });
+      return;
+    }
 
     /*
      * Update store config. Persist mapSize and luck so a later rejectMap()
@@ -375,10 +399,22 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * from the same stored luck rung and human seat, or the player's luck would
      * silently switch off the moment they rejected a map.
      */
-    const handicap = luckToHandicap(
-      storeState.config.luck ?? DEFAULT_LUCK,
-      storeState.humanPlayerIndex
-    );
+    let handicap;
+    try {
+      handicap = luckToHandicap(
+        storeState.config.luck ?? DEFAULT_LUCK,
+        storeState.humanPlayerIndex
+      );
+    } catch (err) {
+      // Same contract as startNewGame: a rung off the ladder is a store error, not a rejection.
+      console.error('[GameController] Cannot regenerate map: invalid luck setting', err);
+      store.setState({
+        screen: 'title',
+        gameState: null,
+        error: "That luck setting isn't available. Pick another and try again.",
+      });
+      return;
+    }
 
     let gameState;
     try {

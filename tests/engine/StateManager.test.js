@@ -703,6 +703,15 @@ describe('applyAttack — luck handicap (issue #179)', () => {
     expect(attacksByHandicapped).toBeGreaterThan(0);
     expect(defensesByHandicapped).toBeGreaterThan(0);
     expect(neutralAttacks).toBeGreaterThan(0);
+
+    /*
+     * And the sweep runs past the handicapped seat's elimination: this seed ends
+     * with seat 0 owning the board, so the loop's later attacks are all
+     * seat-vs-seat with no handicap in play — the "unbiased" case above is
+     * covered after the boosted player leaves, not only while it is on the board.
+     */
+    expect(state.phase).toBe('gameOver');
+    expect(state.areas.some(area => area.owner === handicapped)).toBe(false);
   });
 
   /** Drive a deterministic scripted game (no bots, no Math.random) to completion. */

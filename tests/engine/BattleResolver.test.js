@@ -280,6 +280,20 @@ describe('resolveBattle — luck handicap options', () => {
     expect(rng.state()).toBe(control.state());
   });
 
+  /*
+   * `options = {}` only defaults an omitted/undefined argument. A caller that
+   * threads an optional options object through (`resolveBattle(a, d, rng, opts)`
+   * where opts is null) would otherwise get an opaque destructuring TypeError
+   * instead of a fair fight.
+   */
+  it('treats an explicit null options as no handicap', () => {
+    const withNull = resolveBattle(3, 3, createRng(7), null);
+    const withNothing = resolveBattle(3, 3, createRng(7));
+    expect(withNull).toEqual(withNothing);
+    expect(withNull.attackerRoll.dropped).toEqual([]);
+    expect(withNull.defenderRoll.dropped).toEqual([]);
+  });
+
   it('rejects an invalid advantage before rolling', () => {
     expect(() => resolveBattle(3, 3, createRng(1), { attackerAdvantage: -1 })).toThrow(/advantage/);
     expect(() => resolveBattle(3, 3, createRng(1), { defenderAdvantage: 1.5 })).toThrow(
@@ -301,9 +315,9 @@ describe('advantage-dice odds calibration (exact enumeration)', () => {
    * Pins the *measured* numbers issue #179 shipped on: k=1 lifts an even 3v3
    * attack from 45.4% to 62.2%, and a lucky defender drops the attacker to 29.2%.
    * The distributions are enumerated by driving the real rollAdvantage over every
-   * possible pool (6^(count+advantage) ≤ 1296 per side), then convolved with the
-   * engine's strict `attacker > defender` rule — so this measures the shipped
-   * implementation, not a re-statement of it.
+   * possible pool (6^(count+advantage) ≤ 1296 per side) — the drop rule measured
+   * here is the shipped one. The comparison is re-stated (`aTotal > dTotal`), so
+   * the tie rule itself is pinned separately, by the scripted-tie test above.
    */
   function keptTotalDistribution(count, advantage) {
     const pool = count + advantage;
@@ -360,6 +374,11 @@ describe('advantage-dice odds calibration (exact enumeration)', () => {
 
   it('3v3 with defender +1 advantage die: attacker wins 29.2%', () => {
     expect(attackerWinProbability(3, 0, 3, 1) * 100).toBeCloseTo(29.2, 1);
+  });
+
+  // k=2 is the top rung ("Very lucky"), so its shipped number is pinned too.
+  it('3v3 with attacker +2 advantage dice: attacker wins 73.3%', () => {
+    expect(attackerWinProbability(3, 2, 3, 0) * 100).toBeCloseTo(73.3, 1);
   });
 });
 

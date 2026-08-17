@@ -99,7 +99,8 @@ const DEFAULT_STATE = {
      * human seat rolls `luck` extra dice and drops the lowest, attacking and
      * defending. 0 = Normal (off, the default). LUCK_LEVELS in
      * src/utils/config.js owns the ladder; the controller turns it into the
-     * engine's `config.handicap` and forces it off for spectator games.
+     * engine's `config.handicap`, and derives no handicap for spectator games
+     * (the rung itself is kept as picked).
      */
     luck: DEFAULT_LUCK,
   },

@@ -3,9 +3,11 @@
  *
  * Routes between screens based on GameStore state. Renders two layers: a
  * persistent chrome layer (settings die, plus the TopNav mode rail on the
- * hub screens) and the current screen. The chrome sits outside the screen
- * switch so it survives navigation — the rail must not remount (and replay
- * its entrance) on every tab change.
+ * hub screens other than the title) and the current screen. The chrome sits
+ * outside the screen switch so it survives navigation — moving between the
+ * rail screens (Arena / Tournament / Leaderboard) must not remount the rail
+ * and replay its entrance. It does mount fresh on each trip out of the title,
+ * which carries FooterNav instead of the rail (#182).
  *
  * @module ui/App
  */
@@ -45,8 +47,8 @@ const TournamentScreen = lazy(() =>
   import('./TournamentScreen.jsx').then(m => ({ default: m.TournamentScreen }))
 );
 
-/** Mode-rail tab id → GameController navigation method. */
-const NAV_METHODS = {
+/** Mode-rail / footer-row tab id → GameController navigation method. */
+export const NAV_METHODS = {
   title: 'goToTitle',
   arena: 'goToArena',
   tournament: 'goToTournament',
@@ -99,8 +101,12 @@ export function App({ store, controller, preferencesManager }) {
 
   const announcer = <ScreenReaderAnnouncer store={store} />;
 
-  /* The rail lives exactly on the hub screens (the ATTRACT_SCREENS set). */
-  const isHub = NAV_TABS.some(tab => tab.id === screen);
+  /*
+   * The rail lives on the hub screens (the ATTRACT_SCREENS set) minus the
+   * title: the landing page reaches the same screens through TitleScreen's
+   * footer row instead (#182), and the rail on each of them is the way back.
+   */
+  const showRail = screen !== 'title' && NAV_TABS.some(tab => tab.id === screen);
 
   const content = (() => {
     if (screen === 'title') {
@@ -109,6 +115,7 @@ export function App({ store, controller, preferencesManager }) {
           store={store}
           error={error}
           onStart={config => controller.startNewGame(config)}
+          onNavigate={id => controller[NAV_METHODS[id]]()}
         />
       );
     }
@@ -190,12 +197,13 @@ export function App({ store, controller, preferencesManager }) {
   return (
     <>
       {/*
-       * Settings and the rail get separate boundaries: on the hub screens the
-       * rail is the only navigation left, so a settings crash must not take
-       * it down (nor vice versa).
+       * Settings and the rail get separate boundaries: on the hub screens other
+       * than the title the rail is the only navigation left, so a settings crash
+       * must not take it down (nor vice versa). The title's own way out is the
+       * footer row, which lives inside the screen's boundary.
        */}
       <ErrorBoundary>{settings}</ErrorBoundary>
-      {isHub && (
+      {showRail && (
         <ErrorBoundary>
           <TopNav
             active={screen}

@@ -11,11 +11,16 @@
  * live attract-mode board. All of it floats on `var(--ui-scrim)` — the same
  * tint the title screen uses over the background game.
  *
- * Also home to the mode rail (`TopNav`): the persistent tab bar App mounts
- * across the hub screens (NAV_TABS — Battle, Arena, Tournament, Leaderboard).
- * It replaces the old title-screen nav links and per-screen BACK buttons; the
- * current tab is set in the logotype bevel at miniature scale, so "where you
- * are" is always written in the game's own lettering.
+ * Also home to the mode rail (`TopNav`): the tab bar App mounts across the
+ * hub screens (NAV_TABS — Battle, Arena, Tournament, Leaderboard). It replaced
+ * the per-screen BACK buttons, so on Arena / Tournament / Leaderboard it is
+ * the only way around (and back to Battle); the current tab is set in the
+ * logotype bevel at miniature scale, so "where you are" is always written in
+ * the game's own lettering. The title screen itself does NOT carry the rail:
+ * playtesting found it gave the bot-author screens the same weight as
+ * starting a game (#182), so there the same destinations sit in a footer link
+ * row (`FooterNav`) beside the credits, and the landing page's scan path is
+ * setup → START.
  *
  * The white button, the headline bevel, and the rail's active-tab bevel keep
  * fixed colors across themes: like the wordmark itself, they're part of the
@@ -24,6 +29,9 @@
  *
  * @module ui/menuChrome
  */
+
+import { Fragment } from 'preact';
+import { useEffect, useRef } from 'preact/hooks';
 
 /*
  * Interactive states (hover/active/focus/disabled) can't be done with inline
@@ -195,9 +203,11 @@ export const MENU_STYLE = {
     padding: '0.55rem 1.2rem',
   },
   /*
-   * The title's START / AI vs AI pair — the biggest button in the game and its
-   * smaller sibling. Shared with the map preview's PLAY / NEW MAP so the two
-   * screens read as one flow (START → PLAY) instead of drifting apart.
+   * The biggest button in the game and its smaller sibling: the title's START
+   * and the map preview's PLAY / NEW MAP share these so the two screens read as
+   * one flow (START → PLAY) instead of drifting apart. The title's AI vs AI
+   * used to be the second one; since #182 it is a bare .dw-opt text link so
+   * START is the landing page's single filled control.
    */
   heroBtn: {
     fontSize: 'clamp(1.35rem, 3vw, 1.6rem)',
@@ -267,9 +277,10 @@ export const REPO_URL = 'https://github.com/bigintersmind/dicewarsjs';
 
 /**
  * The hub screens, in rail order. `id` values are `store.screen` names; this
- * list is also how App decides where the rail shows (and so must stay in sync
- * with ATTRACT_SCREENS in TitleAttractMode.js — the rail belongs exactly where
- * the live attract board runs behind the chrome).
+ * list is also how App decides where the hub chrome shows — the rail on every
+ * hub screen but the title, FooterNav on the title — and so must stay in sync
+ * with ATTRACT_SCREENS in TitleAttractMode.js (the chrome belongs exactly
+ * where the live attract board runs behind it).
  */
 export const NAV_TABS = [
   { id: 'title', label: 'Battle' },
@@ -362,9 +373,10 @@ const NAV_CSS = `
 `;
 
 /**
- * Persistent mode rail across the hub screens. Pure: the current screen comes
- * in as a prop and taps report the target screen id back through onNavigate —
- * App owns the actual controller navigation.
+ * Mode rail across the hub screens other than the title (which carries
+ * FooterNav instead, #182). Pure: the current screen comes in as a prop and
+ * taps report the target screen id back through onNavigate — App owns the
+ * actual controller navigation.
  *
  * @param {Object} props
  * @param {string} props.active - `store.screen` id of the current hub screen
@@ -375,6 +387,19 @@ const NAV_CSS = `
  *   preference is handled in CSS)
  */
 export function TopNav({ active, onNavigate, animate = true }) {
+  /*
+   * Take focus onto the current tab when the rail mounts. Since #182 the title
+   * has no rail, so activating a footer link unmounts the button the user was
+   * on and focus drops to <body> — the rail is what mounts on that transition,
+   * so it picks focus back up, and landing on the aria-current tab also
+   * announces the destination to a screen reader. Mount only: rail-to-rail
+   * navigation never remounts TopNav, so focus stays wherever the user put it.
+   */
+  const activeRef = useRef(null);
+  useEffect(() => {
+    activeRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
     <nav className={animate ? 'dw-topnav dw-topnav-drop' : 'dw-topnav'} aria-label="Game screens">
       <style>{NAV_CSS}</style>
@@ -384,6 +409,7 @@ export function TopNav({ active, onNavigate, animate = true }) {
             key={tab.id}
             type="button"
             className="dw-tab"
+            ref={tab.id === active ? activeRef : undefined}
             aria-current={tab.id === active ? 'page' : undefined}
             onClick={tab.id === active ? undefined : () => onNavigate(tab.id)}
           >
@@ -391,6 +417,84 @@ export function TopNav({ active, onNavigate, animate = true }) {
           </button>
         ))}
       </div>
+    </nav>
+  );
+}
+
+/*
+ * Self-contained like NAV_CSS: the footer row is a sibling of the credits at
+ * the foot of the title screen and must read the same whether or not any
+ * other chrome stylesheet is mounted. Anton, not the credits' Roboto, on
+ * purpose — the title's rule is Anton for in-game actions (option text,
+ * START, tabs) and Roboto for meta text (eyebrows, captions, credits, links
+ * out) — but small, muted and unbevelled, so it reads as the way to the bot
+ * screens rather than as a peer of the game setup.
+ */
+const FOOTER_NAV_CSS = `
+.dw-footnav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  pointer-events: auto;
+  user-select: none;
+}
+.dw-footlink {
+  font-family: Anton, sans-serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  border: none;
+  padding: 0.15rem 0.45rem;
+  color: var(--ui-text-muted);
+  text-shadow: var(--ui-text-halo);
+  cursor: pointer;
+  transition: color 0.12s ease;
+  white-space: nowrap;
+}
+.dw-footlink:hover { color: var(--ui-text); }
+.dw-footlink:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.dw-footnav-sep {
+  font-size: 0.85rem;
+  color: var(--ui-text-muted);
+  text-shadow: var(--ui-text-halo);
+}
+`;
+
+/**
+ * The title screen's footer link row — Arena · Tournament · Leaderboard, i.e.
+ * NAV_TABS minus the title's own Battle tab — the row only mounts on the
+ * title. Same contract as TopNav: taps report the target screen id through
+ * onNavigate and App owns the navigation. Placed at the foot of the page
+ * beside the credits (#182): these are the bot-author screens, footer
+ * material, and the rail on each of them is the way back to Battle.
+ *
+ * @param {Object} props
+ * @param {(screenId: string) => void} props.onNavigate - Called with the
+ *   tapped link's screen id
+ */
+export function FooterNav({ onNavigate }) {
+  const links = NAV_TABS.filter(tab => tab.id !== 'title');
+  return (
+    <nav className="dw-footnav" aria-label="More game modes">
+      <style>{FOOTER_NAV_CSS}</style>
+      {links.map((tab, i) => (
+        <Fragment key={tab.id}>
+          {i > 0 && (
+            <span className="dw-footnav-sep" aria-hidden="true">
+              &middot;
+            </span>
+          )}
+          <button type="button" className="dw-footlink" onClick={() => onNavigate(tab.id)}>
+            {tab.label}
+          </button>
+        </Fragment>
+      ))}
     </nav>
   );
 }

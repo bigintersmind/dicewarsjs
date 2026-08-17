@@ -6,7 +6,7 @@
  * NEW MAP (its smaller sibling: reroll the board at the same setup) and a
  * muted ← BACK to the title/setup screen (#180 — the preview is otherwise a
  * dead end: the mode rail is deliberately not mounted here, see App's
- * `isHub`). A small eyebrow names the setup you'd be going back to change.
+ * `showRail`). A small eyebrow names the setup you'd be going back to change.
  *
  * Playtest feedback drove the shape: the earlier "Play this board? YES / NO"
  * gate didn't tell you NO meant "another board", and the way back was tacked

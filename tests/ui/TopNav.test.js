@@ -6,7 +6,8 @@
  * Leaderboard) that replaced the per-screen BACK buttons, and its footer-row
  * counterpart on the title screen (#182: the landing page demotes the
  * bot-author screens to footer material and carries no rail). Covers both
- * components' contracts (order, aria-current, the onNavigate callback) and the
+ * components' contracts (order, the onNavigate callback, and the rail's
+ * aria-current + mount focus) and the
  * App wiring: rail on every hub screen but the title, footer row on the title,
  * each routing to the right controller method; neither in the game flow.
  */
@@ -14,7 +15,7 @@
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { TopNav, FooterNav, NAV_TABS } from '../../src/ui/menuChrome.jsx';
-import { App } from '../../src/ui/App.jsx';
+import { App, NAV_METHODS } from '../../src/ui/App.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { ATTRACT_SCREENS } from '../../src/controller/TitleAttractMode.js';
 
@@ -72,6 +73,32 @@ describe('TopNav', () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
+  // The rail mounts on the title → hub trip, and the footer link the user just
+  // activated unmounted with the title (#182), dropping focus to <body>.
+  it('moves focus onto the current tab when it mounts', () => {
+    act(() => {
+      render(h(TopNav, { active: 'arena', onNavigate: vi.fn() }), container);
+    });
+    expect(document.activeElement).toBe(tab('Arena'));
+  });
+
+  it('leaves focus alone when the active tab changes on a mounted rail', () => {
+    const onNavigate = vi.fn();
+    act(() => {
+      render(h(TopNav, { active: 'arena', onNavigate }), container);
+    });
+    // Park focus somewhere the rail didn't put it, the way a user would.
+    const scratch = document.createElement('button');
+    container.appendChild(scratch);
+    scratch.focus();
+
+    act(() => {
+      render(h(TopNav, { active: 'tournament', onNavigate }), container);
+    });
+    expect(document.activeElement).not.toBe(tab('Tournament'));
+    scratch.remove();
+  });
+
   // The hub chrome belongs exactly where the live attract board runs behind
   // it; both lists' comments say "must stay in sync" — this makes it so.
   it('keeps NAV_TABS in sync with ATTRACT_SCREENS', () => {
@@ -100,7 +127,9 @@ describe('FooterNav (#182)', () => {
     render(h(FooterNav, { onNavigate: vi.fn() }), container);
     expect(footerNav()).toBeTruthy();
     const seps = [...footerNav().querySelectorAll('[aria-hidden="true"]')];
-    expect(seps).toHaveLength(2);
+    // Derived, not 2: a new hub screen should fail the label assertion above,
+    // not this one as well.
+    expect(seps).toHaveLength(footLinks().length - 1);
     // Nothing focusable but the three links.
     expect(footerNav().querySelectorAll('button, a')).toHaveLength(3);
   });
@@ -154,6 +183,13 @@ describe('App mode-rail wiring', () => {
       }
     }
   );
+
+  // NAV_TABS ↔ ATTRACT_SCREENS is pinned above; this closes the third member of
+  // the sync triad. A new hub tab with no NAV_METHODS entry is
+  // `controller[undefined]()` on the first click.
+  it('has a controller method for every hub tab (NAV_METHODS covers NAV_TABS)', () => {
+    expect(NAV_TABS.map(t => t.id).filter(id => !(id in NAV_METHODS))).toEqual([]);
+  });
 
   // #182: the landing page's scan (and tab) path is setup → START; the
   // bot-author screens are reached from the footer, not a rail above the

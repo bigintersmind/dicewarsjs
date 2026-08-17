@@ -4,8 +4,10 @@
  * Routes between screens based on GameStore state. Renders two layers: a
  * persistent chrome layer (settings die, plus the TopNav mode rail on the
  * hub screens other than the title) and the current screen. The chrome sits
- * outside the screen switch so it survives navigation — the rail must not
- * remount (and replay its entrance) on every tab change.
+ * outside the screen switch so it survives navigation — moving between the
+ * rail screens (Arena / Tournament / Leaderboard) must not remount the rail
+ * and replay its entrance. It does mount fresh on each trip out of the title,
+ * which carries FooterNav instead of the rail (#182).
  *
  * @module ui/App
  */
@@ -46,7 +48,7 @@ const TournamentScreen = lazy(() =>
 );
 
 /** Mode-rail / footer-row tab id → GameController navigation method. */
-const NAV_METHODS = {
+export const NAV_METHODS = {
   title: 'goToTitle',
   arena: 'goToArena',
   tournament: 'goToTournament',
@@ -195,9 +197,10 @@ export function App({ store, controller, preferencesManager }) {
   return (
     <>
       {/*
-       * Settings and the rail get separate boundaries: on the hub screens the
-       * rail is the only navigation left, so a settings crash must not take
-       * it down (nor vice versa).
+       * Settings and the rail get separate boundaries: on the hub screens other
+       * than the title the rail is the only navigation left, so a settings crash
+       * must not take it down (nor vice versa). The title's own way out is the
+       * footer row, which lives inside the screen's boundary.
        */}
       <ErrorBoundary>{settings}</ErrorBoundary>
       {showRail && (

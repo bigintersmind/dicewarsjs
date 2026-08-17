@@ -503,12 +503,6 @@ describe('TitleScreen', () => {
 
   /*
    * -----------------------------------------------------------------------
-   * Footer links (#183)
-   * -----------------------------------------------------------------------
-   */
-
-  /*
-   * -----------------------------------------------------------------------
    * Landing-page hierarchy (#182)
    * -----------------------------------------------------------------------
    */
@@ -527,17 +521,32 @@ describe('TitleScreen', () => {
       expect(aiBtn().parentElement).toBe(startBtn().parentElement);
     });
 
+    // The bare label doesn't say what the link does; the aria-label spells it
+    // out and opens with the visible text, so label-in-name (WCAG 2.5.3) holds.
+    it('spells out AI vs AI in an aria-label that starts with the visible text', () => {
+      renderTitle();
+      expect(aiBtn().getAttribute('aria-label')).toMatch(/^AI vs AI/);
+    });
+
+    // Selected by class, not by position: `.dw-hint` is the hook the ≤760px
+    // rule centers the caption with, so pinning it keeps that rule wired up.
     it('names the happy path in one caption right above the START row', () => {
       renderTitle();
-      const caption = startBtn().parentElement.previousElementSibling;
+      const caption = container.querySelector('.dw-hint');
       expect(caption.textContent).toBe('Pick your players, map and difficulty, then START.');
+      expect(
+        caption.compareDocumentPosition(startBtn()) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
     });
 
     it('labels the player-count group with an eyebrow like map size and difficulty', () => {
       renderTitle();
       const groupLabel = label => container.querySelector(`[role="group"][aria-label="${label}"]`);
       ['Players', 'Map size', 'Difficulty'].forEach(label => {
-        expect(groupLabel(label).previousElementSibling.textContent).toBe(label);
+        const prev = groupLabel(label).previousElementSibling;
+        expect(prev.textContent).toBe(label);
+        // Same reason as the caption: `.dw-eyebrow` feeds the ≤760px centering rule.
+        expect(prev.classList.contains('dw-eyebrow')).toBe(true);
       });
     });
 
@@ -582,6 +591,12 @@ describe('TitleScreen', () => {
       expect(container.textContent).toContain('Copyright (C) 2001 GAMEDESIGN');
     });
   });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Footer links (#183)
+   * -----------------------------------------------------------------------
+   */
 
   describe('footer links (#183)', () => {
     const footerLink = text =>

@@ -85,24 +85,33 @@ const CSS = `
 const STYLE = {
   container: {
     position: 'relative',
-    minHeight: '100%',
+    /* A definite height, not min-height: `#app` is overflow-visible and
+       `html, body` are `overflow: hidden`, so a box that merely grows to fit
+       its content never scrolls — on a short viewport (landscape phone,
+       844×390) START and the footer row would be painted off-screen with no
+       way to reach them by wheel or touch. A definite size still lets the auto
+       margins center the page when the content is short, and makes overflowY
+       scroll when it isn't. (MENU_STYLE.container does the same.) */
+    height: '100%',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     overflowY: 'auto',
-    /* Top padding clears the fixed settings die (0.75rem + ~34px); there is
-       no mode rail on this screen (#182). */
-    padding: '3rem 1rem 1.2rem',
+    /* Top padding clears the fixed settings die: `.dw-set-die` is 36px square
+       at top: 0.75rem (SettingsPanel.jsx), so its bottom edge lands at exactly
+       3rem and 3.25rem leaves a little air. There is no mode rail on this
+       screen (#182). */
+    padding: '3.25rem 1rem 1.2rem',
     background: 'var(--ui-scrim)',
     pointerEvents: 'auto',
     userSelect: 'none',
     color: 'var(--ui-text)',
   },
   /*
-   * Two auto margins split the free vertical space: the spacer centers the
-   * main block in the space above the copyright line, which stays pinned to
-   * the viewport bottom. On short viewports both collapse to zero and the
-   * screen scrolls normally.
+   * Two auto margins split the free vertical space (this one and STYLE.footer's):
+   * the spacer centers the main block in the space above the footer block — the
+   * link row over the credits — which stays pinned to the viewport bottom. On
+   * short viewports both collapse to zero and the screen scrolls normally.
    */
   topSpacer: {
     marginTop: 'auto',
@@ -167,8 +176,8 @@ const STYLE = {
   /*
    * Tertiary by design (the map preview's ← BACK idiom): bare muted Anton
    * beside the one filled button, so START is the decision and this reads as
-   * the side door. Sized under the option text so it never competes with the
-   * setup rows either.
+   * the side door. Sized to the map-size/difficulty option text (a step under
+   * the player counts) so it never competes with the setup rows either.
    */
   aiLink: {
     fontSize: '1rem',
@@ -184,7 +193,11 @@ const STYLE = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: '0.25rem',
+    /* 8px, not 4: the 0.85rem footer links and the credits links are both
+       undersized targets, so WCAG 2.2 §2.5.8 only exempts them while their
+       centres stay 24px apart — a 4px row gap leaves them just short of that,
+       8px clears it. */
+    gap: '0.5rem',
     textAlign: 'center',
   },
   /* One row at every width down to a 390px phone; if a narrower viewport does
@@ -514,11 +527,16 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
               <button className="dw-btn" style={MENU_STYLE.heroBtn} onClick={handleStart}>
                 START
               </button>
+              {/* The label alone doesn't say what it does, and `title` is
+                  mouse-only; the aria-label spells it out for everyone else.
+                  It opens with the visible text, so WCAG 2.5.3 label-in-name
+                  still holds and voice control can say "AI vs AI". */}
               <button
                 type="button"
                 className="dw-opt"
                 style={STYLE.aiLink}
                 onClick={handleAIvsAI}
+                aria-label="AI vs AI — watch the bots play your setup"
                 title="Sit this one out and watch the bots play your setup"
               >
                 AI vs AI

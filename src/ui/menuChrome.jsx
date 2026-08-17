@@ -31,6 +31,7 @@
  */
 
 import { Fragment } from 'preact';
+import { useEffect, useRef } from 'preact/hooks';
 
 /*
  * Interactive states (hover/active/focus/disabled) can't be done with inline
@@ -386,6 +387,19 @@ const NAV_CSS = `
  *   preference is handled in CSS)
  */
 export function TopNav({ active, onNavigate, animate = true }) {
+  /*
+   * Take focus onto the current tab when the rail mounts. Since #182 the title
+   * has no rail, so activating a footer link unmounts the button the user was
+   * on and focus drops to <body> — the rail is what mounts on that transition,
+   * so it picks focus back up, and landing on the aria-current tab also
+   * announces the destination to a screen reader. Mount only: rail-to-rail
+   * navigation never remounts TopNav, so focus stays wherever the user put it.
+   */
+  const activeRef = useRef(null);
+  useEffect(() => {
+    activeRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
     <nav className={animate ? 'dw-topnav dw-topnav-drop' : 'dw-topnav'} aria-label="Game screens">
       <style>{NAV_CSS}</style>
@@ -395,6 +409,7 @@ export function TopNav({ active, onNavigate, animate = true }) {
             key={tab.id}
             type="button"
             className="dw-tab"
+            ref={tab.id === active ? activeRef : undefined}
             aria-current={tab.id === active ? 'page' : undefined}
             onClick={tab.id === active ? undefined : () => onNavigate(tab.id)}
           >
@@ -453,11 +468,11 @@ const FOOTER_NAV_CSS = `
 
 /**
  * The title screen's footer link row — Arena · Tournament · Leaderboard, i.e.
- * NAV_TABS minus Battle, which is the screen it sits on. Same contract as
- * TopNav: taps report the target screen id through onNavigate and App owns
- * the navigation. Placed at the foot of the page beside the credits (#182):
- * these are the bot-author screens, footer material, and the rail on each of
- * them is the way back to Battle.
+ * NAV_TABS minus the title's own Battle tab — the row only mounts on the
+ * title. Same contract as TopNav: taps report the target screen id through
+ * onNavigate and App owns the navigation. Placed at the foot of the page
+ * beside the credits (#182): these are the bot-author screens, footer
+ * material, and the rail on each of them is the way back to Battle.
  *
  * @param {Object} props
  * @param {(screenId: string) => void} props.onNavigate - Called with the

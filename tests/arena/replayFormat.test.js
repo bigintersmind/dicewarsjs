@@ -285,19 +285,44 @@ describe('replay version + luck handicap (issue #179)', () => {
     expect(state.config.handicap).toBeNull();
   });
 
-  it('replays a shipped v1 leaderboard replay end to end', () => {
+  it('replays a real v1 leaderboard replay end to end', () => {
     /*
-     * public/data/replays/replay-*.json are the real v1 artifacts the online
-     * leaderboard's replay viewer fetches — the backward-compatibility case the
-     * REPLAY_VERSION bump must not break.
+     * A frozen copy of a pre-#179 public/data/replays/replay-*.json — a real v1
+     * artifact the online leaderboard's replay viewer used to fetch. The shipped
+     * files roll over to the current REPLAY_VERSION on the next nightly
+     * tournament, so this fixture is what pins the v1 backward-compatibility case.
      */
-    const path = fileURLToPath(new URL('../../public/data/replays/replay-1.json', import.meta.url));
+    const path = fileURLToPath(
+      new URL('../fixtures/replays/leaderboard-replay-v1.json', import.meta.url)
+    );
     const shipped = JSON.parse(readFileSync(path, 'utf8'));
     expect(shipped.version).toBe(1);
     expect(shipped.config.handicap).toBeUndefined();
 
     const decoded = deserializeReplay(serializeReplay(shipped));
     expect(decoded.version).toBe(1);
+
+    const initial = replayToState(decoded, 0);
+    expect(initial.config.handicap).toBeNull();
+
+    const final = replayToState(decoded, getReplayLength(decoded));
+    expect(final.winner).toBe(decoded.metadata.winner);
+  });
+
+  it('replays the shipped leaderboard replay end to end, whatever supported version it carries', () => {
+    /*
+     * public/data/replays/replay-*.json are rewritten by the nightly tournament
+     * (scripts/run-online-tournament.mjs → createReplay), so their version tracks
+     * whatever REPLAY_VERSION the workflow ran with — v1 before #179, v2 after.
+     * The reader must take either, and a leaderboard replay is never handicapped.
+     */
+    const path = fileURLToPath(new URL('../../public/data/replays/replay-1.json', import.meta.url));
+    const shipped = JSON.parse(readFileSync(path, 'utf8'));
+    expect(SUPPORTED_REPLAY_VERSIONS).toContain(shipped.version);
+    expect(shipped.config.handicap ?? null).toBeNull();
+
+    const decoded = deserializeReplay(serializeReplay(shipped));
+    expect(decoded.version).toBe(shipped.version);
 
     const initial = replayToState(decoded, 0);
     expect(initial.config.handicap).toBeNull();

@@ -358,6 +358,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         animationPhase: 'idle',
         awaitingInput: null,
         focusedAreaId: null,
+        candidateAreas: null,
         humanEliminated: false,
         gameOverReason: null,
         /*
@@ -490,6 +491,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       animationPhase: 'idle',
       awaitingInput: null,
       focusedAreaId: null,
+      candidateAreas: null,
       currentReplay: null,
       replayOrigin: null,
       humanEliminated: false,
@@ -582,8 +584,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     if (isHuman) {
       store.setState({ awaitingInput: 'selectFrom' });
+      refreshCoachHighlights();
       if (soundManager) soundManager.play('myturn');
     } else {
+      refreshCoachHighlights(); // clears: nothing is coached on an AI's turn
       runAITurn(currentPlayerId);
     }
   }
@@ -773,6 +777,61 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   /**
+   * Territories the coaching layer should be offering the human right now (the
+   * "Coach" prototype), or null when no coaching applies.
+   *
+   * Derived from the engine's own `getValidMoves`, so what the board offers and
+   * what the rules allow can't drift apart: while awaiting `selectFrom` it is
+   * every territory that could start an attack (2+ dice AND an enemy neighbor);
+   * while awaiting `selectTo` it is the enemies the chosen territory can
+   * actually reach.
+   *
+   * @param {Object} storeState - Current store state
+   * @returns {number[] | null}
+   */
+  function computeCandidateAreas(storeState) {
+    const state = storeState.gameState;
+    if (!state) return null;
+    // No coaching for a spectator (nobody is playing), or with the pref off.
+    if (storeState.humanPlayerIndex === null) return null;
+    if ((storeState.preferences?.coachHints ?? 'on') === 'off') return null;
+    // Nor on an AI's turn, nor while an animation owns the board.
+    if (state.turnOrder[state.currentPlayerIndex] !== storeState.humanPlayerIndex) return null;
+
+    if (storeState.awaitingInput === 'selectFrom') {
+      return [...new Set(getValidMoves(state).map(m => m.from))];
+    }
+    if (storeState.awaitingInput === 'selectTo' && storeState.selectedFrom != null) {
+      return getValidMoves(state)
+        .filter(m => m.from === storeState.selectedFrom)
+        .map(m => m.to);
+    }
+    return null;
+  }
+
+  /**
+   * The single seam between the coaching state and the board: recompute the
+   * candidate set, publish it to the store (for the UI) and paint it (for the
+   * player). Idempotent — every caller just calls it after whatever it changed,
+   * rather than each working out what the board should show.
+   *
+   * Call it AFTER any `clearHighlights()`, which deliberately wipes this layer
+   * along with the selection.
+   */
+  function refreshCoachHighlights() {
+    const candidates = computeCandidateAreas(store.getState());
+    store.setState({ candidateAreas: candidates });
+
+    if (!renderer || !renderer.hexGrid) return;
+    if (candidates && candidates.length > 0) {
+      const kind = store.getState().awaitingInput === 'selectTo' ? 'target' : 'attacker';
+      renderer.hexGrid.setCandidateHighlights(candidates, kind);
+    } else {
+      renderer.hexGrid.clearCandidateHighlights();
+    }
+  }
+
+  /**
    * Handle a territory click during human turn.
    * @param {number} areaId
    */
@@ -803,6 +862,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         renderer.hexGrid.clearHighlights();
         renderer.hexGrid.setHighlight('from', areaId);
       }
+      refreshCoachHighlights();
       if (soundManager) soundManager.play('click');
     } else if (storeState.awaitingInput === 'selectTo') {
       // If clicking own territory again, reselect
@@ -813,6 +873,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
           renderer.hexGrid.clearHighlights();
           renderer.hexGrid.setHighlight('from', areaId);
         }
+        refreshCoachHighlights();
         if (soundManager) soundManager.play('click');
         return;
       }
@@ -840,6 +901,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
   async function executeAttack(fromId, toId) {
     // Block further input during animation
     store.setState({ awaitingInput: null });
+    refreshCoachHighlights(); // the offer is spent — take the candidates down
 
     const prevState = store.getState().gameState;
 
@@ -859,6 +921,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         awaitingInput: 'selectFrom',
       });
       if (renderer) renderer.hexGrid.clearHighlights();
+      refreshCoachHighlights();
       return;
     }
 
@@ -925,6 +988,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     });
 
     if (renderer) renderer.hexGrid.clearHighlights();
+    refreshCoachHighlights(); // re-arm the offer on the post-attack board
 
     if (isOver) await triggerGameOver(nextState);
   }
@@ -1065,6 +1129,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       awaitingInput: null,
       error: null,
     });
+    refreshCoachHighlights(); // nobody to coach once the seat is an AI's
 
     startTurn();
   }
@@ -1157,6 +1222,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       awaitingInput: null,
       animationPhase: 'idle',
     });
+    refreshCoachHighlights(); // the turn is over — nothing left to offer
 
     // Update renderer, then animate reinforcements on top
     if (renderer && changes.length > 0 && !isReducedMotion()) {
@@ -1219,6 +1285,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     goToReplay,
     handleTerritoryClick,
     endHumanTurn,
+    refreshCoachHighlights,
     viewGameReplay,
     goBackFromReplay,
     startSpectate,

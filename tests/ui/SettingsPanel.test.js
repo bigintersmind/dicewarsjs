@@ -23,6 +23,7 @@ function createMockPreferencesManager(initial = {}) {
     animationSpeed: 1,
     reducedMotion: 'system',
     muted: false,
+    coachHints: 'on',
     ...initial,
   };
   return {
@@ -45,6 +46,7 @@ function renderPanel(storeOverrides = {}, prefsOverrides = {}) {
       animationSpeed: 1,
       reducedMotion: 'system',
       muted: false,
+      coachHints: 'on',
       ...prefsOverrides,
     },
     ...storeOverrides,
@@ -270,6 +272,36 @@ describe('SettingsPanel', () => {
     act(() => onBtn.click());
 
     expect(pm.set).toHaveBeenCalledWith('reducedMotion', 'on');
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Coach hints
+   * -----------------------------------------------------------------------
+   */
+
+  it('shows the coaching preference as on by default', () => {
+    renderPanel();
+    act(() => container.querySelector('button[aria-label="Settings"]').click());
+
+    expect(optionIn('Coach hints', 'On').getAttribute('aria-pressed')).toBe('true');
+    expect(optionIn('Coach hints', 'Off').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('calls setPref with the coachHints value', () => {
+    const { pm } = renderPanel();
+    act(() => container.querySelector('button[aria-label="Settings"]').click());
+
+    act(() => optionIn('Coach hints', 'Off').click());
+
+    expect(pm.set).toHaveBeenCalledWith('coachHints', 'off');
+  });
+
+  it('reflects coaching already turned off — the way back on after dismissing the strip', () => {
+    renderPanel({}, { coachHints: 'off' });
+    act(() => container.querySelector('button[aria-label="Settings"]').click());
+
+    expect(optionIn('Coach hints', 'Off').getAttribute('aria-pressed')).toBe('true');
   });
 
   /*

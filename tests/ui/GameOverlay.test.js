@@ -128,24 +128,47 @@ describe('GameOverlay — AI thinking line', () => {
 });
 
 describe('GameOverlay — human turn', () => {
-  it('shows the attack-from prompt and an END TURN button that reports clicks', () => {
+  /*
+   * With coaching on (the default) the CoachHint strip *replaces* the bare
+   * prompts — same job, but it explains the rule behind the click. The terse
+   * lines stay as the fallback for a player who turned coaching off, so both
+   * forms are covered here.
+   */
+  it('shows the coaching prompt and an END TURN button that reports clicks', () => {
     const { onEndTurn } = renderOverlay({
       gameState: makeGameState({ currentPlayerIndex: 0 }),
       awaitingInput: 'selectFrom',
     });
-    expect(container.textContent).toContain('Click your territory to attack from');
+    expect(container.textContent).toContain('Pick one of your territories with 2 or more dice.');
     expect(endTurnButton()).toBeTruthy();
     act(() => endTurnButton().click());
     expect(onEndTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the bare prompts when coaching is off', () => {
+    renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+      preferences: { coachHints: 'off' },
+    });
+    expect(container.textContent).toContain('Click your territory to attack from');
+    expect(container.querySelector('.dw-coach')).toBeNull();
   });
 
   it('shows the attack-target prompt once a territory is selected', () => {
     renderOverlay({
       gameState: makeGameState({ currentPlayerIndex: 0 }),
       awaitingInput: 'selectTo',
+      selectedFrom: 1,
+      preferences: { coachHints: 'off' },
     });
     expect(container.textContent).toContain('Click a neighbor to attack');
     expect(container.textContent).not.toContain('attack from');
+  });
+
+  it('mounts no coaching strip in spectator mode', () => {
+    renderOverlay({ humanPlayerIndex: null });
+    expect(container.querySelector('.dw-coach')).toBeNull();
   });
 
   it('offers no END TURN button on an AI turn', () => {

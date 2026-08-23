@@ -147,6 +147,12 @@ export function createKeyboardController(store, controller, renderer) {
       awaitingInput: 'selectFrom',
     });
     if (renderer) renderer.hexGrid.clearHighlights();
+    /*
+     * clearHighlights() takes the coaching layer down with the selection, and
+     * this is a return to selectFrom — so hand back to the controller, which
+     * owns that mapping, to repaint the attack candidates.
+     */
+    if (controller.refreshCoachHighlights) controller.refreshCoachHighlights();
     return true;
   }
 

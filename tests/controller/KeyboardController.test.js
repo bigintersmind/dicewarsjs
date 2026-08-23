@@ -66,6 +66,7 @@ function createMockRenderer() {
 function createMockController() {
   return {
     handleTerritoryClick: vi.fn(),
+    refreshCoachHighlights: vi.fn(),
   };
 }
 
@@ -236,8 +237,25 @@ describe('KeyboardController', () => {
       expect(store.getState().awaitingInput).toBe('selectFrom');
       expect(store.getState().selectedFrom).toBeNull();
       expect(mockRenderer.hexGrid.clearHighlights).toHaveBeenCalled();
+      /*
+       * clearHighlights() wipes the coaching layer along with the selection, and
+       * this lands back on selectFrom — so the controller (which owns that
+       * mapping) has to be asked to repaint the attack candidates, or the board
+       * silently stops offering them for the rest of the turn.
+       */
+      expect(mockController.refreshCoachHighlights).toHaveBeenCalled();
       // Claimed: the quit confirm must not also open on this keypress (#181).
       expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('tolerates a controller without the coaching hook', () => {
+      kbc.destroy();
+      const bare = { handleTerritoryClick: vi.fn() };
+      kbc = createKeyboardController(store, bare, mockRenderer);
+      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+
+      expect(() => fireKey('Escape')).not.toThrow();
+      expect(store.getState().awaitingInput).toBe('selectFrom');
     });
 
     it('does nothing when already in selectFrom', () => {

@@ -16,6 +16,13 @@ export const DEFAULTS = {
   animationSpeed: 1,
   reducedMotion: 'system', // 'system' | 'on' | 'off'
   muted: false,
+  /*
+   * Contextual rules coaching (the "Coach" prototype): the in-game hint strip
+   * and the board's affordance highlights. On by default — early playtesters
+   * reported the rules were not self-apparent — and turned off from the strip's
+   * own dismiss control or the settings panel.
+   */
+  coachHints: 'on', // 'on' | 'off'
 };
 
 const VALIDATORS = {
@@ -25,6 +32,7 @@ const VALIDATORS = {
   animationSpeed: v => typeof v === 'number' && v > 0 && v <= 10,
   reducedMotion: v => typeof v === 'string' && ['system', 'on', 'off'].includes(v),
   muted: v => typeof v === 'boolean',
+  coachHints: v => typeof v === 'string' && ['on', 'off'].includes(v),
 };
 
 /**

@@ -191,7 +191,15 @@ export function App({ store, controller, preferencesManager }) {
       <div style={{ height: '100%', position: 'relative' }}>
         {announcer}
         <GameHUD store={store} onQuit={() => controller.openQuitConfirm()} onRules={openRules} />
-        <GameOverlay store={store} onEndTurn={() => controller.endHumanTurn()} />
+        <GameOverlay
+          store={store}
+          onEndTurn={() => controller.endHumanTurn()}
+          /* App is mounted without a preferences manager in some tests; the
+             strip drops its dismiss control rather than offering a dead one. */
+          onHideHints={
+            preferencesManager ? () => preferencesManager.set('coachHints', 'off') : undefined
+          }
+        />
         {/* Mounted whether or not the dialog is up: it also owns Escape (#181). */}
         <QuitConfirm
           store={store}

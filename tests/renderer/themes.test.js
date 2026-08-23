@@ -30,6 +30,16 @@ describe('themes', () => {
       expect(typeof theme.borderColor).toBe('number');
       expect(typeof theme.highlightColor).toBe('number');
       expect(typeof theme.highlightFill).toBe('number');
+      // Coaching affordance colors: both themes must define both, or the
+      // candidate layer paints `undefined` into a stroke on one of them.
+      expect(typeof theme.candidateAttacker).toBe('number');
+      expect(typeof theme.candidateTarget).toBe('number');
+      expect(typeof theme.candidateHalo).toBe('number');
+      // ...and they must be distinguishable from each other and from the
+      // selection ring they sit under.
+      expect(theme.candidateAttacker).not.toBe(theme.candidateTarget);
+      expect(theme.candidateAttacker).not.toBe(theme.highlightColor);
+      expect(theme.candidateTarget).not.toBe(theme.highlightColor);
     }
   });
 

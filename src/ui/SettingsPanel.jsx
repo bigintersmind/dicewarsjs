@@ -386,6 +386,15 @@ export function SettingsPanel({ store, preferencesManager }) {
             onSelect={v => setPref('diceDisplayMode', v)}
           />
 
+          {/* In-game rules coaching: the hint strip plus the board's affordance
+              highlights, both gated on this one preference. */}
+          <OptionGroup
+            label="Coach hints"
+            options={ON_OFF_OPTIONS}
+            value={prefs.coachHints || 'on'}
+            onSelect={v => setPref('coachHints', v)}
+          />
+
           {/* Player-facing polarity: SOUND ON means audible (muted: false). */}
           <OptionGroup
             label="Sound"

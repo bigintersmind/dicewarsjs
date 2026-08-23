@@ -7,12 +7,33 @@
  * @module renderer/themes
  */
 
+/*
+ * `candidateAttacker` / `candidateTarget` are the coaching affordance colors
+ * (the "Coach" prototype): the soft board hints that show which territories can
+ * attack right now, and which enemies the selected one can reach. They are
+ * deliberately NOT player colors and NOT the selection red — a candidate ring
+ * must never be mistaken for a seat or for the committed from/to selection — and
+ * they are unaffected by color-blind mode, which only swaps the player palette.
+ * The two never appear at the same time (they belong to the mutually exclusive
+ * selectFrom / selectTo phases), so hue alone doesn't have to carry the
+ * distinction; the stroke weight and fill density differ as well.
+ *
+ * Both are drawn over a `candidateHalo` rim, because the player palette is
+ * almost entirely BRIGHT (lime, cyan, yellow, lavender): a light ring alone
+ * would vanish on half the board. The dark rim under the bright core is what
+ * makes a candidate legible on any territory in either theme — which is also
+ * why the core colors barely differ between themes. It is the territory colors,
+ * not the page, that these have to survive, and those are the same in both.
+ */
 export const THEMES = {
   dark: {
     bgColor: 0x1a1a2e,
     borderColor: 0x222244,
     highlightColor: 0xff0000,
     highlightFill: 0x000000,
+    candidateAttacker: 0xffffff,
+    candidateTarget: 0xffc233,
+    candidateHalo: 0x000000,
     uiBg: 'rgba(0, 0, 0, 0.5)',
     uiOverlayBg: 'rgba(0, 0, 0, 0.75)',
     uiText: '#ffffff',
@@ -29,6 +50,9 @@ export const THEMES = {
     borderColor: 0x444466,
     highlightColor: 0xcc0000,
     highlightFill: 0xeeeeee,
+    candidateAttacker: 0xffffff,
+    candidateTarget: 0xffb300,
+    candidateHalo: 0x1a1a2e,
     uiBg: 'rgba(255, 255, 255, 0.85)',
     uiOverlayBg: 'rgba(240, 240, 245, 0.9)',
     uiText: '#1a1a2e',

@@ -137,6 +137,8 @@ function createMockRenderer() {
     hexGrid: {
       clearHighlights: vi.fn(),
       setHighlight: vi.fn(),
+      setCandidateHighlights: vi.fn(),
+      clearCandidateHighlights: vi.fn(),
       _getPlayerColor: vi.fn(() => 0xffffff),
     },
     getPlayerColor: vi.fn(() => 0xffffff),
@@ -2541,6 +2543,144 @@ describe('GameController', () => {
       expect(renderer.animateReinforcements).not.toHaveBeenCalled();
       // But renderer.update should still be called
       expect(renderer.update).toHaveBeenCalled();
+    });
+  });
+  /*
+   * -----------------------------------------------------------------------
+   * Coaching affordance highlights (candidateAreas)
+   * -----------------------------------------------------------------------
+   *
+   * The board half of the "Coach" prototype. The controller is the single
+   * owner of the mapping — it derives the set from the engine's own
+   * getValidMoves, publishes it as store.candidateAreas for the UI, and paints
+   * it via HexGridRenderer. So what the board offers and what the rules allow
+   * cannot drift apart, and nothing is offered to a player who isn't there.
+   */
+
+  describe('coaching affordance highlights', () => {
+    let getValidMoves;
+
+    beforeEach(async () => {
+      ({ getValidMoves } = await import('../../src/engine/index.js'));
+      // Two attackers, one of them with two reachable targets.
+      getValidMoves.mockImplementation(() => [
+        { from: 1, to: 2, attackerDice: 3, defenderDice: 2 },
+        { from: 1, to: 3, attackerDice: 3, defenderDice: 1 },
+        { from: 5, to: 2, attackerDice: 2, defenderDice: 2 },
+      ]);
+    });
+
+    afterEach(() => {
+      getValidMoves.mockImplementation(() => []);
+    });
+
+    async function startPlaying(overrides = {}) {
+      await controller.startNewGame({ playerCount: 2, spectator: false, ...overrides });
+      controller.acceptMap();
+    }
+
+    it('offers every territory that can attack while awaiting a source', async () => {
+      await startPlaying();
+
+      expect(store.getState().candidateAreas).toEqual([1, 5]); // unique `from` ids
+      expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenLastCalledWith([1, 5], 'attacker');
+    });
+
+    it('narrows to the reachable enemies once a source is picked', async () => {
+      await startPlaying();
+      renderer.hexGrid.setCandidateHighlights.mockClear();
+
+      controller.handleTerritoryClick(1);
+
+      expect(store.getState().candidateAreas).toEqual([2, 3]);
+      expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenLastCalledWith([2, 3], 'target');
+    });
+
+    it('repaints for a re-picked source rather than leaving the old targets up', async () => {
+      await startPlaying();
+      controller.handleTerritoryClick(1);
+      getValidMoves.mockImplementation(() => [
+        { from: 5, to: 2, attackerDice: 2, defenderDice: 2 },
+      ]);
+
+      // Area 5 isn't on the fixture board; re-pick area 1 and let the move list
+      // stand in for a different source's reach.
+      controller.handleTerritoryClick(1);
+
+      expect(store.getState().candidateAreas).toEqual([]);
+      expect(renderer.hexGrid.clearCandidateHighlights).toHaveBeenCalled();
+    });
+
+    it('takes the offer down for the attack, then re-arms it afterwards', async () => {
+      await startPlaying();
+      controller.handleTerritoryClick(1);
+
+      const attack = controller.handleTerritoryClick(2);
+      // Mid-animation: input is blocked, so nothing is on offer.
+      expect(store.getState().candidateAreas).toBeNull();
+
+      await attack;
+      await vi.runAllTimersAsync();
+
+      // Back to awaiting a source on the post-attack board.
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(store.getState().candidateAreas).toEqual([1, 5]);
+    });
+
+    it('clears the offer when the turn ends', async () => {
+      await startPlaying();
+      expect(store.getState().candidateAreas).toEqual([1, 5]);
+
+      await controller.endHumanTurn();
+
+      expect(store.getState().candidateAreas).toBeNull();
+      expect(renderer.hexGrid.clearCandidateHighlights).toHaveBeenCalled();
+    });
+
+    it('clears the offer when the game is abandoned', async () => {
+      await startPlaying();
+      controller.goToTitle();
+      expect(store.getState().candidateAreas).toBeNull();
+      expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
+    });
+
+    it('offers nothing in spectator mode', async () => {
+      await startPlaying({ spectator: true });
+      expect(store.getState().humanPlayerIndex).toBeNull();
+      expect(store.getState().candidateAreas).toBeNull();
+      expect(renderer.hexGrid.setCandidateHighlights).not.toHaveBeenCalled();
+    });
+
+    it('offers nothing on an opponent turn', async () => {
+      await startPlaying();
+      const gs = store.getState().gameState;
+      store.setState({ gameState: { ...gs, currentPlayerIndex: 1 }, awaitingInput: null });
+
+      controller.refreshCoachHighlights();
+
+      expect(store.getState().candidateAreas).toBeNull();
+    });
+
+    it('offers nothing while the coaching preference is off', async () => {
+      store.setState({ preferences: { ...store.getState().preferences, coachHints: 'off' } });
+      await startPlaying();
+
+      expect(store.getState().candidateAreas).toBeNull();
+      expect(renderer.hexGrid.setCandidateHighlights).not.toHaveBeenCalled();
+      expect(renderer.hexGrid.clearCandidateHighlights).toHaveBeenCalled();
+    });
+
+    it('picks the offer back up when the preference is turned on mid-game', async () => {
+      store.setState({ preferences: { ...store.getState().preferences, coachHints: 'off' } });
+      await startPlaying();
+      expect(store.getState().candidateAreas).toBeNull();
+
+      // What main.jsx does on a preferences change.
+      store.setState({ preferences: { ...store.getState().preferences, coachHints: 'on' } });
+      controller.refreshCoachHighlights();
+
+      expect(store.getState().candidateAreas).toEqual([1, 5]);
+      expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenLastCalledWith([1, 5], 'attacker');
     });
   });
 });

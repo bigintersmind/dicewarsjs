@@ -3,10 +3,17 @@
  *
  * In-game UI: END TURN button, instruction text, current player indicator.
  *
+ * The instruction text has two forms. With coaching on (the default), the
+ * CoachHint strip stands in for it: same job, but it explains *why* — which
+ * territories can attack, what the roll will be, what just happened, what END
+ * TURN pays out. With coaching off it falls back to the bare one-line prompts,
+ * so a player who dismissed the coaching still gets told what to click.
+ *
  * @module ui/GameOverlay
  */
 
 import { useGameStore } from './hooks/useGameStore.js';
+import { CoachHint } from './CoachHint.jsx';
 import { playerName } from '../store/GameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
@@ -56,8 +63,9 @@ const STYLE = {
  * @param {Object} props
  * @param {Object} props.store - GameStore instance
  * @param {() => void} props.onEndTurn
+ * @param {() => void} [props.onHideHints] - Turn the coaching off (the strip's × control)
  */
-export function GameOverlay({ store, onEndTurn }) {
+export function GameOverlay({ store, onEndTurn, onHideHints }) {
   const gameState = useGameStore(store, s => s.gameState);
   const awaitingInput = useGameStore(store, s => s.awaitingInput);
   const humanPlayerIndex = useGameStore(store, s => s.humanPlayerIndex);
@@ -70,12 +78,15 @@ export function GameOverlay({ store, onEndTurn }) {
   const currentPlayerId = gameState.turnOrder[gameState.currentPlayerIndex];
   const isHumanTurn = currentPlayerId === humanPlayerIndex;
 
+  const coachOn = (prefs?.coachHints ?? 'on') !== 'off';
+
   return (
     <div style={STYLE.overlay}>
-      {isHumanTurn && awaitingInput === 'selectFrom' && (
+      {coachOn && <CoachHint store={store} onHide={onHideHints} />}
+      {!coachOn && isHumanTurn && awaitingInput === 'selectFrom' && (
         <p style={STYLE.message}>Click your territory to attack from</p>
       )}
-      {isHumanTurn && awaitingInput === 'selectTo' && (
+      {!coachOn && isHumanTurn && awaitingInput === 'selectTo' && (
         <p style={STYLE.message}>Click a neighbor to attack</p>
       )}
       {/* The opponent by name ("Conqueror is thinking..."), in its seat

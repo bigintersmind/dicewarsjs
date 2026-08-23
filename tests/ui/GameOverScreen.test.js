@@ -26,10 +26,11 @@ function renderGameOver(overrides = {}) {
   });
 
   const onTitle = overrides.onTitle ?? vi.fn();
+  const onRules = overrides.onRules;
   container = document.createElement('div');
   document.body.appendChild(container);
   act(() => {
-    render(h(GameOverScreen, { store, onTitle }), container);
+    render(h(GameOverScreen, { store, onTitle, onRules }), container);
   });
   return { store, container };
 }
@@ -100,5 +101,33 @@ describe('GameOverScreen', () => {
     renderGameOver({ gameState: { winner: 2 }, gameOverReason: 'turnLimit' });
     expect(container.textContent).toContain('Conqueror wins');
     expect(container.textContent).not.toContain('turn limit reached');
+  });
+
+  /*
+   * The rules reference, reachable from the end of a game — where a rule you
+   * only half-understood is worth looking up. Quieter than its neighbours:
+   * BATTLE is what you came here to press.
+   */
+  describe('how to play button', () => {
+    const rulesBtn = () =>
+      container.querySelector('button[aria-label="How to play \u2014 the rules in one card"]');
+
+    it('reports its clicks without leaving the screen', () => {
+      const onRules = vi.fn();
+      const onTitle = vi.fn();
+      renderGameOver({ gameState: { winner: 2 }, onRules, onTitle });
+
+      const button = rulesBtn();
+      expect(button.textContent.trim()).toBe('HOW TO PLAY');
+      act(() => button.click());
+
+      expect(onRules).toHaveBeenCalledTimes(1);
+      expect(onTitle).not.toHaveBeenCalled();
+    });
+
+    it('is left out when no handler is supplied', () => {
+      renderGameOver({ gameState: { winner: 2 } });
+      expect(rulesBtn()).toBeNull();
+    });
   });
 });

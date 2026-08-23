@@ -24,6 +24,11 @@
  * when it actually cancelled a half-made attack. This handler honors
  * defaultPrevented, so one Escape does exactly one thing.
  *
+ * RulesModal is the one Escape owner that is also on `window`, so ordering
+ * between the two is not guaranteed either way: it preventDefault()s the press
+ * it consumes, and this handler additionally stands down whenever `rulesOpen`
+ * is set. Either guard alone would do; together they make mount order moot.
+ *
  * @module ui/QuitConfirm
  */
 
@@ -113,12 +118,20 @@ export function QuitConfirm({ store, onOpen, onCancel, onConfirm }) {
   useEffect(() => {
     const handleKey = event => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
+      /*
+       * The rules card layers above this dialog and owns Escape while it is
+       * up. It preventDefault()s the press, which the check above already
+       * honors — but both handlers sit on `window`, where order is just
+       * registration order and neither effect is pinned, so read the flag too
+       * rather than trusting whichever mounted first.
+       */
+      if (store.getState().rulesOpen) return;
       if (open) onCancel();
       else onOpen();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, onOpen, onCancel]);
+  }, [store, open, onOpen, onCancel]);
 
   /*
    * KEEP PLAYING takes focus on open — the safe answer is the one a stray

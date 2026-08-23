@@ -1,12 +1,13 @@
 /**
  * Player Status HUD
  *
- * Shows player stats at the bottom of the screen, and — during play — the QUIT
- * control that opens the abandon-game confirm (#181). QUIT sits at the far left
- * of the bar, bare muted text at the small end of the scale: END TURN is the
- * centered button just above, and the way out of a game must not compete with
- * the way through it. A hidden twin on the right keeps the player chips
- * optically centered in the bar.
+ * Shows player stats at the bottom of the screen, plus the bar's two text
+ * controls: QUIT, which opens the abandon-game confirm during play (#181), and
+ * RULES, which opens the "How to play" reference. Both sit at the far left,
+ * bare muted text at the small end of the scale: END TURN is the centered
+ * button just above, and neither the way out of a game nor the rulebook must
+ * compete with the way through it. Each has a hidden twin of the same width on
+ * the right, so the player chips stay optically centered in the bar.
  *
  * @module ui/GameHUD
  */
@@ -78,8 +79,11 @@ const STYLE = {
  * @param {Object} props.store - GameStore instance
  * @param {() => void} [props.onQuit] - Opens the abandon-game confirm. Supplied
  *   only while playing; on the game-over screen there is already a way out.
+ * @param {() => void} [props.onRules] - Opens the "How to play" reference.
+ *   Supplied only while playing: the game-over screen's overlay covers this
+ *   bar, and carries its own HOW TO PLAY button instead.
  */
-export function GameHUD({ store, onQuit }) {
+export function GameHUD({ store, onQuit, onRules }) {
   const gameState = useGameStore(store, s => s.gameState);
   const prefs = useGameStore(store, s => s.preferences);
   if (!gameState) return null;
@@ -90,25 +94,35 @@ export function GameHUD({ store, onQuit }) {
 
   return (
     <div style={STYLE.bar}>
+      {/* .dw-opt lives in the shared chrome stylesheet. SettingsPanel
+          happens to mount a copy on every screen, but the HUD carries its
+          own so it doesn't depend on that — it stays styled in a
+          standalone render (a test, a future screen without the settings
+          die). Duplicate mounts are harmless: identical rules. */}
+      {(onQuit || onRules) && <style>{CHROME_CSS}</style>}
       {onQuit && (
-        <>
-          {/* .dw-opt lives in the shared chrome stylesheet. SettingsPanel
-              happens to mount a copy on every screen, but the HUD carries its
-              own so it doesn't depend on that — it stays styled in a
-              standalone render (a test, a future screen without the settings
-              die). Duplicate mounts are harmless: identical rules. */}
-          <style>{CHROME_CSS}</style>
-          <button
-            type="button"
-            className="dw-opt"
-            style={STYLE.quit}
-            onClick={onQuit}
-            aria-label="Quit to title"
-            title="Quit to title (Esc)"
-          >
-            QUIT
-          </button>
-        </>
+        <button
+          type="button"
+          className="dw-opt"
+          style={STYLE.quit}
+          onClick={onQuit}
+          aria-label="Quit to title"
+          title="Quit to title (Esc)"
+        >
+          QUIT
+        </button>
+      )}
+      {onRules && (
+        <button
+          type="button"
+          className="dw-opt"
+          style={STYLE.quit}
+          onClick={onRules}
+          aria-label="Rules — how to play"
+          title="How to play"
+        >
+          RULES
+        </button>
       )}
       <div style={STYLE.players}>
         {players.map(p => {
@@ -130,6 +144,14 @@ export function GameHUD({ store, onQuit }) {
           );
         })}
       </div>
+      {/* Mirrored: each left-hand control has a hidden twin of the same width
+          on the right, in reverse order, so both ends of the bar measure the
+          same and the chips stay optically centered. */}
+      {onRules && (
+        <span className="dw-opt" style={{ ...STYLE.quit, visibility: 'hidden' }} aria-hidden="true">
+          RULES
+        </span>
+      )}
       {onQuit && (
         <span className="dw-opt" style={{ ...STYLE.quit, visibility: 'hidden' }} aria-hidden="true">
           QUIT

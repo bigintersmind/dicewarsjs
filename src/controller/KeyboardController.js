@@ -29,10 +29,11 @@ export function createKeyboardController(store, controller, renderer) {
     const state = store.getState();
     if (state.screen !== 'playing') return;
     /*
-     * The quit confirm is modal: board navigation is suspended, and Escape
-     * passes through untouched so the dialog's own handler can close it.
+     * The quit confirm and the "How to play" card are modal: board navigation
+     * is suspended, and Escape passes through untouched so the open dialog's
+     * own handler can close it.
      */
-    if (state.quitConfirmOpen) return;
+    if (state.quitConfirmOpen || state.rulesOpen) return;
     if (state.animationPhase !== 'idle') return;
 
     const humanIdx = state.humanPlayerIndex;

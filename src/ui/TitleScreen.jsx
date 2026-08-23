@@ -332,8 +332,10 @@ const STYLE = {
  *   (Arena / Tournament / Leaderboard): called with the tapped screen id, as
  *   the mode rail's onNavigate is. Omitted only in isolated renders — App
  *   always supplies it — and the footer is left out without it.
+ * @param {() => void} [props.onRules] - Opens the "How to play" reference.
+ *   Omitted only in isolated renders, which then get no link.
  */
-export function TitleScreen({ store, error, onStart, onNavigate }) {
+export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
   const prefs = useGameStore(store, s => s.preferences);
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const colorNames = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLOR_NAMES : PLAYER_COLOR_NAMES;
@@ -680,6 +682,21 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
               >
                 AI vs AI
               </button>
+              {/* Second bare text link beside it, same weight: new players need
+                  the rules before they need the bot show, but neither may take
+                  the eye off START, the page's one filled control (#182). */}
+              {onRules && (
+                <button
+                  type="button"
+                  className="dw-opt"
+                  style={STYLE.aiLink}
+                  onClick={onRules}
+                  aria-label="How to play — the rules in one card"
+                  title="The rules, in one card"
+                >
+                  HOW TO PLAY
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1012,6 +1012,49 @@ describe('GameController', () => {
       expect(store.getState().awaitingInput).toBe('selectTo');
     });
 
+    /*
+     * The rules card is the quit confirm's screen-independent sibling: it opens
+     * anywhere (there is a way in from the title, the board and the game-over
+     * screen), it takes board input while it is up, and — unlike the confirm —
+     * a game ending underneath it leaves it exactly where the player left it.
+     */
+    it('opens and closes the rules card from any screen', async () => {
+      controller.openRules();
+      expect(store.getState().rulesOpen).toBe(true); // on the title, unlike the confirm
+
+      controller.closeRules();
+      expect(store.getState().rulesOpen).toBe(false);
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      controller.openRules();
+      expect(store.getState().rulesOpen).toBe(true);
+      // Reading the rules changes nothing about the game underneath.
+      expect(store.getState().screen).toBe('playing');
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+    });
+
+    it('ignores board clicks while the rules card is open', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      // Arm the attack first, so a click that slips through would really attack.
+      controller.handleTerritoryClick(1);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      controller.openRules();
+
+      controller.handleTerritoryClick(2); // area 2 is an enemy neighbour of 1
+
+      expect(applyAction).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'ATTACK' })
+      );
+      // The half-made attack is untouched: closing the card resumes it.
+      expect(store.getState().selectedFrom).toBe(1);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+    });
+
     it('cancels the pending next-turn timer so the title screen stays put', async () => {
       await controller.startNewGame({ playerCount: 2, spectator: false });
       controller.acceptMap();
@@ -1050,6 +1093,21 @@ describe('GameController', () => {
       expect(store.getState().screen).toBe('gameOver');
       // Otherwise a later Spectate (back to 'playing') would resurrect a stale dialog.
       expect(store.getState().quitConfirmOpen).toBe(false);
+    });
+
+    it('keeps the rules card up when the game ends underneath it', async () => {
+      // The opposite call to the confirm above: the card is not about this game,
+      // App mounts it outside the screen switch, and a player reading it when an
+      // AI wins should not have it yanked away mid-sentence.
+      const finishBattle = await startAIBattle({ attackEndsGame: true });
+      controller.openRules();
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('gameOver');
+      expect(store.getState().rulesOpen).toBe(true);
     });
 
     it('abandoning mid-AI-turn drops the rest of the attack and the loop', async () => {

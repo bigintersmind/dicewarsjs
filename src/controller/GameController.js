@@ -512,6 +512,21 @@ export function createGameController(store, renderer, soundManager, preferencesM
     store.setState({ quitConfirmOpen: false });
   }
 
+  /*
+   * The "How to play" reference. Unlike the quit confirm it is not tied to a
+   * screen — every screen offers a way in, and a game running behind the card
+   * (an AI turn finishing, even the game ending) leaves it exactly where the
+   * player left it, so nothing here resets the flag on a screen change.
+   */
+  function openRules() {
+    store.setState({ rulesOpen: true });
+  }
+
+  /** Dismiss the reference card. */
+  function closeRules() {
+    store.setState({ rulesOpen: false });
+  }
+
   function goToArena() {
     aiAborted = true;
     store.setState({ screen: 'arena' });
@@ -751,7 +766,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const state = storeState.gameState;
     if (!state || storeState.screen !== 'playing') return;
     if (storeState.animationPhase !== 'idle') return;
-    if (storeState.quitConfirmOpen) return; // the confirm dialog owns input while it is up
+    // A modal over the board owns input while it is up (its scrim already eats
+    // the click; this keeps the contract true whatever the pointer layer does).
+    if (storeState.quitConfirmOpen || storeState.rulesOpen) return;
 
     const currentPlayerId = state.turnOrder[state.currentPlayerIndex];
     if (currentPlayerId !== storeState.humanPlayerIndex) return;
@@ -1176,6 +1193,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
     goToTitle,
     openQuitConfirm,
     closeQuitConfirm,
+    openRules,
+    closeRules,
     goToArena,
     goToTournament,
     goToOnlineLeaderboard,

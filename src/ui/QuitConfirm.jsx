@@ -24,10 +24,12 @@
  * when it actually cancelled a half-made attack. This handler honors
  * defaultPrevented, so one Escape does exactly one thing.
  *
- * RulesModal is the one Escape owner that is also on `window`, so ordering
- * between the two is not guaranteed either way: it preventDefault()s the press
- * it consumes, and this handler additionally stands down whenever `rulesOpen`
- * is set. Either guard alone would do; together they make mount order moot.
+ * RulesModal, the one Escape owner that also sits on `window`, gets ahead of
+ * this handler by registering in the CAPTURE phase — which beats every
+ * bubble-phase listener in the document regardless of mount order — and
+ * preventDefault()s the press it consumes, which the check above honors. That
+ * is the mechanism. The `rulesOpen` check below is the belt to its braces: a
+ * guard that does not depend on the card's effect having registered yet.
  *
  * @module ui/QuitConfirm
  */
@@ -120,10 +122,10 @@ export function QuitConfirm({ store, onOpen, onCancel, onConfirm }) {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       /*
        * The rules card layers above this dialog and owns Escape while it is
-       * up. It preventDefault()s the press, which the check above already
-       * honors — but both handlers sit on `window`, where order is just
-       * registration order and neither effect is pinned, so read the flag too
-       * rather than trusting whichever mounted first.
+       * up. Its capture-phase listener claims the press before this one runs,
+       * which the check above already honors — but read the flag too, so the
+       * dialog cannot appear behind the card on a frame where that listener is
+       * not registered yet.
        */
       if (store.getState().rulesOpen) return;
       if (open) onCancel();

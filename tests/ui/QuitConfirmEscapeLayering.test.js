@@ -5,13 +5,13 @@
  * One key, three owners. KeyboardController listens on `document` and claims
  * Escape — preventDefault() — only when it actually cancelled a half-made
  * attack; QuitConfirm listens on `window`, therefore later in the bubble path,
- * and skips an Escape someone else already claimed. RulesModal is on `window`
- * too, so its order against QuitConfirm is whatever the last render left
- * behind: it claims the key it consumes AND QuitConfirm stands down whenever
- * `rulesOpen` is set, so either order does the same thing. Each side is
- * unit-tested against a synthetic event, which proves the halves but not the
- * join: the contract is a single real keypress doing exactly one thing. So
- * mount them against one store and press Escape for real.
+ * and skips an Escape someone else already claimed. RulesModal outranks both by
+ * listening in the CAPTURE phase, which runs before every bubble listener in
+ * the document however the components mounted — and QuitConfirm additionally
+ * stands down whenever `rulesOpen` is set. Each side is unit-tested against a
+ * synthetic event, which proves the halves but not the join: the contract is a
+ * single real keypress doing exactly one thing. So mount them against one store
+ * and press Escape for real.
  */
 
 import { h, render } from 'preact';
@@ -125,15 +125,21 @@ describe('Escape layering between the board and the quit confirm', () => {
 });
 
 /*
- * The third owner. Both of these listen on `window`, so which one runs first
- * is decided by whichever effect last re-registered — an implementation detail
- * no contract should rest on. Mount them in each order and assert the same
- * outcome: the reference card closes, and the game is never asked to quit.
+ * The third owner. The card wins by listening in the capture phase, so mount
+ * order genuinely cannot change the outcome — mount them both ways and assert
+ * the same thing: the reference card closes, and the game is never asked to
+ * quit or to stay.
  */
 describe('Escape layering between the quit confirm and the rules card', () => {
   let rulesContainer;
+  /** Extra listeners a case installed on `document`, removed after it. */
+  let documentListeners = [];
 
   afterEach(() => {
+    for (const handler of documentListeners) {
+      document.removeEventListener('keydown', handler);
+    }
+    documentListeners = [];
     if (rulesContainer) {
       act(() => render(null, rulesContainer));
       if (rulesContainer.parentNode) document.body.removeChild(rulesContainer);
@@ -141,10 +147,10 @@ describe('Escape layering between the quit confirm and the rules card', () => {
     }
   });
 
-  /** Both window-level Escape owners on one store, mounted in the given order. */
-  function mountPair(rulesFirst) {
+  /** Both Escape owners on one store, mounted in the given order. */
+  function mountPair(rulesFirst, overrides = {}) {
     const store = createGameStore();
-    store.setState({ screen: 'playing', rulesOpen: true });
+    store.setState({ screen: 'playing', rulesOpen: true, ...overrides });
 
     const onOpen = vi.fn(() => store.setState({ quitConfirmOpen: true }));
     const onCancel = vi.fn(() => store.setState({ quitConfirmOpen: false }));
@@ -184,4 +190,40 @@ describe('Escape layering between the quit confirm and the rules card', () => {
       expect(store.getState().quitConfirmOpen).toBe(false);
     });
   }
+
+  it('closes the card without also dismissing the dialog already behind it', () => {
+    // QUIT was pressed, then RULES from behind the confirm: both are up, and
+    // one Escape must peel off exactly the top one.
+    const { store, onOpen, onCancel, onClose } = mountPair(true, { quitConfirmOpen: true });
+
+    pressEscape();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(store.getState().rulesOpen).toBe(false);
+    expect(store.getState().quitConfirmOpen).toBe(true);
+  });
+
+  it('gets the key ahead of a document handler that stops propagation', () => {
+    /*
+     * The settings dropdown's shape: a `document` listener that swallows Escape
+     * so nothing further up the bubble path sees it. Registered first, and on
+     * an ancestor of nothing the card contains, it would beat any bubble-phase
+     * listener — the card's capture-phase registration is what still wins.
+     */
+    const swallow = event => {
+      if (event.key === 'Escape') event.stopPropagation();
+    };
+    document.addEventListener('keydown', swallow);
+    documentListeners.push(swallow);
+
+    const { store, onClose, onOpen } = mountPair(true);
+
+    pressEscape();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(store.getState().rulesOpen).toBe(false);
+  });
 });

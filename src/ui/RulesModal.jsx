@@ -10,18 +10,23 @@
  * It is a reference, not a tutorial: five sections in the order a player meets
  * them (goal → attack → battle → reinforce → tips), each one a figure plus two
  * lines of copy, scannable in about half a minute. The numbers in the copy are
- * the engine's own (BattleResolver's ties-to-the-defender, MAX_DICE_PER_AREA,
- * the largest-connected-group reinforcement), not the docs'.
+ * the engine's own (BattleResolver's ties-to-the-defender, MAX_DICE, the
+ * largest-connected-group reinforcement), not the docs'.
  *
  * Built from the menu chrome like QuitConfirm, and mounted by App outside the
- * screen switch so it opens over any screen. Escape layering: this handler
- * sits on `window` and calls preventDefault() when it closes the card, so
- * QuitConfirm — the other `window` Escape owner on the playing screen — skips
- * the press. Listener order between two `window` handlers is registration
- * order and neither component's effect is pinned, so QuitConfirm ALSO checks
- * `rulesOpen` and defers; the two guards together make the ordering irrelevant.
- * A `document` handler that stops propagation (the settings dropdown) still
- * beats both, and cannot collide anyway: this scrim covers the settings die.
+ * screen switch so it opens over any screen.
+ *
+ * Escape layering. While the card is up it owns Escape, and the mechanism that
+ * makes that true is the capture phase: this listener is registered on `window`
+ * with `capture: true`, which runs before every bubble-phase listener in the
+ * document — KeyboardController and the settings dropdown (both on `document`),
+ * and QuitConfirm (`window`, bubble) alike. Registration order between
+ * components therefore does not matter at all. Consuming the key means
+ * preventDefault(): QuitConfirm and the settings dropdown each skip an Escape
+ * that was already claimed, and KeyboardController arrives at the same place by
+ * standing down while `rulesOpen` is set. QuitConfirm reads that flag too — the
+ * belt to this braces, a guard that holds even if this effect has not
+ * registered yet on the frame the key arrives.
  *
  * @module ui/RulesModal
  */
@@ -79,14 +84,43 @@ export const RULES_SECTIONS = [
     bullets: [
       'Keep your territories connected: one big group earns far more dice than two small ones.',
       "Don't leave a 1-die territory on a border facing an enemy — it can't attack, and it falls to anything.",
-      'Bigger stacks win more often. 8 against 8 is a coin flip; 8 against 3 almost never loses.',
-      'Under Custom difficulty, "Your luck" hands you a handicap: you roll extra dice and drop the lowest.',
+      'Bigger stacks win more often. 8 against 8 is barely better than a coin flip; 8 against 3 almost never loses.',
+      'Under Custom difficulty, "Your luck" tilts the dice your way: you roll extra dice and drop as many of the lowest, attacking and defending.',
     ],
   },
 ];
 
 /** Everything inside the card that Tab should visit, in DOM order. */
 const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Hand focus back on close.
+ *
+ * Normally that is whatever opened the card. When that control is gone — the
+ * game ended behind the card and took the HUD's RULES button with it — falling
+ * through to `<body>` would strand a keyboard user at the top of the document,
+ * so aim at the first real control still on screen instead. Best-effort by
+ * design: this runs in an effect cleanup, where a throw would take the unmount
+ * with it, and there is nothing a player could do about a failure anyway.
+ *
+ * @param {Element|null} previous - The element that had focus when it opened
+ * @param {Element|null} dialog - The card, so its own controls are skipped
+ */
+function restoreFocus(previous, dialog) {
+  try {
+    if (previous?.isConnected) {
+      previous.focus?.();
+      return;
+    }
+    const scope = document.getElementById('app') || document.body;
+    const anchor = Array.from(scope?.querySelectorAll('button:not([disabled])') || []).find(
+      button => !dialog?.contains(button)
+    );
+    (anchor || document.body)?.focus?.();
+  } catch {
+    // Focus is a nicety; losing it must not break tearing the card down.
+  }
+}
 
 /* Entrance only, like QuitConfirm: a modal being dismissed should not linger. */
 const RULES_CSS = `
@@ -250,22 +284,29 @@ export function RulesModal({ store, onClose }) {
     const handleKey = event => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       /*
-       * Claim the key: QuitConfirm's handler is on `window` too and would
-       * otherwise raise "Abandon this game?" behind this card.
+       * Claim the key. QuitConfirm and the settings dropdown both skip an
+       * Escape that was already claimed, so preventDefault() here is what stops
+       * "Abandon this game?" opening behind this card — and the dropdown from
+       * closing on the same press.
        */
       event.preventDefault();
       onClose();
     };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    /*
+     * Capture on `window`: the first listener in the document to see the key,
+     * whatever mounted when. Registered and removed with the same `true`, or
+     * the removal silently misses (capture and bubble are separate lists).
+     */
+    window.addEventListener('keydown', handleKey, true);
+    return () => window.removeEventListener('keydown', handleKey, true);
   }, [open, onClose]);
 
   /*
    * Focus lands in the scroll region rather than on a button: the card is
    * something to read, so arrow keys should scroll it straight away, and a
-   * screen reader announces the dialog and its title on the way in. Focus goes
-   * back to whatever opened it on close — unless that control is gone (the
-   * game ended behind the card), hence the isConnected check.
+   * screen reader announces the dialog and its title on the way in. On close it
+   * goes back to whatever opened the card, or to a still-mounted control when
+   * that opener has gone (see restoreFocus).
    */
   useEffect(() => {
     if (!open) return undefined;
@@ -274,7 +315,7 @@ export function RulesModal({ store, onClose }) {
     return () => {
       const previous = returnFocusRef.current;
       returnFocusRef.current = null;
-      if (previous && previous.isConnected) previous.focus?.();
+      restoreFocus(previous, dialogRef.current);
     };
   }, [open]);
 
@@ -282,12 +323,22 @@ export function RulesModal({ store, onClose }) {
    * Keep Tab inside the card. Unlike QuitConfirm's two fixed buttons this one
    * has a variable set (close, the scroll region, GOT IT), so collect them
    * from the DOM rather than from refs.
+   *
+   * The handler hangs off the card, so it only ever sees a Tab pressed with
+   * focus inside it — which is why the card itself is a tabindex="-1" focus
+   * target: clicking its unfocusable chrome (the title, a gap, the footer row)
+   * would otherwise drop focus to `<body>`, out of this handler's reach, and
+   * the next Tab would walk the page under the scrim.
    */
   const handleTab = useCallback(event => {
     if (event.key !== 'Tab') return;
     const items = Array.from(dialogRef.current?.querySelectorAll(FOCUSABLE) || []);
-    if (items.length === 0) return;
     event.preventDefault();
+    if (items.length === 0) {
+      // Nothing to cycle: park on the card rather than letting Tab out of it.
+      dialogRef.current?.focus?.();
+      return;
+    }
     const current = items.indexOf(document.activeElement);
     // current === -1 (focus on the card itself) falls through to first/last.
     const next = event.shiftKey
@@ -321,6 +372,7 @@ export function RulesModal({ store, onClose }) {
         aria-labelledby="dw-rules-title"
         className={animate ? 'dw-rules-card-anim' : undefined}
         style={STYLE.card}
+        tabIndex={-1}
         onKeyDown={handleTab}
       >
         <div style={STYLE.header}>
@@ -341,6 +393,9 @@ export function RulesModal({ store, onClose }) {
           ref={scrollRef}
           className="dw-rules-scroll"
           style={STYLE.scroll}
+          /* A named region, not a bare div: without the role the label below is
+             not exposed to a screen reader, and the tab stop lands on nothing. */
+          role="region"
           tabIndex={0}
           aria-label="The rules, in five parts"
         >

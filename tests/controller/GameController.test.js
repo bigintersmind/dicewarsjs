@@ -1110,6 +1110,45 @@ describe('GameController', () => {
       expect(store.getState().rulesOpen).toBe(true);
     });
 
+    /*
+     * The other side of that call. The card surviving a screen change is the
+     * point, but `rulesOpen` gates every click and every keypress, so a card
+     * left flagged open by something the player cannot see (a render that threw
+     * inside the ErrorBoundary) would lock the game solid. Every seam that
+     * starts or abandons a game therefore clears it — including the way out a
+     * stuck player would reach for.
+     */
+    it('drops the card at the seams that start or abandon a game', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      controller.openRules();
+
+      controller.goToTitle();
+
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().rulesOpen).toBe(false);
+
+      // And a new game never inherits one, however it got set.
+      store.setState({ rulesOpen: true });
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(store.getState().screen).toBe('mapPreview');
+      expect(store.getState().rulesOpen).toBe(false);
+    });
+
+    it('a failed game start takes the card with it', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+      store.setState({ rulesOpen: true });
+      override(createGame, () => {
+        throw new Error('map generation blew up');
+      });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().rulesOpen).toBe(false);
+    });
+
     it('abandoning mid-AI-turn drops the rest of the attack and the loop', async () => {
       const { applyAction } = await import('../../src/engine/index.js');
       // A non-terminal attack: the loop would otherwise take another move.

@@ -12,10 +12,13 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { RulesModal, RULES_SECTIONS } from '../../src/ui/RulesModal.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { MAX_DICE } from '../../src/engine/constants.js';
 
 let container;
 /** Stand-in for the HUD's RULES button — whatever had focus before the card. */
 let opener;
+/** Stand-in for a control still on screen after the opener has gone. */
+let anchor;
 
 function renderModal(overrides = {}) {
   const store = createGameStore(overrides);
@@ -57,6 +60,10 @@ afterEach(() => {
     opener.remove();
     opener = null;
   }
+  if (anchor) {
+    anchor.remove();
+    anchor = null;
+  }
 });
 
 describe('RulesModal', () => {
@@ -75,6 +82,15 @@ describe('RulesModal', () => {
     expect(el.getAttribute('aria-modal')).toBe('true');
     const heading = container.querySelector(`#${el.getAttribute('aria-labelledby')}`);
     expect(heading.textContent).toMatch(/how to play/i);
+    /*
+     * The card is a focus target itself: clicking its unfocusable chrome (the
+     * title, a gap, the footer row) must land here rather than on <body>, where
+     * the trap's keydown handler could not see the next Tab.
+     */
+    expect(el.tabIndex).toBe(-1);
+    // The scroll region is a named landmark, or its aria-label is exposed to
+    // nobody and the tab stop announces as nothing.
+    expect(scrollRegion().getAttribute('role')).toBe('region');
   });
 
   it('shows every section, each with a figure', () => {
@@ -88,7 +104,7 @@ describe('RulesModal', () => {
     // The engine's own numbers, not the docs': ties, the 8-dice cap, the cap on
     // long games. A copy edit that drops one of these should fail here.
     expect(container.textContent).toMatch(/ties go to the defender/i);
-    expect(container.textContent).toMatch(/8 dice at most/i);
+    expect(container.textContent).toMatch(new RegExp(`${MAX_DICE} dice at most`, 'i'));
     expect(container.textContent).toMatch(/turn limit/i);
   });
 
@@ -163,6 +179,37 @@ describe('RulesModal', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('falls back to a control still on screen when the opener has gone', () => {
+    // The game-over screen replaced the HUD while the card was up, so the
+    // button that opened it no longer exists to hand focus back to.
+    anchor = document.createElement('button');
+    anchor.textContent = 'BATTLE';
+    document.body.appendChild(anchor);
+
+    opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const { store } = renderModal();
+    act(() => store.setState({ rulesOpen: true }));
+    opener.remove();
+    opener = null;
+
+    expect(() => act(() => store.setState({ rulesOpen: false }))).not.toThrow();
+    // Not <body>: a keyboard user is left on something they can act on.
+    expect(document.activeElement).toBe(anchor);
+  });
+
+  it('stops answering Escape once it has closed', () => {
+    const { onClose } = renderModal({ rulesOpen: true });
+
+    pressEscape();
+    pressEscape();
+
+    // A listener left registered would report a second close to the controller.
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps Tab inside the card', () => {
     renderModal({ rulesOpen: true });
 
@@ -197,7 +244,7 @@ describe('RulesModal', () => {
 
   it('drops the entrance animation when reduced motion is on', () => {
     renderModal({ rulesOpen: true, preferences: { reducedMotion: 'on' } });
-    expect(dialog().className).toBe('');
+    expect(dialog().className).not.toContain('dw-rules-card-anim');
   });
 
   it('plays the entrance otherwise', () => {

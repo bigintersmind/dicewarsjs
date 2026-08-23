@@ -11,6 +11,19 @@ import { useGameStore } from './hooks/useGameStore.js';
 import { playerName } from '../store/GameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
+/** The screen's one button shape; `mutedBtn` is the same outline, quieter ink. */
+const BTN = {
+  fontFamily: 'Anton, sans-serif',
+  fontSize: '1.3rem',
+  padding: '0.6rem 2rem',
+  background: 'transparent',
+  border: '2px solid var(--ui-accent)',
+  color: 'var(--ui-accent)',
+  cursor: 'pointer',
+  borderRadius: '6px',
+  letterSpacing: '0.05em',
+};
+
 const STYLE = {
   overlay: {
     position: 'absolute',
@@ -44,28 +57,14 @@ const STYLE = {
     flexWrap: 'wrap',
     justifyContent: 'center',
   },
-  btn: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '1.3rem',
-    padding: '0.6rem 2rem',
-    background: 'transparent',
-    border: '2px solid var(--ui-accent)',
-    color: 'var(--ui-accent)',
-    cursor: 'pointer',
-    borderRadius: '6px',
-    letterSpacing: '0.05em',
-  },
-  /** Same shape, quieter ink: a reference sitting beside the real actions. */
+  btn: BTN,
+  /** A reference sitting beside the real actions, so: smaller and greyed. */
   mutedBtn: {
-    fontFamily: 'Anton, sans-serif',
+    ...BTN,
     fontSize: '1.05rem',
     padding: '0.55rem 1.4rem',
-    background: 'transparent',
     border: '2px solid var(--ui-border)',
     color: 'var(--ui-text-muted)',
-    cursor: 'pointer',
-    borderRadius: '6px',
-    letterSpacing: '0.05em',
   },
 };
 

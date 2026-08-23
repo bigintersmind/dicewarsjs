@@ -114,6 +114,25 @@ describe('App "How to play" wiring', () => {
     expect(controller.goToTitle).not.toHaveBeenCalled();
   });
 
+  it('survives the screen changing underneath it', () => {
+    const { store } = renderApp({ screen: 'playing', rulesOpen: true });
+    const opened = dialog();
+    expect(opened).toBeTruthy();
+
+    // An AI finishes the game while the player is reading. The card is mounted
+    // outside the screen switch precisely so that does not yank it away.
+    act(() =>
+      store.setState({
+        screen: 'gameOver',
+        gameState: makeGameState({ winner: 1 }),
+        quitConfirmOpen: false,
+      })
+    );
+
+    expect(dialog()).toBe(opened);
+    expect(opened.isConnected).toBe(true);
+  });
+
   it('closes the card through the controller', () => {
     const { controller } = renderApp({ screen: 'playing', rulesOpen: true });
 

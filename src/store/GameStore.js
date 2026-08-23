@@ -95,12 +95,15 @@ const DEFAULT_STATE = {
     difficulty: 'standard',
     aiAssignments: [...DIFFICULTY_MODES.standard.lineup],
     /*
-     * "Your luck" rung (#179): the second, orthogonal difficulty axis — the
-     * human seat rolls `luck` extra dice and drops the lowest, attacking and
+     * "Your luck" rung (#179): the per-seat dice handicap — the human seat
+     * rolls `luck` extra dice and drops the `luck` lowest, attacking and
      * defending. 0 = Normal (off, the default). LUCK_LEVELS in
      * src/utils/config.js owns the ladder; the controller turns it into the
      * engine's `config.handicap`, and derives no handicap for spectator games
-     * (the rung itself is kept as picked).
+     * (the rung itself is kept as picked). A Custom-only setting: the controller
+     * stores what `resolveLuck(difficulty, luck)` plays, so this is never
+     * non-zero alongside a preset difficulty, and the title screen seeds from
+     * it only when `difficulty === 'custom'`.
      */
     luck: DEFAULT_LUCK,
   },

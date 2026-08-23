@@ -26,7 +26,13 @@
  */
 
 import { useState } from 'preact/hooks';
-import { DEFAULT_MAP_SIZE, DEFAULT_LUCK, LUCK_LEVELS } from '../utils/config.js';
+import {
+  DEFAULT_MAP_SIZE,
+  DEFAULT_LUCK,
+  LUCK_LEVELS,
+  LUCK_DIFFICULTY,
+  resolveLuck,
+} from '../utils/config.js';
 import { DIFFICULTY_MODES, lineupForMode } from '../ai/difficultyModes.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
@@ -81,7 +87,7 @@ const CSS = `
   /* Labels and the caption follow their (now centered) rows; the players
      eyebrow in particular would otherwise sit at the far left edge, since a
      wrapping row is as wide as the panel. */
-  .dw-panel .dw-eyebrow, .dw-panel .dw-hint, .dw-panel .dw-luck-hint { text-align: center; }
+  .dw-panel .dw-eyebrow, .dw-panel .dw-hint, .dw-panel .dw-luck-hint, .dw-panel .dw-mode-hint { text-align: center; }
 }
 `;
 
@@ -176,6 +182,19 @@ const STYLE = {
   luckBlurb: {
     ...MENU_STYLE.caption,
     marginTop: '0.1rem',
+  },
+  /*
+   * One line under the Difficulty row saying where luck lives. The presets
+   * hide the luck row, so without this nothing on the page says the option
+   * exists — or that picking a preset put the dice back to fair. Always
+   * mounted (its text swaps, not the element), so the aria-live announcement
+   * actually fires when a preset click unmounts the luck row's own live region.
+   */
+  modeHint: {
+    ...MENU_STYLE.caption,
+    marginTop: '0.1rem',
+    /* Matches optionRows, so the sentence wraps on the row's own width. */
+    maxWidth: '440px',
   },
   eyebrow: {
     fontFamily: 'Roboto, sans-serif',
@@ -305,7 +324,8 @@ const STYLE = {
 /**
  * @param {Object} props
  * @param {Object} props.store - GameStore, used to seed the setup controls (player count,
- *   map size, difficulty, luck, bot lineup) from the last game's persisted config
+ *   map size, difficulty, bot lineup — plus the luck rung when the stored difficulty is
+ *   Custom) from the last game's persisted config
  * @param {string | null} [props.error] - Error message to display
  * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, difficulty: string, aiAssignments: (string | null)[], luck: number }) => void} props.onStart
  * @param {(screenId: string) => void} [props.onNavigate] - Footer link row
@@ -338,10 +358,13 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
   /*
    * "Your luck" (#179) is part of Custom, like the per-slot lineup: the presets
    * always play fair dice, and a preset click resets the rung the same way it
-   * replaces the lineup (handleSelectMode). So the seed is only honoured when
-   * the stored difficulty is Custom — a stored rung under a preset has no row
-   * to show it, and silently sending it would start a handicapped game behind
-   * a label that promises otherwise.
+   * replaces the lineup (handleSelectMode). So the seed goes through
+   * resolveLuck — the same rule the controller applies when it builds the game —
+   * and a stored rung under a preset is dropped: it has no row to show it, and
+   * sending it would start a handicapped game behind a label that promises
+   * otherwise. The controller never stores that pair, so the drop is named in
+   * the console like the off-ladder case below — if it ever fires, some new
+   * writer of `config.luck` forgot the rule.
    *
    * The seed is also checked against the ladder: a rung that isn't on it would
    * render a row with nothing pressed and no blurb, and START would hand the
@@ -350,7 +373,13 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
    */
   const [luck, setLuck] = useState(() => {
     const { difficulty: storedDifficulty, luck: stored } = store.getState().config;
-    if (stored == null || storedDifficulty !== 'custom') return DEFAULT_LUCK;
+    if (stored == null) return DEFAULT_LUCK;
+    if (resolveLuck(storedDifficulty, stored) !== stored) {
+      console.warn(
+        `TitleScreen: ignoring stored luck rung ${JSON.stringify(stored)} — the stored difficulty is ${JSON.stringify(storedDifficulty)}, and only ${JSON.stringify(LUCK_DIFFICULTY)} plays a rung.`
+      );
+      return DEFAULT_LUCK;
+    }
     if (LUCK_LEVELS.some(level => level.id === stored)) return stored;
     console.warn(
       `TitleScreen: ignoring luck rung ${JSON.stringify(stored)} — not on the LUCK_LEVELS ladder; falling back to Normal.`
@@ -376,7 +405,7 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
    */
   const handleSelectMode = modeId => {
     setDifficulty(modeId);
-    if (modeId !== 'custom') {
+    if (modeId !== LUCK_DIFFICULTY) {
       setAssignments([...DIFFICULTY_MODES[modeId].lineup]);
       setLuck(DEFAULT_LUCK);
     }
@@ -492,7 +521,13 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
             <div className="dw-eyebrow" style={STYLE.eyebrow}>
               Difficulty
             </div>
-            <div className="dw-rows" role="group" aria-label="Difficulty" style={STYLE.optionRows}>
+            <div
+              className="dw-rows"
+              role="group"
+              aria-label="Difficulty"
+              aria-describedby="dw-mode-hint"
+              style={STYLE.optionRows}
+            >
               {[...Object.values(DIFFICULTY_MODES), { id: 'custom', name: 'Custom' }].map(mode => (
                 <button
                   key={mode.id}
@@ -506,6 +541,16 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
                   {mode.name}
                 </button>
               ))}
+            </div>
+            <div
+              id="dw-mode-hint"
+              className="dw-mode-hint"
+              aria-live="polite"
+              style={STYLE.modeHint}
+            >
+              {difficulty === LUCK_DIFFICULTY
+                ? 'Custom: pick your bots and your luck below.'
+                : 'Presets roll fair dice — tune your luck under Custom.'}
             </div>
           </div>
 

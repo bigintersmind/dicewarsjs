@@ -478,11 +478,18 @@ describe('TitleScreen', () => {
 
       openCustom();
       expect(luckGroup()).not.toBeNull();
-      // Inside the panel box (the luck section's parent), alongside the
-      // per-slot picker — not a sibling block out in the setup column.
-      const panel = luckGroup().parentElement.parentElement;
-      expect(panel.classList.contains('dw-panel')).toBe(false);
-      expect(panel.contains(slotSelect(2))).toBe(true);
+      // Inside the panel box alongside the per-slot picker — but NOT inside
+      // the picker's scrolling list, or at 6+ players the row would sit past
+      // the fold of a 30vh box with nothing to say it's there. The scroller is
+      // the innermost ancestor of a slot select with an overflow-y rule (the
+      // page container scrolls too).
+      const scroller = [...container.querySelectorAll('div')]
+        .filter(div => div.style.overflowY === 'auto' && div.contains(slotSelect(2)))
+        .at(-1);
+      expect(scroller).toBeTruthy();
+      expect(scroller.contains(luckGroup())).toBe(false);
+      expect(scroller.parentElement.contains(luckGroup())).toBe(true);
+      expect(scroller.parentElement.classList.contains('dw-panel')).toBe(false);
       // ...and labelled by the same eyebrow idiom as the other option rows.
       const eyebrow = luckGroup().previousElementSibling;
       expect(eyebrow.textContent).toBe('Your luck');
@@ -579,6 +586,14 @@ describe('TitleScreen', () => {
       expect(luckBtn('Very lucky').getAttribute('aria-pressed')).toBe('false');
     });
 
+    it('re-clicking Custom keeps the chosen rung — only a preset resets it', () => {
+      renderTitle();
+      openCustom();
+      act(() => luckBtn('Lucky').click());
+      openCustom();
+      expect(luckBtn('Lucky').getAttribute('aria-pressed')).toBe('true');
+    });
+
     it('picking a rung leaves the lineup axis alone', () => {
       const { onStart } = renderTitle();
       openCustom();
@@ -612,18 +627,58 @@ describe('TitleScreen', () => {
      * one), so honouring it would start a handicapped game behind a label that
      * promises fair dice. It is dropped, not carried.
      */
-    it('ignores a persisted rung when the persisted difficulty is a preset', () => {
+    it('ignores a persisted rung when the persisted difficulty is a preset, naming it', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const store = createGameStore({
         config: { playerCount: 4, mapSize: 'medium', difficulty: 'hard', luck: 2 },
       });
       const { onStart } = renderTitle({ store });
       expect(luckGroup()).toBeNull();
+      // The controller never stores that pair, so a drop means some new writer
+      // of config.luck forgot the rule — say so, like the off-ladder case.
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/2.*"hard"/));
 
       act(() => startBtn().click());
       expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 0 }));
 
       openCustom();
       expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('true');
+      warnSpy.mockRestore();
+    });
+
+    // A stored Normal under a preset is the ordinary case — nothing to report.
+    it('does not warn about a persisted Normal rung under a preset', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderTitle({ store: createGameStore({ config: { difficulty: 'hard', luck: 0 } }) });
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    /*
+     * The presets hide the row, so a one-line hint under Difficulty is the only
+     * thing on the page that says luck exists — and, because it is always
+     * mounted and its text swaps, the only live region still standing when a
+     * preset click unmounts the luck row's own.
+     */
+    it('says where luck lives under the Difficulty row, swapping with the mode', () => {
+      renderTitle();
+      const hint = container.querySelector('#dw-mode-hint');
+      expect(hint.getAttribute('aria-live')).toBe('polite');
+      expect(
+        container
+          .querySelector('[role="group"][aria-label="Difficulty"]')
+          .getAttribute('aria-describedby')
+      ).toBe('dw-mode-hint');
+      expect(hint.textContent).toMatch(/fair dice/i);
+      expect(hint.textContent).toMatch(/Custom/);
+
+      openCustom();
+      expect(container.querySelector('#dw-mode-hint')).toBe(hint);
+      expect(hint.textContent).toMatch(/luck below/i);
+
+      act(() => modeBtn('Hard').click());
+      expect(container.querySelector('#dw-mode-hint')).toBe(hint);
+      expect(hint.textContent).toMatch(/fair dice/i);
     });
 
     it('falls back to Normal when the config carries no rung', () => {

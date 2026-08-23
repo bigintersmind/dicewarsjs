@@ -50,11 +50,11 @@ If no player has been eliminated after 500 turns (the default limit, configurabl
 
 ## Luck handicap (advantage dice)
 
-An optional, off-by-default difficulty aid for one seat — a second axis next to the Easy / Standard / Hard bot lineups.
+An optional, off-by-default difficulty aid for one seat. It is offered only under the **Custom** lineup — the Easy / Standard / Hard presets always play fair dice, and picking one puts the handicap back to off. To play a preset's lineup with luck, pick the preset, then Custom (which keeps that lineup), then a rung.
 
 At handicap level `k`, the handicapped player rolls `n + k` dice wherever they would normally roll `n`, then **drops the `k` lowest** and keeps the rest. It applies to **both** attacking and defending, and only to the configured seat — every other player rolls normally. Everything else is unchanged: the kept dice are the real faces shown by the battle animation and they sum to the displayed total, and **ties still go to the defender**.
 
-Two vocabularies, one axis. The title screen offers three **rungs** — `0` = "Normal", `1` = "Lucky", `2` = "Very lucky". Rung `0` means _no handicap at all_: it resolves to `handicap: null`, not to a level. The engine's `level` is therefore always `1` or `2` here, and at most `MAX_HANDICAP_LEVEL` (8, the max dice on a territory — more extra dice than a full stack has no meaning).
+Two vocabularies, one setting. The Custom setup panel offers three **rungs** — `0` = "Normal", `1` = "Lucky", `2` = "Very lucky". Rung `0` means _no handicap at all_: it resolves to `handicap: null`, not to a level. The engine's `level` is therefore always `1` or `2` here, and at most `MAX_HANDICAP_LEVEL` (8, the max dice on a territory — more extra dice than a full stack has no meaning).
 
 At level 1 an even 3-dice-vs-3-dice attack goes from a 45.4% to a 62.2% win for a lucky attacker; a lucky defender drops the attacker's odds to 29.2%. The effect holds at every stack size, unlike a flat bonus.
 

@@ -21,7 +21,7 @@ import { createReplayFromState } from '../arena/replayFormat.js';
 import { getCommunityBotList, loadCommunityBot } from '../arena/communityBots.js';
 import { adaptModernBot } from '../arena/modernBotAdapter.js';
 import { HUMAN_PLAYER_NAME, playerName } from '../store/GameStore.js';
-import { resolveMapSize, luckToHandicap, DEFAULT_LUCK } from '../utils/config.js';
+import { resolveMapSize, luckToHandicap, resolveLuck } from '../utils/config.js';
 
 /** Prefix marking a per-slot assignment id as a curated community bot. */
 const COMMUNITY_PREFIX = 'community:';
@@ -245,10 +245,12 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *   restores the selection on the next visit (and derives preset lineups from
    *   it); the controller itself only consumes aiAssignments.
    * @param {number} [config.luck] - "Your luck" rung (#179): 0 = Normal, 1 = Lucky,
-   *   2 = Very lucky. Carried in the store for the session (not localStorage) like
-   *   mapSize, and turned into the engine's `config.handicap` for the human seat;
-   *   stored as picked even in spectator mode, where the derived handicap is null
-   *   (no human seat).
+   *   2 = Very lucky. A Custom-only setting — honoured when `difficulty` is
+   *   'custom' and played as Normal under every preset (`resolveLuck`), so the
+   *   stored value never carries a handicap behind a preset label. Carried in the
+   *   store for the session (not localStorage) like mapSize, and turned into the
+   *   engine's `config.handicap` for the human seat; stored as picked even in
+   *   spectator mode, where the derived handicap is null (no human seat).
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
@@ -284,12 +286,15 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const difficulty = config.difficulty ?? store.getState().config.difficulty;
 
     /*
-     * "Your luck" rung (#179). Stored as the player picked it even in spectator
-     * mode — the choice belongs to the title screen and must survive an AI-vs-AI
+     * "Your luck" rung (#179), resolved against the difficulty: only Custom plays
+     * a rung, every preset plays Normal. That keeps the store's fallback honest
+     * for a caller that omits `luck` — a stale Custom rung can't be inherited
+     * into a preset game. Stored as the player picked it even in spectator mode —
+     * the choice belongs to the title screen and must survive an AI-vs-AI
      * detour — but the handicap itself is derived from humanPlayerIndex, which is
      * null when nobody is playing, so a spectator game is unhandicapped.
      */
-    const luck = config.luck ?? store.getState().config.luck ?? DEFAULT_LUCK;
+    const luck = resolveLuck(difficulty, config.luck ?? store.getState().config.luck);
     const humanPlayerIndex = spectator ? null : 0;
     /*
      * luckToHandicap throws on a rung that isn't on the ladder. That has to land
@@ -402,7 +407,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     let handicap;
     try {
       handicap = luckToHandicap(
-        storeState.config.luck ?? DEFAULT_LUCK,
+        resolveLuck(storeState.config.difficulty, storeState.config.luck),
         storeState.humanPlayerIndex
       );
     } catch (err) {

@@ -10,7 +10,7 @@ Built on the original [Dice Wars](https://www.gamedesign.jp/games/dicewars/) by 
 
 - **Play or spectate** — play against AI opponents or watch bots battle each other
 - **Choose your opponents** — pick a difficulty (Easy/Standard/Hard) or go Custom to pick a bot per slot, including the curated community bots — duplicates allowed
-- **Tilt the dice your way** — an optional luck handicap on a second axis: Normal, Lucky, or Very lucky, where your seat rolls extra dice and drops as many of the lowest as it added, attacking and defending
+- **Tilt the dice your way** — an optional luck handicap inside Custom: Normal, Lucky, or Very lucky, where your seat rolls extra dice and drops as many of the lowest as it added, attacking and defending (the presets always roll fair dice)
 - **Configurable map size** — pick Small (20×24), Medium (28×32, default) or Large (36×40) before each game
 - **Bot SDK** — write a bot in a single function and compete in the arena
 - **Arena mode** — run tournaments with ELO ratings and match replays
@@ -125,7 +125,7 @@ See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.
 
 > Players face a difficulty ladder (#167): **Easy** (Basic/Defensive-led — Basic is the `ai_example` stub), **Standard** — the default — (the original game's AI in every seat), **Hard** (the self-play personas lead the strongest roster), or **Custom** (pick any bot per seat). Competitive surfaces — Arena, Tournament, the online leaderboard — keep a curated 7-bot roster, strongest first (Conqueror, Blitz, Survivor, Lookahead, Strategist, Adaptive, Default); Basic and Defensive appear only in the game-setup picker, Expectimax stays dev-only, and all three remain CLI-reachable by name (`--bots`).
 >
-> Alongside the ladder sits a second, independent axis — **your luck** (#179), picked per game on the title screen: **Normal** (fair dice), **Lucky**, or **Very lucky**, where your seat rolls one or two extra dice and drops that many of the lowest, both attacking and defending. It is the way to keep the sophisticated Hard opponents and still win; the kept dice are the ones the animation shows, ties still go to the defender, and it is recorded in the replay. It is always off for AI-vs-AI games and on every competitive surface — see [docs/GAME_RULES.md](docs/GAME_RULES.md#luck-handicap-advantage-dice).
+> Inside **Custom** you can also tilt the dice your way — **your luck** (#179): **Normal** (fair dice), **Lucky**, or **Very lucky**, where your seat rolls one or two extra dice and drops that many of the lowest, both attacking and defending. The Easy/Standard/Hard presets always mean fair dice (picking one puts the rung back to Normal), so to keep the sophisticated Hard opponents and still win: pick **Hard**, then **Custom** (which keeps the Hard lineup), then a luck rung. The kept dice are the ones the animation shows, ties still go to the defender, and it is recorded in the replay. It is always off for AI-vs-AI games and on every competitive surface — see [docs/GAME_RULES.md](docs/GAME_RULES.md#luck-handicap-advantage-dice).
 >
 > **Strategist** and **Lookahead** are the strongest _heuristic_ built-in bots, each authored by an AI coding assistant: Strategist by **Claude Opus 4.8** and Lookahead by **GPT-5.5**. The names describe their technique (expected-value scoring vs. shallow search) rather than the tool that wrote them.
 >

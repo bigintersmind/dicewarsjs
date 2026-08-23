@@ -53,8 +53,10 @@ export function resolveMapSize(size) {
 }
 
 /**
- * "Your luck" ladder (issue #179) — the second, orthogonal difficulty axis
- * beside the Easy/Standard/Hard bot lineups.
+ * "Your luck" ladder (issue #179) — the per-seat dice handicap offered inside
+ * the Custom lineup panel. The Easy/Standard/Hard presets always play fair
+ * dice: picking one resets the rung to DEFAULT_LUCK, so a preset's label is
+ * the whole truth about the game it starts (`resolveLuck` is that rule).
  *
  * At level `k` the player's seat rolls `k` extra dice and drops the `k` lowest,
  * attacking *and* defending (see docs/GAME_RULES.md, "Luck handicap").
@@ -65,8 +67,9 @@ export function resolveMapSize(size) {
  * that translation.
  *
  * This table is the ladder itself, but it is not the only place a rung is
- * named: README.md, CLAUDE.md and docs/GAME_RULES.md enumerate the rungs too,
- * so adding one means updating them alongside this entry and its blurb.
+ * named — grep for "Very lucky" before adding one. README.md, CLAUDE.md,
+ * docs/GAME_RULES.md, GameController's `startNewGame` JSDoc and GameStore's
+ * `config.luck` comment all spell the rungs out in prose.
  */
 export const LUCK_LEVELS = [
   { id: 0, name: 'Normal', blurb: 'Fair dice — everyone rolls the same.' },
@@ -84,6 +87,31 @@ export const LUCK_LEVELS = [
 
 /** Default luck rung: no handicap. */
 export const DEFAULT_LUCK = 0;
+
+/** The one difficulty mode that offers a luck rung; every preset plays fair dice. */
+export const LUCK_DIFFICULTY = 'custom';
+
+/**
+ * The rung a game actually plays, given the difficulty it was started under.
+ *
+ * Luck is a Custom-panel setting: the presets never show the row, and a
+ * preset's label has to be the whole truth about the game it starts. So a rung
+ * is honoured only under LUCK_DIFFICULTY and is DEFAULT_LUCK otherwise — a
+ * stale rung left in the store by an earlier Custom game must not ride
+ * invisibly into Hard. The title screen enforces the same rule on its own state
+ * (a preset click resets the rung), but this is the seam the controller builds
+ * the game from, so it is where the rule is guaranteed for every caller.
+ *
+ * Does not validate the rung against the ladder: that stays `luckToHandicap`'s
+ * job, so an off-ladder rung still fails loud rather than quietly becoming Normal.
+ *
+ * @param {string | undefined} difficulty - Difficulty mode id the game starts under
+ * @param {number | undefined} luck - Rung id as picked (or stored)
+ * @returns {number} The rung to play
+ */
+export function resolveLuck(difficulty, luck) {
+  return difficulty === LUCK_DIFFICULTY ? (luck ?? DEFAULT_LUCK) : DEFAULT_LUCK;
+}
 
 /**
  * Turn the UI's luck rung into the engine's handicap config — the single place
@@ -104,7 +132,8 @@ export const DEFAULT_LUCK = 0;
  * @param {number} luck - Rung id from LUCK_LEVELS
  * @param {number | null} playerId - Seat to favour (the human's), or null for none
  * @returns {{ playerId: number, level: number } | null}
- * @throws {Error} On a rung off the ladder, or a playerId that is not null or a seat index
+ * @throws {Error} On a rung off the ladder, or a playerId that is neither null nor a
+ *   non-negative integer (the seat-range check against playerCount is `createGame`'s)
  */
 export function luckToHandicap(luck, playerId) {
   if (!LUCK_LEVELS.some(level => level.id === luck)) {

@@ -639,32 +639,38 @@ describe('applyAttack — luck handicap (issue #179)', () => {
     return { state, move: moves[0] };
   }
 
-  it('grants the configured seat advantage dice when it attacks', () => {
+  /*
+   * Both sides, at every rung: the level maps to the advantage 1:1 in each
+   * direction. Pinning only level 1 on one side would let a clamp (or an
+   * off-by-one) on that side pass unnoticed — "Very lucky" silently playing as
+   * "Lucky" on offence.
+   */
+  it.each([1, 2])('grants the configured seat %i advantage dice when it attacks', level => {
     const { state: plain, move } = openingMove();
     const attacker = plain.turnOrder[plain.currentPlayerIndex];
     expect(plain.areas[move.from].owner).toBe(attacker);
 
-    const state = createGame({ ...HANDICAP_CONFIG, handicap: { playerId: attacker, level: 1 } });
+    const state = createGame({ ...HANDICAP_CONFIG, handicap: { playerId: attacker, level } });
     const after = applyAction(state, { type: 'ATTACK', from: move.from, to: move.to });
     const { attackerRoll, defenderRoll } = after.history[0].result;
 
-    expect(attackerRoll.dropped).toHaveLength(1);
+    expect(attackerRoll.dropped).toHaveLength(level);
     expect(attackerRoll.values).toHaveLength(state.areas[move.from].dice);
     expect(defenderRoll.dropped).toEqual([]);
     expect(attackerRoll.total).toBe(attackerRoll.values.reduce((a, b) => a + b, 0));
   });
 
-  it('grants the configured seat advantage dice when it is attacked', () => {
+  it.each([1, 2])('grants the configured seat %i advantage dice when it is attacked', level => {
     const { state: plain, move } = openingMove();
     const defender = plain.areas[move.to].owner;
     const attacker = plain.turnOrder[plain.currentPlayerIndex];
     expect(defender).not.toBe(attacker);
 
-    const state = createGame({ ...HANDICAP_CONFIG, handicap: { playerId: defender, level: 2 } });
+    const state = createGame({ ...HANDICAP_CONFIG, handicap: { playerId: defender, level } });
     const after = applyAction(state, { type: 'ATTACK', from: move.from, to: move.to });
     const { attackerRoll, defenderRoll } = after.history[0].result;
 
-    expect(defenderRoll.dropped).toHaveLength(2);
+    expect(defenderRoll.dropped).toHaveLength(level);
     expect(defenderRoll.values).toHaveLength(state.areas[move.to].dice);
     expect(attackerRoll.dropped).toEqual([]);
   });

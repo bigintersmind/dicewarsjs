@@ -77,24 +77,34 @@ describe('describeSetup', () => {
    * remembered rung: they differ for a spectator game, which keeps the pick but
    * derives no handicap (see the render cases below).
    */
-  const SETUP = { playerCount: 7, mapSize: 'medium', difficulty: 'hard' };
+  const SETUP = { playerCount: 7, mapSize: 'medium', difficulty: 'custom' };
 
   it('names the luck rung the game is actually being played at (#179)', () => {
     expect(describeSetup(SETUP, { playerId: 0, level: 1 })).toBe(
-      '7 players · medium map · hard · lucky'
+      '7 players · medium map · custom · lucky'
     );
     expect(describeSetup(SETUP, { playerId: 0, level: 2 })).toBe(
-      '7 players · medium map · hard · very lucky'
+      '7 players · medium map · custom · very lucky'
     );
   });
 
-  it('says nothing about luck without a handicap — or for a level off the ladder', () => {
-    const plain = '7 players · medium map · hard';
+  it('says nothing about luck without a handicap', () => {
+    const plain = '7 players · medium map · custom';
     expect(describeSetup(SETUP, null)).toBe(plain);
     expect(describeSetup(SETUP)).toBe(plain);
-    expect(describeSetup(SETUP, { playerId: 0, level: 9 })).toBe(plain);
     // The remembered rung alone never prints — only the engine's handicap does.
     expect(describeSetup({ ...SETUP, luck: 2 }, null)).toBe(plain);
+  });
+
+  /*
+   * The engine accepts levels the ladder doesn't name (up to MAX_HANDICAP_LEVEL).
+   * An active handicap must still show up — printing nothing would make the line
+   * identical to a fair game's, which is a false claim, not a missing detail.
+   */
+  it('still flags an active handicap whose level the ladder cannot name', () => {
+    expect(describeSetup(SETUP, { playerId: 0, level: 8 })).toBe(
+      '7 players · medium map · custom · luck level 8'
+    );
   });
 });
 

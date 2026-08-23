@@ -624,7 +624,12 @@ describe('GameController', () => {
 
       for (const level of [1, 2]) {
         createGame.mockClear();
-        await controller.startNewGame({ playerCount: 2, spectator: false, luck: level });
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          difficulty: 'custom',
+          luck: level,
+        });
         expect(createGame).toHaveBeenCalledWith(
           expect.objectContaining({ handicap: { playerId: 0, level } })
         );
@@ -632,13 +637,18 @@ describe('GameController', () => {
     });
 
     it('persists the chosen rung in store config', async () => {
-      await controller.startNewGame({ playerCount: 2, spectator: false, luck: 2 });
+      await controller.startNewGame({
+        playerCount: 2,
+        spectator: false,
+        difficulty: 'custom',
+        luck: 2,
+      });
       expect(store.getState().config.luck).toBe(2);
     });
 
-    it('keeps the stored rung when the caller omits it', async () => {
+    it('keeps the stored rung when the caller omits it (under Custom)', async () => {
       const { createGame } = await import('../../src/engine/index.js');
-      store.setState({ config: { ...store.getState().config, luck: 1 } });
+      store.setState({ config: { ...store.getState().config, difficulty: 'custom', luck: 1 } });
 
       await controller.startNewGame({ playerCount: 2, spectator: false });
 
@@ -648,10 +658,47 @@ describe('GameController', () => {
       expect(store.getState().config.luck).toBe(1);
     });
 
+    /*
+     * Luck is a Custom-only setting: a preset's label is the whole truth about
+     * the game it starts. The title screen resets the rung on a preset click,
+     * but the controller is the seam every caller goes through, so the rule is
+     * enforced here too — a rung passed (or left in the store) alongside a
+     * preset plays as Normal and is stored as Normal.
+     */
+    it('plays — and stores — Normal when a rung arrives with a preset difficulty', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+
+      await controller.startNewGame({
+        playerCount: 2,
+        spectator: false,
+        difficulty: 'hard',
+        luck: 2,
+      });
+
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ handicap: null }));
+      expect(store.getState().config.luck).toBe(0);
+    });
+
+    it('does not inherit a stale stored Custom rung into a preset game', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+      store.setState({ config: { ...store.getState().config, difficulty: 'custom', luck: 2 } });
+
+      // A caller that names a preset but omits luck — a rematch button, say.
+      await controller.startNewGame({ playerCount: 2, spectator: false, difficulty: 'hard' });
+
+      expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ handicap: null }));
+      expect(store.getState().config.luck).toBe(0);
+    });
+
     it('forces the handicap off in spectator mode, but remembers the choice', async () => {
       const { createGame } = await import('../../src/engine/index.js');
 
-      await controller.startNewGame({ playerCount: 2, spectator: true, luck: 2 });
+      await controller.startNewGame({
+        playerCount: 2,
+        spectator: true,
+        difficulty: 'custom',
+        luck: 2,
+      });
 
       // No human seat to favour — an AI-vs-AI board is never handicapped.
       expect(createGame).toHaveBeenCalledWith(expect.objectContaining({ handicap: null }));
@@ -663,7 +710,12 @@ describe('GameController', () => {
     it('rejectMap regenerates with the same handicap (NEW MAP is not a reset)', async () => {
       const { createGame } = await import('../../src/engine/index.js');
 
-      await controller.startNewGame({ playerCount: 2, spectator: false, luck: 1 });
+      await controller.startNewGame({
+        playerCount: 2,
+        spectator: false,
+        difficulty: 'custom',
+        luck: 1,
+      });
       createGame.mockClear();
 
       await controller.rejectMap();
@@ -676,7 +728,12 @@ describe('GameController', () => {
     it('rejectMap keeps a spectator board unhandicapped', async () => {
       const { createGame } = await import('../../src/engine/index.js');
 
-      await controller.startNewGame({ playerCount: 2, spectator: true, luck: 2 });
+      await controller.startNewGame({
+        playerCount: 2,
+        spectator: true,
+        difficulty: 'custom',
+        luck: 2,
+      });
       createGame.mockClear();
 
       await controller.rejectMap();
@@ -685,7 +742,12 @@ describe('GameController', () => {
     });
 
     it('round-trips the rung through a title detour (#180)', async () => {
-      await controller.startNewGame({ playerCount: 2, spectator: false, luck: 2 });
+      await controller.startNewGame({
+        playerCount: 2,
+        spectator: false,
+        difficulty: 'custom',
+        luck: 2,
+      });
       controller.goToTitle();
       expect(store.getState().config.luck).toBe(2);
     });
@@ -710,7 +772,12 @@ describe('GameController', () => {
         createGame.mockClear();
 
         await expect(
-          controller.startNewGame({ playerCount: 2, spectator: false, luck: 9 })
+          controller.startNewGame({
+            playerCount: 2,
+            spectator: false,
+            difficulty: 'custom',
+            luck: 9,
+          })
         ).resolves.toBeUndefined();
 
         const state = store.getState();
@@ -727,7 +794,12 @@ describe('GameController', () => {
 
       it('rejectMap resolves, shows an error, and regenerates nothing', async () => {
         const { createGame } = await import('../../src/engine/index.js');
-        await controller.startNewGame({ playerCount: 2, spectator: false, luck: 1 });
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          difficulty: 'custom',
+          luck: 1,
+        });
         store.setState({ config: { ...store.getState().config, luck: 9 } });
         createGame.mockClear();
 
@@ -1796,7 +1868,12 @@ describe('GameController', () => {
     it("records the game's luck handicap in the replay (#179)", async () => {
       const { createGame, applyAction } = await import('../../src/engine/index.js');
 
-      await controller.startNewGame({ playerCount: 2, spectator: false, luck: 2 });
+      await controller.startNewGame({
+        playerCount: 2,
+        spectator: false,
+        difficulty: 'custom',
+        luck: 2,
+      });
       controller.acceptMap();
       const engineConfig = createGame.mock.calls.at(-1)[0];
 

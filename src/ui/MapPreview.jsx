@@ -96,19 +96,22 @@ const difficultyLabel = difficulty =>
  * They differ: the controller stores the picked rung even for an AI-vs-AI game,
  * which has no human seat and so derives `handicap: null`. Reading the store's
  * `config.luck` there would label a spectator board "very lucky". A null
- * handicap (and a level that isn't on the ladder) is left out, the same way the
- * sibling labels omit what they can't name.
+ * handicap is left out like the sibling labels' unknowns — but a level the
+ * ladder can't name is NOT: the engine accepts more levels than the ladder
+ * names, and omitting an active handicap would print a line identical to a
+ * fair game's, a false claim rather than a missing detail.
  *
  * @param {{ level: number } | null} [handicap] - GameState.config.handicap
  */
 const luckLabel = handicap => {
-  const level =
-    handicap?.level >= 1 ? LUCK_LEVELS.find(entry => entry.id === handicap.level) : null;
-  return level ? level.name.toLowerCase() : null;
+  if (!(handicap?.level >= 1)) return null;
+  const level = LUCK_LEVELS.find(entry => entry.id === handicap.level);
+  return level ? level.name.toLowerCase() : `luck level ${handicap.level}`;
 };
 
 /**
- * "7 players · medium map · hard · lucky" — what ← BACK takes you to change.
+ * "7 players · medium map · custom · lucky" — what ← BACK takes you to change
+ * (a handicapped game is always a Custom one: the presets play fair dice).
  * Rendered uppercase by the eyebrow style, so it's authored in plain case for
  * screen readers.
  *

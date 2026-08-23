@@ -40,9 +40,10 @@ import {
  *
  * Returns a fresh, frozen object: the copy means later mutation of the caller's
  * input object can't change the running game's config, and the freeze means the
- * stored handicap can't be edited through `gameState.config` either. Together
- * they keep the config a replay is re-derived from equal to the one the game was
- * actually played with.
+ * stored handicap's fields can't be edited through `gameState.config` either
+ * (createGame freezes the config object itself, so the slot can't be swapped).
+ * Together they keep the config a replay is re-derived from equal to the one the
+ * game was actually played with.
  *
  * @param {unknown} handicap
  * @param {number} playerCount - Resolved player count; playerId must be a valid seat
@@ -115,6 +116,14 @@ export function createGame(config = {}) {
     recordHistory,
     seed: config.seed ?? Math.floor(Math.random() * 0xffffffff),
   };
+  /*
+   * The config rides by reference into every derived state, and applyAttack
+   * re-reads `config.handicap` on each attack — so an assignable slot would let
+   * a mid-game `state.config.handicap = …` change the RNG draw count and desync
+   * the game from the config its replay is re-derived from. validateHandicap
+   * already freezes the handicap's fields; this freezes the slots.
+   */
+  Object.freeze(fullConfig);
 
   const rng = createRng(fullConfig.seed);
   const mapData = generateMap(fullConfig, rng);

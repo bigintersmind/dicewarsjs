@@ -7,7 +7,9 @@ import {
   resolveMapSize,
   LUCK_LEVELS,
   DEFAULT_LUCK,
+  LUCK_DIFFICULTY,
   luckToHandicap,
+  resolveLuck,
 } from '../../src/utils/config.js';
 import { createGame } from '../../src/engine/GameRunner.js';
 
@@ -154,6 +156,39 @@ describe('config — luck ladder (#179)', () => {
           createGame({ seed: 1, playerCount: 4, handicap: luckToHandicap(rung.id, 0) })
         ).not.toThrow();
       }
+    });
+  });
+
+  /*
+   * Luck is a Custom-only setting: a preset's label is the whole truth about
+   * the game it starts, so a rung is only played under LUCK_DIFFICULTY.
+   */
+  describe('resolveLuck', () => {
+    test('plays the rung under Custom', () => {
+      for (const level of LUCK_LEVELS) {
+        expect(resolveLuck(LUCK_DIFFICULTY, level.id)).toBe(level.id);
+      }
+    });
+
+    test('plays Normal under every preset, whatever rung came with it', () => {
+      for (const difficulty of ['easy', 'standard', 'hard']) {
+        expect(resolveLuck(difficulty, 2)).toBe(DEFAULT_LUCK);
+        expect(resolveLuck(difficulty, 0)).toBe(DEFAULT_LUCK);
+      }
+      expect(resolveLuck(undefined, 2)).toBe(DEFAULT_LUCK);
+    });
+
+    test('fills a missing rung with Normal under Custom', () => {
+      expect(resolveLuck(LUCK_DIFFICULTY, undefined)).toBe(DEFAULT_LUCK);
+      expect(resolveLuck(LUCK_DIFFICULTY, null)).toBe(DEFAULT_LUCK);
+    });
+
+    // Validation stays luckToHandicap's job, so a bad rung still fails loud downstream.
+    test('does not validate the rung against the ladder', () => {
+      expect(resolveLuck(LUCK_DIFFICULTY, 9)).toBe(9);
+      expect(() => luckToHandicap(resolveLuck(LUCK_DIFFICULTY, 9), 0)).toThrow(
+        /unknown luck level/
+      );
     });
   });
 });

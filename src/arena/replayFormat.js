@@ -27,9 +27,12 @@ export const REPLAY_VERSION = 2;
  * Replay versions this build can read. Writers always emit REPLAY_VERSION; the
  * reader accepts every version listed here.
  *
- * v1 has to stay in the set because v1 files are shipped in the repo —
- * `public/data/replays/replay-*.json`, fetched by the online leaderboard's
- * replay viewer, and `tests/fixtures/trajectories/sample.jsonl`. They carry no
+ * v1 has to stay in the set because v1 records exist outside this build:
+ * `tests/fixtures/trajectories/sample.jsonl`, the frozen
+ * `tests/fixtures/replays/leaderboard-replay-v1.json` (a real pre-#179
+ * leaderboard replay), and any file a user saved. The shipped
+ * `public/data/replays/replay-*.json` are NOT the reason — the nightly
+ * tournament rewrites them at the current REPLAY_VERSION. v1 records carry no
  * `config.handicap` key at all, which `createGame` resolves to null — correct,
  * since v1 predates the handicap.
  *

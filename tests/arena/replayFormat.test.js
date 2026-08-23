@@ -220,6 +220,28 @@ describe('replay version + luck handicap (issue #179)', () => {
     expect(replay.config.handicap).toBeNull();
   });
 
+  /*
+   * The whitelist has to hold in both directions. Keys surviving is pinned
+   * above; this pins that nothing else leaks — createReplayFromState hands the
+   * engine's whole config over, and a stray key (recordHistory, or a future
+   * engine-only field) would land in every shipped replay and the training
+   * corpus, then be fed back into createGame on replay.
+   */
+  it('writes exactly the whitelisted config keys and nothing else', () => {
+    const replay = createReplayFromState(playTestGame(), { bots: [] });
+    expect(Object.keys(replay.config).sort()).toEqual([
+      'dicePerArea',
+      'handicap',
+      'mapHeight',
+      'mapWidth',
+      'maxAreas',
+      'playerCount',
+      'seed',
+    ]);
+    // The engine config it was built from does carry more than that.
+    expect(playTestGame().config).toHaveProperty('recordHistory');
+  });
+
   it('carries a handicap through the whitelist and the base64 round-trip', () => {
     const handicap = { playerId: 1, level: 2 };
     let state = createGame({ seed: 42, playerCount: 3, handicap });
@@ -306,29 +328,18 @@ describe('replay version + luck handicap (issue #179)', () => {
     expect(initial.config.handicap).toBeNull();
 
     const final = replayToState(decoded, getReplayLength(decoded));
-    expect(final.winner).toBe(decoded.metadata.winner);
-  });
-
-  it('replays the shipped leaderboard replay end to end, whatever supported version it carries', () => {
     /*
-     * public/data/replays/replay-*.json are rewritten by the nightly tournament
-     * (scripts/run-online-tournament.mjs → createReplay), so their version tracks
-     * whatever REPLAY_VERSION the workflow ran with — v1 before #179, v2 after.
-     * The reader must take either, and a leaderboard replay is never handicapped.
+     * With ten players the winner alone is a one-in-ten detector of a mid-game
+     * divergence. The game ending exactly on the last recorded action, with the
+     * winner owning every populated area (unused slots are size 0, owner -1),
+     * makes a wrong re-derivation near-certain to show — a diverged game lands
+     * on a different board, or never gets there.
      */
-    const path = fileURLToPath(new URL('../../public/data/replays/replay-1.json', import.meta.url));
-    const shipped = JSON.parse(readFileSync(path, 'utf8'));
-    expect(SUPPORTED_REPLAY_VERSIONS).toContain(shipped.version);
-    expect(shipped.config.handicap ?? null).toBeNull();
-
-    const decoded = deserializeReplay(serializeReplay(shipped));
-    expect(decoded.version).toBe(shipped.version);
-
-    const initial = replayToState(decoded, 0);
-    expect(initial.config.handicap).toBeNull();
-
-    const final = replayToState(decoded, getReplayLength(decoded));
     expect(final.winner).toBe(decoded.metadata.winner);
+    expect(final.phase).toBe('gameOver');
+    const populated = final.areas.filter(area => area.size > 0);
+    expect(populated.length).toBeGreaterThan(0);
+    expect(populated.every(area => area.owner === final.winner)).toBe(true);
   });
 
   it('rejects a version beyond the supported set', () => {

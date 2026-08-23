@@ -166,7 +166,7 @@ export const AI_STRATEGIES = {
   ai_conqueror: {
     id: 'ai_conqueror',
     name: 'Conqueror',
-    description: 'Balanced self-play net that plays the long game — the strongest bot head-to-head',
+    description: 'Balanced self-play net that plays the long game. The strongest bot head-to-head',
     difficulty: 5,
     category: 'self-play',
     loader: load_ai_conqueror,
@@ -176,7 +176,7 @@ export const AI_STRATEGIES = {
     id: 'ai_blitz',
     name: 'Blitz',
     description:
-      'Aggressive self-play net that ends games fast — most outright wins in the bot field',
+      'Aggressive self-play net that ends games fast. Most outright wins in the bot field',
     difficulty: 5,
     category: 'self-play',
     loader: load_ai_blitz,
@@ -186,7 +186,7 @@ export const AI_STRATEGIES = {
     id: 'ai_survivor',
     name: 'Survivor',
     description:
-      'Patient self-play net that outlasts rivals — best average placement in the bot field',
+      'Patient self-play net that outlasts rivals. Best average placement in the bot field',
     difficulty: 5,
     category: 'self-play',
     loader: load_ai_survivor,

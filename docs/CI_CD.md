@@ -1,35 +1,35 @@
-# Continuous Integration (CI) Setup
+# Continuous integration (CI) setup
 
-This document describes the CI setup for the DiceWarsJS project using GitHub Actions.
+This document describes the CI setup for the DiceWarsJS project, which runs on GitHub Actions.
 
 ## Overview
 
-The project uses GitHub Actions to automate testing, linting, and build processes. This ensures that code quality is maintained and that any issues are detected early in the development process.
+GitHub Actions runs the tests, the linter, and the build on every change, so problems surface early instead of piling up.
 
-## Workflow Configuration
+## Workflow configuration
 
-The CI workflow is defined in `.github/workflows/ci.yml` and includes the following steps:
+The CI workflow is defined in `.github/workflows/ci.yml` and runs these steps:
 
-1. **Setup Environment**: Sets up the Node.js environment with multiple versions (16.x, 18.x)
-2. **Install Dependencies**: Installs project dependencies using `npm ci`
-3. **Code Style Check**: Verifies that code follows formatting rules using Prettier
-4. **Linting**: Runs ESLint to check for code quality issues
-5. **Build**: Creates a production build of the application
-6. **Testing**: Runs unit tests with Jest
-7. **Benchmarks**: Executes benchmark tests to ensure performance
+1. Set up Node.js, with multiple versions (16.x, 18.x)
+2. Install dependencies with `npm ci`
+3. Check formatting with Prettier
+4. Run ESLint
+5. Create a production build
+6. Run unit tests with Jest
+7. Run the benchmark tests
 
-## When CI Runs
+## When CI runs
 
-The CI workflow is triggered on:
+The workflow is triggered on:
 
 - Every push to the `master` branch
 - Every pull request targeting the `master` branch
 
-## CI Status
+## CI status
 
-You can check the status of CI runs in the GitHub Actions tab of the repository. Each commit and pull request will display its CI status, making it easy to identify if there are any issues.
+Check run status in the repository's GitHub Actions tab. Each commit and pull request shows its CI status.
 
-## Local Validation
+## Local validation
 
 Before pushing changes, you can run the same checks locally:
 
@@ -53,18 +53,18 @@ npm run build
 npm run test:benchmark
 ```
 
-## Troubleshooting CI Failures
+## Troubleshooting CI failures
 
-If a CI build fails, check the logs in the GitHub Actions interface to identify the specific issue. Common problems include:
+If a CI build fails, check the logs in the GitHub Actions tab. Common fixes:
 
-1. **Linting Errors**: Fix by running `npm run lint:fix` locally
-2. **Formatting Issues**: Fix by running `npm run format` locally
-3. **Failed Tests**: Debug by running `npm run test` locally
-4. **Build Errors**: Check for compilation issues by running `npm run build` locally
+1. Lint errors: run `npm run lint:fix` locally
+2. Formatting issues: run `npm run format` locally
+3. Failed tests: debug with `npm run test` locally
+4. Build errors: reproduce with `npm run build` locally
 
-## Future Improvements
+## Future improvements
 
-Planned improvements to the CI pipeline include:
+Planned improvements to the CI pipeline:
 
 - Adding code coverage reporting
 - Performance regression monitoring

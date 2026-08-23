@@ -1,14 +1,14 @@
-# Balanced Approach
+# Balanced approach
 
-A balanced approach combines offensive and defensive strategies to create a well-rounded AI that can adapt to different game situations.
+A balanced approach combines offensive and defensive strategies into one bot that can handle most game situations.
 
-## Core Concept
+## Core concept
 
-The balanced approach doesn't fully commit to either aggressive expansion or defensive consolidation. Instead, it evaluates both options and chooses the most promising based on the current game state.
+The balanced approach commits to neither aggressive expansion nor defensive consolidation. It evaluates both each turn and picks whichever the current board favors.
 
-## Strategy Components
+## Strategy components
 
-### 1. Dice Advantage Assessment
+### 1. Dice advantage assessment
 
 Use the basic dice advantage strategy as a foundation:
 
@@ -17,9 +17,9 @@ Use the basic dice advantage strategy as a foundation:
 if (defending_area.dice >= attacking_area.dice) continue;
 ```
 
-### 2. Player Ranking
+### 2. Player ranking
 
-Incorporate player ranking to identify threats and opportunities:
+Add player ranking to identify threats and opportunities:
 
 ```javascript
 // Calculate dice ranking for each player
@@ -41,9 +41,9 @@ for (let i = 0; i < 8; i++) {
 }
 ```
 
-### 3. Neighbor Analysis
+### 3. Neighbor analysis
 
-Add strategic depth with neighbor analysis:
+Add neighbor analysis for counterattack awareness:
 
 ```javascript
 function area_get_info(area_id) {
@@ -62,16 +62,16 @@ function area_get_info(area_id) {
 const area_info = [...Array(game.AREA_MAX).keys()].map(area_get_info);
 ```
 
-### 4. Border Security Evaluation
+### 4. Border security evaluation
 
-Add defensive considerations:
+Add defensive checks:
 
 ```javascript
 // Skip if winning would leave territory vulnerable to counter-attack
 if (area_info[i].highest_friendly_neighbor_dice > game.adat[j].dice) continue;
 ```
 
-### 5. Reinforcement Awareness
+### 5. Reinforcement awareness
 
 Consider reinforcement implications:
 
@@ -82,7 +82,7 @@ if (game.player[pn].area_tc > 4
     && game.player[pn].stock == 0) continue;
 ```
 
-## Implementation Example
+## Implementation example
 
 ```javascript
 function ai_balanced(game) {
@@ -338,11 +338,11 @@ function selectBestMove(moves, strategy) {
 }
 ```
 
-## Adapting to Game Phase
+## Adapting to game phase
 
 A balanced AI adjusts its strategy based on the game phase:
 
-### Early Game
+### Early game
 
 ```javascript
 if (isEarlyGame(game)) {
@@ -354,7 +354,7 @@ if (isEarlyGame(game)) {
 }
 ```
 
-### Mid Game
+### Mid game
 
 ```javascript
 if (isMidGame(game)) {
@@ -370,7 +370,7 @@ if (isMidGame(game)) {
 }
 ```
 
-### Late Game
+### Late game
 
 ```javascript
 if (isLateGame(game)) {
@@ -392,9 +392,9 @@ if (isLateGame(game)) {
 }
 ```
 
-## Combining with Equal Dice Considerations
+## Handling equal dice
 
-From the default AI, we can incorporate logic for equal dice situations:
+From the default AI, logic for equal-dice situations:
 
 ```javascript
 // Handle equal dice situations
@@ -408,18 +408,13 @@ if (game.adat[j].dice == game.adat[i].dice) {
 }
 ```
 
-## When to Use
+## When to use
 
-The balanced approach is ideal for:
+The balanced approach fits:
 
-1. General-purpose AI that needs to handle a variety of game situations
-2. Maps with mixed terrain that requires both offensive and defensive play
-3. When you want a robust AI that doesn't have easily exploitable weaknesses
-4. As a foundation for more specialized strategies
+1. A general-purpose bot that has to handle whatever the map produces
+2. Maps that reward both offensive and defensive play
+3. A bot without one easily exploited weakness
+4. A foundation to specialize from later
 
-## Advantages
-
-1. **Adaptability** - Can adjust to changing game situations
-2. **Robustness** - No single critical weakness
-3. **Learning curve** - Easier to understand and implement than highly specialized strategies
-4. **Emergent behavior** - Can create interesting emergent gameplay patterns
+Its main virtue is that nothing hard-counters it: there is no single posture an opponent can exploit. It is also a reasonable first serious bot, since each component (ranking, neighbor analysis, border checks) can be added and tested one at a time.

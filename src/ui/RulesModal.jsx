@@ -53,7 +53,7 @@ export const RULES_SECTIONS = [
     eyebrow: 'Goal',
     heading: 'Take the whole board',
     Figure: GoalFigure,
-    body: 'Conquer every territory on the map. The last player left standing wins — and if nobody has won by the turn limit, the game ends in a draw.',
+    body: 'Conquer every territory on the map. The last player left standing wins. If nobody has won by the turn limit, the game ends in a draw.',
   },
   {
     id: 'attack',
@@ -67,14 +67,14 @@ export const RULES_SECTIONS = [
     eyebrow: 'Battle',
     heading: 'Highest total wins',
     Figure: BattleFigure,
-    body: 'Both sides roll all their dice and add them up. You need the higher total — ties go to the defender. Win and the territory is yours: every die but one moves in, and one stays behind. Lose and your attacking territory drops to a single die.',
+    body: 'Both sides roll all their dice and add them up. You need the higher total. Ties go to the defender. Win and the territory is yours: every die but one moves in, and one stays behind. Lose and your attacking territory drops to a single die.',
   },
   {
     id: 'reinforce',
     eyebrow: 'Reinforce',
     heading: 'Stay connected',
     Figure: ReinforceFigure,
-    body: 'Ending your turn earns you one new die for every territory in your largest connected group, dropped on your land at random. A territory holds 8 dice at most; the rest wait in your stockpile — the +N in the bottom bar — for later turns.',
+    body: 'Ending your turn earns you one new die for every territory in your largest connected group, dropped on your land at random. A territory holds 8 dice at most; the rest wait in your stockpile, the +N in the bottom bar, for later turns.',
   },
   {
     id: 'tips',
@@ -83,7 +83,7 @@ export const RULES_SECTIONS = [
     Figure: TipsFigure,
     bullets: [
       'Keep your territories connected: one big group earns far more dice than two small ones.',
-      "Don't leave a 1-die territory on a border facing an enemy — it can't attack, and it falls to anything.",
+      "Don't leave a 1-die territory on a border facing an enemy: it can't attack, and it falls to anything.",
       'Bigger stacks win more often. 8 against 8 is barely better than a coin flip; 8 against 3 almost never loses.',
       'Under Custom difficulty, "Your luck" tilts the dice your way: you roll extra dice and drop as many of the lowest, attacking and defending.',
     ],

@@ -118,7 +118,7 @@ export function GameHUD({ store, onQuit, onRules }) {
           className="dw-opt"
           style={STYLE.quit}
           onClick={onRules}
-          aria-label="Rules — how to play"
+          aria-label="Rules: how to play"
           title="How to play"
         >
           RULES

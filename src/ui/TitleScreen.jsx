@@ -378,13 +378,13 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
     if (stored == null) return DEFAULT_LUCK;
     if (resolveLuck(storedDifficulty, stored) !== stored) {
       console.warn(
-        `TitleScreen: ignoring stored luck rung ${JSON.stringify(stored)} — the stored difficulty is ${JSON.stringify(storedDifficulty)}, and only ${JSON.stringify(LUCK_DIFFICULTY)} plays a rung.`
+        `TitleScreen: ignoring stored luck rung ${JSON.stringify(stored)}: the stored difficulty is ${JSON.stringify(storedDifficulty)}, and only ${JSON.stringify(LUCK_DIFFICULTY)} plays a rung.`
       );
       return DEFAULT_LUCK;
     }
     if (LUCK_LEVELS.some(level => level.id === stored)) return stored;
     console.warn(
-      `TitleScreen: ignoring luck rung ${JSON.stringify(stored)} — not on the LUCK_LEVELS ladder; falling back to Normal.`
+      `TitleScreen: ignoring luck rung ${JSON.stringify(stored)}: not on the LUCK_LEVELS ladder; falling back to Normal.`
     );
     return DEFAULT_LUCK;
   });
@@ -552,7 +552,7 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
             >
               {difficulty === LUCK_DIFFICULTY
                 ? 'Custom: pick your bots and your luck below.'
-                : 'Presets roll fair dice — tune your luck under Custom.'}
+                : 'Presets roll fair dice. Tune your luck under Custom.'}
             </div>
           </div>
 
@@ -677,7 +677,7 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
                 className="dw-opt"
                 style={STYLE.aiLink}
                 onClick={handleAIvsAI}
-                aria-label="AI vs AI — watch the bots play your setup"
+                aria-label="AI vs AI: watch the bots play your setup"
                 title="Sit this one out and watch the bots play your setup"
               >
                 AI vs AI
@@ -691,7 +691,7 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
                   className="dw-opt"
                   style={STYLE.aiLink}
                   onClick={onRules}
-                  aria-label="How to play — the rules in one card"
+                  aria-label="How to play: the rules in one card"
                   title="The rules, in one card"
                 >
                   HOW TO PLAY

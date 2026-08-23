@@ -285,7 +285,7 @@ describe('GameController', () => {
       // the fallback is named the way the seat will be labeled in-game.
       const warnings = store.getState().aiLoadWarnings;
       expect(warnings).toEqual([
-        'Player 2: community bot "broken/bot" could not load — using Balanced AI instead.',
+        'Player 2: community bot "broken/bot" could not load. Using Balanced AI instead.',
       ]);
     });
 
@@ -371,7 +371,7 @@ describe('GameController', () => {
         // in the same words the seat will use, that this isn't the bot they picked.
         expect(store.getState().playerNames).toEqual(['You', 'Balanced AI', 'Blitz']);
         expect(store.getState().aiLoadWarnings).toEqual([
-          'Player 2: "Conqueror" could not load — using Balanced AI instead.',
+          'Player 2: "Conqueror" could not load. Using Balanced AI instead.',
         ]);
       });
 

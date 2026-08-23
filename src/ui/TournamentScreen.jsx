@@ -239,7 +239,7 @@ export function TournamentScreen({ onViewReplay }) {
         <div className="dw-anim-fade" style={{ ...MENU_STYLE.section, ...STYLE.resultsSection }}>
           {result.champion && <div style={STYLE.champion}>Champion: {result.champion}</div>}
           <div style={MENU_STYLE.statsRow}>
-            {result.type} — {result.totalGames} games played
+            {result.type} · {result.totalGames} games played
           </div>
           {leaderboardBots && (
             <div style={MENU_STYLE.panel}>

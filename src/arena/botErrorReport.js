@@ -121,7 +121,7 @@ export function reportBotErrors(totals, options = {}) {
     warn(
       `${label} bot "${f.name}": errored on ${f.errors} of ${f.turns} turn(s) and attempted ` +
         `${f.invalidMoves} invalid move(s), vs ${f.attacks} attack(s) landed (error fraction ` +
-        `${pct}%). Its win% / ELO is NOT a meaningful measurement — this looks like a broken ` +
+        `${pct}%). Its win% / ELO is NOT a meaningful measurement. This looks like a broken ` +
         `or mis-registered bot, not legitimate losing.`
     );
   }

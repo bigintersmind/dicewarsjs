@@ -92,7 +92,7 @@ export class ErrorBoundary extends Component {
       return (
         <div style={STYLE.container}>
           <p>Couldn&apos;t load this screen.</p>
-          <p>The app was likely updated in the background — reload to get the latest version.</p>
+          <p>The app was likely updated in the background, so reload to get the latest version.</p>
           <button style={STYLE.button} onClick={() => window.location.reload()}>
             Reload
           </button>

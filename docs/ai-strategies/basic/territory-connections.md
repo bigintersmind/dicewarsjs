@@ -1,12 +1,12 @@
-# Territory Connections Strategy
+# Territory connections strategy
 
-The territory connections strategy focuses on maintaining and expanding connected territories to maximize reinforcement dice at the end of each turn.
+Keep your territories connected. Reinforcement dice at the end of each turn are based on the size of your largest connected group, so connections are income.
 
-## Core Concept
+## Core concept
 
-In Dice Wars, players receive reinforcement dice based on the size of their largest connected territory group. This strategy prioritizes moves that maintain or expand these connections.
+Players receive reinforcement dice based on the size of their largest connected territory group. This strategy prioritizes moves that maintain or expand those connections.
 
-## Game Mechanic
+## Game mechanic
 
 The `set_area_tc` function in the game calculates a player's largest connected territory:
 
@@ -47,25 +47,20 @@ if (game.player[pn].area_tc > 4
 
 This logic avoids risky attacks when the AI already has a substantial connected territory (more than 4 territories) but no reinforcement dice in reserve, especially if there are strong enemy territories nearby.
 
-## Strategic Importance
+## Why connections matter
 
-Understanding connected territories is crucial because:
+A larger connected group means more reinforcement dice every turn, and those reinforcements land where the group needs defending. Losing a link that splits your group in two cuts your income immediately, which is why opponents will aim for exactly those territories.
 
-1. **Reinforcement source** - Larger connected territories provide more reinforcement dice
-2. **Defensive strength** - Connected territories are easier to defend with reinforcements
-3. **Supply lines** - Connected territories allow for strategic deployment of dice
-4. **Expansion potential** - Connected territories provide more options for future expansion
+## Implementation techniques
 
-## Implementation Techniques
-
-There are several ways to implement territory connection analysis:
+Ways to implement territory connection analysis:
 
 1. **Graph algorithms** - Use union-find or graph traversal to identify connected components
-2. **Connection metrics** - Calculate a "connectedness score" for potential moves
-3. **Bridge identification** - Identify and protect "bridge" territories that connect larger groups
-4. **Expansion planning** - Target territories that would connect separate groups
+2. **Connection metrics** - Score potential moves by how much they grow or shrink your largest group
+3. **Bridge identification** - Find and protect "bridge" territories whose loss would split a group
+4. **Expansion planning** - Target enemy territories whose capture would join two of your separate groups
 
-## Example: Finding Bridge Territories
+## Example: finding bridge territories
 
 Bridge territories are critical connections that, if lost, would split your territory into disconnected parts:
 
@@ -103,18 +98,16 @@ function findBridgeTerritories(game, player) {
 }
 ```
 
-## When to Use
+## When to use
 
-This strategy is particularly effective:
+1. In the mid to late game, once territory groups have formed
+2. Against aggressive opponents who might split your territories
+3. Whenever your plan depends on out-earning opponents in reinforcements
 
-1. In the mid to late game when territory groups have formed
-2. When facing aggressive opponents who might split your territories
-3. When reinforcement dice are crucial to your overall strategy
-
-## Combining with Other Strategies
+## Combining with other strategies
 
 Territory connection analysis works well with:
 
 1. **Border security** - Protect the perimeter of your connected territories
-2. **Choke point control** - Identify and control narrow passages between territory groups
-3. **Expansion planning** - Target key territories that would connect separate groups
+2. **Choke point control** - Control the narrow passages between territory groups
+3. **Expansion planning** - Target the territories that would connect your separate groups

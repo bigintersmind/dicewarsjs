@@ -1,57 +1,57 @@
-# DiceWarsJS AI Strategy Guide
+# DiceWarsJS AI strategy guide
 
-This documentation provides a detailed guide on creating effective AI for DiceWarsJS. The strategies outlined here can be mixed, matched, and extended to create your own custom AI.
+A guide to writing your own AI for DiceWarsJS. The strategies here can be mixed, matched, and extended into a custom bot.
 
-## Table of Contents
+## Table of contents
 
-1. [Game Mechanics Overview](#game-mechanics-overview)
-2. [Basic Strategies](#basic-strategies)
-3. [Advanced Strategies](#advanced-strategies)
-4. [Strategy Combinations](#strategy-combinations)
-5. [Implementation Guidelines](#implementation-guidelines)
+1. [Game mechanics overview](#game-mechanics-overview)
+2. [Basic strategies](#basic-strategies)
+3. [Advanced strategies](#advanced-strategies)
+4. [Strategy combinations](#strategy-combinations)
+5. [Implementation guidelines](#implementation-guidelines)
 
-## Game Mechanics Overview
+## Game mechanics overview
 
-Before diving into strategies, it's important to understand the core game mechanics:
+The rules every strategy builds on:
 
-- **Territories and Ownership**: The map is divided into territories, each owned by a player and containing 1-8 dice.
+- **Territories and ownership**: The map is divided into territories, each owned by a player and containing 1-8 dice.
 - **Adjacency**: Territories can only attack adjacent territories.
-- **Attack Mechanics**: When attacking, all dice from both territories are rolled. The higher total wins, with ties going to the defender.
+- **Attack mechanics**: When attacking, all dice from both territories are rolled. The higher total wins, with ties going to the defender.
 - **Reinforcements**: Players receive reinforcement dice at the end of their turn based on their largest connected territory group.
 - **Goal**: Eliminate all opponents by capturing all their territories.
 
-## Basic Strategies
+## Basic strategies
 
-The most fundamental tactics for any DiceWars AI:
+Start here:
 
-- [Dice Advantage Analysis](./basic/dice-advantage.md) - Attacking only when you have more dice than your opponent
-- [Random Selection](./basic/random-selection.md) - Choosing randomly from valid moves
-- [Player Ranking](./basic/player-ranking.md) - Identifying dominant players and focusing efforts
-- [Territory Connections](./basic/territory-connections.md) - Managing connected territory groups for reinforcements
+- [Dice advantage analysis](./basic/dice-advantage.md) - Attacking only when you have more dice than your opponent
+- [Random selection](./basic/random-selection.md) - Choosing randomly from valid moves
+- [Player ranking](./basic/player-ranking.md) - Identifying dominant players and focusing efforts
+- [Territory connections](./basic/territory-connections.md) - Managing connected territory groups for reinforcements
 
-## Advanced Strategies
+## Advanced strategies
 
-More sophisticated approaches to improve AI performance:
+Techniques that build on the basics:
 
-- [Neighbor Analysis](./advanced/neighbor-analysis.md) - Evaluating the risk of counterattacks
-- [Border Security](./advanced/border-security.md) - Protecting vulnerable territories
-- [Choke Point Control](./advanced/choke-point-control.md) - Identifying and controlling strategically valuable territories
-- [Reinforcement Optimization](./advanced/reinforcement-optimization.md) - Maximizing the value of reinforcement dice
-- [Expected-Value AI](./advanced/expected-value-ai.md) - Scoring every move by expected income/risk, plus how to benchmark bots with confidence intervals
-- [Lookahead Expectimax AI](./advanced/lookahead-expectimax-ai.md) - Standalone shallow expectimax over win/loss branches with board-value evaluation
+- [Neighbor analysis](./advanced/neighbor-analysis.md) - Evaluating the risk of counterattacks
+- [Border security](./advanced/border-security.md) - Protecting vulnerable territories
+- [Choke point control](./advanced/choke-point-control.md) - Identifying and controlling map bottlenecks
+- [Reinforcement optimization](./advanced/reinforcement-optimization.md) - Getting the most out of reinforcement dice
+- [Expected-value AI](./advanced/expected-value-ai.md) - Scoring every move by expected income/risk, plus how to benchmark bots with confidence intervals
+- [Lookahead expectimax AI](./advanced/lookahead-expectimax-ai.md) - Standalone shallow expectimax over win/loss branches with board-value evaluation
 
-## Strategy Combinations
+## Strategy combinations
 
-Examples of how to combine various strategies:
+Ways to combine the pieces:
 
-- [Balanced Approach](./combinations/balanced-approach.md) - Mixing offensive and defensive tactics
-- [Adaptive Strategy](./combinations/adaptive-strategy.md) - Adjusting behavior based on game state
-- [Specialized Focus](./combinations/specialized-focus.md) - Targeting specific weaknesses or opportunities
+- [Balanced approach](./combinations/balanced-approach.md) - Mixing offensive and defensive tactics
+- [Adaptive strategy](./combinations/adaptive-strategy.md) - Adjusting behavior based on game state
+- [Specialized focus](./combinations/specialized-focus.md) - Committing to one plan, such as turtling or hunting the weakest player
 
-## Implementation Guidelines
+## Implementation guidelines
 
-Practical advice for implementing your own AI:
+Practical advice for writing your own bot:
 
-- [AI Structure](./implementation/ai-structure.md) - How to organize your AI code
-- [Performance Considerations](./implementation/performance.md) - Ensuring your AI runs efficiently
-- [Testing and Tuning](./implementation/testing.md) - Methods for evaluating and improving your AI
+- [AI structure](./implementation/ai-structure.md) - How to organize your AI code
+- [Performance considerations](./implementation/performance.md) - Keeping AI turns fast
+- [Testing and tuning](./implementation/testing.md) - Evaluating and improving your AI

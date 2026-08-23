@@ -1,19 +1,17 @@
-# Performance Considerations
+# Performance considerations
 
-When implementing AI for DiceWars, performance is an important consideration. This guide covers techniques to ensure your AI runs efficiently.
+Techniques to keep your AI's turns fast.
 
-## Performance Challenges
+## Why it matters
 
-In DiceWars, AI performance is important because:
+1. **Turn-based gameplay** - A slow bot makes the game feel sluggish to the human at the table
+2. **Multiple AI players** - Several bots per game multiplies any slowdown
+3. **Nested loops** - The naive attacker×defender scan is already O(n²) over territories, before any evaluation
+4. **Browser environment** - Your bot shares the main thread with rendering
 
-1. **Turn-based gameplay** - Slow AI makes the game feel sluggish for human players
-2. **Multiple AI players** - The game often has several AI players, multiplying any performance issues
-3. **Complex calculations** - Strategic decisions can involve many territory evaluations
-4. **Browser environment** - The game runs in a browser, which has performance limitations
+## Key performance techniques
 
-## Key Performance Techniques
-
-### 1. Precalculate and Cache Data
+### 1. Precalculate and cache data
 
 Avoid recalculating the same data multiple times:
 
@@ -64,9 +62,9 @@ function getNeighbors(game, territoryId) {
 }
 ```
 
-### 2. Early Filtering
+### 2. Early filtering
 
-Eliminate invalid moves early to avoid unnecessary evaluation:
+Eliminate invalid moves before running any expensive evaluation:
 
 ```javascript
 function generateMoves(game, strategy, currentPlayer) {
@@ -107,9 +105,9 @@ function generateMoves(game, strategy, currentPlayer) {
 }
 ```
 
-### 3. Avoid Deep Copy Operations
+### 3. Avoid deep copy operations
 
-When possible, avoid creating deep copies of game state:
+Simulate on the live state and restore it, rather than deep-copying the whole game:
 
 ```javascript
 // AVOID: Creating expensive copies
@@ -149,9 +147,9 @@ function simulateAttack(game, from, to) {
 }
 ```
 
-### 4. Use Array-Based Data Structures
+### 4. Use array-based data structures
 
-Arrays are generally more efficient than object literals for large collections:
+Indexed arrays beat object literals for per-territory lookups:
 
 ```javascript
 // LESS EFFICIENT: Using object properties for lookup
@@ -197,9 +195,9 @@ function generateMoves(game, strategy, currentPlayer) {
 }
 ```
 
-### 5. Implement Efficient Graph Algorithms
+### 5. Implement efficient graph algorithms
 
-Many DiceWars AI operations involve graph algorithms. Implement them efficiently:
+Much of a DiceWars bot is graph work over the adjacency data:
 
 ```javascript
 // EFFICIENT: Finding connected territory groups with BFS
@@ -231,7 +229,7 @@ function findConnectedTerritories(game, startTerritory, player) {
 }
 ```
 
-### 6. Avoid Recursive Algorithms When Possible
+### 6. Prefer iteration over recursion
 
 Browser JavaScript has limited stack depth. Prefer iterative algorithms:
 
@@ -295,9 +293,9 @@ function bfsGroupSize(game, player, start, visited) {
 }
 ```
 
-### 7. Avoid Excessive Object Creation
+### 7. Avoid excessive object creation
 
-Creating many small objects can trigger frequent garbage collection:
+Many small short-lived objects mean frequent garbage collection pauses:
 
 ```javascript
 // LESS EFFICIENT: Creating many small objects in a loop
@@ -339,9 +337,9 @@ function evaluateAllTerritories(game, player) {
 }
 ```
 
-### 8. Use Bitwise Operations for Simple Flags
+### 8. Use bitwise operations for simple flags
 
-For simple boolean flags, bitwise operations can be more efficient:
+For per-territory boolean flags, one integer of bit flags beats several parallel arrays:
 
 ```javascript
 // Using bitwise operations for territory flags
@@ -381,19 +379,19 @@ function analyzeTerritories(game, player) {
     }
 
     if (flags[i] & TERRITORY_FLAGS.CHOKE_POINT && flags[i] & TERRITORY_FLAGS.BORDER) {
-      // This is both a border and a choke point - high priority!
+      // Both a border and a choke point: high priority
     }
   }
 }
 ```
 
-### 9. Profile and Optimize
+### 9. Profile before optimizing
 
-If your AI is still slow, use browser developer tools to identify bottlenecks:
+If your AI is still slow, find the actual bottleneck before rewriting anything:
 
 1. Use the browser's performance profiler to identify slow functions
-2. Add console.time() / console.timeEnd() pairs to measure specific operations
-3. Track how many times expensive functions are called
+2. Add console.time() / console.timeEnd() pairs around specific operations
+3. Count how many times the expensive functions actually run
 
 Example performance tracking:
 
@@ -430,14 +428,11 @@ function ai_your_name(game) {
 }
 ```
 
-### 10. Algorithmic Optimizations
+### 10. Algorithmic optimizations
 
-Consider these algorithmic improvements:
-
-1. **Pruning** - Eliminate moves that are clearly inferior before full evaluation
-2. **Approximation** - Use simpler approximations when exact calculations aren't critical
-3. **Progressive refinement** - Start with quick evaluations, then refine only promising moves
-4. **Heuristics** - Use simple rules to guide decisions instead of exhaustive analysis
+1. **Pruning** - Drop clearly inferior moves before full evaluation
+2. **Approximation** - Use a cheaper estimate where exactness doesn't change the decision
+3. **Progressive refinement** - Score everything cheaply, then re-score only the promising moves in detail
 
 Example of progressive refinement:
 
@@ -467,9 +462,9 @@ function selectBestMove(game, currentPlayer) {
 }
 ```
 
-## Common Performance Pitfalls
+## Common performance pitfalls
 
-### 1. Recalculating the Same Data
+### 1. Recalculating the same data
 
 ```javascript
 // BAD: Calculates neighbor info multiple times for the same territory
@@ -495,7 +490,7 @@ function evaluateMove(game, from, to) {
 }
 ```
 
-### 2. Excessive Iteration
+### 2. Excessive iteration
 
 ```javascript
 // BAD: Iterates through all territories multiple times
@@ -571,7 +566,7 @@ function findBestTerritory(game, player) {
 }
 ```
 
-### 3. Inefficient Data Lookups
+### 3. Inefficient data lookups
 
 ```javascript
 // BAD: Repeated map lookups with string keys
@@ -615,14 +610,14 @@ function analyzeGameState(game) {
 }
 ```
 
-## Performance-Critical Functions
+## Performance-critical functions
 
-These functions are called frequently and should be optimized:
+These run the most times per turn, so optimize them first:
 
-1. **Neighbor analysis** - Used to evaluate every possible move
+1. **Neighbor analysis** - Runs for every move you evaluate
 2. **Territory evaluation** - Called for many territories each turn
-3. **Move generation** - Must efficiently filter invalid moves
-4. **Connectivity analysis** - Graph operations are expensive and common
+3. **Move generation** - Must filter invalid moves cheaply
+4. **Connectivity analysis** - Graph traversal is the expensive one, and everything wants it
 
 Example optimization for connectivity analysis:
 

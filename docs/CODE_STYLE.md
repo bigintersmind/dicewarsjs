@@ -1,40 +1,38 @@
-# Code Style Guidelines
+# Code style guidelines
 
-This document outlines the code style standards for the DiceWarsJS project. We use ESLint and Prettier to enforce consistent coding practices across the project.
+DiceWarsJS uses ESLint and Prettier to enforce a consistent code style. This document covers the configuration and how to run the tools.
 
-## Table of Contents
+## Table of contents
 
 - [Setup](#setup)
-- [ESLint Configuration](#eslint-configuration)
-- [Prettier Configuration](#prettier-configuration)
-- [Using the Tools](#using-the-tools)
-- [Pre-commit Hooks](#pre-commit-hooks)
-- [Editor Integration](#editor-integration)
-- [Style Rules Overview](#style-rules-overview)
+- [ESLint configuration](#eslint-configuration)
+- [Prettier configuration](#prettier-configuration)
+- [Using the tools](#using-the-tools)
+- [Pre-commit hooks](#pre-commit-hooks)
+- [Editor integration](#editor-integration)
+- [Style rules overview](#style-rules-overview)
 
 ## Setup
 
-The project uses ESLint and Prettier for code quality and formatting. These tools are automatically installed when you run `npm install`.
+ESLint and Prettier are installed with the rest of the dev dependencies:
 
 ```bash
 # Install dependencies including ESLint and Prettier
 npm install
 ```
 
-## ESLint Configuration
+## ESLint configuration
 
-We use [ESLint](https://eslint.org/) to enforce code quality standards. Our configuration extends the Airbnb base style guide and includes rules optimized for ES6+ features.
+[ESLint](https://eslint.org/) checks code quality. The configuration:
 
-Key aspects of our ESLint configuration:
-
-- Based on `airbnb-base` style guide
+- Extends the `airbnb-base` style guide
 - Includes plugins for import, Jest, and Prettier
-- Optimized for ES6+ features (optional chaining, nullish coalescing, etc.)
-- Custom rules to accommodate game development requirements
+- Allows ES6+ features (optional chaining, nullish coalescing, etc.)
+- Adds custom rules where game code needs them
 
-## Prettier Configuration
+## Prettier configuration
 
-[Prettier](https://prettier.io/) is used for consistent code formatting. Our configuration specifies:
+[Prettier](https://prettier.io/) formats the code. The configuration specifies:
 
 - 100 character line width
 - 2 space indentation
@@ -42,7 +40,7 @@ Key aspects of our ESLint configuration:
 - ES5-compatible trailing commas
 - No semicolons at the end of statements
 
-## Using the Tools
+## Using the tools
 
 ### Linting
 
@@ -52,7 +50,7 @@ To check for linting issues:
 npm run lint
 ```
 
-To automatically fix linting issues where possible:
+To fix linting issues where possible:
 
 ```bash
 npm run lint:fix
@@ -66,26 +64,26 @@ To check if your code is properly formatted:
 npm run format:check
 ```
 
-To automatically format your code:
+To format your code:
 
 ```bash
 npm run format
 ```
 
-## Pre-commit Hooks
+## Pre-commit hooks
 
-The project uses [husky](https://github.com/typicode/husky) and [lint-staged](https://github.com/okonet/lint-staged) to automatically run linting and formatting on changed files before each commit.
+The project uses [husky](https://github.com/typicode/husky) and [lint-staged](https://github.com/okonet/lint-staged) to run linting and formatting on changed files before each commit.
 
-When you commit your changes, the following will happen automatically:
+On every commit:
 
-1. ESLint will check for issues in JavaScript files and fix them if possible
-2. Prettier will format all staged files according to our style rules
+1. ESLint checks the staged JavaScript files and fixes what it can
+2. Prettier formats all staged files according to our style rules
 
-If there are any issues that can't be automatically fixed, the commit will be prevented until you resolve them.
+If an issue can't be fixed automatically, the commit is blocked until you resolve it.
 
-## Editor Integration
+## Editor integration
 
-For the best development experience, we recommend configuring your editor to integrate with ESLint and Prettier.
+Configure your editor to run ESLint and Prettier for you.
 
 ### VS Code
 
@@ -116,27 +114,27 @@ These IDEs have built-in support for ESLint and Prettier:
 3. Go to Preferences > Languages & Frameworks > JavaScript > Prettier
 4. Enable Prettier
 
-## Style Rules Overview
+## Style rules overview
 
 ### JavaScript
 
 - Use ES6+ features where appropriate
 - Prefer arrow functions for callbacks and anonymous functions
 - Use `const` for variables that aren't reassigned, and `let` for those that are
-- Use object destructuring and spread operators for cleaner code
+- Use object destructuring and spread syntax
 - Prefer template literals over string concatenation
 - Use optional chaining (`?.`) and nullish coalescing (`??`) for safer property access
 - Export individual items rather than a default export where possible
 - Include JSDoc comments for functions and classes
 
-### Naming Conventions
+### Naming conventions
 
 - Use `camelCase` for variables, functions, and method names
 - Use `PascalCase` for class and constructor names
 - Use `UPPER_SNAKE_CASE` for constants
-- Use meaningful, descriptive names for variables and functions
+- Use descriptive names for variables and functions
 
-### File Organization
+### File organization
 
 - One class or logical component per file
 - Group related functions and classes in the same directory

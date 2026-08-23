@@ -309,9 +309,9 @@ export function ReplayViewer({ replay, onStateChange, onBack, overlay = false })
         {replayError && <div style={STYLE.errorBanner}>Replay error: {replayError}</div>}
 
         <div style={STYLE.overlayInfo}>
-          {metadata.bots.join(' vs ')} — {metadata.turnCount} turns
+          {metadata.bots.join(' vs ')} · {metadata.turnCount} turns
           {metadata.winner !== null &&
-            ` — Winner: ${metadata.bots[metadata.winner] || `Player ${metadata.winner}`}`}
+            ` · Winner: ${metadata.bots[metadata.winner] || `Player ${metadata.winner}`}`}
         </div>
 
         <div style={STYLE.overlayControls}>
@@ -379,9 +379,9 @@ export function ReplayViewer({ replay, onStateChange, onBack, overlay = false })
       {replayError && <div style={STYLE.errorBanner}>Replay error: {replayError}</div>}
 
       <div style={STYLE.info}>
-        {metadata.bots.join(' vs ')} — {metadata.turnCount} turns
+        {metadata.bots.join(' vs ')} · {metadata.turnCount} turns
         {metadata.winner !== null &&
-          ` — Winner: ${metadata.bots[metadata.winner] || `Player ${metadata.winner}`}`}
+          ` · Winner: ${metadata.bots[metadata.winner] || `Player ${metadata.winner}`}`}
       </div>
 
       <div style={STYLE.controls}>

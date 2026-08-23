@@ -1,8 +1,8 @@
-# DiceWarsJS Architecture
+# DiceWarsJS architecture
 
 This document describes how the codebase is organized and how data flows through the system.
 
-## Module Layers
+## Module layers
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -23,21 +23,21 @@ This document describes how the codebase is organized and how data flows through
 └─────────────────────────────────────────────┘
 ```
 
-## Directory Guide
+## Directory guide
 
-| Directory         | Purpose                                                                                                                                                                                                                                             |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/engine/`     | Pure game logic: state management, map generation, battle resolution, turn management. No DOM dependencies — runs in Node.js and browser.                                                                                                           |
-| `src/renderer/`   | PixiJS rendering: hex grid drawing, dice sprites, battle animations. Reads from GameStore, never mutates game state.                                                                                                                                |
-| `src/ui/`         | Preact components: title screen, game HUD, arena screen, tournament screen, replay viewer, leaderboard, and `RulesModal` — the how-to-play card, store-driven like `QuitConfirm` and mounted outside the screen switch so it opens over any screen. |
-| `src/store/`      | Observable GameStore with pub/sub. Shared by controller, renderer, and UI.                                                                                                                                                                          |
-| `src/controller/` | GameController orchestrates the game loop (title -> map preview -> playing -> game over), handles human input, and drives AI turns.                                                                                                                 |
-| `src/arena/`      | Bot SDK: bot validation, sandboxed execution, match running, ELO ratings, tournament formats, replay serialization.                                                                                                                                 |
-| `src/ai/`         | Built-in AI strategies (example, default, defensive, adaptive, Strategist, Lookahead) using the legacy game object interface. Adapted for the arena via `legacyBotAdapter.js`.                                                                      |
-| `src/audio/`      | Web Audio API sound manager with lazy loading.                                                                                                                                                                                                      |
-| `src/utils/`      | Game configuration — map-size presets surfaced in the title screen, resolved to engine dimensions by the controller (`resolveMapSize`).                                                                                                             |
+| Directory         | Purpose                                                                                                                                                                                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/engine/`     | Pure game logic: state management, map generation, battle resolution, turn management. No DOM dependencies, so it runs in Node.js and the browser.                                                                                                          |
+| `src/renderer/`   | PixiJS rendering: hex grid drawing, dice sprites, battle animations. Reads from GameStore, never mutates game state.                                                                                                                                        |
+| `src/ui/`         | Preact components: title screen, game HUD, arena screen, tournament screen, replay viewer, leaderboard, and `RulesModal`, the how-to-play card, which is store-driven like `QuitConfirm` and mounted outside the screen switch so it opens over any screen. |
+| `src/store/`      | Observable GameStore with pub/sub. Shared by controller, renderer, and UI.                                                                                                                                                                                  |
+| `src/controller/` | GameController orchestrates the game loop (title -> map preview -> playing -> game over), handles human input, and drives AI turns.                                                                                                                         |
+| `src/arena/`      | Bot SDK: bot validation, sandboxed execution, match running, ELO ratings, tournament formats, replay serialization.                                                                                                                                         |
+| `src/ai/`         | Built-in AI strategies (example, default, defensive, adaptive, Strategist, Lookahead) using the legacy game object interface. Adapted for the arena via `legacyBotAdapter.js`.                                                                              |
+| `src/audio/`      | Web Audio API sound manager with lazy loading.                                                                                                                                                                                                              |
+| `src/utils/`      | Game configuration: map-size presets surfaced in the title screen, resolved to engine dimensions by the controller (`resolveMapSize`).                                                                                                                      |
 
-## Data Flow: Playing a Game
+## Data flow: playing a game
 
 ### Human player makes a move
 
@@ -66,34 +66,34 @@ GameController advances to AI turn
 ```
 applyAction({ type: 'END_TURN' })
   → calculateReinforcements(state, playerId)
-    → findLargestConnectedGroup() — this determines the count
-  → distributeReinforcements() — placed randomly on eligible territories
+    → findLargestConnectedGroup() (this determines the count)
+  → distributeReinforcements() (placed randomly on eligible territories)
   → advance to next player
 ```
 
-## Data Flow: Arena Match
+## Data flow: arena match
 
 ```
 ArenaScreen selects bots → matchRunner.runMatch({ bots, seed })
-  → createGame(config) — generates map with seed
+  → createGame(config) (generates map with seed)
   → for each turn:
-    → createBotState(state, playerId) — sanitized view
+    → createBotState(state, playerId) (sanitized view)
     → botFn(botState) → { from, to } or null
-    → validateMove(move, botState) — check legality
+    → validateMove(move, botState) (check legality)
     → applyAction(state, { type: 'ATTACK', from, to })
   → returns MatchResult with winner, stats, placements
   → ELO ratings updated via updateEloRatings()
 ```
 
-## Key Design Decisions
+## Key design decisions
 
-- **Engine is pure**: No DOM, no rendering, no side effects. All state transitions are through `applyAction()` which returns a new state object.
-- **Deterministic**: Games are seeded — same seed produces same map and same RNG sequence. This enables replays.
+- **Engine is pure**: No DOM, no rendering, no side effects. All state transitions go through `applyAction()`, which returns a new state object.
+- **Deterministic**: Games are seeded. The same seed produces the same map and the same RNG sequence, which is what makes replays possible.
 - **Bot sandboxing**: Bots receive a frozen `BotState` with only observable information. They cannot access or mutate the engine state directly.
 - **Store as bridge**: GameStore is the single source of truth between the controller (which mutates state) and the renderer/UI (which reads state).
 
-## For More Detail
+## For more detail
 
-- [Modernization Roadmap](MODERNIZATION_ROADMAP.md) — project history and phase-by-phase plan
-- [Bot Guide](BOT_GUIDE.md) — how to write a bot
-- [Game Rules](GAME_RULES.md) — how the game works
+- [Modernization Roadmap](MODERNIZATION_ROADMAP.md): project history and phase-by-phase plan
+- [Bot Guide](BOT_GUIDE.md): how to write a bot
+- [Game Rules](GAME_RULES.md): how the game works

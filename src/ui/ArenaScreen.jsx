@@ -262,7 +262,7 @@ export function ArenaScreen({ onViewReplay }) {
         <div className="dw-anim-fade" style={{ ...MENU_STYLE.section, ...STYLE.resultsSection }}>
           <div style={MENU_STYLE.statsRow}>
             {result.totalGames} games played
-            {result.failedGames > 0 && ` (${result.failedGames} failed)`} — avg {result.avgTurns}{' '}
+            {result.failedGames > 0 && ` (${result.failedGames} failed)`} · avg {result.avgTurns}{' '}
             turns/game
           </div>
           <div style={MENU_STYLE.panel}>

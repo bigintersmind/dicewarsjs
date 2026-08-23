@@ -159,7 +159,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
           // throw — so say so, or a stale/renamed id would seat and label
           // Balanced AI as if it were chosen.
           console.warn(
-            `[GameController] Unknown AI id "${aiId}" for player ${i} — substituting ai_default.`
+            `[GameController] Unknown AI id "${aiId}" for player ${i}, substituting ai_default.`
           );
         }
         try {
@@ -188,7 +188,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
             ? `community bot "${aiId.slice(COMMUNITY_PREFIX.length)}"`
             : `"${AI_STRATEGIES[aiId]?.name ?? aiId}"`;
           warnings.push(
-            `Player ${i + 1}: ${chosen} could not load — using ${fallbackName} instead.`
+            `Player ${i + 1}: ${chosen} could not load. Using ${fallbackName} instead.`
           );
           try {
             fns.push(await getAIImplementation('ai_default'));

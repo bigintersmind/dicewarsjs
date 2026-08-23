@@ -1,10 +1,10 @@
-# Testing Strategy for Dice Wars JS
+# Testing strategy
 
 This document describes how the DiceWarsJS test suite is organized and run. The
 project is fully modernized (Vite + PixiJS + Preact on a pure `src/engine/`), and
 the suite runs on **Vitest**.
 
-## Testing Framework
+## Testing framework
 
 We use **Vitest** (configured in the `test` block of `vite.config.js`, so the test
 runner shares the build's module resolution). It provides:
@@ -18,7 +18,7 @@ runner shares the build's module resolution). It provides:
 `beforeEach`, and `afterEach` are available without importing them. Add
 `import { vi } from 'vitest'` only when you want explicit types.
 
-## Test Environment: `node` by default, `jsdom` opt-in
+## Test environment: `node` by default, `jsdom` opt-in
 
 To keep memory down, the suite defaults to the lightweight **`node`** environment
 rather than booting a full DOM in every worker. Most of the suite is pure
@@ -34,7 +34,7 @@ Preact component must declare jsdom on the **first line of the file**:
 Without that docblock, DOM globals are undefined and the test fails with errors
 like `window is not defined`.
 
-## Directory Structure
+## Directory structure
 
 Tests live under `tests/`, mirroring the `src/` layout, plus shared fixtures in
 `tests/mocks/`:
@@ -59,20 +59,20 @@ tests/
 Vitest collects `tests/**/*.test.{js,cjs}`, `src/**/*.test.js`, and
 `tests/benchmarks/*.benchmark.js` (see `include` in `vite.config.js`).
 
-`tests/setup.js` installs the global stubs needed under jsdom — notably a minimal
+`tests/setup.js` installs the global stubs needed under jsdom, notably a minimal
 canvas 2D context, because PixiJS probes `canvas.getContext('2d')` at import time
 and would otherwise log noisy "Not implemented" errors.
 
-## Test Types
+## Test types
 
-- **Unit** — individual functions/modules in isolation (e.g. battle resolution,
+- **Unit**: individual functions/modules in isolation (e.g. battle resolution,
   map generation, an AI's move selection, map-size preset resolution).
-- **Integration** — modules working together (e.g. the controller driving the
+- **Integration**: modules working together (e.g. the controller driving the
   engine, the store notifying subscribers).
-- **Benchmarks** — comparative AI performance under `tests/benchmarks/`, run
+- **Benchmarks**: comparative AI performance under `tests/benchmarks/`, run
   separately from the correctness suite.
 
-## Mocking Strategy
+## Mocking strategy
 
 - **Module dependencies**: `vi.mock('../path')` to isolate the unit under test.
 - **Functions/spies**: `vi.fn()` and `vi.spyOn(obj, 'method')`; restore with
@@ -80,7 +80,7 @@ and would otherwise log noisy "Not implemented" errors.
 - **DOM / browser APIs**: opt into jsdom (see above); `localStorage`, canvas, and
   similar are then available or stubbed via `tests/setup.js`.
 
-## Running Tests
+## Running tests
 
 ```bash
 # Run the whole suite (serialized through a machine-wide lock)
@@ -110,14 +110,14 @@ several full suites at once can exhaust RAM. Two guardrails are in place:
 
 1. `maxWorkers: '50%'` in `vite.config.js` caps a single run's worker count.
 2. `npm test` and `npm run test:coverage` go through a machine-wide lock
-   (`scripts/test-lock.sh`), so only one run executes at a time — concurrent
+   (`scripts/test-lock.sh`), so only one run executes at a time. Concurrent
    callers queue rather than pile up.
 
 When work is split across multiple agents, **do not** have each one run the full
 `npm test`. Run only the relevant files with `npx vitest run <path>`, and let a
 single final `npm test` validate the whole suite.
 
-## Code Coverage
+## Code coverage
 
 Coverage uses the V8 provider over `src/**/*.{js,jsx}`. Thresholds are enforced in
 `vite.config.js` (the authoritative source); current floors:
@@ -132,15 +132,15 @@ Coverage uses the V8 provider over `src/**/*.{js,jsx}`. Thresholds are enforced 
 These are floors set to current reality; raise them as coverage improves. Generate
 a local report with `npm run test:coverage` (HTML output lands in `coverage/`).
 
-## Writing Tests
+## Writing tests
 
-1. **Descriptive names** — say what behavior is verified, not which function runs.
-2. **AAA** — structure each test as Arrange, Act, Assert.
-3. **Isolation** — no test may depend on another's state; reset shared state in
+1. **Descriptive names**: say what behavior is verified, not which function runs.
+2. **AAA**: structure each test as Arrange, Act, Assert.
+3. **Isolation**: no test may depend on another's state; reset shared state in
    `beforeEach`.
-4. **Determinism** — seed any randomness; avoid wall-clock and order dependence.
-5. **Behavior over implementation** — assert on observable outcomes.
-6. **Pick the right environment** — keep pure-logic tests in `node`; add the jsdom
+4. **Determinism**: seed any randomness; avoid wall-clock and order dependence.
+5. **Behavior over implementation**: assert on observable outcomes.
+6. **Pick the right environment**: keep pure-logic tests in `node`; add the jsdom
    docblock only when a test genuinely needs the DOM.
 
 Example (pure logic, `node` environment, using Vitest globals):
@@ -156,13 +156,13 @@ describe('resolveMapSize', () => {
     // Act
     const preset = resolveMapSize(unknown);
 
-    // Assert — medium is the default
+    // Assert: medium is the default
     expect(preset).toEqual({ mapWidth: 28, mapHeight: 32, maxAreas: 32 });
   });
 });
 ```
 
-## Continuous Integration
+## Continuous integration
 
 Tests run in CI on every pull request as part of the single `build-and-test` job,
 which runs format checking, linting, the build, `test:coverage`, and

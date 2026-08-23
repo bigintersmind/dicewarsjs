@@ -1,22 +1,22 @@
-# Testing and Tuning
+# Testing and tuning
 
-This guide covers effective approaches for testing and tuning your DiceWars AI to ensure it performs as expected and can be systematically improved.
+How to test a DiceWars bot and improve it systematically.
 
-## Testing Challenges
+## Testing challenges
 
-Testing AI implementations presents unique challenges:
+Testing a game AI is harder than testing ordinary code:
 
-1. **Non-deterministic behavior** - Random elements make exact test cases difficult
-2. **Emergent complexity** - Simple rules can lead to complex behavior
-3. **Game-long effects** - Early decisions affect late-game outcomes
-4. **Performance variability** - The AI may perform well in some situations and poorly in others
-5. **Multi-agent dynamics** - AI behavior changes when playing against different opponents
+1. **Randomness** - Dice rolls make exact test cases difficult
+2. **Emergent complexity** - Simple rules produce behavior you didn't write
+3. **Game-long effects** - An early decision may not show its cost until the endgame
+4. **Situational strength** - A bot can dominate one map shape and collapse on another
+5. **Multi-agent dynamics** - Behavior changes with the mix of opponents
 
-## Testing Approaches
+## Testing approaches
 
-### 1. AI vs. AI Tournaments
+### 1. AI vs. AI tournaments
 
-The most effective way to test your AI is to have it play against other AI implementations:
+The single most informative test is letting your bot play against other implementations, many times:
 
 ```javascript
 // Simple tournament runner
@@ -103,9 +103,9 @@ function runGameToCompletion(game) {
 }
 ```
 
-### 2. Specific Scenario Testing
+### 2. Specific scenario testing
 
-Create specific game states to test how your AI handles certain situations:
+Build fixed game states to check how your AI handles particular situations:
 
 ```javascript
 // Test handling of choke points
@@ -156,9 +156,9 @@ function testDefensiveBehavior(aiFunction) {
 }
 ```
 
-### 3. Unit Testing Strategy Components
+### 3. Unit testing strategy components
 
-Test individual components of your AI strategy:
+Test the individual pieces of your AI in isolation:
 
 ```javascript
 // Test territory evaluation function
@@ -219,9 +219,9 @@ function testMoveGeneration() {
 }
 ```
 
-### 4. Comparative Analysis
+### 4. Comparative analysis
 
-Compare your AI's decisions with those of other AI implementations:
+Give several AIs the same board and compare what they choose:
 
 ```javascript
 function compareAIDecisions(aiList, game) {
@@ -262,11 +262,11 @@ function compareAIDecisions(aiList, game) {
 }
 ```
 
-## Tuning Approaches
+## Tuning approaches
 
-### 1. Parameter Tuning
+### 1. Parameter tuning
 
-Most AI strategies have parameters that can be tuned to optimize performance:
+Most strategies have parameters worth tuning:
 
 ```javascript
 // AI with tunable parameters
@@ -337,9 +337,9 @@ function createTunedAI(paramName, value) {
 }
 ```
 
-### 2. Grid Search
+### 2. Grid search
 
-For tuning multiple parameters, use a grid search:
+To tune several parameters at once, sweep the combinations:
 
 ```javascript
 function gridSearch() {
@@ -398,9 +398,9 @@ function generateParameterCombinations(ranges) {
 }
 ```
 
-### 3. Evolutionary Algorithms
+### 3. Evolutionary algorithms
 
-For complex parameter spaces, evolutionary algorithms can be effective:
+For a parameter space too large to sweep, evolve it:
 
 ```javascript
 function evolveParameters(numGenerations = 10) {
@@ -521,9 +521,9 @@ function mutate(params) {
 }
 ```
 
-## Performance Metrics
+## Performance metrics
 
-For comprehensive evaluation, track multiple metrics beyond just win rate:
+Track more than win rate. A bot that never wins but always finishes second is very different from one that wins occasionally and busts out early the rest of the time:
 
 ```javascript
 function evaluateAI(aiFunction, numGames = 100) {
@@ -583,9 +583,9 @@ function average(array) {
 }
 ```
 
-## Visualizing Results
+## Visualizing results
 
-Visual analysis helps identify patterns and opportunities for improvement:
+Even crude console bar charts make patterns easier to spot than raw numbers:
 
 ```javascript
 function visualizeResults(results) {
@@ -618,9 +618,9 @@ function visualizeResults(results) {
 }
 ```
 
-## Regression Testing
+## Regression testing
 
-Ensure changes don't break existing functionality:
+Check that a change didn't make the bot worse before keeping it:
 
 ```javascript
 function regressionTest(newAI, baselineAI) {
@@ -658,34 +658,27 @@ function regressionTest(newAI, baselineAI) {
 }
 ```
 
-## Best Practices
+## Best practices
 
-1. **Version control** - Keep track of AI versions and their performance
-2. **Parameter documentation** - Document what each parameter does and its sensible range
-3. **Regular benchmarking** - Re-test AI against standard opponents periodically
-4. **Focused changes** - Change one aspect at a time to understand effects
-5. **Randomized seeds** - Test with various random seeds for fairness
-6. **A/B testing** - Compare specific changes with a baseline
-7. **Statistical significance** - Run enough games to ensure results aren't due to chance
-8. **Diverse opponents** - Test against a variety of AI strategies
-9. **Edge cases** - Create specific scenarios to test unusual situations
-10. **User feedback** - Get input from human players about AI behavior
+1. **Version control** - Keep every AI version and its measured performance
+2. **Parameter documentation** - Note what each parameter does and its sensible range
+3. **Regular benchmarking** - Re-test against standard opponents after engine or map changes
+4. **Focused changes** - Change one thing at a time, or you won't know what helped
+5. **Varied seeds** - Test across many random seeds; one seed is one sample
+6. **A/B testing** - Compare each change against a fixed baseline
+7. **Enough games** - A 55% win rate over 20 games is noise; over 1,000 games it's a result
+8. **Diverse opponents** - A bot tuned only against ai_default learns to beat ai_default
+9. **Edge cases** - Build scenarios for unusual situations (one territory left, one opponent left, no valid attacks)
+10. **Human feedback** - Ask players whether the bot feels smart, cheap, or passive
 
-## Common Testing Pitfalls
+## Common testing pitfalls
 
-1. **Overfitting** - AI that works well on test cases but not in real games
-2. **Non-deterministic failures** - Bugs that only appear sometimes
-3. **Shallow testing** - Only testing a few game states
-4. **Ignoring performance** - Creating an AI that's theoretically excellent but too slow
-5. **Not documenting tests** - Making changes without tracking their effects
+1. **Overfitting** - The bot aces your test scenarios but flops in real games
+2. **Non-deterministic failures** - Bugs that only appear under some dice sequences
+3. **Shallow testing** - A handful of game states proves very little
+4. **Ignoring speed** - A theoretically strong bot that stalls the game loses in practice
+5. **Untracked changes** - Tuning without recording results means re-learning the same lessons
 
-## Iterative Improvement Workflow
+## Iterative improvement workflow
 
-1. **Baseline** - Establish current performance
-2. **Hypothesis** - Identify potential improvement
-3. **Implementation** - Make the change
-4. **Testing** - Run rigorous tests
-5. **Analysis** - Compare with baseline
-6. **Refinement** - Tune parameters
-7. **Documentation** - Record findings
-8. **Repeat** - Continue the cycle
+Establish a baseline, form a hypothesis, make the change, test it rigorously, compare against the baseline, tune, and write down what you found. Then start the loop again.

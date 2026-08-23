@@ -1,8 +1,8 @@
-# Choke Point Control Strategy
+# Choke point control strategy
 
-The choke point control strategy focuses on identifying and controlling territories that serve as strategic bottlenecks or access points to larger regions.
+Find the territories that are bottlenecks between regions of the map, and hold them.
 
-## Core Concept
+## Core concept
 
 Choke points are territories that:
 
@@ -11,15 +11,15 @@ Choke points are territories that:
 3. Control access to opponent territories
 4. Create natural defensive positions
 
-Controlling these strategic territories can give you a significant advantage by limiting opponent movement and protecting your territory with fewer resources.
+A single well-stocked choke point can seal off a whole region, so you defend more territory with fewer dice.
 
-## Identifying Choke Points
+## Identifying choke points
 
-Choke points typically have these characteristics:
+Choke points typically:
 
-1. **Connectivity pattern** - Often have fewer connections than surrounding territories
-2. **Positional importance** - Bridge between regions or provide access to otherwise isolated areas
-3. **Strategic value** - Control over these territories impacts a disproportionately large area
+1. Have fewer connections than the surrounding territories
+2. Bridge between regions, or provide the only path into an otherwise isolated area
+3. Affect a disproportionately large area for a single territory
 
 ```javascript
 function identifyChokePoints(game) {
@@ -139,9 +139,9 @@ function wouldDisconnectPlayerTerritories(game, player) {
 }
 ```
 
-## Strategic Applications
+## Strategic applications
 
-### 1. Defensive Choke Point Control
+### 1. Defensive choke point control
 
 ```javascript
 function defendChokePoints(game, chokePoints) {
@@ -184,7 +184,7 @@ function defendChokePoints(game, chokePoints) {
 }
 ```
 
-### 2. Offensive Choke Point Targeting
+### 2. Offensive choke point targeting
 
 ```javascript
 function targetEnemyChokePoints(game, chokePoints) {
@@ -226,9 +226,9 @@ function targetEnemyChokePoints(game, chokePoints) {
 }
 ```
 
-### 3. Territory Cutting
+### 3. Territory cutting
 
-A specialized variant of choke point control is "territory cutting" - identifying and capturing territories that would split an opponent's connected territory group:
+A variant of choke point control is territory cutting: capturing a territory that splits an opponent's connected group, which cuts their reinforcement income.
 
 ```javascript
 function findTerritoryCuts(game) {
@@ -299,20 +299,18 @@ function findTerritoryCuts(game) {
 }
 ```
 
-## When to Use
-
-Choke point control is most effective:
+## When to use
 
 1. On maps with natural bottlenecks
-2. In the mid-game when territory control is being established
-3. When playing defensively with limited resources
+2. In the mid-game, while territory control is still being established
+3. When playing defensively with limited dice
 4. When trying to split opponent territories to reduce their reinforcements
 
-## Combining with Other Strategies
+## Combining with other strategies
 
 Choke point control works well with:
 
-1. **Territory connections** - Choke points often control territory connectivity
-2. **Border security** - Choke points are often critical border territories
-3. **Neighbor analysis** - Helps identify the strategic value of territories
-4. **Reinforcement optimization** - Prioritizes reinforcing strategically valuable choke points
+1. **Territory connections** - Choke points decide whether groups stay connected
+2. **Border security** - Choke points are often the border territories that matter most
+3. **Neighbor analysis** - Supplies the connectivity data for finding choke points
+4. **Reinforcement optimization** - Directs reinforcements to the choke points you hold

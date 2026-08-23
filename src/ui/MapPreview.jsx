@@ -19,6 +19,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 import { CHROME_CSS, MENU_STYLE } from './menuChrome.jsx';
 import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
+import { LUCK_LEVELS } from '../utils/config.js';
 
 const STYLE = {
   /*
@@ -89,15 +90,43 @@ const difficultyLabel = difficulty =>
   DIFFICULTY_MODES[difficulty]?.name.toLowerCase() ?? (difficulty === 'custom' ? 'custom' : null);
 
 /**
- * "7 players · medium map · hard" — what ← BACK takes you to change. Rendered
- * uppercase by the eyebrow style, so it's authored in plain case for screen
- * readers.
+ * "lucky" / "very lucky" (#179) — the name of the rung the *engine* is playing,
+ * read off the game's own `config.handicap`, not the remembered preference.
+ *
+ * They differ: the controller stores the picked rung even for an AI-vs-AI game,
+ * which has no human seat and so derives `handicap: null`. Reading the store's
+ * `config.luck` there would label a spectator board "very lucky". A null
+ * handicap is left out like the sibling labels' unknowns — but a level the
+ * ladder can't name is NOT: the engine accepts more levels than the ladder
+ * names, and omitting an active handicap would print a line identical to a
+ * fair game's, a false claim rather than a missing detail.
+ *
+ * @param {{ level: number } | null} [handicap] - GameState.config.handicap
  */
-export function describeSetup(config = {}) {
+const luckLabel = handicap => {
+  if (!(handicap?.level >= 1)) return null;
+  const level = LUCK_LEVELS.find(entry => entry.id === handicap.level);
+  return level ? level.name.toLowerCase() : `luck level ${handicap.level}`;
+};
+
+/**
+ * "7 players · medium map · custom · lucky" — what ← BACK takes you to change
+ * (a handicapped game is always a Custom one: the presets play fair dice).
+ * Rendered uppercase by the eyebrow style, so it's authored in plain case for
+ * screen readers.
+ *
+ * The luck part comes from the engine's resolved handicap rather than `config`,
+ * so a printed rung always describes *this game* (see luckLabel).
+ *
+ * @param {Object} [config] - StoreState.config (players, map size, difficulty)
+ * @param {{ level: number } | null} [handicap] - GameState.config.handicap
+ */
+export function describeSetup(config = {}, handicap = null) {
   const parts = [
     Number.isInteger(config.playerCount) ? `${config.playerCount} players` : null,
     mapSizeLabel(config.mapSize),
     difficultyLabel(config.difficulty),
+    luckLabel(handicap),
   ].filter(Boolean);
   return parts.join(' · ');
 }
@@ -113,6 +142,8 @@ export function describeSetup(config = {}) {
 export function MapPreview({ store, onAccept, onReject, onBack }) {
   const warnings = useGameStore(store, s => s.aiLoadWarnings);
   const config = useGameStore(store, s => s.config);
+  // The engine's own resolved handicap — the game being previewed, not the remembered pick.
+  const handicap = useGameStore(store, s => s.gameState?.config?.handicap ?? null);
   const playRef = useRef(null);
 
   /*
@@ -146,7 +177,7 @@ export function MapPreview({ store, onAccept, onReject, onBack }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [onBack]);
 
-  const setup = describeSetup(config);
+  const setup = describeSetup(config, handicap);
 
   return (
     <div style={STYLE.dock}>

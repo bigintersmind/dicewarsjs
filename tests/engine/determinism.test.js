@@ -224,3 +224,67 @@ describe('replay round-trip persists dicePerArea', () => {
     if (err) expect(err.message).toMatch(/Replay failed|not owned/i);
   });
 });
+describe('replay round-trip persists the luck handicap (issue #179)', () => {
+  const HANDICAP = { playerId: 1, level: 2 };
+  const seed = 99;
+
+  it('same seed + same handicap reproduces the game exactly', () => {
+    const a = runEngineGame({ seed, handicap: HANDICAP });
+    const b = runEngineGame({ seed, handicap: { ...HANDICAP } });
+    expect(b.rngState).toBe(a.rngState);
+    expect(b.winner).toBe(a.winner);
+    expect(b.areas.map(x => [x.owner, x.dice, x.size])).toEqual(
+      a.areas.map(x => [x.owner, x.dice, x.size])
+    );
+  });
+
+  it('reconstructs an identical final state through a replay', () => {
+    const final = runEngineGame({ seed, handicap: HANDICAP });
+    expect(final.history.length).toBeGreaterThan(0);
+
+    const replay = createReplayFromState(final, { bots: [], winner: final.winner });
+    // The handicap changes how dice are rolled, so it must ride along in the replay config.
+    expect(replay.config.handicap).toEqual(HANDICAP);
+
+    const reconstructed = replayToState(replay, replay.actions.length);
+    expect(reconstructed.rngState).toBe(final.rngState);
+    for (let i = 1; i < final.areas.length; i++) {
+      expect(reconstructed.areas[i].owner).toBe(final.areas[i].owner);
+      expect(reconstructed.areas[i].dice).toBe(final.areas[i].dice);
+    }
+  });
+
+  it('without the handicap the round-trip diverges (pins the consequence)', () => {
+    const final = runEngineGame({ seed, handicap: HANDICAP });
+    const replay = createReplayFromState(final, { bots: [], winner: final.winner });
+
+    /*
+     * Drop the handicap the way a non-whitelisting replay would: every battle then
+     * rolls a different number of dice, so the recorded actions no longer reproduce
+     * the game — it either throws mid-replay (an action hits a now-wrongly-owned
+     * territory) or lands on a different final state. Mirrors the dicePerArea pin.
+     */
+    const stripped = { ...replay, config: { ...replay.config, handicap: null } };
+
+    let diverged = false;
+    let err;
+    try {
+      const reconstructed = replayToState(stripped, replay.actions.length);
+      diverged = reconstructed.rngState !== final.rngState;
+    } catch (e) {
+      err = e;
+      diverged = true;
+    }
+    expect(diverged).toBe(true);
+    if (err) expect(err.message).toMatch(/Replay failed|not owned|needs > 1 dice/i);
+  });
+
+  it('handicap: null games are byte-identical to games with no handicap key', () => {
+    const withKey = runEngineGame({ seed, handicap: null });
+    const withoutKey = runEngineGame({ seed });
+    expect(withKey.rngState).toBe(withoutKey.rngState);
+    expect(withKey.areas.map(x => [x.owner, x.dice])).toEqual(
+      withoutKey.areas.map(x => [x.owner, x.dice])
+    );
+  });
+});

@@ -378,3 +378,38 @@ describe('runMatch', () => {
     expect(mixedStat.invalidMoves).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('competitive-surface handicap guard (issue #179)', () => {
+  /*
+   * The luck handicap is a single-player difficulty aid. Bot-vs-bot ratings must
+   * never be handicapped, and runMatch guarantees that by construction: it builds
+   * its own config and never forwards a handicap. Passing one is therefore a
+   * wrong mental model, and runMatch says so rather than quietly playing a fair
+   * game the caller believes is tilted.
+   */
+  it('runMatch always plays un-handicapped', () => {
+    const result = runMatch({
+      bots: [
+        { name: 'a', fn: exampleBot },
+        { name: 'b', fn: defaultBot },
+      ],
+      seed: 42,
+      maxTurns: 30,
+    });
+    expect(result.finalState.config.handicap).toBeNull();
+  });
+
+  it('runMatch rejects a handicap passed in its config (not a supported input)', () => {
+    expect(() =>
+      runMatch({
+        bots: [
+          { name: 'a', fn: exampleBot },
+          { name: 'b', fn: defaultBot },
+        ],
+        seed: 42,
+        maxTurns: 30,
+        handicap: { playerId: 0, level: 2 },
+      })
+    ).toThrow(/handicap/);
+  });
+});

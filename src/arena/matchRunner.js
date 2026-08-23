@@ -218,6 +218,27 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
 }
 
 /**
+ * Reject a luck handicap (issue #179) passed to a competitive runner.
+ *
+ * The handicap is a single-player difficulty aid: arena and tournament ratings
+ * are only comparable if every game is played on even dice, so these runners
+ * build their own engine config and never forward one. A caller that passes
+ * `handicap` therefore has a wrong mental model — say so loudly instead of
+ * quietly playing a fair game they believe is tilted.
+ *
+ * @param {Object} options - The runner's config object
+ * @param {string} caller  - Runner name, for the message
+ * @throws {Error} If `options.handicap` is set
+ */
+export function assertNoHandicap(options, caller) {
+  if (options?.handicap != null) {
+    throw new Error(
+      `${caller}: the luck handicap is not supported on competitive surfaces — arena/tournament ratings must be unhandicapped`
+    );
+  }
+}
+
+/**
  * Run a single match (complete game) between bots.
  *
  * @param {Object} config
@@ -239,6 +260,7 @@ function runBotTurn(state, botFn, botName, stats, onStep) {
  *   training mode (skips the per-move history append — see GameRunner.createGame).
  *   Leave undefined for the default (history on) so replay creation still works.
  * @returns {MatchResult}
+ * @throws {Error} If `config.handicap` is set — see the guard below.
  */
 export function runMatch(config) {
   const {
@@ -251,6 +273,8 @@ export function runMatch(config) {
     recordTrajectory,
     recordHistory,
   } = config;
+
+  assertNoHandicap(config, 'runMatch');
 
   const names = new Set(bots.map(b => b.name));
   if (names.size !== bots.length) {

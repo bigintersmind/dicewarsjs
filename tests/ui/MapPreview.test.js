@@ -71,6 +71,41 @@ describe('describeSetup', () => {
     expect(describeSetup({ playerCount: '7', mapSize: 42 })).toBe('');
     expect(describeSetup()).toBe('');
   });
+
+  /*
+   * The luck part is read off the engine's resolved handicap, not the store's
+   * remembered rung: they differ for a spectator game, which keeps the pick but
+   * derives no handicap (see the render cases below).
+   */
+  const SETUP = { playerCount: 7, mapSize: 'medium', difficulty: 'custom' };
+
+  it('names the luck rung the game is actually being played at (#179)', () => {
+    expect(describeSetup(SETUP, { playerId: 0, level: 1 })).toBe(
+      '7 players · medium map · custom · lucky'
+    );
+    expect(describeSetup(SETUP, { playerId: 0, level: 2 })).toBe(
+      '7 players · medium map · custom · very lucky'
+    );
+  });
+
+  it('says nothing about luck without a handicap', () => {
+    const plain = '7 players · medium map · custom';
+    expect(describeSetup(SETUP, null)).toBe(plain);
+    expect(describeSetup(SETUP)).toBe(plain);
+    // The remembered rung alone never prints — only the engine's handicap does.
+    expect(describeSetup({ ...SETUP, luck: 2 }, null)).toBe(plain);
+  });
+
+  /*
+   * The engine accepts levels the ladder doesn't name (up to MAX_HANDICAP_LEVEL).
+   * An active handicap must still show up — printing nothing would make the line
+   * identical to a fair game's, which is a false claim, not a missing detail.
+   */
+  it('still flags an active handicap whose level the ladder cannot name', () => {
+    expect(describeSetup(SETUP, { playerId: 0, level: 8 })).toBe(
+      '7 players · medium map · custom · luck level 8'
+    );
+  });
 });
 
 describe('MapPreview', () => {
@@ -91,6 +126,28 @@ describe('MapPreview', () => {
   it("describes the store's default setup", () => {
     renderPreview();
     expect(container.textContent).toContain('7 players · medium map · standard');
+  });
+
+  it("names the eyebrow's luck from the game being previewed (#179)", () => {
+    renderPreview({
+      config: { playerCount: 4, mapSize: 'medium', difficulty: 'hard', luck: 1 },
+      gameState: { config: { handicap: { playerId: 0, level: 1 } } },
+    });
+    expect(container.textContent).toContain('lucky');
+  });
+
+  it('says nothing about luck on a spectator board that kept the rung', () => {
+    /*
+     * The controller stores the picked rung even for AI vs AI, where there is no
+     * human seat, so the engine's handicap is null. Reading config.luck here
+     * would label this board "very lucky" — it isn't.
+     */
+    renderPreview({
+      config: { playerCount: 4, mapSize: 'medium', difficulty: 'hard', luck: 2 },
+      gameState: { config: { handicap: null } },
+    });
+    expect(container.textContent).toContain('4 players · medium map · hard');
+    expect(container.textContent).not.toContain('lucky');
   });
 
   it('PLAY starts the game and NEW MAP rerolls the board', () => {

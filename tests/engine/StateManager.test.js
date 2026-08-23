@@ -13,6 +13,7 @@ import {
   distributeReinforcements,
 } from '../../src/engine/TurnManager.js';
 import { createRng } from '../../src/engine/rng.js';
+import { createGame } from '../../src/engine/GameRunner.js';
 
 const DEFAULT_CONFIG = {
   mapWidth: 28,
@@ -626,6 +627,144 @@ function referenceStats(areas, playerCount) {
   for (const r of ref) r.largestGroup = findLargestConnectedGroup(areas, r.id);
   return ref;
 }
+
+describe('applyAttack — luck handicap (issue #179)', () => {
+  const HANDICAP_CONFIG = { seed: 4242, playerCount: 4, maxAreas: 24 };
+
+  /** First legal move of the opening turn, taken from an unhandicapped game. */
+  function openingMove(config = HANDICAP_CONFIG) {
+    const state = createGame(config);
+    const moves = getValidMoves(state);
+    expect(moves.length).toBeGreaterThan(0);
+    return { state, move: moves[0] };
+  }
+
+  /*
+   * Both sides, at every rung: the level maps to the advantage 1:1 in each
+   * direction. Pinning only level 1 on one side would let a clamp (or an
+   * off-by-one) on that side pass unnoticed — "Very lucky" silently playing as
+   * "Lucky" on offence.
+   */
+  it.each([1, 2])('grants the configured seat %i advantage dice when it attacks', level => {
+    const { state: plain, move } = openingMove();
+    const attacker = plain.turnOrder[plain.currentPlayerIndex];
+    expect(plain.areas[move.from].owner).toBe(attacker);
+
+    const state = createGame({ ...HANDICAP_CONFIG, handicap: { playerId: attacker, level } });
+    const after = applyAction(state, { type: 'ATTACK', from: move.from, to: move.to });
+    const { attackerRoll, defenderRoll } = after.history[0].result;
+
+    expect(attackerRoll.dropped).toHaveLength(level);
+    expect(attackerRoll.values).toHaveLength(state.areas[move.from].dice);
+    expect(defenderRoll.dropped).toEqual([]);
+    expect(attackerRoll.total).toBe(attackerRoll.values.reduce((a, b) => a + b, 0));
+  });
+
+  it.each([1, 2])('grants the configured seat %i advantage dice when it is attacked', level => {
+    const { state: plain, move } = openingMove();
+    const defender = plain.areas[move.to].owner;
+    const attacker = plain.turnOrder[plain.currentPlayerIndex];
+    expect(defender).not.toBe(attacker);
+
+    const state = createGame({ ...HANDICAP_CONFIG, handicap: { playerId: defender, level } });
+    const after = applyAction(state, { type: 'ATTACK', from: move.from, to: move.to });
+    const { attackerRoll, defenderRoll } = after.history[0].result;
+
+    expect(defenderRoll.dropped).toHaveLength(level);
+    expect(defenderRoll.values).toHaveLength(state.areas[move.to].dice);
+    expect(attackerRoll.dropped).toEqual([]);
+  });
+
+  it('leaves every other seat unbiased across a whole game', () => {
+    const handicapped = 1;
+    const level = 1;
+    let state = createGame({ ...HANDICAP_CONFIG, handicap: { playerId: handicapped, level } });
+
+    let attacksByHandicapped = 0;
+    let defensesByHandicapped = 0;
+    let neutralAttacks = 0;
+
+    for (let step = 0; step < 400 && state.phase !== 'gameOver'; step++) {
+      const moves = getValidMoves(state);
+      if (moves.length === 0) {
+        state = applyAction(state, { type: 'END_TURN' });
+        continue;
+      }
+      const move = moves[step % moves.length];
+      const attacker = state.turnOrder[state.currentPlayerIndex];
+      const defender = state.areas[move.to].owner;
+
+      state = applyAction(state, { type: 'ATTACK', from: move.from, to: move.to });
+      const { attackerRoll, defenderRoll } = state.history[state.history.length - 1].result;
+
+      expect(attackerRoll.dropped).toHaveLength(attacker === handicapped ? level : 0);
+      expect(defenderRoll.dropped).toHaveLength(defender === handicapped ? level : 0);
+
+      if (attacker === handicapped) attacksByHandicapped++;
+      else if (defender === handicapped) defensesByHandicapped++;
+      else neutralAttacks++;
+    }
+
+    // All three cases were actually exercised, so the assertions above mean something.
+    expect(attacksByHandicapped).toBeGreaterThan(0);
+    expect(defensesByHandicapped).toBeGreaterThan(0);
+    expect(neutralAttacks).toBeGreaterThan(0);
+
+    /*
+     * And the sweep runs past the handicapped seat's elimination: this seed ends
+     * with seat 0 owning the board, so the loop's later attacks are all
+     * seat-vs-seat with no handicap in play — the "unbiased" case above is
+     * covered after the boosted player leaves, not only while it is on the board.
+     */
+    expect(state.phase).toBe('gameOver');
+    expect(state.areas.some(area => area.owner === handicapped)).toBe(false);
+  });
+
+  /** Drive a deterministic scripted game (no bots, no Math.random) to completion. */
+  function runScripted(config, steps = 300) {
+    let state = createGame(config);
+    for (let step = 0; step < steps && state.phase !== 'gameOver'; step++) {
+      const moves = getValidMoves(state);
+      state =
+        moves.length > 0
+          ? applyAction(state, { type: 'ATTACK', from: moves[0].from, to: moves[0].to })
+          : applyAction(state, { type: 'END_TURN' });
+    }
+    return state;
+  }
+
+  it('handicap: null reproduces the un-handicapped game exactly', () => {
+    for (const seed of [1, 42, 2026]) {
+      const withoutKey = runScripted({ ...HANDICAP_CONFIG, seed });
+      const explicitNull = runScripted({ ...HANDICAP_CONFIG, seed, handicap: null });
+      expect(explicitNull).toEqual(withoutKey);
+    }
+  });
+
+  it('a config with no handicap key at all behaves as un-handicapped (pre-#179 states)', () => {
+    /*
+     * createInitialState is fed raw configs by callers other than createGame (tests,
+     * deserialized states), so applyAttack must tolerate a missing handicap key.
+     */
+    const rng = createRng(11);
+    const cfg = { ...DEFAULT_CONFIG, seed: 11 };
+    const mapData = generateMap(cfg, rng);
+    const turnOrder = createTurnOrder(cfg.playerCount, rng);
+    const state = createInitialState(cfg, mapData, turnOrder, rng.state());
+    expect(state.config.handicap).toBeUndefined();
+
+    const move = getValidMoves(state)[0];
+    const after = applyAction(state, { type: 'ATTACK', from: move.from, to: move.to });
+    expect(after.history[0].result.attackerRoll.dropped).toEqual([]);
+    expect(after.history[0].result.defenderRoll.dropped).toEqual([]);
+  });
+
+  it('a handicap changes the game (the seed alone no longer determines play)', () => {
+    const plain = runScripted({ ...HANDICAP_CONFIG, seed: 7 });
+    const lucky = runScripted({ ...HANDICAP_CONFIG, seed: 7, handicap: { playerId: 0, level: 2 } });
+    expect(lucky.rngState).not.toBe(plain.rngState);
+  });
+});
 
 describe('player-stat invariants under the per-move trims', () => {
   /*

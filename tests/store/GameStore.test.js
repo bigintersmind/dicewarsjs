@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createGameStore, playerName, HUMAN_PLAYER_NAME } from '../../src/store/GameStore.js';
 import { AI_STRATEGIES } from '../../src/ai/aiConfig.js';
 import { DIFFICULTY_MODES } from '../../src/ai/difficultyModes.js';
+import { DEFAULT_LUCK, luckToHandicap } from '../../src/utils/config.js';
 
 describe('GameStore', () => {
   it('creates with default state', () => {
@@ -137,6 +138,15 @@ describe('GameStore', () => {
 
     it("defaults difficulty to 'standard' (#167)", () => {
       expect(createGameStore().getState().config.difficulty).toBe('standard');
+    });
+
+    it('defaults luck to Normal — no handicap (#179)', () => {
+      const s = createGameStore().getState();
+      expect(s.config.luck).toBe(DEFAULT_LUCK);
+      expect(s.config.luck).toBe(0);
+      // The off rung must map to "no handicap", so a fresh store can't
+      // accidentally hand the engine one.
+      expect(luckToHandicap(s.config.luck, s.humanPlayerIndex)).toBeNull();
     });
 
     it('assigns only ids that resolve to un-hidden picker entries', () => {

@@ -428,3 +428,42 @@ describe('runArena', () => {
     warnSpy.mockRestore();
   });
 });
+
+describe('competitive-surface handicap guard (issue #179)', () => {
+  /*
+   * Arena ELO is only meaningful if every game is played on even dice. runArena
+   * never forwards a luck handicap to the engine, and refuses one outright — a
+   * silently-ignored option would look like a working knob.
+   */
+  it('every arena match plays un-handicapped', () => {
+    const result = runArena({
+      bots: [
+        { name: 'example', fn: exampleBot },
+        { name: 'default', fn: defaultBot },
+      ],
+      gameCount: 3,
+      baseSeed: 1,
+      maxTurns: 30,
+    });
+
+    expect(result.matches.length).toBe(3);
+    for (const match of result.matches) {
+      expect(match.finalState.config.handicap).toBeNull();
+    }
+  });
+
+  it('runArena rejects a handicap passed in its config', () => {
+    expect(() =>
+      runArena({
+        bots: [
+          { name: 'example', fn: exampleBot },
+          { name: 'default', fn: defaultBot },
+        ],
+        gameCount: 3,
+        baseSeed: 1,
+        maxTurns: 30,
+        handicap: { playerId: 0, level: 2 },
+      })
+    ).toThrow(/handicap/);
+  });
+});

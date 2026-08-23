@@ -8,8 +8,8 @@
  * of it). Options follow the original's bare-text language — player counts as
  * a 4/3 grid of Anton text, red when selected — and START is the original's
  * white double-rimmed button. Modern additions (map size, difficulty row,
- * per-slot bot picker, the AI vs AI text link) share those idioms rather than
- * introducing new chrome.
+ * per-slot bot picker with its luck row, the AI vs AI text link) share those
+ * idioms rather than introducing new chrome.
  *
  * Hierarchy (#182, playtest feedback): the page has one happy path — setup →
  * START — so START is its only filled control (AI vs AI is a bare .dw-opt
@@ -26,7 +26,13 @@
  */
 
 import { useState } from 'preact/hooks';
-import { DEFAULT_MAP_SIZE } from '../utils/config.js';
+import {
+  DEFAULT_MAP_SIZE,
+  DEFAULT_LUCK,
+  LUCK_LEVELS,
+  LUCK_DIFFICULTY,
+  resolveLuck,
+} from '../utils/config.js';
 import { DIFFICULTY_MODES, lineupForMode } from '../ai/difficultyModes.js';
 import { getAIStrategiesByCategory } from '../ai/aiConfig.js';
 import { getCommunityBotList } from '../arena/communityBots.js';
@@ -81,7 +87,7 @@ const CSS = `
   /* Labels and the caption follow their (now centered) rows; the players
      eyebrow in particular would otherwise sit at the far left edge, since a
      wrapping row is as wide as the panel. */
-  .dw-panel .dw-eyebrow, .dw-panel .dw-hint { text-align: center; }
+  .dw-panel .dw-eyebrow, .dw-panel .dw-hint, .dw-panel .dw-luck-hint, .dw-panel .dw-mode-hint { text-align: center; }
 }
 `;
 
@@ -122,6 +128,11 @@ const STYLE = {
   wordmark: {
     width: 'min(92vw, 600px)',
     height: 'auto',
+    /* As a column-flex item the wordmark gives up height when the setup
+       column outgrows a short viewport (Custom open at 7 players), which is
+       the intended graceful step-down — but unfloored it shrinks all the way
+       to nothing. Below this the container scrolls instead. */
+    minHeight: '3rem',
     filter: 'drop-shadow(0 5px 14px rgba(0, 0, 0, 0.3))',
   },
   hero: {
@@ -149,6 +160,41 @@ const STYLE = {
   sizeOpt: {
     fontSize: '1rem',
     textTransform: 'uppercase',
+  },
+  /*
+   * "Your luck" (#179) is the last block of the Custom panel, under the
+   * per-slot picker: a hairline above it separates "who plays" from "how the
+   * dice roll" without a second box. Presets never show it — they always
+   * mean fair dice, so the rung is only offered where the player is already
+   * hand-tuning the game.
+   */
+  luckSection: {
+    marginTop: '0.6rem',
+    paddingTop: '0.6rem',
+    borderTop: '1px solid var(--ui-border)',
+  },
+  /*
+   * The selected luck rung's one-line explanation. A touch device has no hover,
+   * so the row's meaning has to be on the page rather than in a `title`; muted
+   * Roboto keeps it helper text rather than a fourth option. Wraps on the
+   * Custom panel's own width.
+   */
+  luckBlurb: {
+    ...MENU_STYLE.caption,
+    marginTop: '0.1rem',
+  },
+  /*
+   * One line under the Difficulty row saying where luck lives. The presets
+   * hide the luck row, so without this nothing on the page says the option
+   * exists — or that picking a preset put the dice back to fair. Always
+   * mounted (its text swaps, not the element), so the aria-live announcement
+   * actually fires when a preset click unmounts the luck row's own live region.
+   */
+  modeHint: {
+    ...MENU_STYLE.caption,
+    marginTop: '0.1rem',
+    /* Matches optionRows, so the sentence wraps on the row's own width. */
+    maxWidth: '440px',
   },
   eyebrow: {
     fontFamily: 'Roboto, sans-serif',
@@ -214,15 +260,25 @@ const STYLE = {
   customizePanel: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '0.5rem',
     width: '100%',
     maxWidth: '340px',
-    maxHeight: '38vh',
-    overflowY: 'auto',
     padding: '0.8rem 1rem',
     background: 'var(--ui-overlay-bg)',
     border: '1px solid var(--ui-border)',
     borderRadius: '10px',
+  },
+  /*
+   * Only the slot list scrolls; the luck row below it stays pinned to the
+   * panel's floor. Capping the whole panel instead would push the luck row
+   * past the fold at 6+ players, with nothing to say it is there — the one
+   * place the rung is offered would be invisible exactly where it matters.
+   */
+  slotList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+    maxHeight: '30vh',
+    overflowY: 'auto',
   },
   slotRow: {
     display: 'flex',
@@ -268,9 +324,10 @@ const STYLE = {
 /**
  * @param {Object} props
  * @param {Object} props.store - GameStore, used to seed the setup controls (player count,
- *   map size, difficulty, bot lineup) from the last game's persisted config
+ *   map size, difficulty, bot lineup — plus the luck rung when the stored difficulty is
+ *   Custom) from the last game's persisted config
  * @param {string | null} [props.error] - Error message to display
- * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, difficulty: string, aiAssignments: (string | null)[] }) => void} props.onStart
+ * @param {(config: { playerCount: number, spectator: boolean, mapSize: string, difficulty: string, aiAssignments: (string | null)[], luck: number }) => void} props.onStart
  * @param {(screenId: string) => void} [props.onNavigate] - Footer link row
  *   (Arena / Tournament / Leaderboard): called with the tapped screen id, as
  *   the mode rail's onNavigate is. Omitted only in isolated renders — App
@@ -299,6 +356,37 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
     () => store.getState().config.difficulty ?? 'standard'
   );
   /*
+   * "Your luck" (#179) is part of Custom, like the per-slot lineup: the presets
+   * always play fair dice, and a preset click resets the rung the same way it
+   * replaces the lineup (handleSelectMode). So the seed goes through
+   * resolveLuck — the same rule the controller applies when it builds the game —
+   * and a stored rung under a preset is dropped: it has no row to show it, and
+   * sending it would start a handicapped game behind a label that promises
+   * otherwise. The controller never stores that pair, so the drop is named in
+   * the console like the off-ladder case below — if it ever fires, some new
+   * writer of `config.luck` forgot the rule.
+   *
+   * The seed is also checked against the ladder: a rung that isn't on it would
+   * render a row with nothing pressed and no blurb, and START would hand the
+   * controller a value luckToHandicap throws on. Fall back to Normal and name
+   * the discarded value, since a stale/renamed rung is a bug worth seeing.
+   */
+  const [luck, setLuck] = useState(() => {
+    const { difficulty: storedDifficulty, luck: stored } = store.getState().config;
+    if (stored == null) return DEFAULT_LUCK;
+    if (resolveLuck(storedDifficulty, stored) !== stored) {
+      console.warn(
+        `TitleScreen: ignoring stored luck rung ${JSON.stringify(stored)} — the stored difficulty is ${JSON.stringify(storedDifficulty)}, and only ${JSON.stringify(LUCK_DIFFICULTY)} plays a rung.`
+      );
+      return DEFAULT_LUCK;
+    }
+    if (LUCK_LEVELS.some(level => level.id === stored)) return stored;
+    console.warn(
+      `TitleScreen: ignoring luck rung ${JSON.stringify(stored)} — not on the LUCK_LEVELS ladder; falling back to Normal.`
+    );
+    return DEFAULT_LUCK;
+  });
+  /*
    * Per-slot AI strategy IDs (index = player slot). Seeded from the store's
    * current assignments — the last game's persisted lineup (possibly truncated
    * to its player count) or the Standard default on first launch. `store` is
@@ -309,15 +397,17 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
   );
 
   /*
-   * A preset click replaces the whole lineup with the mode's — discarding any
-   * hand edits; Custom keeps the current lineup (the last-selected preset, or
-   * the store-seeded assignments when picked first) and reveals the per-slot
-   * picker below.
+   * A preset click replaces the whole lineup with the mode's and puts the dice
+   * back to Normal — discarding any hand edits, so a preset's label is the
+   * whole truth about the game it starts; Custom keeps the current lineup (the
+   * last-selected preset, or the store-seeded assignments when picked first)
+   * and reveals the per-slot picker and the luck row below.
    */
   const handleSelectMode = modeId => {
     setDifficulty(modeId);
-    if (modeId !== 'custom') {
+    if (modeId !== LUCK_DIFFICULTY) {
       setAssignments([...DIFFICULTY_MODES[modeId].lineup]);
+      setLuck(DEFAULT_LUCK);
     }
   };
 
@@ -351,16 +441,23 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
       spectator: false,
       mapSize,
       difficulty,
+      luck,
       aiAssignments: buildAssignments(),
     });
   };
 
+  /*
+   * The spectator payload carries `luck` too: there is no human seat to favour,
+   * so the controller drops the handicap, but the store still remembers the
+   * rung — an AI-vs-AI detour must not quietly reset the player's choice.
+   */
   const handleAIvsAI = () => {
     onStart({
       playerCount,
       spectator: true,
       mapSize,
       difficulty,
+      luck,
       aiAssignments: buildAssignments(),
     });
   };
@@ -424,7 +521,13 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
             <div className="dw-eyebrow" style={STYLE.eyebrow}>
               Difficulty
             </div>
-            <div className="dw-rows" role="group" aria-label="Difficulty" style={STYLE.optionRows}>
+            <div
+              className="dw-rows"
+              role="group"
+              aria-label="Difficulty"
+              aria-describedby="dw-mode-hint"
+              style={STYLE.optionRows}
+            >
               {[...Object.values(DIFFICULTY_MODES), { id: 'custom', name: 'Custom' }].map(mode => (
                 <button
                   key={mode.id}
@@ -439,64 +542,119 @@ export function TitleScreen({ store, error, onStart, onNavigate }) {
                 </button>
               ))}
             </div>
+            <div
+              id="dw-mode-hint"
+              className="dw-mode-hint"
+              aria-live="polite"
+              style={STYLE.modeHint}
+            >
+              {difficulty === LUCK_DIFFICULTY
+                ? 'Custom: pick your bots and your luck below.'
+                : 'Presets roll fair dice — tune your luck under Custom.'}
+            </div>
           </div>
 
           {difficulty === 'custom' && (
             <div style={STYLE.customizePanel}>
-              {Array.from({ length: playerCount }, (_, i) => {
-                const colorName = colorNames[i % colorNames.length];
-                return (
-                  <div key={i} style={STYLE.slotRow}>
-                    <span style={STYLE.slotIdentity}>
-                      <span
-                        style={{
-                          ...STYLE.swatch,
-                          background: colorPalette[i % colorPalette.length],
-                        }}
-                      />
-                      <span style={STYLE.slotLabel}>{colorName}</span>
-                    </span>
-                    {i === 0 ? (
-                      <span style={STYLE.humanTag}>You (human)</span>
-                    ) : (
-                      <select
-                        aria-label={`Bot for ${colorName} player`}
-                        style={STYLE.select}
-                        value={assignments[i] || 'ai_default'}
-                        onChange={e => handleAssign(i, e.target.value)}
-                      >
-                        <optgroup label="Self-Play">
-                          {SELF_PLAY_OPTIONS.map(ai => (
-                            <option key={ai.id} value={ai.id} title={ai.description}>
-                              {ai.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="General">
-                          {GENERAL_OPTIONS.map(ai => (
-                            <option key={ai.id} value={ai.id} title={ai.description}>
-                              {ai.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                        {COMMUNITY_OPTIONS.length > 0 && (
-                          <optgroup label="Community">
-                            {COMMUNITY_OPTIONS.map(bot => (
-                              <option
-                                key={bot.id}
-                                value={`community:${bot.id}`}
-                                title={bot.description}
-                              >
-                                {bot.name}
+              <div style={STYLE.slotList}>
+                {Array.from({ length: playerCount }, (_, i) => {
+                  const colorName = colorNames[i % colorNames.length];
+                  return (
+                    <div key={i} style={STYLE.slotRow}>
+                      <span style={STYLE.slotIdentity}>
+                        <span
+                          style={{
+                            ...STYLE.swatch,
+                            background: colorPalette[i % colorPalette.length],
+                          }}
+                        />
+                        <span style={STYLE.slotLabel}>{colorName}</span>
+                      </span>
+                      {i === 0 ? (
+                        <span style={STYLE.humanTag}>You (human)</span>
+                      ) : (
+                        <select
+                          aria-label={`Bot for ${colorName} player`}
+                          style={STYLE.select}
+                          value={assignments[i] || 'ai_default'}
+                          onChange={e => handleAssign(i, e.target.value)}
+                        >
+                          <optgroup label="Self-Play">
+                            {SELF_PLAY_OPTIONS.map(ai => (
+                              <option key={ai.id} value={ai.id} title={ai.description}>
+                                {ai.name}
                               </option>
                             ))}
                           </optgroup>
-                        )}
-                      </select>
-                    )}
-                  </div>
-                );
-              })}
+                          <optgroup label="General">
+                            {GENERAL_OPTIONS.map(ai => (
+                              <option key={ai.id} value={ai.id} title={ai.description}>
+                                {ai.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                          {COMMUNITY_OPTIONS.length > 0 && (
+                            <optgroup label="Community">
+                              {COMMUNITY_OPTIONS.map(bot => (
+                                <option
+                                  key={bot.id}
+                                  value={`community:${bot.id}`}
+                                  title={bot.description}
+                                >
+                                  {bot.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={STYLE.luckSection}>
+                <div className="dw-eyebrow" style={STYLE.eyebrow}>
+                  Your luck
+                </div>
+                <div
+                  className="dw-rows"
+                  role="group"
+                  aria-label="Your luck"
+                  aria-describedby="dw-luck-blurb"
+                  style={STYLE.optionRows}
+                >
+                  {LUCK_LEVELS.map(level => (
+                    <button
+                      key={level.id}
+                      type="button"
+                      className="dw-opt"
+                      /* "Lucky luck" would be the natural `${name} luck` phrasing;
+                         the prefix form keeps the axis in the name without it. */
+                      aria-label={`Luck: ${level.name}`}
+                      aria-pressed={level.id === luck}
+                      style={STYLE.sizeOpt}
+                      onClick={() => setLuck(level.id)}
+                    >
+                      {level.name}
+                    </button>
+                  ))}
+                </div>
+                {/* Its own class, not .dw-hint: that one is the page's single
+                    happy-path caption above START (#182). Both centre on a narrow
+                    viewport, per the rule in CSS above.
+
+                    aria-live: the group's aria-describedby is only announced on
+                    entry, so without it a screen-reader user tabbing between rungs
+                    hears the name change but never what it means. */}
+                <div
+                  id="dw-luck-blurb"
+                  className="dw-luck-hint"
+                  aria-live="polite"
+                  style={STYLE.luckBlurb}
+                >
+                  {LUCK_LEVELS.find(level => level.id === luck)?.blurb}
+                </div>
+              </div>
             </div>
           )}
 

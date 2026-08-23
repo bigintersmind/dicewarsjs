@@ -18,9 +18,62 @@ import {
   DEFAULT_YMAX,
   DEFAULT_AREA_MAX,
   DEFAULT_DICE_PER_AREA,
+  MAX_HANDICAP_LEVEL,
   ACTION_TYPES,
   GAME_PHASES,
 } from './constants.js';
+
+/**
+ * Validate and copy the optional luck handicap (issue #179).
+ *
+ * Shape: `{ playerId: number, level: number } | null`. `null`/absent means "off"
+ * — the default everywhere, so competitive surfaces (arena, tournament,
+ * leaderboard) are provably unhandicapped by construction. Anything else is
+ * rejected at this boundary rather than silently ignored. The silent failure
+ * mode this prevents is a handicap that *looks* applied but never fires: the
+ * battle reducer only boosts a side when `handicap.playerId` equals the seat
+ * taking (or defending) the attack, so an out-of-range seat plays a completely
+ * ordinary game while `state.config` advertises a handicap. An out-of-range
+ * `level` fails the other way — it reaches `rollAdvantage` deep inside the
+ * reducer, where the error is far from its cause (and `level: 1e9`, e.g. from a
+ * hand-edited replay, stalls there rather than erroring at all).
+ *
+ * Returns a fresh, frozen object: the copy means later mutation of the caller's
+ * input object can't change the running game's config, and the freeze means the
+ * stored handicap's fields can't be edited through `gameState.config` either
+ * (createGame freezes the config object itself, so the slot can't be swapped).
+ * Together they keep the config a replay is re-derived from equal to the one the
+ * game was actually played with.
+ *
+ * @param {unknown} handicap
+ * @param {number} playerCount - Resolved player count; playerId must be a valid seat
+ * @returns {Readonly<{playerId: number, level: number}>|null}
+ */
+function validateHandicap(handicap, playerCount) {
+  if (handicap == null) return null;
+  if (typeof handicap !== 'object' || Array.isArray(handicap)) {
+    throw new Error(
+      `createGame: config.handicap must be null or an object { playerId, level }, got ${typeof handicap}`
+    );
+  }
+  const { playerId, level } = handicap;
+  if (!Number.isInteger(playerId) || playerId < 0 || playerId >= playerCount) {
+    throw new Error(
+      `createGame: config.handicap.playerId must be an integer seat index in [0, ${playerCount}), got ${playerId}`
+    );
+  }
+  if (!Number.isInteger(level) || level < 1) {
+    throw new Error(
+      `createGame: config.handicap.level must be an integer >= 1 (use null for no handicap), got ${level}`
+    );
+  }
+  if (level > MAX_HANDICAP_LEVEL) {
+    throw new Error(
+      `createGame: config.handicap.level must be <= MAX_HANDICAP_LEVEL (${MAX_HANDICAP_LEVEL}), got ${level}`
+    );
+  }
+  return Object.freeze({ playerId, level });
+}
 
 /**
  * Create a new game with the given config and seed.
@@ -51,15 +104,26 @@ export function createGame(config = {}) {
     );
   }
 
+  const playerCount = config.playerCount ?? DEFAULT_PLAYER_COUNT;
+
   const fullConfig = {
     mapWidth: config.mapWidth ?? DEFAULT_XMAX,
     mapHeight: config.mapHeight ?? DEFAULT_YMAX,
     maxAreas: config.maxAreas ?? DEFAULT_AREA_MAX,
-    playerCount: config.playerCount ?? DEFAULT_PLAYER_COUNT,
+    playerCount,
     dicePerArea: config.dicePerArea ?? DEFAULT_DICE_PER_AREA,
+    handicap: validateHandicap(config.handicap, playerCount),
     recordHistory,
     seed: config.seed ?? Math.floor(Math.random() * 0xffffffff),
   };
+  /*
+   * The config rides by reference into every derived state, and applyAttack
+   * re-reads `config.handicap` on each attack — so an assignable slot would let
+   * a mid-game `state.config.handicap = …` change the RNG draw count and desync
+   * the game from the config its replay is re-derived from. validateHandicap
+   * already freezes the handicap's fields; this freezes the slots.
+   */
+  Object.freeze(fullConfig);
 
   const rng = createRng(fullConfig.seed);
   const mapData = generateMap(fullConfig, rng);

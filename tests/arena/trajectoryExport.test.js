@@ -302,6 +302,16 @@ describe('live capture + round-trip (integration)', () => {
     expect(result.trajectory.metadata.placements).toEqual(result.placements);
   });
 
+  it('records handicap: null — self-play corpora are never luck-handicapped (#179)', () => {
+    /*
+     * A trajectory is re-derived by feeding its config straight to createGame, so a
+     * handicap in the corpus would silently train the net on tilted battle odds.
+     * runMatch never sets one; this pins that the recorded config says so explicitly.
+     */
+    expect(result.trajectory.config.handicap).toBeNull();
+    expect(result.finalState.config.handicap).toBeNull();
+  });
+
   it('the lean record replays to an identical final state', () => {
     const replayed = replayToState(result.trajectory, getReplayLength(result.trajectory));
     expect(replayed.winner).toBe(result.finalState.winner);
@@ -540,5 +550,23 @@ describe('deserializeTrajectory reward-label & config validation (boundary harde
     const record = buildRecord();
     const bad = { ...record, config: { ...record.config, maxAreas: 0 } };
     expect(() => deserializeTrajectory(serializeTrajectory(bad))).toThrow(/maxAreas/);
+  });
+
+  /*
+   * A handicapped game (issue #179) is not training data: the encoder has no
+   * handicap feature, so the net would be fitted on battle odds it cannot see.
+   * runMatch refuses to play one, so this can only arrive from a hand-written or
+   * corrupted corpus — the reader is the last place to catch it.
+   */
+  it('rejects a handicapped record, and still accepts an explicit handicap: null', () => {
+    const record = buildRecord();
+    const handicapped = {
+      ...record,
+      config: { ...record.config, handicap: { playerId: 0, level: 1 } },
+    };
+    expect(() => deserializeTrajectory(serializeTrajectory(handicapped))).toThrow(/handicap/);
+
+    const unhandicapped = { ...record, config: { ...record.config, handicap: null } };
+    expect(() => deserializeTrajectory(serializeTrajectory(unhandicapped))).not.toThrow();
   });
 });

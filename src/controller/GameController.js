@@ -21,7 +21,7 @@ import { createReplayFromState } from '../arena/replayFormat.js';
 import { getCommunityBotList, loadCommunityBot } from '../arena/communityBots.js';
 import { adaptModernBot } from '../arena/modernBotAdapter.js';
 import { HUMAN_PLAYER_NAME, playerName } from '../store/GameStore.js';
-import { resolveMapSize } from '../utils/config.js';
+import { resolveMapSize, luckToHandicap, resolveLuck } from '../utils/config.js';
 
 /** Prefix marking a per-slot assignment id as a curated community bot. */
 const COMMUNITY_PREFIX = 'community:';
@@ -244,6 +244,13 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *   | 'hard' | 'custom') the lineup came from. Persisted so the title screen
    *   restores the selection on the next visit (and derives preset lineups from
    *   it); the controller itself only consumes aiAssignments.
+   * @param {number} [config.luck] - "Your luck" rung (#179): 0 = Normal, 1 = Lucky,
+   *   2 = Very lucky. A Custom-only setting — honoured when `difficulty` is
+   *   'custom' and played as Normal under every preset (`resolveLuck`), so the
+   *   stored value never carries a handicap behind a preset label. Carried in the
+   *   store for the session (not localStorage) like mapSize, and turned into the
+   *   engine's `config.handicap` for the human seat; stored as picked even in
+   *   spectator mode, where the derived handicap is null (no human seat).
    */
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
@@ -279,12 +286,54 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const difficulty = config.difficulty ?? store.getState().config.difficulty;
 
     /*
-     * Update store config. Persist mapSize so a later rejectMap() regenerates
-     * at the same size the player chose.
+     * "Your luck" rung (#179), resolved against the difficulty: only Custom plays
+     * a rung, every preset plays Normal. That keeps the store's fallback honest
+     * for a caller that omits `luck` — a stale Custom rung can't be inherited
+     * into a preset game. Stored as the player picked it even in spectator mode —
+     * the choice belongs to the title screen and must survive an AI-vs-AI
+     * detour — but the handicap itself is derived from humanPlayerIndex, which is
+     * null when nobody is playing, so a spectator game is unhandicapped.
+     */
+    const luck = resolveLuck(difficulty, config.luck ?? store.getState().config.luck);
+    const humanPlayerIndex = spectator ? null : 0;
+    /*
+     * luckToHandicap throws on a rung that isn't on the ladder. That has to land
+     * on the store's error path like every other start failure: START discards
+     * this promise, so an escaping rejection would read as a dead button (and the
+     * `error: null` reset above would already have wiped any visible banner).
+     * Bailing here also keeps the bad rung out of store.config — the setState
+     * that persists it is below.
+     */
+    let handicap;
+    try {
+      handicap = luckToHandicap(luck, humanPlayerIndex);
+    } catch (err) {
+      console.error('[GameController] Cannot start game: invalid luck setting', err);
+      store.setState({
+        screen: 'title',
+        gameState: null,
+        animationPhase: 'idle',
+        awaitingInput: null,
+        quitConfirmOpen: false,
+        error: "That luck setting isn't available. Pick another and try again.",
+      });
+      return;
+    }
+
+    /*
+     * Update store config. Persist mapSize and luck so a later rejectMap()
+     * regenerates at the same size, and with the same dice, the player chose.
      */
     store.setState({
-      config: { ...store.getState().config, playerCount, mapSize, aiAssignments, difficulty },
-      humanPlayerIndex: spectator ? null : 0,
+      config: {
+        ...store.getState().config,
+        playerCount,
+        mapSize,
+        aiAssignments,
+        difficulty,
+        luck,
+      },
+      humanPlayerIndex,
     });
 
     try {
@@ -296,6 +345,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       const gameState = createGame({
         playerCount,
         ...resolveMapSize(mapSize),
+        handicap,
       });
 
       store.setState({
@@ -349,12 +399,34 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const storeState = store.getState();
     const playerCount = storeState.config.playerCount;
     const mapSize = storeState.config.mapSize;
+    /*
+     * NEW MAP re-rolls the board, not the setup: the handicap has to be rebuilt
+     * from the same stored luck rung and human seat, or the player's luck would
+     * silently switch off the moment they rejected a map.
+     */
+    let handicap;
+    try {
+      handicap = luckToHandicap(
+        resolveLuck(storeState.config.difficulty, storeState.config.luck),
+        storeState.humanPlayerIndex
+      );
+    } catch (err) {
+      // Same contract as startNewGame: a rung off the ladder is a store error, not a rejection.
+      console.error('[GameController] Cannot regenerate map: invalid luck setting', err);
+      store.setState({
+        screen: 'title',
+        gameState: null,
+        error: "That luck setting isn't available. Pick another and try again.",
+      });
+      return;
+    }
 
     let gameState;
     try {
       gameState = createGame({
         playerCount,
         ...resolveMapSize(mapSize),
+        handicap,
       });
     } catch (err) {
       console.error('Failed to regenerate map:', err);

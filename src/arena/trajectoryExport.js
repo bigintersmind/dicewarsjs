@@ -30,7 +30,11 @@ import { createGame } from '../engine/GameRunner.js';
 import { applyAction, getValidMoves } from '../engine/StateManager.js';
 import { ACTION_TYPES } from '../engine/constants.js';
 import { createBotState } from './botState.js';
-import { createReplayFromActions, replayToState, REPLAY_VERSION } from './replayFormat.js';
+import {
+  createReplayFromActions,
+  replayToState,
+  SUPPORTED_REPLAY_VERSIONS,
+} from './replayFormat.js';
 
 /**
  * Version of the fat observation/step schema. The on-disk record is lean, but
@@ -332,7 +336,13 @@ export function deserializeTrajectory(line) {
   if (!record || typeof record !== 'object') {
     throw new Error('Invalid trajectory data: not an object');
   }
-  if (record.version !== REPLAY_VERSION) {
+  /*
+   * A trajectory record embeds a replay envelope, so it tracks the replay format's
+   * supported-version set rather than only the version this build writes — the
+   * committed v1 corpora (tests/fixtures/trajectories/sample.jsonl and any earlier
+   * self-play dataset) must stay readable across a REPLAY_VERSION bump.
+   */
+  if (!SUPPORTED_REPLAY_VERSIONS.includes(record.version)) {
     throw new Error(`Unsupported trajectory replay version: ${record.version}`);
   }
   if (record.observationSchemaVersion !== OBSERVATION_SCHEMA_VERSION) {
@@ -364,6 +374,19 @@ export function deserializeTrajectory(line) {
         `Invalid trajectory data: config.${field} must be a positive number, got ${value}`
       );
     }
+  }
+  /*
+   * A luck handicap (issue #179) makes the record unusable as training data: the
+   * observation encoder has no handicap feature, so the net cannot see the
+   * changed odds and would learn a battle model that is simply wrong for the
+   * games it was fitted on. runMatch refuses to play one at all, so this can
+   * only reach the reader from a hand-written or corrupted corpus — reject it
+   * here rather than let it re-derive silently through createGame.
+   */
+  if (record.config.handicap != null) {
+    throw new Error(
+      `Invalid trajectory data: handicapped games are not valid training data — the encoder has no handicap feature, so the net cannot see the changed odds (got ${JSON.stringify(record.config.handicap)})`
+    );
   }
 
   /*

@@ -11,13 +11,42 @@
 
 import { createGame, replayGame } from '../engine/GameRunner.js';
 
-/** Replay format version. Bump when the on-disk shape changes incompatibly. */
-export const REPLAY_VERSION = 1;
+/**
+ * Replay format version written by this build. Bump on **any** change to the
+ * on-disk shape, additive or not — the version says which shape a file is, not
+ * whether old readers cope. `SUPPORTED_REPLAY_VERSIONS` is the separate,
+ * explicit statement of what this build still reads.
+ *
+ * v2 (issue #179) appends `config.handicap`, the per-seat luck handicap. The
+ * compatibility that buys: new builds read v1 (see below), older builds reject
+ * v2 outright rather than replaying a handicapped game on fair dice.
+ */
+export const REPLAY_VERSION = 2;
+
+/**
+ * Replay versions this build can read. Writers always emit REPLAY_VERSION; the
+ * reader accepts every version listed here.
+ *
+ * v1 has to stay in the set because v1 records exist outside this build:
+ * `tests/fixtures/trajectories/sample.jsonl`, the frozen
+ * `tests/fixtures/replays/leaderboard-replay-v1.json` (a real pre-#179
+ * leaderboard replay), and any file a user saved. The shipped
+ * `public/data/replays/replay-*.json` are NOT the reason — the nightly
+ * tournament rewrites them at the current REPLAY_VERSION. v1 records carry no
+ * `config.handicap` key at all, which `createGame` resolves to null — correct,
+ * since v1 predates the handicap.
+ *
+ * The set gates the two readers that check it: {@link deserializeReplay} and
+ * trajectoryExport's `deserializeTrajectory`. It is not a universal gate — the
+ * leaderboard viewer hands a parsed JSON file straight to {@link replayToState},
+ * never through `deserializeReplay`.
+ */
+export const SUPPORTED_REPLAY_VERSIONS = Object.freeze([1, 2]);
 
 /**
  * @typedef {Object} Replay
  * @property {number}         version  - Format version (REPLAY_VERSION)
- * @property {Object}         config   - Game config { seed, playerCount, mapWidth, mapHeight, maxAreas, dicePerArea }
+ * @property {Object}         config   - Game config { seed, playerCount, mapWidth, mapHeight, maxAreas, dicePerArea, handicap }
  * @property {CompactAction[]} actions  - Ordered list of game actions
  * @property {ReplayMetadata}  metadata - Summary metadata
  */
@@ -69,6 +98,7 @@ export function createReplay(matchResult, botNames) {
       mapHeight: matchResult.finalState.config.mapHeight,
       maxAreas: matchResult.finalState.config.maxAreas,
       dicePerArea: matchResult.finalState.config.dicePerArea,
+      handicap: matchResult.finalState.config.handicap ?? null,
     },
     {
       bots: botNames,
@@ -111,7 +141,7 @@ export function createReplayFromState(finalState, metadata) {
  * build a valid, replayable record.
  *
  * @param {CompactAction[]} actions - Ordered compact actions ({type, from?, to?})
- * @param {Object} config - Resolved game config (seed + map/player params + dicePerArea)
+ * @param {Object} config - Resolved game config (seed + map/player params + dicePerArea + handicap)
  * @param {Object} metadata - { bots?: string[], winner?, turnCount?, timestamp? }
  * @returns {Replay}
  */
@@ -125,6 +155,13 @@ export function createReplayFromActions(actions, config, metadata = {}) {
       mapHeight: config.mapHeight,
       maxAreas: config.maxAreas,
       dicePerArea: config.dicePerArea,
+      /*
+       * The luck handicap changes how battles are rolled, so it must survive the
+       * whitelist or a handicapped game replays as a different game (the same
+       * failure mode dicePerArea had). Normalized to null so every v2 replay
+       * states its handicap explicitly.
+       */
+      handicap: config.handicap ?? null,
     },
     actions,
     metadata: {
@@ -174,8 +211,13 @@ export function deserializeReplay(encoded) {
     throw new Error('Invalid replay data: not an object');
   }
 
-  if (replay.version !== REPLAY_VERSION) {
-    throw new Error(`Unsupported replay version: ${replay.version}`);
+  if (!SUPPORTED_REPLAY_VERSIONS.includes(replay.version)) {
+    /*
+     * JSON.stringify, not interpolation: the check is `includes`, so a string
+     * "2" fails it, and a bare `2` in the message would read as the number that
+     * would have passed.
+     */
+    throw new Error(`Unsupported replay version: ${JSON.stringify(replay.version)}`);
   }
 
   if (!replay.config || !Array.isArray(replay.actions) || !replay.metadata) {
@@ -189,7 +231,9 @@ export function deserializeReplay(encoded) {
  * Reconstruct the game state at a specific action index in a replay.
  *
  * Uses the engine's createGame (seeded) + replayGame to deterministically
- * reproduce the exact state.
+ * reproduce the exact state. A v1 replay carries no `config.handicap` key at
+ * all, which createGame resolves to null — correct, since v1 predates the
+ * handicap.
  *
  * @param {Replay} replay
  * @param {number} actionIndex - Number of actions to apply (0 = initial state)

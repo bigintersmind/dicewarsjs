@@ -1,12 +1,13 @@
 {
-  "version": 1,
+  "version": 2,
   "config": {
     "seed": 20260878,
     "playerCount": 10,
     "mapWidth": 28,
     "mapHeight": 32,
     "maxAreas": 32,
-    "dicePerArea": 3
+    "dicePerArea": 3,
+    "handicap": null
   },
   "actions": [
     { "type": "ATTACK", "from": 17, "to": 18 },
@@ -663,6 +664,6 @@
     ],
     "winner": 1,
     "turnCount": 315,
-    "timestamp": "2026-08-23T06:52:13.374Z"
+    "timestamp": "2026-08-23T17:52:51.006Z"
   }
 }

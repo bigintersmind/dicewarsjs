@@ -8,14 +8,14 @@
  * the choices into onStart; and the landing page's hierarchy (#182): START the
  * one filled control, the happy-path caption, and the footer link row that
  * took over from the mode rail on this screen; and the luck axis (#179), which
- * has to stay independent of the difficulty presets.
+ * lives inside the Custom panel — presets always mean fair dice.
  */
 
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { TitleScreen } from '../../src/ui/TitleScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
-import { lineupForMode } from '../../src/ai/difficultyModes.js';
+import { DIFFICULTY_MODES, lineupForMode } from '../../src/ai/difficultyModes.js';
 import { LUCK_LEVELS, DEFAULT_LUCK } from '../../src/utils/config.js';
 import {
   PLAYER_COLOR_NAMES,
@@ -47,6 +47,9 @@ const aiBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent === 'AI vs AI');
 const modeBtn = name => container.querySelector(`button[aria-label="${name} difficulty"]`);
 const luckBtn = name => container.querySelector(`button[aria-label="Luck: ${name}"]`);
+const luckGroup = () => container.querySelector('[role="group"][aria-label="Your luck"]');
+/** The luck row lives inside the Custom panel: open it before querying the rungs. */
+const openCustom = () => act(() => modeBtn('Custom').click());
 /*
  * Slots are labelled by player color now; `n` stays the 1-indexed player number.
  * Assumes the default palette — color-blind-mode tests query by name directly.
@@ -465,9 +468,31 @@ describe('TitleScreen', () => {
   });
 
   describe('your luck (#179)', () => {
+    // Presets always mean fair dice, so the rung is only offered under Custom.
+    it('is absent for every preset and appears inside the Custom panel', () => {
+      renderTitle();
+      Object.values(DIFFICULTY_MODES).forEach(mode => {
+        act(() => modeBtn(mode.name).click());
+        expect(luckGroup()).toBeNull();
+      });
+
+      openCustom();
+      expect(luckGroup()).not.toBeNull();
+      // Inside the panel box (the luck section's parent), alongside the
+      // per-slot picker — not a sibling block out in the setup column.
+      const panel = luckGroup().parentElement.parentElement;
+      expect(panel.classList.contains('dw-panel')).toBe(false);
+      expect(panel.contains(slotSelect(2))).toBe(true);
+      // ...and labelled by the same eyebrow idiom as the other option rows.
+      const eyebrow = luckGroup().previousElementSibling;
+      expect(eyebrow.textContent).toBe('Your luck');
+      expect(eyebrow.classList.contains('dw-eyebrow')).toBe(true);
+    });
+
     // Derived from the ladder, so a new rung is covered without editing this test.
     it('renders every rung on the ladder, with exactly one pressed', () => {
       renderTitle();
+      openCustom();
       const buttons = LUCK_LEVELS.map(level => luckBtn(level.name));
       expect(buttons.every(Boolean)).toBe(true);
       expect(buttons.filter(b => b.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
@@ -480,6 +505,7 @@ describe('TitleScreen', () => {
 
     it("shows the selected rung's explanation, and swaps it on selection", () => {
       renderTitle();
+      openCustom();
       const blurbOf = id => LUCK_LEVELS.find(level => level.id === id).blurb;
 
       expect(container.textContent).toContain(blurbOf(0));
@@ -496,15 +522,15 @@ describe('TitleScreen', () => {
 
     it('describes the row for screen readers via the caption', () => {
       renderTitle();
-      const group = container.querySelector('[role="group"][aria-label="Your luck"]');
-      expect(group).not.toBeNull();
+      openCustom();
+      const group = luckGroup();
       const describedBy = group.getAttribute('aria-describedby');
       expect(container.querySelector(`#${describedBy}`).textContent).toBe(
         LUCK_LEVELS.find(level => level.id === 0).blurb
       );
     });
 
-    it('threads the default (Normal) rung into onStart', () => {
+    it('threads the default (Normal) rung into onStart for a preset', () => {
       const { onStart } = renderTitle();
       act(() => startBtn().click());
       expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 0 }));
@@ -512,47 +538,68 @@ describe('TitleScreen', () => {
 
     it('threads the chosen rung into onStart via START', () => {
       const { onStart } = renderTitle();
+      openCustom();
       act(() => luckBtn('Very lucky').click());
       act(() => startBtn().click());
-      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 2, spectator: false }));
+      expect(onStart).toHaveBeenCalledWith(
+        expect.objectContaining({ luck: 2, difficulty: 'custom', spectator: false })
+      );
     });
 
     it('threads the chosen rung through the AI-vs-AI (spectator) path too', () => {
       // The controller drops the handicap for a spectator game; the payload
       // still carries the rung so the store remembers the player's choice.
       const { onStart } = renderTitle();
+      openCustom();
       act(() => luckBtn('Lucky').click());
       act(() => aiBtn().click());
       expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 1, spectator: true }));
     });
 
-    it('is a second axis: a difficulty preset never resets it, or vice-versa', () => {
+    /*
+     * A preset's label has to be the whole truth about the game it starts: a
+     * rung picked under Custom must not ride along invisibly into Hard. So a
+     * preset click resets it, exactly as it replaces the hand-edited lineup —
+     * and coming back to Custom starts from Normal, not the stale rung.
+     */
+    it('resets to Normal when a preset is picked, and stays reset on return to Custom', () => {
       const { onStart } = renderTitle();
-
-      act(() => luckBtn('Lucky').click());
-      act(() => modeBtn('Hard').click());
-      expect(luckBtn('Lucky').getAttribute('aria-pressed')).toBe('true');
-
-      // ...including Custom, which reveals the per-slot picker.
-      act(() => modeBtn('Custom').click());
-      expect(luckBtn('Lucky').getAttribute('aria-pressed')).toBe('true');
-
-      // And the reverse: picking a rung leaves the lineup axis alone.
+      openCustom();
       act(() => luckBtn('Very lucky').click());
-      expect(modeBtn('Custom').getAttribute('aria-pressed')).toBe('true');
 
+      act(() => modeBtn('Hard').click());
+      expect(luckGroup()).toBeNull();
       act(() => startBtn().click());
-      expect(onStart).toHaveBeenCalledWith(
-        expect.objectContaining({ luck: 2, difficulty: 'custom' })
+      expect(onStart).toHaveBeenLastCalledWith(
+        expect.objectContaining({ luck: 0, difficulty: 'hard' })
       );
+
+      openCustom();
+      expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('true');
+      expect(luckBtn('Very lucky').getAttribute('aria-pressed')).toBe('false');
     });
 
-    it('seeds the rung from the persisted config (#180 round-trip)', () => {
+    it('picking a rung leaves the lineup axis alone', () => {
+      const { onStart } = renderTitle();
+      openCustom();
+      chooseBot(2, 'ai_lookahead');
+      act(() => luckBtn('Very lucky').click());
+
+      expect(modeBtn('Custom').getAttribute('aria-pressed')).toBe('true');
+      expect(slotSelect(2).value).toBe('ai_lookahead');
+      act(() => startBtn().click());
+      const payload = onStart.mock.calls[0][0];
+      expect(payload).toMatchObject({ luck: 2, difficulty: 'custom' });
+      expect(payload.aiAssignments[1]).toBe('ai_lookahead');
+    });
+
+    it('seeds the rung from a persisted Custom config (#180 round-trip)', () => {
       const store = createGameStore({
-        config: { playerCount: 4, mapSize: 'medium', difficulty: 'hard', luck: 2 },
+        config: { playerCount: 4, mapSize: 'medium', difficulty: 'custom', luck: 2 },
       });
       const { onStart } = renderTitle({ store });
 
+      // Custom is already open, with the rung pressed.
       expect(luckBtn('Very lucky').getAttribute('aria-pressed')).toBe('true');
       expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('false');
 
@@ -560,8 +607,28 @@ describe('TitleScreen', () => {
       expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 2 }));
     });
 
+    /*
+     * A stored rung under a preset has no row to show it (only Custom renders
+     * one), so honouring it would start a handicapped game behind a label that
+     * promises fair dice. It is dropped, not carried.
+     */
+    it('ignores a persisted rung when the persisted difficulty is a preset', () => {
+      const store = createGameStore({
+        config: { playerCount: 4, mapSize: 'medium', difficulty: 'hard', luck: 2 },
+      });
+      const { onStart } = renderTitle({ store });
+      expect(luckGroup()).toBeNull();
+
+      act(() => startBtn().click());
+      expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 0 }));
+
+      openCustom();
+      expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('true');
+    });
+
     it('falls back to Normal when the config carries no rung', () => {
       const { onStart } = renderTitle({ store: createGameStore({ config: {} }) });
+      openCustom();
       expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('true');
       act(() => startBtn().click());
       expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ luck: 0 }));
@@ -575,7 +642,9 @@ describe('TitleScreen', () => {
      */
     it('discards an off-ladder stored rung, naming it', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const { onStart } = renderTitle({ store: createGameStore({ config: { luck: 5 } }) });
+      const { onStart } = renderTitle({
+        store: createGameStore({ config: { difficulty: 'custom', luck: 5 } }),
+      });
 
       expect(luckBtn('Normal').getAttribute('aria-pressed')).toBe('true');
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('5'));
@@ -586,29 +655,27 @@ describe('TitleScreen', () => {
     });
 
     /*
-     * Reading/tab order: Difficulty sits next to the Custom panel it opens, and
-     * the luck row follows both — so the disclosure is never separated from its
-     * trigger.
+     * Reading/tab order inside the panel: the per-slot picker first (who
+     * plays), then the luck row (how the dice roll), and START after the
+     * panel closes.
      */
-    it('places the row after the Custom per-slot panel, before START', () => {
+    it('sits after the last slot row in the Custom panel, before START', () => {
       renderTitle();
-      act(() => modeBtn('Custom').click());
+      openCustom();
 
-      const luckGroup = container.querySelector('[role="group"][aria-label="Your luck"]');
-      const difficultyGroup = container.querySelector('[role="group"][aria-label="Difficulty"]');
-      const firstSlot = slotSelect(2);
-      expect(firstSlot).not.toBeNull();
+      const lastSlot = slotSelect(7);
+      expect(lastSlot).not.toBeNull();
 
       const follows = (a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
-      expect(follows(difficultyGroup, firstSlot)).toBeTruthy();
-      expect(follows(firstSlot, luckGroup)).toBeTruthy();
-      expect(follows(luckGroup, startBtn())).toBeTruthy();
+      expect(follows(lastSlot, luckGroup())).toBeTruthy();
+      expect(follows(luckGroup(), startBtn())).toBeTruthy();
     });
 
     // The group's aria-describedby is only announced on entry; the live region
     // is what speaks the new meaning when the rung changes under the cursor.
     it('announces the blurb change politely', () => {
       renderTitle();
+      openCustom();
       expect(container.querySelector('#dw-luck-blurb').getAttribute('aria-live')).toBe('polite');
     });
   });
@@ -684,7 +751,7 @@ describe('TitleScreen', () => {
     it('names the happy path in one caption right above the START row', () => {
       renderTitle();
       const caption = container.querySelector('.dw-hint');
-      expect(caption.textContent).toBe('Pick your players, map, difficulty and luck, then START.');
+      expect(caption.textContent).toBe('Pick your players, map and difficulty, then START.');
       expect(
         caption.compareDocumentPosition(startBtn()) & Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy();
@@ -693,7 +760,7 @@ describe('TitleScreen', () => {
     it('labels the player-count group with an eyebrow like map size and difficulty', () => {
       renderTitle();
       const groupLabel = label => container.querySelector(`[role="group"][aria-label="${label}"]`);
-      ['Players', 'Map size', 'Difficulty', 'Your luck'].forEach(label => {
+      ['Players', 'Map size', 'Difficulty'].forEach(label => {
         const prev = groupLabel(label).previousElementSibling;
         expect(prev.textContent).toBe(label);
         // Same reason as the caption: `.dw-eyebrow` feeds the ≤760px centering rule.

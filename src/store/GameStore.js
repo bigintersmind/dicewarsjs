@@ -34,6 +34,12 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   state because the controller layer reads it too: KeyboardController
  *   suspends board navigation and handleTerritoryClick ignores clicks while it
  *   is open.
+ * @property {boolean} rulesOpen - True while the "How to play" reference card
+ *   is up. Screen-independent: App mounts RulesModal outside the screen switch,
+ *   so the card survives a screen change underneath it (an AI can finish the
+ *   game while a player is reading). Like quitConfirmOpen the controller layer
+ *   reads it — KeyboardController suspends board navigation and
+ *   handleTerritoryClick ignores clicks — and QuitConfirm defers Escape to it.
  * @property {number} aiSpeed
  * @property {boolean} soundEnabled
  * @property {string | null} error
@@ -67,6 +73,7 @@ const DEFAULT_STATE = {
   humanEliminated: false,
   gameOverReason: null,
   quitConfirmOpen: false,
+  rulesOpen: false,
   aiSpeed: 1,
   soundEnabled: true,
   error: null,

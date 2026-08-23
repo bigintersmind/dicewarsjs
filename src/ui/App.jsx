@@ -22,6 +22,7 @@ import { MapPreview } from './MapPreview.jsx';
 import { GameOverlay } from './GameOverlay.jsx';
 import { GameOverScreen } from './GameOverScreen.jsx';
 import { QuitConfirm } from './QuitConfirm.jsx';
+import { RulesModal } from './RulesModal.jsx';
 import { OnlineLeaderboardScreen } from './OnlineLeaderboardScreen.jsx';
 import { ReplayViewer } from './ReplayViewer.jsx';
 import { SettingsPanel } from './SettingsPanel.jsx';
@@ -101,6 +102,9 @@ export function App({ store, controller, preferencesManager }) {
 
   const announcer = <ScreenReaderAnnouncer store={store} />;
 
+  /** Every screen's HOW TO PLAY / RULES control opens the same card. */
+  const openRules = () => controller.openRules();
+
   /*
    * The rail lives on the hub screens (the ATTRACT_SCREENS set) minus the
    * title: the landing page reaches the same screens through TitleScreen's
@@ -116,6 +120,7 @@ export function App({ store, controller, preferencesManager }) {
           error={error}
           onStart={config => controller.startNewGame(config)}
           onNavigate={id => controller[NAV_METHODS[id]]()}
+          onRules={openRules}
         />
       );
     }
@@ -166,12 +171,16 @@ export function App({ store, controller, preferencesManager }) {
       return (
         <div style={{ height: '100%', position: 'relative' }}>
           {announcer}
+          {/* No onRules here: GameOverScreen's overlay covers the whole HUD, so
+              a control in the bar would be unreachable. The screen carries its
+              own HOW TO PLAY instead. */}
           <GameHUD store={store} />
           <GameOverScreen
             store={store}
             onTitle={() => controller.goToTitle()}
             onHistory={currentReplay ? () => controller.viewGameReplay() : undefined}
             onSpectate={() => controller.startSpectate()}
+            onRules={openRules}
           />
         </div>
       );
@@ -181,7 +190,7 @@ export function App({ store, controller, preferencesManager }) {
     return (
       <div style={{ height: '100%', position: 'relative' }}>
         {announcer}
-        <GameHUD store={store} onQuit={() => controller.openQuitConfirm()} />
+        <GameHUD store={store} onQuit={() => controller.openQuitConfirm()} onRules={openRules} />
         <GameOverlay store={store} onEndTurn={() => controller.endHumanTurn()} />
         {/* Mounted whether or not the dialog is up: it also owns Escape (#181). */}
         <QuitConfirm
@@ -203,6 +212,15 @@ export function App({ store, controller, preferencesManager }) {
        * footer row, which lives inside the screen's boundary.
        */}
       <ErrorBoundary>{settings}</ErrorBoundary>
+      {/*
+       * Outside the screen switch like the settings die: the reference opens
+       * over any screen, and it must not be torn down by a screen change
+       * happening behind it (a game ending while the player reads). Mounted
+       * whether or not the card is up — it also owns Escape while it is.
+       */}
+      <ErrorBoundary>
+        <RulesModal store={store} onClose={() => controller.closeRules()} />
+      </ErrorBoundary>
       {showRail && (
         <ErrorBoundary>
           <TopNav

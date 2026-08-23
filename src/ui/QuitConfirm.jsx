@@ -24,6 +24,13 @@
  * when it actually cancelled a half-made attack. This handler honors
  * defaultPrevented, so one Escape does exactly one thing.
  *
+ * RulesModal, the one Escape owner that also sits on `window`, gets ahead of
+ * this handler by registering in the CAPTURE phase — which beats every
+ * bubble-phase listener in the document regardless of mount order — and
+ * preventDefault()s the press it consumes, which the check above honors. That
+ * is the mechanism. The `rulesOpen` check below is the belt to its braces: a
+ * guard that does not depend on the card's effect having registered yet.
+ *
  * @module ui/QuitConfirm
  */
 
@@ -113,12 +120,20 @@ export function QuitConfirm({ store, onOpen, onCancel, onConfirm }) {
   useEffect(() => {
     const handleKey = event => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
+      /*
+       * The rules card layers above this dialog and owns Escape while it is
+       * up. Its capture-phase listener claims the press before this one runs,
+       * which the check above already honors — but read the flag too, so the
+       * dialog cannot appear behind the card on a frame where that listener is
+       * not registered yet.
+       */
+      if (store.getState().rulesOpen) return;
       if (open) onCancel();
       else onOpen();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, onOpen, onCancel]);
+  }, [store, open, onOpen, onCancel]);
 
   /*
    * KEEP PLAYING takes focus on open — the safe answer is the one a stray

@@ -315,6 +315,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         animationPhase: 'idle',
         awaitingInput: null,
         quitConfirmOpen: false,
+        rulesOpen: false,
         error: "That luck setting isn't available. Pick another and try again.",
       });
       return;
@@ -359,8 +360,16 @@ export function createGameController(store, renderer, soundManager, preferencesM
         focusedAreaId: null,
         humanEliminated: false,
         gameOverReason: null,
-        // No path may carry a previous game's open quit dialog into this one (#181).
+        /*
+         * No path may carry a previous game's open dialog into this one (#181):
+         * neither the quit confirm nor the rules card. The rules card is the
+         * only overlay that survives a screen change on purpose (see openRules),
+         * so a start seam is exactly where it has to be dropped — otherwise a
+         * card left up by a throw inside the ErrorBoundary would gate every
+         * click and keypress of the new game with no way back.
+         */
         quitConfirmOpen: false,
+        rulesOpen: false,
         aiLoadWarnings: warnings,
         playerNames: names,
       });
@@ -383,6 +392,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         animationPhase: 'idle',
         awaitingInput: null,
         quitConfirmOpen: false,
+        rulesOpen: false,
         error: 'Failed to start game. Please try again.',
       });
     }
@@ -485,6 +495,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       humanEliminated: false,
       gameOverReason: null,
       quitConfirmOpen: false,
+      rulesOpen: false,
       playerNames: [],
     });
     /*
@@ -510,6 +521,27 @@ export function createGameController(store, renderer, soundManager, preferencesM
   /** Dismiss the quit confirm, leaving the game exactly as it was. */
   function closeQuitConfirm() {
     store.setState({ quitConfirmOpen: false });
+  }
+
+  /*
+   * The "How to play" reference. Unlike the quit confirm it is not tied to a
+   * screen — every screen offers a way in, and a game running behind the card
+   * (an AI turn finishing, even the game ending) leaves it exactly where the
+   * player left it, so triggerGameOver deliberately does not touch the flag.
+   *
+   * The navigation seams that start or abandon a game do clear it, though
+   * (startNewGame, goToTitle, the two error bounces): `rulesOpen` gates every
+   * click and keypress while it is set, so a card the player can no longer see
+   * — one whose render threw inside the ErrorBoundary — would otherwise lock
+   * the game with no way out, not even quit-and-restart.
+   */
+  function openRules() {
+    store.setState({ rulesOpen: true });
+  }
+
+  /** Dismiss the reference card. */
+  function closeRules() {
+    store.setState({ rulesOpen: false });
   }
 
   function goToArena() {
@@ -751,7 +783,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const state = storeState.gameState;
     if (!state || storeState.screen !== 'playing') return;
     if (storeState.animationPhase !== 'idle') return;
-    if (storeState.quitConfirmOpen) return; // the confirm dialog owns input while it is up
+    // A modal over the board owns input while it is up (its scrim already eats
+    // the click; this keeps the contract true whatever the pointer layer does).
+    if (storeState.quitConfirmOpen || storeState.rulesOpen) return;
 
     const currentPlayerId = state.turnOrder[state.currentPlayerIndex];
     if (currentPlayerId !== storeState.humanPlayerIndex) return;
@@ -1101,6 +1135,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         screen: 'title',
         gameState: null,
         quitConfirmOpen: false,
+        rulesOpen: false,
         error: 'An error occurred. Returning to title screen.',
       });
       return;
@@ -1176,6 +1211,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
     goToTitle,
     openQuitConfirm,
     closeQuitConfirm,
+    openRules,
+    closeRules,
     goToArena,
     goToTournament,
     goToOnlineLeaderboard,

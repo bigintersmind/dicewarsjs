@@ -2,12 +2,14 @@
 
 DiceWarsJS is a turn-based territory conquest game played on a hexagonal grid. Players roll dice to attack adjacent territories. The last player standing wins.
 
+The game ships its own short version of this page: the **HOW TO PLAY** card, reachable from the title screen, the in-game bar and the game-over screen (`src/ui/RulesModal.jsx`). This document is the long form — if the two ever disagree, the engine decides.
+
 ## Setup
 
 - The board is a hexagonal grid divided into **territories** (default: up to 32)
 - **Map size** is chosen on the title screen before each game — Small (20×24, up to 20 territories), Medium (28×32, up to 32 — the default), or Large (36×40, up to 48). This is a per-game choice and resets to Medium on reload.
 - Each territory is assigned to a random player
-- Each territory starts with a random number of dice (1-8)
+- Every territory starts with **1 die**. The rest are handed out one at a time, round-robin between the players, each landing on a random territory of that player's that is not already full — so a player's dice are spread unevenly, but every player gets the same number of them. The budget is `dicePerArea` (default **3**) per territory, and no territory can exceed 8 (`distributeDice` in `src/engine/MapGenerator.js`).
 - There are **7 players** by default (configurable from 2-8)
 - Turn order is randomized at the start of each game
 
@@ -46,7 +48,10 @@ Reinforcements are distributed **randomly** across your territories that have fe
 
 The game ends when only one player has territories remaining. That player wins.
 
-If no player has been eliminated after 500 turns (the default limit, configurable), the game is declared a **stalemate**.
+The engine itself never stops short of total conquest, so each surface caps a game that will not end — two different caps, for two different jobs:
+
+- **In the browser**, a game that reaches **300 completed player-turns** with no winner ends in a **draw** (`MAX_GAME_TURNS` in `src/controller/GameController.js`). The scoreboard shows it as a draw, not a win.
+- **Headless** (the arena, the tournament, `GameRunner`), a match is truncated at **500 turns** and recorded as a stalemate (`maxTurns`, default `DEFAULT_MAX_TURNS`). Both are configurable by their callers.
 
 ## Luck handicap (advantage dice)
 
@@ -64,15 +69,17 @@ The bots do not know about it. Every AI that reasons about odds (`ai_strategist`
 
 ## Key Numbers
 
-| Constant                | Value                                    |
-| ----------------------- | ---------------------------------------- |
-| Max dice per territory  | 8                                        |
-| Max reinforcement stock | 64                                       |
-| Default player count    | 7                                        |
-| Default max territories | 32                                       |
-| Default grid size       | 28 x 32 cells (Medium)                   |
-| Map size presets        | Small 20×24 / Medium 28×32 / Large 36×40 |
-| Stalemate turn limit    | 500                                      |
+| Constant                        | Value                                       |
+| ------------------------------- | ------------------------------------------- |
+| Max dice per territory          | 8                                           |
+| Starting dice per area          | 1, plus 2 more on average (`dicePerArea` 3) |
+| Max reinforcement stock         | 64                                          |
+| Default player count            | 7                                           |
+| Default max territories         | 32                                          |
+| Default grid size               | 28 x 32 cells (Medium)                      |
+| Map size presets                | Small 20×24 / Medium 28×32 / Large 36×40    |
+| Draw turn limit (browser)       | 300 completed player-turns                  |
+| Stalemate turn limit (headless) | 500                                         |
 
 ## Strategy Tips
 

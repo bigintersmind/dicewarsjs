@@ -873,6 +873,42 @@ describe('TitleScreen', () => {
       expect(container.querySelectorAll('a')).toHaveLength(0);
     });
   });
+
+  /*
+   * "How to play": the rules reference reachable from the landing page. Same
+   * bare-text weight as AI vs AI — playtesters need the rules more than the bot
+   * show, but neither may take the eye off START, the page's one filled control.
+   */
+  describe('how to play link', () => {
+    const rulesBtn = () =>
+      container.querySelector('button[aria-label="How to play \u2014 the rules in one card"]');
+
+    it('reports its clicks and starts nothing', () => {
+      const onRules = vi.fn();
+      const { onStart } = renderTitle({ onRules });
+
+      const button = rulesBtn();
+      expect(button.textContent.trim()).toBe('HOW TO PLAY');
+      expect(button.className).toBe('dw-opt');
+      // Opens with the visible text, so label-in-name (WCAG 2.5.3) holds.
+      expect(button.getAttribute('aria-label')).toMatch(/^How to play/);
+      expect(button.parentElement).toBe(startBtn().parentElement);
+
+      act(() => button.click());
+      expect(onRules).toHaveBeenCalledTimes(1);
+      expect(onStart).not.toHaveBeenCalled();
+    });
+
+    it('leaves START the only filled control', () => {
+      renderTitle({ onRules: vi.fn() });
+      expect([...container.querySelectorAll('.dw-btn')].map(b => b.textContent)).toEqual(['START']);
+    });
+
+    it('is left out of an isolated render with no onRules', () => {
+      renderTitle();
+      expect(rulesBtn()).toBeNull();
+    });
+  });
 });
 
 describe('player color palettes', () => {

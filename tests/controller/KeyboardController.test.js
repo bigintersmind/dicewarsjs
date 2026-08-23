@@ -286,6 +286,41 @@ describe('KeyboardController', () => {
 
   /*
    * -----------------------------------------------------------------------
+   * Rules card
+   * -----------------------------------------------------------------------
+   * Same contract as the quit confirm: a modal over the board takes every key,
+   * and Escape passes through untouched for the card's own handler to close it.
+   */
+
+  describe('how to play card', () => {
+    beforeEach(() => {
+      store.setState({ rulesOpen: true });
+    });
+
+    it('suspends board navigation while the card is open', () => {
+      fireKey('ArrowRight');
+      expect(store.getState().focusedAreaId).toBeNull();
+
+      store.setState({ focusedAreaId: 1 });
+      fireKey('Enter');
+      expect(mockController.handleTerritoryClick).not.toHaveBeenCalled();
+
+      fireKey('Tab');
+      expect(store.getState().focusedAreaId).toBe(1);
+    });
+
+    it('leaves Escape alone so the card can close itself', () => {
+      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+
+      const event = fireKey('Escape');
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
    * Tab cycling
    * -----------------------------------------------------------------------
    */

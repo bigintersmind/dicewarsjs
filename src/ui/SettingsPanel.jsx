@@ -306,6 +306,12 @@ export function SettingsPanel({ store, preferencesManager }) {
     function handleKey(e) {
       if (e.key !== 'Escape') return;
       /*
+       * Somebody ahead of this handler already answered the key — the rules
+       * card, whose capture-phase listener runs before every listener here —
+       * so this dropdown must not act on the same press as well.
+       */
+      if (e.defaultPrevented) return;
+      /*
        * The dropdown owns Escape while it is open: stop the event here so a
        * screen-level Escape handler further up the bubble path (MapPreview's
        * back-to-title, #180) does not also fire on the same keypress.

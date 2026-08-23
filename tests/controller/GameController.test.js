@@ -1012,6 +1012,49 @@ describe('GameController', () => {
       expect(store.getState().awaitingInput).toBe('selectTo');
     });
 
+    /*
+     * The rules card is the quit confirm's screen-independent sibling: it opens
+     * anywhere (there is a way in from the title, the board and the game-over
+     * screen), it takes board input while it is up, and — unlike the confirm —
+     * a game ending underneath it leaves it exactly where the player left it.
+     */
+    it('opens and closes the rules card from any screen', async () => {
+      controller.openRules();
+      expect(store.getState().rulesOpen).toBe(true); // on the title, unlike the confirm
+
+      controller.closeRules();
+      expect(store.getState().rulesOpen).toBe(false);
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+
+      controller.openRules();
+      expect(store.getState().rulesOpen).toBe(true);
+      // Reading the rules changes nothing about the game underneath.
+      expect(store.getState().screen).toBe('playing');
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+    });
+
+    it('ignores board clicks while the rules card is open', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      // Arm the attack first, so a click that slips through would really attack.
+      controller.handleTerritoryClick(1);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      controller.openRules();
+
+      controller.handleTerritoryClick(2); // area 2 is an enemy neighbour of 1
+
+      expect(applyAction).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'ATTACK' })
+      );
+      // The half-made attack is untouched: closing the card resumes it.
+      expect(store.getState().selectedFrom).toBe(1);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+    });
+
     it('cancels the pending next-turn timer so the title screen stays put', async () => {
       await controller.startNewGame({ playerCount: 2, spectator: false });
       controller.acceptMap();
@@ -1050,6 +1093,60 @@ describe('GameController', () => {
       expect(store.getState().screen).toBe('gameOver');
       // Otherwise a later Spectate (back to 'playing') would resurrect a stale dialog.
       expect(store.getState().quitConfirmOpen).toBe(false);
+    });
+
+    it('keeps the rules card up when the game ends underneath it', async () => {
+      // The opposite call to the confirm above: the card is not about this game,
+      // App mounts it outside the screen switch, and a player reading it when an
+      // AI wins should not have it yanked away mid-sentence.
+      const finishBattle = await startAIBattle({ attackEndsGame: true });
+      controller.openRules();
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('gameOver');
+      expect(store.getState().rulesOpen).toBe(true);
+    });
+
+    /*
+     * The other side of that call. The card surviving a screen change is the
+     * point, but `rulesOpen` gates every click and every keypress, so a card
+     * left flagged open by something the player cannot see (a render that threw
+     * inside the ErrorBoundary) would lock the game solid. Every seam that
+     * starts or abandons a game therefore clears it — including the way out a
+     * stuck player would reach for.
+     */
+    it('drops the card at the seams that start or abandon a game', async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      controller.openRules();
+
+      controller.goToTitle();
+
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().rulesOpen).toBe(false);
+
+      // And a new game never inherits one, however it got set.
+      store.setState({ rulesOpen: true });
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(store.getState().screen).toBe('mapPreview');
+      expect(store.getState().rulesOpen).toBe(false);
+    });
+
+    it('a failed game start takes the card with it', async () => {
+      const { createGame } = await import('../../src/engine/index.js');
+      store.setState({ rulesOpen: true });
+      override(createGame, () => {
+        throw new Error('map generation blew up');
+      });
+
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+
+      expect(store.getState().screen).toBe('title');
+      expect(store.getState().rulesOpen).toBe(false);
     });
 
     it('abandoning mid-AI-turn drops the rest of the attack and the loop', async () => {

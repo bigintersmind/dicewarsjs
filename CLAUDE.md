@@ -132,7 +132,7 @@ DiceWarsJS is a turn-based strategy game where players compete to conquer territ
 
 - **Renderer** (src/renderer/): PixiJS rendering layer — `GameRenderer` (top-level), `HexGridRenderer` (territory drawing with border tracing), `DiceRenderer` (isometric stacked dice), `BattleAnimation` (physics-based dice rolling).
 
-- **UI** (src/ui/): Preact components — `App` (screen router), `TitleScreen`, `MapPreview`, `GameHUD`, `GameOverlay`, `GameOverScreen`. Uses `useGameStore` hook for reactive updates.
+- **UI** (src/ui/): Preact components — `App` (screen router), `TitleScreen`, `MapPreview`, `GameHUD`, `GameOverlay`, `GameOverScreen`, `RulesModal` (the "How to play" card: mounted globally outside the screen switch, driven by the `rulesOpen` store flag, reachable from the title screen / in-game bar / game-over screen, and its capture-phase Escape closes it before QuitConfirm sees the key). Uses `useGameStore` hook for reactive updates.
 
 - **SoundManager** (src/audio/SoundManager.js): Web Audio API sound system replacing legacy CreateJS SoundJS. Lazy AudioContext creation, on-demand loading, volume control.
 

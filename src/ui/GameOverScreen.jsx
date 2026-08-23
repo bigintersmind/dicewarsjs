@@ -2,7 +2,7 @@
  * Game Over Screen
  *
  * Overlay showing the winner with a BATTLE button (back to the landing
- * screen) plus, when available, HISTORY and SPECTATE.
+ * screen) plus, when available, HISTORY, SPECTATE and HOW TO PLAY.
  *
  * @module ui/GameOverScreen
  */
@@ -10,6 +10,19 @@
 import { useGameStore } from './hooks/useGameStore.js';
 import { playerName } from '../store/GameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
+
+/** The screen's one button shape; `mutedBtn` is the same outline, quieter ink. */
+const BTN = {
+  fontFamily: 'Anton, sans-serif',
+  fontSize: '1.3rem',
+  padding: '0.6rem 2rem',
+  background: 'transparent',
+  border: '2px solid var(--ui-accent)',
+  color: 'var(--ui-accent)',
+  cursor: 'pointer',
+  borderRadius: '6px',
+  letterSpacing: '0.05em',
+};
 
 const STYLE = {
   overlay: {
@@ -44,16 +57,14 @@ const STYLE = {
     flexWrap: 'wrap',
     justifyContent: 'center',
   },
-  btn: {
-    fontFamily: 'Anton, sans-serif',
-    fontSize: '1.3rem',
-    padding: '0.6rem 2rem',
-    background: 'transparent',
-    border: '2px solid var(--ui-accent)',
-    color: 'var(--ui-accent)',
-    cursor: 'pointer',
-    borderRadius: '6px',
-    letterSpacing: '0.05em',
+  btn: BTN,
+  /** A reference sitting beside the real actions, so: smaller and greyed. */
+  mutedBtn: {
+    ...BTN,
+    fontSize: '1.05rem',
+    padding: '0.55rem 1.4rem',
+    border: '2px solid var(--ui-border)',
+    color: 'var(--ui-text-muted)',
   },
 };
 
@@ -63,8 +74,10 @@ const STYLE = {
  * @param {() => void} props.onTitle
  * @param {() => void} [props.onHistory]
  * @param {() => void} [props.onSpectate]
+ * @param {() => void} [props.onRules] - Opens the "How to play" reference: the
+ *   end of a game you lost is when a rule you missed is worth looking up.
  */
-export function GameOverScreen({ store, onTitle, onHistory, onSpectate }) {
+export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules }) {
   const gameState = useGameStore(store, s => s.gameState);
   const prefs = useGameStore(store, s => s.preferences);
   const humanPlayerIndex = useGameStore(store, s => s.humanPlayerIndex);
@@ -117,6 +130,18 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate }) {
         {onSpectate && humanEliminated && (
           <button style={STYLE.btn} onClick={onSpectate}>
             SPECTATE
+          </button>
+        )}
+        {/* Muted, unlike its neighbours: BATTLE is what you came here to press,
+            and this is a reference rather than a way on. */}
+        {onRules && (
+          <button
+            type="button"
+            style={STYLE.mutedBtn}
+            onClick={onRules}
+            aria-label="How to play — the rules in one card"
+          >
+            HOW TO PLAY
           </button>
         )}
       </div>

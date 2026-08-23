@@ -1,6 +1,6 @@
 # Dependencies
-# No trailing slash: `node_modules/` matches real directories only, which would
-# leave the node_modules symlink in a worktree (see .claude/hooks/) untracked-but-visible.
+node_modules/
+# `node_modules/` matches directories only; the bare form also ignores a symlink of that name.
 node_modules
 npm-debug.log*
 yarn-debug.log*

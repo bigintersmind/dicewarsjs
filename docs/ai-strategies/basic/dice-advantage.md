@@ -1,10 +1,10 @@
-# Dice Advantage Analysis
+# Dice advantage analysis
 
-One of the most fundamental strategies in DiceWars is to attack only when you have a numerical dice advantage over your opponent.
+The most basic filter in DiceWars: attack only when you have more dice than your opponent.
 
-## Core Concept
+## Core concept
 
-The basic principle is simple: only initiate attacks where your territory has more dice than the target territory. This increases your probability of winning the battle.
+Only initiate attacks where your territory has more dice than the target territory. Since all dice on both sides are rolled and ties go to the defender, attacking without an advantage loses more often than not.
 
 ## Implementation
 
@@ -13,7 +13,7 @@ The basic principle is simple: only initiate attacks where your territory has mo
 if (defending_area.dice >= attacking_area.dice) continue;
 ```
 
-## Probability Analysis
+## Probability analysis
 
 The probability of winning a battle depends on the difference in dice:
 
@@ -61,14 +61,14 @@ for (let i = 1; i < game.AREA_MAX; i++) {
 }
 ```
 
-## Enhancements
+## Refinements
 
-While basic dice advantage is a good starting point, consider these enhancements:
+Once the basic filter works, consider:
 
-1. **Weighted advantage** - Prefer attacks with greater dice differences
-2. **Equal dice consideration** - Sometimes attacking with equal dice can be strategic
-3. **Maximum dice utilization** - Prioritize using territories with 8 dice (the maximum)
+1. **Weighted advantage** - Prefer attacks with greater dice differences, since the win probability climbs with the gap
+2. **Equal-dice attacks** - Occasionally worth it despite the sub-50% odds, for example to break a stalemate or hit the leading player
+3. **Attack from 8-dice stacks first** - A territory at the 8-dice cap can't grow any further, so dice parked there are wasted potential
 
-## When to Use
+## When to use
 
-This strategy should be a foundational element of any AI implementation, but it's rarely sufficient on its own. Combine it with other strategies for more sophisticated behavior.
+Almost every bot needs this filter, but on its own it is a weak player. Combine it with the other strategies in this guide.

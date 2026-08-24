@@ -1,10 +1,10 @@
-# AI Developer Guide
+# AI developer guide
 
-This guide provides information on how to create custom AI implementations for the DiceWarsJS platform. It's designed to help developers understand the AI interface, game mechanics, and best practices for creating competitive AI strategies.
+This guide explains how to write a custom AI for DiceWarsJS: the AI interface, the game state your function receives, and patterns for building a competitive strategy.
 
-## Getting Started
+## Getting started
 
-### Basic Structure
+### Basic structure
 
 Each AI implementation must export a single function with the following signature:
 
@@ -30,31 +30,31 @@ The function should:
 
 Look at the existing AI implementations to understand different approaches:
 
-- **ai_example.js** - Simple random AI (good starting point)
-- **ai_default.js** - Balanced strategy with basic territory evaluation
-- **ai_defensive.js** - Focuses on defensive play and territory consolidation
-- **ai_adaptive.js** - Adjusts strategy based on game phase and position
+- **ai_example.js**: simple random AI (good starting point)
+- **ai_default.js**: balanced strategy with basic territory evaluation
+- **ai_defensive.js**: focuses on defensive play and territory consolidation
+- **ai_adaptive.js**: adjusts strategy based on game phase and position
 
-## Game State
+## Game state
 
 The `game` object passed to your AI function provides access to the game state:
 
-### Key Properties
+### Key properties
 
-- `game.adat` - Array of territory objects
-- `game.player` - Array of player objects
-- `game.get_pn()` - Get current player number
-- `game.jun` - Array of player order
-- `game.ban` - Current index in the player order
+- `game.adat`: array of territory objects
+- `game.player`: array of player objects
+- `game.get_pn()`: get current player number
+- `game.jun`: array of player order
+- `game.ban`: current index in the player order
 
-### Territory Information
+### Territory information
 
 Each territory (`game.adat[i]`) has these properties:
 
-- `size` - Number of cells in the territory
-- `arm` - Player ID who owns this territory (0-7)
-- `dice` - Number of dice in this territory
-- `join` - Array indicating adjacency to other territories
+- `size`: number of cells in the territory
+- `arm`: player ID who owns this territory (0-7)
+- `dice`: number of dice in this territory
+- `join`: array indicating adjacency to other territories
 
 Example of accessing territory information:
 
@@ -74,11 +74,11 @@ function ai_custom(game) {
 }
 ```
 
-## Making Decisions
+## Making decisions
 
 Your AI should return an action or end its turn.
 
-### Attack Action
+### Attack action
 
 To attack another territory, return an action object:
 
@@ -89,7 +89,7 @@ return {
 };
 ```
 
-### End Turn
+### End turn
 
 To end the turn without further actions, return 0:
 
@@ -97,11 +97,11 @@ To end the turn without further actions, return 0:
 return 0;
 ```
 
-## Strategy Considerations
+## Strategy considerations
 
 When designing your AI, consider these elements:
 
-### 1. Territory Evaluation
+### 1. Territory evaluation
 
 Territories have different strategic values based on:
 
@@ -110,7 +110,7 @@ Territories have different strategic values based on:
 - Border with enemy territories
 - Connection to other friendly territories
 
-### 2. Attack Evaluation
+### 2. Attack evaluation
 
 Consider these factors when choosing attacks:
 
@@ -119,15 +119,15 @@ Consider these factors when choosing attacks:
 - Risk of counter-attack
 - Effect on territorial integrity
 
-### 3. Game Phases
+### 3. Game phases
 
 The game typically has distinct phases that require different strategies:
 
-- **Early Game**: Expand and establish position
-- **Mid Game**: Consolidate territories and target weak opponents
-- **Late Game**: Target leading players and secure strong positions
+- **Early game**: expand and establish position
+- **Mid game**: consolidate territories and target weak opponents
+- **Late game**: target leading players and secure strong positions
 
-### 4. Player Analysis
+### 4. Player analysis
 
 Analyze other players to inform your strategy:
 
@@ -135,9 +135,9 @@ Analyze other players to inform your strategy:
 - Detect player positions (who borders whom)
 - Observe player behavior patterns
 
-## Recommended Patterns
+## Recommended patterns
 
-### State Analysis
+### State analysis
 
 Analyze the game state efficiently:
 
@@ -162,7 +162,7 @@ for (let i = 1; i < game.adat.length; i++) {
 }
 ```
 
-### Prioritizing Attacks
+### Prioritizing attacks
 
 Evaluate and rank possible attacks:
 
@@ -211,14 +211,14 @@ if (possibleAttacks.length > 0) {
 return 0; // End turn if no good attacks
 ```
 
-## Performance Considerations
+## Performance considerations
 
 - Your AI has limited time to make decisions
 - Optimize expensive calculations
 - Consider caching results where appropriate
 - Focus computation on promising moves
 
-## Testing and Debugging
+## Testing and debugging
 
 To test your AI:
 
@@ -243,7 +243,7 @@ To test your AI:
    ```
 4. Run games against existing AIs to test performance
 
-## Submission Guidelines
+## Submission guidelines
 
 When the AI Championship Platform is ready, you'll be able to submit your AI through a web interface. For now:
 
@@ -260,7 +260,7 @@ When the AI Championship Platform is ready, you'll be able to submit your AI thr
 - AI integration in `src/engine/AIAdapter.js`
 - Test framework for AI performance testing in `tests/ai/`
 
-## Future Enhancements
+## Future work
 
 As the AI Championship Platform develops, we'll add:
 
@@ -269,5 +269,3 @@ As the AI Championship Platform develops, we'll add:
 - ELO rating system
 - Tournament infrastructure
 - Replay analysis tools
-
-Happy coding, and may the most strategic AI win!

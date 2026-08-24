@@ -132,7 +132,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
   } else if (gameOverReason === 'turnLimit') {
     // No conquest before the turn cap — a stalemate (typically AI-vs-AI) ended as a draw.
     // Fires for any winnerless game that hits the cap, including a human still alive at 300.
-    subtitle = 'Draw — turn limit reached';
+    subtitle = 'Draw: turn limit reached';
   }
 
   return (
@@ -166,7 +166,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
             type="button"
             style={STYLE.mutedBtn}
             onClick={onRules}
-            aria-label="How to play — the rules in one card"
+            aria-label="How to play: the rules in one card"
           >
             HOW TO PLAY
           </button>

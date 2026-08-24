@@ -111,7 +111,7 @@ describe('GameOverScreen', () => {
    */
   describe('how to play button', () => {
     const rulesBtn = () =>
-      container.querySelector('button[aria-label="How to play \u2014 the rules in one card"]');
+      container.querySelector('button[aria-label="How to play: the rules in one card"]');
 
     it('reports its clicks without leaving the screen', () => {
       const onRules = vi.fn();

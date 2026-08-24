@@ -224,7 +224,7 @@ describe('MapPreview', () => {
 
   it('surfaces aiLoadWarnings as an alert banner so the fallback is not silent', () => {
     const message =
-      'Player 2: community bot "broken/bot" could not load — using Default AI instead.';
+      'Player 2: community bot "broken/bot" could not load. Using Default AI instead.';
     renderPreview({ aiLoadWarnings: [message] });
 
     const alert = container.querySelector('[role="alert"]');

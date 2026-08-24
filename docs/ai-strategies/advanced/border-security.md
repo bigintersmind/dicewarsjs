@@ -1,17 +1,17 @@
-# Border Security Strategy
+# Border security strategy
 
-The border security strategy focuses on protecting vulnerable territories at the edges of your domain while selectively attacking to improve your defensive position.
+Protect the territories at the edge of your domain, and attack only where it improves your defensive position.
 
-## Core Concept
+## Core concept
 
-The borders of your territory are your first line of defense. This strategy prioritizes:
+Every territory that touches an enemy is a border, and borders are where you lose games. This strategy prioritizes:
 
 1. Identifying vulnerable border territories
 2. Avoiding attacks that would create new vulnerabilities
-3. Targeting enemy territories that pose threats to your borders
+3. Targeting the enemy territories that threaten your borders
 4. Strengthening border territories with reinforcements
 
-## Implementation Approach
+## Implementation approach
 
 Border security begins with identifying which territories are on the border:
 
@@ -33,7 +33,7 @@ function isBorderTerritory(game, territory_id) {
 
 ## Example from ai_defensive.js
 
-The defensive AI implements several border security strategies:
+The defensive AI applies several border checks before committing to an attack:
 
 ```javascript
 // Skip if attacker doesn't have advantage (unless at max dice)
@@ -48,9 +48,9 @@ if (game.player[pn].area_tc > 4
     && game.player[pn].stock == 0) continue;
 ```
 
-## Border Security Tactics
+## Border security tactics
 
-### 1. Threat Assessment
+### 1. Threat assessment
 
 Evaluate the threat level of border territories:
 
@@ -76,9 +76,9 @@ function assessBorderThreat(game, territory_id, area_info) {
 }
 ```
 
-### 2. Safe Attack Identification
+### 2. Safe attack identification
 
-Identify attacks that won't compromise border security:
+Identify attacks that won't weaken your border:
 
 ```javascript
 // Prioritize attacks from territories with only one enemy neighbor
@@ -94,7 +94,7 @@ if (area_info[game.area_from].unfriendly_neighbors == 1) {
 }
 ```
 
-### 3. Border Reinforcement Prioritization
+### 3. Border reinforcement prioritization
 
 ```javascript
 function prioritizeBorderReinforcements(game, area_info) {
@@ -138,9 +138,9 @@ function prioritizeBorderReinforcements(game, area_info) {
 }
 ```
 
-### 4. Border Expansion Planning
+### 4. Border expansion planning
 
-Identify strategic enemy territories to capture that would improve border security:
+Identify enemy territories whose capture would shorten or strengthen your border:
 
 ```javascript
 function findBorderImprovingAttacks(game, area_info) {
@@ -214,20 +214,18 @@ function findBorderImprovingAttacks(game, area_info) {
 }
 ```
 
-## When to Use
-
-The border security strategy is particularly effective:
+## When to use
 
 1. In the middle and late stages of the game
-2. When you have a significant territory to protect
+2. When you have strategic territory to protect
 3. When facing multiple opponents
-4. When you want to play defensively but still make strategic attacks
+4. When you want to play defensively without giving up attacking entirely
 
-## Combining with Other Strategies
+## Combining with other strategies
 
 Border security pairs well with:
 
-1. **Neighbor analysis** - Provides the data needed for border threat assessment
-2. **Territory connections** - Reinforces the importance of connected territories
-3. **Reinforcement optimization** - Ensures reinforcements go to critical border areas
-4. **Choke point control** - Identifies critical territories that control access to your domain
+1. **Neighbor analysis** - Provides the data for border threat assessment
+2. **Territory connections** - Border losses are often what splits a connected group
+3. **Reinforcement optimization** - Sends reinforcements to the borders that need them
+4. **Choke point control** - Identifies the territories that control access to your domain

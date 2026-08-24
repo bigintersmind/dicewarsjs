@@ -1,8 +1,8 @@
-# AI Structure
+# AI structure
 
-This guide covers how to structure your AI code effectively for DiceWars. A well-structured AI is easier to debug, extend, and optimize.
+How to organize your AI code for DiceWars. A well-structured bot is easier to debug, extend, and tune.
 
-## Basic AI Function
+## Basic AI function
 
 Every DiceWars AI is implemented as a single function that receives the game state and makes decisions:
 
@@ -15,9 +15,9 @@ function ai_your_name(game) {
 }
 ```
 
-## Modular Structure
+## Modular structure
 
-For more complex AI, a modular structure improves organization:
+For a more complex bot, split the turn into phases:
 
 ```javascript
 function ai_your_name(game) {
@@ -45,9 +45,9 @@ function ai_your_name(game) {
 }
 ```
 
-## Helper Functions
+## Helper functions
 
-### Game State Analysis
+### Game state analysis
 
 ```javascript
 function analyzeGameState(game, currentPlayer) {
@@ -76,7 +76,7 @@ function identifyTerritoryGroups(game, player) {
 }
 ```
 
-### Strategy Determination
+### Strategy determination
 
 ```javascript
 function determineStrategy(gameState, currentPlayer) {
@@ -99,7 +99,7 @@ function determineTargetPriorities(gameState, player) {
 }
 ```
 
-### Move Generation
+### Move generation
 
 ```javascript
 function generateMoves(game, strategy, currentPlayer) {
@@ -137,7 +137,7 @@ function evaluateMove(game, from, to, strategy) {
 }
 ```
 
-### Move Selection
+### Move selection
 
 ```javascript
 function selectBestMove(moves, strategy) {
@@ -158,9 +158,9 @@ function selectBestMove(moves, strategy) {
 }
 ```
 
-## Reusable Utility Functions
+## Reusable utility functions
 
-These functions handle common tasks and can be shared between different AI strategies:
+These handle common tasks and can be shared between different AI strategies:
 
 ```javascript
 // Calculate neighbor information for a territory
@@ -218,9 +218,9 @@ function calculateBorderPressure(game, territoryId) {
 }
 ```
 
-## Configuration and Constants
+## Configuration and constants
 
-For tunable AI parameters, consider using a configuration object:
+Put tunable parameters in one configuration object, so tuning means editing one place:
 
 ```javascript
 const AI_CONFIG = {
@@ -242,9 +242,9 @@ const AI_CONFIG = {
 };
 ```
 
-## Debugging Tools
+## Debugging tools
 
-Including debugging functions can help during development:
+A dump-all-moves helper pays for itself during development:
 
 ```javascript
 function debugEvaluateAllMoves(game, currentPlayer) {
@@ -288,11 +288,11 @@ function debugEvaluateAllMoves(game, currentPlayer) {
 }
 ```
 
-## Code Organization Patterns
+## Code organization patterns
 
-### 1. Namespace Pattern
+### 1. Namespace pattern
 
-For more complex AI with many helper functions:
+For a bot with many helper functions:
 
 ```javascript
 // Namespace pattern
@@ -358,9 +358,9 @@ function ai_your_name(game) {
 }
 ```
 
-### 2. Class-Based Pattern
+### 2. Class-based pattern
 
-For a more structured, object-oriented approach:
+For an object-oriented approach:
 
 ```javascript
 class DiceWarsAI {
@@ -416,15 +416,13 @@ function ai_your_name(game) {
 }
 ```
 
-## Best Practices
+## Best practices
 
-1. **Keep the main function clean** - Delegate to helper functions for specific tasks
-2. **Use descriptive naming** - Make your code self-documenting
-3. **Comment complex logic** - Especially probability calculations and strategic decisions
-4. **Keep pure functions pure** - Don't modify the game state in analysis functions
-5. **Create reusable utility functions** - Avoid duplicating code for common operations
-6. **Use consistent parameter ordering** - E.g., always (game, territoryId, player) not sometimes (player, game, territoryId)
-7. **Avoid deep nesting** - Use early returns and helper functions to reduce complexity
-8. **Structure for testability** - Make it easy to test individual components of your AI
-9. **Use constants for magic numbers** - Don't hardcode values like 0.4 or 5 directly
-10. **Document dependencies** - Make it clear which game state properties your AI uses
+1. **Keep the main function clean** - Delegate specifics to helper functions
+2. **Comment the tricky parts** - Especially probability calculations and strategic weights
+3. **Keep pure functions pure** - Don't modify the game state in analysis functions
+4. **Use consistent parameter ordering** - Always `(game, territoryId, player)`, never sometimes `(player, game, territoryId)`
+5. **Avoid deep nesting** - Use early returns (the `continue`-based filters in the examples are this pattern)
+6. **Structure for testability** - Each phase (analysis, strategy, generation, selection) should be callable on its own
+7. **Name your magic numbers** - A constant like `MIN_DICE_ADVANTAGE` is tunable; a bare `0.4` buried in a formula is not
+8. **Document dependencies** - Note which game-state properties your AI reads, so engine changes are easy to audit

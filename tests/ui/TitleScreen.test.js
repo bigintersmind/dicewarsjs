@@ -881,7 +881,7 @@ describe('TitleScreen', () => {
    */
   describe('how to play link', () => {
     const rulesBtn = () =>
-      container.querySelector('button[aria-label="How to play \u2014 the rules in one card"]');
+      container.querySelector('button[aria-label="How to play: the rules in one card"]');
 
     it('reports its clicks and starts nothing', () => {
       const onRules = vi.fn();

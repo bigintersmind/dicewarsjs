@@ -1,10 +1,10 @@
-# Random Selection Strategy
+# Random selection strategy
 
-The random selection strategy is a simple approach where the AI selects randomly from all valid moves. While basic, it adds unpredictability and can be effective as part of a larger strategy.
+Pick a move at random from the valid options. It sounds like a non-strategy, but it is the backbone of `ai_default` and a useful ingredient in stronger bots.
 
-## Core Concept
+## Core concept
 
-After identifying all valid moves (typically attacks with a dice advantage), randomly select one rather than trying to determine the "best" move. This introduces unpredictability to your AI.
+After identifying all valid moves (typically attacks with a dice advantage), randomly select one rather than trying to determine the "best" move.
 
 ## Implementation
 
@@ -36,35 +36,24 @@ game.area_from = list_from[n];
 game.area_to = list_to[n];
 ```
 
-## Advantages
+## Trade-offs
 
-1. **Simplicity** - Easy to implement with minimal computational overhead
-2. **Unpredictability** - Makes your AI's behavior less predictable
-3. **Coverage** - Over time, all possible moves will be considered
+Random selection is cheap to run and hard for opponents to read. The cost is that it happily picks a strategically bad move when a better one exists, never adapts to the board or the opponents, and swings wildly from game to game.
 
-## Disadvantages
+## Variations
 
-1. **Sub-optimal** - May select strategically poor moves when better options exist
-2. **No learning** - Doesn't adapt to the game state or opponent behavior
-3. **Inconsistent** - May perform very differently from game to game
+Uniform probability is only the starting point:
 
-## Enhancements
+1. **Weighted selection** - Give higher-value moves a higher probability of being picked
+2. **Bounded randomness** - Filter down to "good enough" moves first, then pick randomly within that subset
 
-While basic random selection uses uniform probability, consider these variations:
+## When to use
 
-1. **Weighted randomization** - Assign higher probabilities to moves with greater strategic value
-2. **Biased randomization** - Incorporate a bias toward certain types of moves (e.g., consolidating territory)
-3. **Bounded randomness** - First filter for "good enough" moves, then randomly select from that subset
+1. As a fallback when your evaluation function can't separate the top moves
+2. In the early game, before the board has taken shape
+3. To make an otherwise deterministic bot less predictable
 
-## When to Use
-
-Random selection works well in these scenarios:
-
-1. As a fallback when more complex strategic evaluation is inconclusive
-2. In the early game when the board state is still developing
-3. When you want to add unpredictability to an otherwise deterministic AI
-
-## Example Hybrid Approach
+## Example hybrid approach
 
 ```javascript
 // First, identify all moves with at least a 2-dice advantage

@@ -69,7 +69,7 @@ function renderApp(overrides = {}) {
 
 const dialog = () => container.querySelector('[role="dialog"]');
 const byLabel = label => container.querySelector(`button[aria-label="${label}"]`);
-const rulesEntry = () => byLabel('How to play — the rules in one card');
+const rulesEntry = () => byLabel('How to play: the rules in one card');
 
 function pressEscape() {
   const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
@@ -93,7 +93,7 @@ describe('App "How to play" wiring', () => {
   it('opens the card from the in-game HUD', () => {
     const { controller } = renderApp({ screen: 'playing' });
 
-    act(() => byLabel('Rules — how to play').click());
+    act(() => byLabel('Rules: how to play').click());
 
     expect(controller.openRules).toHaveBeenCalledTimes(1);
     expect(dialog()).toBeTruthy();

@@ -47,7 +47,7 @@ export function resolveMapSize(size) {
      * Guarded by `import.meta.env?.DEV` so production builds stay silent and the
      * `?.` keeps it safe under plain Node (arena/CLI), where env is undefined.
      */
-    console.warn(`resolveMapSize: unknown map size "${size}" — falling back to "${DEFAULT_MAP_SIZE}".`);
+    console.warn(`resolveMapSize: unknown map size "${size}", falling back to "${DEFAULT_MAP_SIZE}".`);
   }
   return preset ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
 }
@@ -72,16 +72,16 @@ export function resolveMapSize(size) {
  * `config.luck` comment all spell the rungs out in prose.
  */
 export const LUCK_LEVELS = [
-  { id: 0, name: 'Normal', blurb: 'Fair dice — everyone rolls the same.' },
+  { id: 0, name: 'Normal', blurb: 'Fair dice. Everyone rolls the same.' },
   {
     id: 1,
     name: 'Lucky',
-    blurb: 'You roll one extra die and drop the lowest — attacking and defending.',
+    blurb: 'You roll one extra die and drop the lowest, attacking and defending.',
   },
   {
     id: 2,
     name: 'Very lucky',
-    blurb: 'You roll two extra dice and drop the two lowest — attacking and defending.',
+    blurb: 'You roll two extra dice and drop the two lowest, attacking and defending.',
   },
 ];
 

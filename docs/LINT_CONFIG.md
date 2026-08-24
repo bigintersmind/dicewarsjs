@@ -1,10 +1,10 @@
-# Lint & Style Configuration Guide
+# Lint and style configuration
 
 ## Overview
 
-This document explains the linting and style configuration for the DiceWarsJS project, including the approach to handling warnings and errors.
+This document explains the linting and style configuration for DiceWarsJS, including how warnings and errors are handled.
 
-## ESLint Configuration
+## ESLint configuration
 
 The project uses ESLint with the following configuration:
 
@@ -12,26 +12,25 @@ The project uses ESLint with the following configuration:
 - Additional plugins: `import`, `jest`, `prettier`
 - ECMAScript version: 2022 (to support private class fields with # syntax)
 
-### Warnings vs. Errors
+### Warnings vs. errors
 
-Our linting approach:
+**Errors** must be fixed for CI to pass:
 
-1. **Errors** - Must be fixed for CI to pass
+- Syntax errors
+- Import ordering issues
+- Loops with await statements
+- Empty block statements
+- Functions declared in loops
 
-   - Syntax errors
-   - Import ordering issues
-   - Loops with await statements
-   - Empty block statements
-   - Functions declared in loops
+**Warnings** are allowed but discouraged:
 
-2. **Warnings** - Allowed but discouraged
-   - Unused variables
-   - Shadowed variables
-   - Constant conditions in loops
+- Unused variables
+- Shadowed variables
+- Constant conditions in loops
 
-We've set a maximum warning threshold (100) to prevent accumulation while allowing for ongoing development.
+The warning cap is 100, so warnings can't pile up indefinitely while work continues.
 
-## CI Process
+## CI process
 
 The CI workflow:
 
@@ -46,12 +45,12 @@ Pre-commit hooks run the same lint and style checks locally.
 
 When working on the project:
 
-1. Use `npm run lint:fix` to automatically fix most issues
-2. Pay special attention to actual errors (not just warnings)
-3. Consider improving code that generates warnings when possible
+1. Use `npm run lint:fix` to fix most issues automatically
+2. Pay special attention to actual errors, not just warnings
+3. Clean up warning-producing code when you touch it
 4. Run `npm run format` to apply Prettier style rules
 
-## Future Improvements
+## Future improvements
 
 Over time, aim to:
 

@@ -208,7 +208,7 @@ export function OnlineLeaderboardScreen({ onViewReplay }) {
               {data.replays.map(r => (
                 <li key={r.file} style={STYLE.replayItem}>
                   <span>
-                    {r.bots.join(' vs ')} &mdash; {r.turns} turns
+                    {r.bots.join(' vs ')} &middot; {r.turns} turns
                     {r.winner && ` (${r.winner} wins)`}
                   </span>
                   <button

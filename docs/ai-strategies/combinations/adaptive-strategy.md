@@ -1,12 +1,12 @@
-# Adaptive Strategy
+# Adaptive strategy
 
-The adaptive strategy dynamically adjusts its behavior based on game state analysis, providing a more responsive and intelligent AI that can handle changing game conditions.
+An adaptive strategy changes its behavior based on the game state instead of playing the same way every turn.
 
-## Core Concept
+## Core concept
 
-Unlike static strategies, an adaptive strategy continuously evaluates the game state and adjusts its priorities. This allows it to be aggressive when advantageous, defensive when threatened, and opportunistic when possible.
+Re-evaluate the game state each turn and adjust priorities: aggressive when ahead, defensive when threatened, opportunistic when an opening appears.
 
-## Implementation Framework
+## Implementation framework
 
 ```javascript
 function ai_adaptive(game) {
@@ -32,9 +32,9 @@ function ai_adaptive(game) {
 }
 ```
 
-## Game State Analysis
+## Game state analysis
 
-The foundation of adaptive strategy is thorough game state analysis:
+Everything downstream depends on an accurate read of the board:
 
 ```javascript
 function analyzeGameState(game) {
@@ -120,9 +120,9 @@ function analyzeGameState(game) {
 }
 ```
 
-## Strategy Determination
+## Strategy determination
 
-Based on the game state analysis, determine the most appropriate strategy:
+From the game state analysis, choose a strategy:
 
 ```javascript
 function determineStrategy(game, gameState, pn) {
@@ -219,7 +219,7 @@ function determineStrategy(game, gameState, pn) {
 }
 ```
 
-## Move Generation and Selection
+## Move generation and selection
 
 Generate possible moves based on the current strategy:
 
@@ -383,11 +383,11 @@ function selectBestMove(moves, strategy) {
 }
 ```
 
-## Adaptation Examples
+## Adaptation examples
 
-### 1. Adapting to Player Behavior
+### 1. Adapting to player behavior
 
-If you can track the outcome of previous engagements with specific players, you can adapt your strategy:
+If you track the outcome of previous engagements with specific players, you can adjust accordingly:
 
 ```javascript
 function adaptToPlayerBehavior(strategy, playerHistory) {
@@ -413,7 +413,7 @@ function adaptToPlayerBehavior(strategy, playerHistory) {
 }
 ```
 
-### 2. Adapting to Map Topology
+### 2. Adapting to map topology
 
 ```javascript
 function adaptToMapTopology(strategy, topology) {
@@ -439,7 +439,7 @@ function adaptToMapTopology(strategy, topology) {
 }
 ```
 
-### 3. Adapting to Dice Distribution
+### 3. Adapting to dice distribution
 
 ```javascript
 function adaptToDiceDistribution(strategy, diceStats) {
@@ -466,25 +466,12 @@ function adaptToDiceDistribution(strategy, diceStats) {
 }
 ```
 
-## When to Use
+## When to use
 
-The adaptive strategy is most effective:
+1. When a static strategy would underperform as conditions shift
+2. Against multiple opponents with different play styles
+3. In longer games where the board changes character between opening and endgame
 
-1. In games with varying conditions where a static strategy would underperform
-2. When facing multiple opponents with different play styles
-3. In longer games where the game state evolves significantly
-4. When you want sophisticated, human-like behavior
+## Trade-offs
 
-## Advantages
-
-1. **Responsiveness** - Adjusts to changing game conditions
-2. **Versatility** - Can handle various map layouts and opponent behaviors
-3. **Unpredictability** - More difficult for opponents to counter
-4. **Efficiency** - Focuses resources on the most promising strategies for the current situation
-
-## Considerations
-
-1. **Complexity** - More complex to implement than static strategies
-2. **Computational cost** - Requires more analysis of the game state
-3. **Tuning requirements** - Needs careful balancing of adaptation parameters
-4. **Over-adaptation risk** - Can become too reactive to short-term changes
+An adaptive bot adjusts to whatever the game throws at it and is harder to counter than a bot with one fixed plan. In exchange, it costs more to build and to run: there are more parameters to balance, the game-state analysis runs every turn, and a badly tuned bot can over-react, flip-flopping between postures on short-term noise.

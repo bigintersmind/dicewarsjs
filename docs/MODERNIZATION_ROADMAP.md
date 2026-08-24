@@ -1,69 +1,69 @@
 # DiceWarsJS Modernization Roadmap
 
 > **Last Updated:** June 2026
-> **Status:** Modernization complete — the legacy CreateJS code and the legacy↔modern bridge (`src/bridge/`, root `game.js`/`main.js`/`mc.js`/`areadice.js`/`config.js`, `src/adapters/`, `src/enhanced/Game.js`, and the legacy HTML entry points) have been deleted. The repo is now modern-only. A follow-up June 2026 simplification pass additionally removed the orphaned pre-engine subtrees (`src/mechanics/`, `src/models/`, `src/state/`) and the dead CreateJS-era `src/utils/` layer — the live game now runs entirely on `src/engine/`. Sections below that describe the bridge/legacy stack, those subtrees, or plan their removal are retained as historical record.
+> **Status:** Modernization complete. The legacy CreateJS code and the legacy↔modern bridge (`src/bridge/`, root `game.js`/`main.js`/`mc.js`/`areadice.js`/`config.js`, `src/adapters/`, `src/enhanced/Game.js`, and the legacy HTML entry points) have been deleted. The repo is now modern-only. A follow-up June 2026 simplification pass additionally removed the orphaned pre-engine subtrees (`src/mechanics/`, `src/models/`, `src/state/`) and the dead CreateJS-era `src/utils/` layer, so the live game now runs entirely on `src/engine/`. Sections below that describe the bridge/legacy stack, those subtrees, or plan their removal are retained as historical record.
 > **Developed by:** Claude Opus 4.6 in Claude Code
 
 ---
 
-## Table of Contents
+## Table of contents
 
-1. [Project Vision](#1-project-vision)
-2. [Current State Assessment](#2-current-state-assessment)
-3. [Why Not Continue the Bridge Migration](#3-why-not-continue-the-bridge-migration)
-4. [Target Architecture](#4-target-architecture)
-5. [Technology Choices](#5-technology-choices)
+1. [Project vision](#1-project-vision)
+2. [Current state assessment](#2-current-state-assessment)
+3. [Why not continue the bridge migration](#3-why-not-continue-the-bridge-migration)
+4. [Target architecture](#4-target-architecture)
+5. [Technology choices](#5-technology-choices)
 6. [Phase 1: Foundation](#6-phase-1-foundation)
-7. [Phase 2: Core Game Engine](#7-phase-2-core-game-engine)
+7. [Phase 2: Core game engine](#7-phase-2-core-game-engine)
 8. [Phase 3: Rendering & UI](#8-phase-3-rendering--ui)
-9. [Phase 4: Bot SDK & Arena](#9-phase-4-bot-sdk--arena)
-10. [Phase 5: Community & Polish](#10-phase-5-community--polish)
-11. [What We Keep vs. Rewrite](#11-what-we-keep-vs-rewrite)
-12. [File Structure](#12-file-structure)
-13. [Bot SDK Design](#13-bot-sdk-design)
-14. [Arena System Design](#14-arena-system-design)
-15. [Migration Sequence](#15-migration-sequence)
-16. [Open Questions](#16-open-questions)
+9. [Phase 4: Bot SDK & arena](#9-phase-4-bot-sdk--arena)
+10. [Phase 5: Community & polish](#10-phase-5-community--polish)
+11. [What we keep vs. rewrite](#11-what-we-keep-vs-rewrite)
+12. [File structure](#12-file-structure)
+13. [Bot SDK design](#13-bot-sdk-design)
+14. [Arena system design](#14-arena-system-design)
+15. [Migration sequence](#15-migration-sequence)
+16. [Open questions](#16-open-questions)
 
 ---
 
-## 1. Project Vision
+## 1. Project vision
 
 DiceWarsJS is a browser-based territory conquest game played on a hexagonal grid. Players (human or AI) roll dice to attack adjacent territories. The last player standing wins.
 
 **Goals for the modernized project:**
 
-1. **Playable and fun** — smooth animations, responsive UI, works on desktop and mobile
-2. **Modern codebase** — clean ES modules, no legacy globals, no Flash-era libraries
-3. **Bot arena** — anyone can write a bot in JavaScript, submit it, and watch it compete
-4. **Open source friendly** — easy to understand, easy to contribute, well-documented
-5. **Spectator mode** — watch bots battle in real-time with leaderboards and replays
+1. **Playable and fun**: smooth animations, responsive UI, works on desktop and mobile
+2. **Modern codebase**: clean ES modules, no legacy globals, no Flash-era libraries
+3. **Bot arena**: anyone can write a bot in JavaScript, submit it, and watch it compete
+4. **Open source friendly**: easy to understand, easy to contribute, well-documented
+5. **Spectator mode**: watch bots battle in real-time with leaderboards and replays
 
 ---
 
-## 2. Current State Assessment
+## 2. Current state assessment
 
 ### What exists today
 
-| Component                                  | Location                       | Status                                       | Quality         |
-| ------------------------------------------ | ------------------------------ | -------------------------------------------- | --------------- |
-| Game logic (map gen, battles, territories) | `game.js` + `src/Game.js`      | Duplicated — legacy works, ES6 version works | Good algorithms |
-| AI strategies (4 bots)                     | `src/ai/`                      | Fully functional, well-tested                | Excellent       |
-| Rendering                                  | `main.js` + CreateJS           | Working but Flash-era tech                   | Poor long-term  |
-| Dice/UI sprites                            | `areadice.js`, `mc.js`         | Adobe Animate exports, not editable          | Dead end        |
-| Bridge layer                               | `src/bridge/`                  | Broken — async/sync timing issues            | Abandon         |
-| Data models                                | `src/models/`                  | Complete, well-tested                        | Good            |
-| State management                           | `src/state/`                   | Written but never integrated                 | Orphaned        |
-| Enhanced modules                           | `src/enhanced/`                | Written but never used                       | Orphaned        |
-| Error system                               | `src/mechanics/errors/`        | Complete hierarchy                           | Good            |
-| Event system                               | `src/mechanics/eventSystem.js` | Complete                                     | Good            |
-| Tests                                      | `tests/`                       | 476 passing, 60%+ coverage                   | Good            |
-| Build system                               | Webpack 5, Babel, Jest         | Working CI/CD pipeline                       | Adequate        |
-| Config system                              | `src/utils/config.js`          | Working                                      | Good            |
+| Component                                  | Location                       | Status                                      | Quality         |
+| ------------------------------------------ | ------------------------------ | ------------------------------------------- | --------------- |
+| Game logic (map gen, battles, territories) | `game.js` + `src/Game.js`      | Duplicated; legacy works, ES6 version works | Good algorithms |
+| AI strategies (4 bots)                     | `src/ai/`                      | Fully functional, well-tested               | Excellent       |
+| Rendering                                  | `main.js` + CreateJS           | Working but Flash-era tech                  | Poor long-term  |
+| Dice/UI sprites                            | `areadice.js`, `mc.js`         | Adobe Animate exports, not editable         | Dead end        |
+| Bridge layer                               | `src/bridge/`                  | Broken; async/sync timing issues            | Abandon         |
+| Data models                                | `src/models/`                  | Complete, well-tested                       | Good            |
+| State management                           | `src/state/`                   | Written but never integrated                | Orphaned        |
+| Enhanced modules                           | `src/enhanced/`                | Written but never used                      | Orphaned        |
+| Error system                               | `src/mechanics/errors/`        | Complete hierarchy                          | Good            |
+| Event system                               | `src/mechanics/eventSystem.js` | Complete                                    | Good            |
+| Tests                                      | `tests/`                       | 476 passing, 60%+ coverage                  | Good            |
+| Build system                               | Webpack 5, Babel, Jest         | Working CI/CD pipeline                      | Adequate        |
+| Config system                              | `src/utils/config.js`          | Working                                     | Good            |
 
 ### What works well (keep)
 
-- **AI system**: Clean single-function interface, dynamic loading, centralized registry, comprehensive tests. This is the best part of the codebase.
+- **AI system**: Clean single-function interface, dynamic loading, centralized registry, thorough tests. This is the best part of the codebase.
 - **Game algorithms**: Map generation (percolation), territory tracing, union-find for connected groups, battle resolution. These algorithms are correct and proven.
 - **Test infrastructure**: Jest setup, mocks, benchmarks, coverage thresholds. All reusable.
 - **Error hierarchy**: GameError, BattleError, TerritoryError, etc. Well-designed.
@@ -75,11 +75,11 @@ DiceWarsJS is a browser-based territory conquest game played on a hexagonal grid
 - **CreateJS rendering**: Flash-to-HTML5 bridge library. No WebGL. Full canvas redraw every frame. Not editable sprite assets (auto-generated from Adobe Animate). Community is dead.
 - **Bridge pattern**: Fundamentally flawed. Tries to synchronously expose async ES6 modules to synchronous legacy code. Has a 5-second timeout hack, silent failure modes, and race conditions. Not worth fixing.
 - **Legacy globals**: `game.js` and `main.js` communicate through global state mutation. Not testable, not composable.
-- **Orphaned code**: `src/state/`, `src/enhanced/` — written speculatively but never connected to anything.
+- **Orphaned code**: `src/state/` and `src/enhanced/` were written speculatively but never connected to anything.
 
 ---
 
-## 3. Why Not Continue the Bridge Migration
+## 3. Why not continue the bridge migration
 
 The previous plan proposed 9 phases of incremental migration using a bridge pattern. It stalled at Phase 2. Here's why continuing it is the wrong approach:
 
@@ -91,13 +91,13 @@ Specific failures:
 
 - `src/bridge/ai.js` installs placeholder functions, then tries to replace them asynchronously. If legacy code captures a reference to the placeholder before replacement, it never gets the real implementation.
 - `src/bridge/initialization.js` uses a 5-second timeout. If modules load slower (network, CPU), the bridge "completes" with errors silently swallowed.
-- `checkAllModulesReady()` resolves its promise when `allReady || hasErrors` — meaning errors are treated as success.
+- `checkAllModulesReady()` resolves its promise when `allReady || hasErrors`, so errors are treated as success.
 
 ### CreateJS is a dead end
 
 CreateJS was built to help Flash developers transition to HTML5 Canvas. It:
 
-- Has no WebGL renderer (Canvas 2D only — no hardware acceleration)
+- Has no WebGL renderer (Canvas 2D only, no hardware acceleration)
 - Redraws the entire scene every frame (no dirty-rect optimization)
 - Uses auto-generated sprite code from Adobe Animate (not human-editable)
 - Has minimal community activity since ~2020
@@ -111,7 +111,7 @@ Each bridge module adds complexity that must be maintained forever or until remo
 
 ---
 
-## 4. Target Architecture
+## 4. Target architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -148,24 +148,24 @@ Each bridge module adds complexity that must be maintained forever or until remo
 
 ### Key principles
 
-1. **Game engine is pure JavaScript** — no DOM, no rendering, no side effects. It takes state in, produces state out. This makes it testable, portable (browser and Node.js), and usable for both human games and bot arenas.
+1. **Game engine is pure JavaScript**: no DOM, no rendering, no side effects. It takes state in, produces state out. This makes it testable, portable (browser and Node.js), and usable for both human games and bot arenas.
 
-2. **Rendering is a separate layer** — the renderer subscribes to state changes and draws. Swapping renderers (Canvas, WebGL, terminal) doesn't touch game logic.
+2. **Rendering is a separate layer**: the renderer subscribes to state changes and draws. Swapping renderers (Canvas, WebGL, terminal) doesn't touch game logic.
 
-3. **Bots run in isolation** — Web Workers or sandboxed iframes prevent bots from accessing game internals or the DOM. They receive a sanitized game state snapshot and return a move.
+3. **Bots run in isolation**: Web Workers or sandboxed iframes prevent bots from accessing game internals or the DOM. They receive a sanitized game state snapshot and return a move.
 
-4. **Event-driven communication** — components communicate through an event bus, not global mutation. State changes are explicit and observable.
+4. **Event-driven communication**: components communicate through an event bus, not global mutation. State changes are explicit and observable.
 
 ---
 
-## 5. Technology Choices
+## 5. Technology choices
 
 ### Rendering: PixiJS v8
 
 **Why PixiJS:**
 
-- WebGL 2 with Canvas 2D fallback — hardware-accelerated on all modern devices
-- Sprite batching, dirty-rect rendering — only redraws what changed
+- WebGL 2 with Canvas 2D fallback, hardware-accelerated on all modern devices
+- Sprite batching and dirty-rect rendering: only redraws what changed
 - Active community, frequent releases, excellent documentation
 - First-class support for shapes, sprites, text, filters, and particle effects
 - Hex grid rendering is straightforward with Graphics API
@@ -175,17 +175,17 @@ Each bridge module adds complexity that must be maintained forever or until remo
 **Why not:**
 
 - Three.js: 3D engine, overkill for a 2D hex game
-- Phaser: Full game framework with opinions about game loop, input, physics — too much when we only need rendering
+- Phaser: Full game framework with opinions about game loop, input, physics. Too much when we only need rendering
 - Raw Canvas: No WebGL, no batching, same perf issues as CreateJS
 - SVG: Poor performance with many animated elements (dice rolling)
 
-### UI Layer: Preact
+### UI layer: Preact
 
 **Why Preact:**
 
-- 3KB gzipped — minimal overhead
-- Same JSX/component API as React — familiar to most JS developers
-- Handles menus, settings, leaderboards, lobby — things that are better as DOM than canvas
+- 3KB gzipped, minimal overhead
+- Same JSX/component API as React, familiar to most JS developers
+- Handles menus, settings, leaderboards, lobby: the parts that are better as DOM than canvas
 - Can overlay on top of the PixiJS canvas for HUD elements
 - Signals for lightweight reactive state
 
@@ -196,7 +196,7 @@ Each bridge module adds complexity that must be maintained forever or until remo
 - Vanilla DOM: Tedious for dynamic UIs like leaderboards and settings panels
 - No framework: Fine for simple games, but the arena/community features need real UI
 
-### Build System: Vite
+### Build system: Vite
 
 **Why Vite:**
 
@@ -204,12 +204,12 @@ Each bridge module adds complexity that must be maintained forever or until remo
 - Rollup-based production builds with tree-shaking, code splitting
 - First-class support for Web Workers (`new Worker(new URL(...), { type: 'module' })`)
 - Built-in TypeScript support (for future migration if desired)
-- Simple config — replaces 3 webpack config files with one `vite.config.js`
+- Simple config: replaces 3 webpack config files with one `vite.config.js`
 - Hot Module Replacement that actually works with ES modules
 
 **Why not Webpack:**
 
-- Current setup has 3 config files (common, modern, legacy) — complex
+- Current setup has 3 config files (common, modern, legacy), which is complex
 - HMR is disabled in modern mode because ES modules don't work well with Webpack HMR
 - Slower dev server startup
 - More configuration surface area
@@ -218,36 +218,36 @@ Each bridge module adds complexity that must be maintained forever or until remo
 
 **Why Vitest:**
 
-- Drop-in Jest replacement — same `describe/it/expect` API
-- Uses Vite's transform pipeline — tests run against the same code as the app
-- Native ES module support — no Babel transform needed for tests
+- Drop-in Jest replacement with the same `describe/it/expect` API
+- Uses Vite's transform pipeline, so tests run against the same code as the app
+- Native ES module support: no Babel transform needed for tests
 - Compatible with existing Jest tests (migration is mostly mechanical)
 - Built-in coverage, benchmarking, and watch mode
 
 **Migration from Jest:** Rename `jest.config.js` → `vitest.config.js`, update imports from `@jest/globals` to `vitest`, update npm scripts. The test files themselves need minimal changes.
 
-### Language: Modern JavaScript (ES2024+)
+### Language: modern JavaScript (ES2024+)
 
 **Why not TypeScript:**
 
-- The project's strength is accessibility — anyone should be able to write a bot in plain JavaScript
+- The project's strength is accessibility: anyone should be able to write a bot in plain JavaScript
 - TypeScript adds a compilation step and type complexity that raises the barrier to entry
 - JSDoc type annotations provide IDE support without requiring TypeScript
 - If TypeScript is desired later, it can be added incrementally without rewriting
 
 **JavaScript standard:** ES2024+ (top-level await, private class fields, Array.groupBy, structuredClone). Vite handles the transpilation for older browsers.
 
-### Package Manager: npm
+### Package manager: npm
 
-Keep npm — it's already in use, everyone has it, no migration needed.
+Keep npm. It's already in use, everyone has it, no migration needed.
 
 ---
 
 ## 6. Phase 1: Foundation ✅ COMPLETE
 
-**Goal:** Set up the new build system, project structure, and development workflow. The game doesn't need to be playable yet — this phase creates the skeleton.
+**Goal:** Set up the new build system, project structure, and development workflow. The game doesn't need to be playable yet; this phase creates the skeleton.
 
-> **Completed in:** commit `141e269` — migrated build to Vite/Vitest, scaffolded PixiJS/Preact.
+> **Completed in:** commit `141e269`, which migrated the build to Vite/Vitest and scaffolded PixiJS/Preact.
 > Subsequent fix: `fd36d4d` addressed PR review findings.
 
 ### Tasks
@@ -346,11 +346,11 @@ src/
 
 ---
 
-## 7. Phase 2: Core Game Engine ✅ COMPLETE
+## 7. Phase 2: Core game engine ✅ COMPLETE
 
 **Goal:** Extract the proven game algorithms into a pure, renderer-independent game engine. No globals, no DOM access, no CreateJS.
 
-> **Completed in:** commit `63a8c3f` — pure game engine in `src/engine/` with StateManager,
+> **Completed in:** commit `63a8c3f`: pure game engine in `src/engine/` with StateManager,
 > BattleResolver, MapGenerator, TurnManager, HexGrid, AIAdapter, GameRunner, and full test suite.
 
 ### Tasks
@@ -431,7 +431,7 @@ src/
 
 **Goal:** Build the visual layer on PixiJS and Preact, achieving feature parity with the current game.
 
-> **Completed in:** commit `b191c1d` — PixiJS hex grid renderer, battle animation, Preact UI
+> **Completed in:** commit `b191c1d`: PixiJS hex grid renderer, battle animation, Preact UI
 > (title screen, map preview, HUD, game over), GameStore, GameController, SoundManager.
 > Subsequent review fixes addressed: race condition in click handling, hit test offset bug,
 > AI load fallback, error handling around createGame, resource leak in destroy(), and added
@@ -462,7 +462,7 @@ const hexPoints = (cx, cy, size) => {
 };
 ```
 
-Note: The existing game uses an offset-coordinate grid with cell-based territory rendering (each territory is a group of cells). The new renderer should replicate this look — territories are irregular blobs of hexagonal cells, not single hexagons.
+Note: The existing game uses an offset-coordinate grid with cell-based territory rendering (each territory is a group of cells). The new renderer should replicate this look: territories are irregular blobs of hexagonal cells, not single hexagons.
 
 #### 3.2 Dice rendering
 
@@ -530,7 +530,7 @@ Note: The existing game uses an offset-coordinate grid with cell-based territory
 
 ---
 
-## 9. Phase 4: Bot SDK & Arena
+## 9. Phase 4: Bot SDK & arena
 
 **Goal:** Make it dead simple for anyone to write a bot, and build the infrastructure for bots to compete.
 
@@ -543,7 +543,7 @@ Create a simple, well-documented SDK for writing bots.
 **Bot interface:**
 
 ```javascript
-// my-bot.js — this is ALL you need to write
+// my-bot.js: this is ALL you need to write
 export default function myBot(state) {
   // state.myAreas - territories you own (id, dice, neighbors)
   // state.enemies - visible enemy territories (id, dice, owner)
@@ -566,15 +566,15 @@ export default function myBot(state) {
 
 **Key design decisions:**
 
-- **Single function, single file** — lowest possible barrier to entry
-- **Sanitized state** — bots see only what a player would see (no internal engine state)
-- **Return a move or null** — no callback hell, no async required
-- **No game mutation** — bots cannot modify game state, only return moves
-- **Pure function** — same state should produce same move (for replay determinism)
+- **Single function, single file**: lowest possible barrier to entry
+- **Sanitized state**: bots see only what a player would see (no internal engine state)
+- **Return a move or null**: no callback hell, no async required
+- **No game mutation**: bots cannot modify game state, only return moves
+- **Pure function**: same state should produce same move (for replay determinism)
 
 #### 4.2 Bot sandbox (Web Worker)
 
-- Bots run in a Web Worker — isolated from main thread and DOM
+- Bots run in a Web Worker, isolated from main thread and DOM
 - Execution timeout: 100ms per move (prevents infinite loops)
 - Memory limit enforced by Worker termination
 - No network access, no file access, no `eval`
@@ -634,7 +634,7 @@ self.onmessage = ({ data: state }) => {
 
 ---
 
-## 10. Phase 5: Community & Polish
+## 10. Phase 5: Community & polish
 
 **Goal:** Make the project welcoming for contributors and fun for players.
 
@@ -652,19 +652,19 @@ self.onmessage = ({ data: state }) => {
 #### 5.2 Bot starter template
 
 - `bots/` directory with example bots at different complexity levels:
-  - `random-bot.js` — attacks randomly (10 lines)
-  - `greedy-bot.js` — always attacks weakest neighbor (20 lines)
-  - `cautious-bot.js` — only attacks with dice advantage (25 lines)
-  - `strategic-bot.js` — evaluates position and risk (50 lines)
+  - `random-bot.js`: attacks randomly (10 lines)
+  - `greedy-bot.js`: always attacks weakest neighbor (20 lines)
+  - `cautious-bot.js`: only attacks with dice advantage (25 lines)
+  - `strategic-bot.js`: evaluates position and risk (50 lines)
 - Each bot has inline comments explaining the strategy
 - `npm run arena` command to run bots against each other locally
 
 #### 5.3 CLI tools
 
-- `npm run arena -- --bots random,greedy,adaptive --games 100` — run arena from command line
-- `npm run new-bot <name>` — scaffold a new bot from template
-- `npm run validate-bot <file>` — check a bot file for errors
-- `npm run benchmark-bot <file>` — measure bot performance (ms/move)
+- `npm run arena -- --bots random,greedy,adaptive --games 100`: run arena from command line
+- `npm run new-bot <name>`: scaffold a new bot from template
+- `npm run validate-bot <file>`: check a bot file for errors
+- `npm run benchmark-bot <file>`: measure bot performance (ms/move)
 
 #### 5.4 Visual polish
 
@@ -693,26 +693,26 @@ self.onmessage = ({ data: state }) => {
 
 ---
 
-## 11. What We Keep vs. Rewrite
+## 11. What we keep vs. rewrite
 
 ### Keep (port to new architecture)
 
-| What                          | From                                                         | Notes                                                |
-| ----------------------------- | ------------------------------------------------------------ | ---------------------------------------------------- |
-| Map generation algorithm      | `game.js:make_map()`, `percolate()`                          | Proven procedural generation — port to pure function |
-| Border tracing algorithm      | `game.js:set_area_line()`                                    | Draws territory outlines — port to pure function     |
-| Union-find (connected groups) | `game.js:set_area_tc()`                                      | Calculates largest connected territory group         |
-| Hex neighbor calculation      | `game.js:next_cel()`                                         | Offset hex grid adjacency                            |
-| Battle resolution             | `game.js` battle logic + `src/mechanics/battleResolution.js` | Dice rolling and comparison                          |
-| AI strategies                 | `src/ai/*.js`                                                | All 4 bots — adapt to new state format               |
-| AI config/registry            | `src/ai/aiConfig.js`                                         | Dynamic loading pattern                              |
-| Error hierarchy               | `src/mechanics/errors/`                                      | Custom error classes                                 |
-| Event system                  | `src/mechanics/eventSystem.js`                               | EventEmitter with middleware                         |
-| Test infrastructure           | `tests/`                                                     | Mocks, benchmarks, test patterns                     |
-| Sound files                   | `sound/*.wav`                                                | 8 audio assets                                       |
-| CI/CD pipeline                | `.github/workflows/`                                         | GitHub Actions — update commands                     |
-| Player color scheme           | `main.js` color arrays                                       | The 8-color palette                                  |
-| Game constants                | `game.js` XMAX, YMAX, AREA_MAX, etc.                         | Grid dimensions, limits                              |
+| What                          | From                                                         | Notes                                               |
+| ----------------------------- | ------------------------------------------------------------ | --------------------------------------------------- |
+| Map generation algorithm      | `game.js:make_map()`, `percolate()`                          | Proven procedural generation; port to pure function |
+| Border tracing algorithm      | `game.js:set_area_line()`                                    | Draws territory outlines; port to pure function     |
+| Union-find (connected groups) | `game.js:set_area_tc()`                                      | Calculates largest connected territory group        |
+| Hex neighbor calculation      | `game.js:next_cel()`                                         | Offset hex grid adjacency                           |
+| Battle resolution             | `game.js` battle logic + `src/mechanics/battleResolution.js` | Dice rolling and comparison                         |
+| AI strategies                 | `src/ai/*.js`                                                | All 4 bots; adapt to new state format               |
+| AI config/registry            | `src/ai/aiConfig.js`                                         | Dynamic loading pattern                             |
+| Error hierarchy               | `src/mechanics/errors/`                                      | Custom error classes                                |
+| Event system                  | `src/mechanics/eventSystem.js`                               | EventEmitter with middleware                        |
+| Test infrastructure           | `tests/`                                                     | Mocks, benchmarks, test patterns                    |
+| Sound files                   | `sound/*.wav`                                                | 8 audio assets                                      |
+| CI/CD pipeline                | `.github/workflows/`                                         | GitHub Actions; update commands                     |
+| Player color scheme           | `main.js` color arrays                                       | The 8-color palette                                 |
+| Game constants                | `game.js` XMAX, YMAX, AREA_MAX, etc.                         | Grid dimensions, limits                             |
 
 ### Rewrite
 
@@ -727,18 +727,18 @@ self.onmessage = ({ data: state }) => {
 
 ### Delete
 
-| What                        | Why                                                   |
-| --------------------------- | ----------------------------------------------------- |
-| `src/state/`                | Written but never used — new StateManager replaces it |
-| `src/enhanced/`             | Map-based alternatives never integrated — delete      |
-| `src/bridge/`               | Broken bridge — delete entirely                       |
-| `src/adapters/MCAdapter.js` | Wraps CreateJS MovieClip — no longer needed           |
-| `config-ai-vs-ai.js`        | Replaced by arena mode                                |
-| Old docs in `docs/`         | Replaced by this roadmap and new docs                 |
+| What                        | Why                                                  |
+| --------------------------- | ---------------------------------------------------- |
+| `src/state/`                | Written but never used; new StateManager replaces it |
+| `src/enhanced/`             | Map-based alternatives never integrated; delete      |
+| `src/bridge/`               | Broken bridge; delete entirely                       |
+| `src/adapters/MCAdapter.js` | Wraps CreateJS MovieClip; no longer needed           |
+| `config-ai-vs-ai.js`        | Replaced by arena mode                               |
+| Old docs in `docs/`         | Replaced by this roadmap and new docs                |
 
 ---
 
-## 12. File Structure
+## 12. File structure
 
 Final directory layout after modernization:
 
@@ -837,7 +837,7 @@ dicewarsjs/
 
 ---
 
-## 13. Bot SDK Design
+## 13. Bot SDK design
 
 ### State object provided to bots
 
@@ -934,7 +934,7 @@ export default function greedyBot(state) {
 
 ---
 
-## 14. Arena System Design
+## 14. Arena system design
 
 ### Local arena (Phase 4)
 
@@ -988,7 +988,7 @@ Run entirely in the browser. No server needed.
 }
 ```
 
-### Future: Online arena (post-Phase 5, optional)
+### Future: online arena (post-Phase 5, optional)
 
 If there's community interest, a server-side arena could be added:
 
@@ -996,13 +996,13 @@ If there's community interest, a server-side arena could be added:
 - **Bot submission** via GitHub PR to a `community-bots/` directory
 - **Scheduled tournaments** (daily/weekly)
 - **Persistent leaderboard** stored in a database or flat file
-- **GitHub Actions integration** — new bot PRs automatically trigger a tournament run
+- **GitHub Actions integration**: new bot PRs automatically trigger a tournament run
 
 This is explicitly out of scope for the initial modernization but the architecture supports it: the game engine runs in Node.js, bots are sandboxed, results are serializable.
 
 ---
 
-## 15. Migration Sequence
+## 15. Migration sequence
 
 ### How to execute this plan
 
@@ -1066,7 +1066,7 @@ Both tracks merge when Phase 3 wires the renderer to the engine.
 
 ---
 
-## 16. Open Questions
+## 16. Open questions
 
 Decisions to make as implementation proceeds:
 
@@ -1086,9 +1086,9 @@ Decisions to make as implementation proceeds:
 
 ---
 
-## Appendix: Existing AI Strategies Reference
+## Appendix: existing AI strategies reference
 
-These are the 4 AI implementations that will be ported to the new bot SDK format. They serve as reference implementations and competitive baselines.
+These are the 4 AI implementations that will be ported to the new bot SDK format. They are the reference implementations and competitive baselines.
 
 | Strategy    | Difficulty | Lines | Key Behavior                                                                                                                    |
 | ----------- | ---------- | ----- | ------------------------------------------------------------------------------------------------------------------------------- |

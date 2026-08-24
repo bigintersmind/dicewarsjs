@@ -40,7 +40,7 @@ function renderHUD({ onQuit, onRules, gameState = makeGameState() } = {}) {
 }
 
 const quitBtn = () => container.querySelector('button[aria-label="Quit to title"]');
-const rulesBtn = () => container.querySelector('button[aria-label="Rules \u2014 how to play"]');
+const rulesBtn = () => container.querySelector('button[aria-label="Rules: how to play"]');
 /** The hidden width-matched twins that keep the chips optically centered. */
 const twins = () => [...container.querySelectorAll('span[aria-hidden="true"]')];
 const quitTwin = () => twins().find(el => el.textContent.trim() === 'QUIT');

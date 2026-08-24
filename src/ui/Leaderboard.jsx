@@ -181,7 +181,7 @@ export function Leaderboard({ bots, flagged }) {
                   <span
                     style={STYLE.badge}
                     title={
-                      "This bot's win% / ELO is not a meaningful measurement — it errored " +
+                      "This bot's win% / ELO is not a meaningful measurement. It errored " +
                       'on most of its turns, so it looks broken or mis-registered rather than ' +
                       'legitimately losing.'
                     }

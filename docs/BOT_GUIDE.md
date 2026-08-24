@@ -2,7 +2,7 @@
 
 This guide covers everything you need to write a DiceWarsJS bot. A bot is a single JavaScript function that looks at the board and decides what to attack.
 
-## Quick Start
+## Quick start
 
 A bot is a function that takes a `state` and returns a move:
 
@@ -28,7 +28,7 @@ return null;
 - Return `null` to end your turn
 - Your function is called repeatedly until you return `null` or make an invalid move
 
-## How to Test Your Bot
+## How to test your bot
 
 Write your bot as a file (see the [`bots/`](../bots/) examples) and test it from the command line:
 
@@ -39,13 +39,13 @@ npm run benchmark-bot -- bots/my-bot.js  # win rate, ELO, placement
 npm run arena                        # run all built-in bots head-to-head
 ```
 
-The in-game **Arena** and **Tournament** screens let you watch the built-in bots compete. To see your own bot ranked against them, submit it via GitHub (see [Submitting Your Bot](#submitting-your-bot)) — it then competes in the daily online tournament.
+The in-game **Arena** and **Tournament** screens let you watch the built-in bots compete. To see your own bot ranked against them, submit it via GitHub (see [Submitting your bot](#submitting-your-bot)). It then competes in the daily online tournament.
 
-## BotState Reference
+## BotState reference
 
 Your function receives a `state` object with these fields:
 
-### Top-level Fields
+### Top-level fields
 
 | Field           | Type                         | Description                                                                       |
 | --------------- | ---------------------------- | --------------------------------------------------------------------------------- |
@@ -58,7 +58,7 @@ Your function receives a `state` object with these fields:
 | `myAreas`       | `BotArea[]`                  | Territories you own                                                               |
 | `allAreas`      | `BotArea[]`                  | All territories on the board                                                      |
 | `players`       | `BotPlayer[]`                | All player stats                                                                  |
-| `random`        | `() => number`               | Seeded drop-in for `Math.random` — floats in `[0, 1)` (see rule 6)                |
+| `random`        | `() => number`               | Seeded drop-in for `Math.random`; floats in `[0, 1)` (see rule 6)                 |
 
 ### BotArea
 
@@ -76,25 +76,25 @@ Each territory in `myAreas` and `allAreas`:
 
 Each player in `players`:
 
-| Field                  | Type      | Description                                                                               |
-| ---------------------- | --------- | ----------------------------------------------------------------------------------------- |
-| `id`                   | `number`  | Player ID (0-based)                                                                       |
-| `territories`          | `number`  | Number of territories owned                                                               |
-| `totalDice`            | `number`  | Total dice across all territories                                                         |
-| `connectedTerritories` | `number`  | Size of largest connected group                                                           |
-| `reinforcements`       | `number`  | Dice in reserve stock                                                                     |
-| `eliminated`           | `boolean` | Whether this player is eliminated                                                         |
-| `turnsUntilActs`       | `number`  | Turn-advances until this player acts (0 = you; eliminated players are 0 — check the flag) |
+| Field                  | Type      | Description                                                                                 |
+| ---------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `id`                   | `number`  | Player ID (0-based)                                                                         |
+| `territories`          | `number`  | Number of territories owned                                                                 |
+| `totalDice`            | `number`  | Total dice across all territories                                                           |
+| `connectedTerritories` | `number`  | Size of largest connected group                                                             |
+| `reinforcements`       | `number`  | Dice in reserve stock                                                                       |
+| `eliminated`           | `boolean` | Whether this player is eliminated                                                           |
+| `turnsUntilActs`       | `number`  | Turn-advances until this player acts (0 = you; eliminated players are 0, so check the flag) |
 
-## Rules Your Bot Must Follow
+## Rules your bot must follow
 
 1. **Attack from your territory**: `from` must be a territory you own
 2. **Have enough dice**: The attacking territory must have more than 1 die
 3. **Attack an enemy**: `to` must be owned by a different player
 4. **Attack a neighbor**: `from` and `to` must be adjacent
 5. **Return the right shape**: `{ from: number, to: number }` or `null`
-6. **Use `state.random()`, never `Math.random`**: matches are seed-reproducible — the same
-   seed must replay the same game for arena ELO, replays, and debugging (issue #151).
+6. **Use `state.random()`, never `Math.random`**: matches are seed-reproducible, meaning the
+   same seed must replay the same game for arena ELO, replays, and debugging (issue #151).
    `state.random()` is a seeded drop-in (floats in `[0, 1)`); each decision gets its own
    stream, so your bot stays stochastic across seeds while any single seed reproduces
    exactly. A bot that calls `Math.random` (or any other outside entropy: `Date.now`,
@@ -102,7 +102,7 @@ Each player in `players`:
 
 Invalid moves end your turn immediately. Throwing an exception also ends your turn.
 
-## Game Mechanics Recap
+## Game mechanics recap
 
 Understanding these mechanics helps you write a better bot:
 
@@ -114,7 +114,7 @@ Understanding these mechanics helps you write a better bot:
 - **Elimination**: A player with 0 territories is eliminated.
 - **Winning**: Last player standing wins.
 
-## Strategy Tips
+## Strategy tips
 
 ### Connections are everything
 
@@ -122,7 +122,7 @@ Your reinforcements equal your largest connected group. A player with 10 scatter
 
 ### Border awareness
 
-Use `area.isBorder` to identify territories exposed to enemies. Attacking from interior territories doesn't help — focus on border territories.
+Use `area.isBorder` to identify territories exposed to enemies. Attacking from interior territories doesn't help; focus on border territories.
 
 ### Dice advantage
 
@@ -140,36 +140,36 @@ Use `state.gamePhase` to adapt your strategy:
 
 - **Early**: Expand aggressively to claim territory
 - **Mid**: Consolidate, connect groups, build up dice
-- **Late**: Be cautious — one bad attack can cost the game
+- **Late**: Be cautious. One bad attack can cost the game
 
 ### Know your opponents
 
 Check `state.players` to see who's strong and who's weak. Avoid attacking the strongest player when weaker targets are available.
 
-## Example Bots
+## Example bots
 
 See the [`bots/`](../bots/) directory for complete examples at different complexity levels:
 
-- **random-bot.js** — attacks randomly
-- **greedy-bot.js** — always attacks the weakest neighbor
-- **cautious-bot.js** — only attacks with dice advantage
-- **strategic-bot.js** — evaluates position and adapts by game phase
+- **random-bot.js**: attacks randomly
+- **greedy-bot.js**: always attacks the weakest neighbor
+- **cautious-bot.js**: only attacks with dice advantage
+- **strategic-bot.js**: evaluates position and adapts by game phase
 
-## Submitting Your Bot
+## Submitting your bot
 
-### Community Arena (recommended)
+### Community arena (recommended)
 
 Submit your bot to the online arena where it competes in daily automated tournaments with ELO rankings:
 
 1. Fork the repo and create a directory: `community-bots/<your-github-username>/`
-2. Add your bot file (e.g., `my-bot.js`) — same bare function body format as the examples in `bots/`
+2. Add your bot file (e.g., `my-bot.js`), using the same bare function body format as the examples in `bots/`
 3. Add a `my-bot.meta.json` with `name`, `author`, and `description` fields
 4. Register it in `community-bots/registry.json` (see [CONTRIBUTING.md](../CONTRIBUTING.md) for the full format)
-5. Open a PR — CI validates your bot automatically
+5. Open a PR; CI validates your bot automatically
 
 > **Trust boundary:** PR validation deliberately runs your bot in an _unprivileged_ CI job
 > (read-only token, no secrets), and the job that posts the results comment never executes PR
-> code. The validation comment is informational — bot code is only trusted after a maintainer
+> code. The validation comment is informational; bot code is only trusted after a maintainer
 > reviews and merges the PR, which is what admits it into the daily tournament and the in-game
 > roster.
 

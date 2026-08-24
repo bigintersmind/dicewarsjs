@@ -34,7 +34,7 @@ export const DIFFICULTY_MODES = {
   easy: {
     id: 'easy',
     name: 'Easy',
-    description: 'Forgiving opponents — a first game you can win',
+    description: 'Forgiving opponents. A first game you can win',
     lineup: [
       null,
       'ai_example',
@@ -49,7 +49,7 @@ export const DIFFICULTY_MODES = {
   standard: {
     id: 'standard',
     name: 'Standard',
-    description: 'The classic Dice Wars experience — the original game AI in every seat',
+    description: 'The classic Dice Wars experience: the original game AI in every seat',
     lineup: [
       null,
       'ai_default',
@@ -103,7 +103,7 @@ export function assertValidLineup(modeId, lineup, registry = AI_STRATEGIES) {
     }
     if (entry.hidden) {
       throw new Error(
-        `Difficulty mode "${modeId}": bot "${id}" is hidden from the picker — Custom mode could not reproduce this preset`
+        `Difficulty mode "${modeId}": bot "${id}" is hidden from the picker, so Custom mode could not reproduce this preset`
       );
     }
   }

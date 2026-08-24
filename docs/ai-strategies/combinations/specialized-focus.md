@@ -1,16 +1,16 @@
-# Specialized Focus Strategy
+# Specialized focus strategy
 
-The specialized focus strategy involves concentrating on a specific aspect of gameplay, such as offense, defense, or a particular tactical approach. This specialization can create AI behavior that excels in specific situations or against certain opponents.
+Commit the whole bot to one plan: pure offense, pure defense, or a single tactical idea. A specialist beats a generalist in the situations it was built for, and each one plays with a recognizable personality.
 
-## Core Concept
+## Core concept
 
-Rather than trying to balance all aspects of gameplay, a specialized focus AI excels at one particular strategy. This specialization creates distinctive AI personalities and gameplay styles.
+Rather than balancing every aspect of gameplay, a specialized bot does one thing well and accepts the weaknesses that come with it.
 
-## Strategy Types
+## Strategy types
 
-### 1. Hyper-Aggressive Focus
+### 1. Hyper-aggressive focus
 
-This strategy relentlessly attacks to expand territory with minimal concern for defense.
+Attack constantly to expand territory, with minimal concern for defense.
 
 ```javascript
 function ai_aggressive(game) {
@@ -53,9 +53,9 @@ function ai_aggressive(game) {
 }
 ```
 
-### 2. Turtle Defense Focus
+### 2. Turtle defense focus
 
-This strategy focuses exclusively on fortifying a small, defensible territory.
+Fortify a small, defensible territory and attack only to shrink the perimeter.
 
 ```javascript
 function ai_turtle(game) {
@@ -158,9 +158,9 @@ function calculateDefensiveImprovement(game, from, to, area_info) {
 }
 ```
 
-### 3. Territory Connection Focus
+### 3. Territory connection focus
 
-This strategy prioritizes maintaining and expanding a large connected territory group for reinforcements.
+Maintain and expand one large connected territory group to maximize reinforcements.
 
 ```javascript
 function ai_connector(game) {
@@ -311,9 +311,9 @@ function countConnectedTerritories(game, startTerritory, player) {
 }
 ```
 
-### 4. King-of-the-Hill Focus
+### 4. King-of-the-hill focus
 
-This strategy focuses on controlling territories with the highest number of connections.
+Control the territories with the highest number of connections.
 
 ```javascript
 function ai_kingofthehill(game) {
@@ -396,9 +396,9 @@ function identifyHillTerritories(game) {
 }
 ```
 
-### 5. Predator Focus
+### 5. Predator focus
 
-This strategy targets the weakest opponent to eliminate them from the game.
+Target the weakest opponent and eliminate them from the game.
 
 ```javascript
 function ai_predator(game) {
@@ -503,9 +503,9 @@ function isLastTerritory(game, territory, player) {
 }
 ```
 
-## Implementation Example: Mixed Specialized Focus
+## Implementation example: switching specialists
 
-Sometimes it's effective to combine multiple specialized focuses but activate them conditionally:
+You can also carry several specialists and activate one depending on the situation:
 
 ```javascript
 function ai_adaptive_specialist(game) {
@@ -556,25 +556,13 @@ function ai_adaptive_specialist(game) {
 }
 ```
 
-## When to Use
+## When to use
 
-Specialized focus strategies are most effective:
+1. To create distinctive AI personalities
+2. In scenarios where one approach is clearly superior
+3. To get behavioral variety when several AIs share a game
+4. To pose a specific kind of challenge to human players
 
-1. When you want to create distinctive AI personalities
-2. In specific game scenarios where one approach is clearly superior
-3. When multiple AIs are playing and you want diversity in behaviors
-4. When you want to create a specific challenge for human players
+## Trade-offs
 
-## Advantages
-
-1. **Distinctiveness** - Creates recognizable AI personalities
-2. **Specialization** - Can outperform balanced strategies in specific situations
-3. **Simplicity** - Often easier to implement than complex balanced strategies
-4. **Learning opportunities** - Helps players understand different strategic approaches
-
-## Considerations
-
-1. **Exploitability** - May have clear weaknesses that can be countered
-2. **Inflexibility** - May struggle when game conditions don't favor its specialization
-3. **Predictability** - Behavior may become predictable once recognized
-4. **Balance issues** - May be too strong or too weak in certain game scenarios
+A specialist is often simpler to write than a balanced bot, outperforms one inside its niche, and gives each opponent slot a recognizable character. The price is a clear weakness: a turtle loses the reinforcement race to a connector, an aggressive bot bleeds dice into bad attacks, and once a human player recognizes the pattern they can play around it.

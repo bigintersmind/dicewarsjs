@@ -1,10 +1,10 @@
-# Player Ranking Strategy
+# Player ranking strategy
 
-The player ranking strategy involves analyzing and ranking opponents based on their strength, then adjusting your AI's behavior accordingly. This helps focus attacks on the strongest threats or weakest opponents.
+Rank the players by strength, then use the ranking to decide who to attack. It lets a bot gang up on a runaway leader or pick off the weakest opponent.
 
-## Core Concept
+## Core concept
 
-Calculate a "strength ranking" for each player (typically based on total dice count) and use this information to make strategic decisions about which players to attack or defend against.
+Calculate a strength ranking for each player, typically from total dice count, and use it when choosing which players to attack or defend against.
 
 ## Implementation
 
@@ -68,26 +68,26 @@ if (top >= 0) {
 }
 ```
 
-## Ranking Metrics
+## Ranking metrics
 
-You can rank players using various metrics:
+Metrics to rank players by:
 
 1. **Total dice count** - The sum of all dice across a player's territories
 2. **Territory count** - The number of territories a player controls
-3. **Connected territory size** - The size of a player's largest connected territory group
+3. **Connected territory size** - A player's largest connected group, which is what actually drives their reinforcement income
 4. **Border pressure** - How many enemy territories border a player's territories
-5. **Composite score** - A weighted combination of multiple metrics
+5. **Composite score** - A weighted combination of the above
 
-## Strategic Applications
+## Strategic applications
 
-Once you have player rankings, you can apply them in several ways:
+Once you have rankings:
 
-1. **Target the leader** - Focus attacks on the highest-ranked player to prevent them from dominating
-2. **Opportunistic expansion** - Focus attacks on the lowest-ranked players for easier conquests
-3. **Defensive posture** - Prioritize defense when your rank is high
-4. **Risk assessment** - Take more risks when attacking lower-ranked players
+1. **Target the leader** - Attack the highest-ranked player before they run away with the game
+2. **Opportunistic expansion** - Attack the lowest-ranked players for easier conquests
+3. **Defensive posture** - Prioritize defense when your own rank is high, since everyone will be gunning for you
+4. **Risk assessment** - Take more risks against lower-ranked players, who are least able to punish a failed attack
 
-## Dominant Player Strategy
+## Dominant player strategy
 
 A special case is detecting a "dominant" player who controls a large portion of the board's resources:
 
@@ -106,16 +106,16 @@ if (top >= 0) {
 
 This focuses all attention on either attacking or defending against the dominant player.
 
-## Enhancements
+## Refinements
 
 1. **Dynamic thresholds** - Adjust the definition of "dominant" based on the game state
-2. **Multi-level targeting** - Create a full priority list instead of just identifying the top player
-3. **Temporal tracking** - Track how rankings change over time to identify emerging threats
+2. **Multi-level targeting** - Build a full priority list instead of only flagging the top player
+3. **Trend tracking** - Watch how rankings change between turns to spot a player who is about to break out
 
-## When to Use
+## When to use
 
-Player ranking is most effective:
+Player ranking pays off most:
 
-1. In mid to late game when player strengths have differentiated
-2. In multiplayer games (3+ players) where targeting decisions matter
-3. As part of a broader strategic framework that considers multiple factors
+1. In the mid to late game, once player strengths have differentiated
+2. In games with 3+ players, where choosing a target matters
+3. Combined with other signals rather than as the sole decision rule

@@ -1,32 +1,32 @@
-# AI Configuration System Notes
+# AI configuration system notes
 
-This document provides additional details about the centralized AI configuration system implemented in DiceWarsJS.
+Notes on the centralized AI configuration system in DiceWarsJS.
 
 ## Overview
 
-The AI configuration system is centralized in `src/ai/aiConfig.js` to provide consistent AI management across the game and the bot arena. This approach makes the code more maintainable and simplifies adding new AI strategies.
+AI configuration is centralized in `src/ai/aiConfig.js` so the game and the bot arena manage AI strategies the same way. This keeps the code maintainable and makes new strategies easy to add.
 
-## Key Components
+## Key components
 
-1. **AI Strategy Registry** - `AI_STRATEGIES` in `aiConfig.js`
+1. **AI strategy registry**: `AI_STRATEGIES` in `aiConfig.js`
 
    - Maps string identifiers to AI strategy objects with metadata
    - Includes name, description, difficulty, and implementation function
    - Single source of truth for all AI strategy information
 
-2. **Helper Functions**
+2. **Helper functions**
 
-   - `getAIById()` - Gets strategy details by ID
-   - `getAIImplementation()` - Gets just the AI function implementation
-   - `getAllAIStrategies()` - Lists all available strategies
-   - `createAIFunctionMapping()` - Creates player-to-AI function mappings
+   - `getAIById()`: gets strategy details by ID
+   - `getAIImplementation()`: gets just the AI function implementation
+   - `getAllAIStrategies()`: lists all available strategies
+   - `createAIFunctionMapping()`: creates player-to-AI function mappings
 
-3. **Default Assignments**
-   - `DEFAULT_AI_ASSIGNMENTS` - Default mapping of player indices to AI strategy IDs
+3. **Default assignments**
+   - `DEFAULT_AI_ASSIGNMENTS`: default mapping of player indices to AI strategy IDs
 
-## Assigning AIs to Players
+## Assigning AIs to players
 
-AI strategies are assigned per player with an `aiAssignments` array — one strategy ID per player index, with `null` marking a human player:
+AI strategies are assigned per player with an `aiAssignments` array. Each entry is a strategy ID for that player index; `null` marks a human player:
 
 ```javascript
 const aiAssignments = [
@@ -39,7 +39,7 @@ const aiAssignments = [
 
 `createAIFunctionMapping(aiAssignments)` resolves these IDs to the actual AI functions the engine runs.
 
-## Adding New AI Strategies
+## Adding new AI strategies
 
 To add a new AI strategy:
 
@@ -77,7 +77,7 @@ When testing AI functionality, you can use:
 ```javascript
 import { createAIFunctionMapping } from '../ai/index.js';
 
-// Map strategy IDs to AI functions — async, since strategies load on demand
+// Map strategy IDs to AI functions (async, since strategies load on demand)
 const aiAssignments = ['ai_default', 'ai_defensive', null, 'ai_adaptive'];
 const aiFunctions = await createAIFunctionMapping(aiAssignments);
 
@@ -86,4 +86,4 @@ const aiFunctions = await createAIFunctionMapping(aiAssignments);
 
 ## Performance
 
-The AI configuration system adds minimal overhead while providing better organization and metadata. The centralized approach enables potential future optimizations like lazy-loading AI strategies or dynamic strategy selection.
+The AI configuration system adds minimal overhead in exchange for better organization and metadata. Centralizing it also leaves room for later optimizations like lazy-loading AI strategies or dynamic strategy selection.

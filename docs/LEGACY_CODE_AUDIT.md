@@ -1,22 +1,22 @@
-# Legacy Code Audit Report
+# Legacy code audit report
 
 > **Historical / superseded (June 2026).** The legacy JavaScript files audited here (`game.js`, `main.js`, `areadice.js`, `mc.js`, `config.js`, and the `MCAdapter` pattern) have since been **deleted** in the modern-only sweep. This document is retained only as a record of the original migration analysis.
 
-This document provides a comprehensive analysis of the legacy JavaScript files in the DiceWarsJS project to determine migration boundaries and develop an effective modernization strategy.
+This document analyzes the legacy JavaScript files in the DiceWarsJS project to determine migration boundaries and plan the modernization.
 
-## Executive Summary
+## Executive summary
 
 The legacy codebase consists of five main files:
 
-- **game.js** (753 lines) - Core game logic and state management
-- **main.js** (1835 lines) - UI, rendering, and game flow control
-- **mc.js** (Auto-generated) - CreateJS graphics definitions
-- **areadice.js** (Auto-generated) - Dice graphics library
-- **index.js** (2 lines) - Simple redirect
+- **game.js** (753 lines): core game logic and state management
+- **main.js** (1835 lines): UI, rendering, and game flow control
+- **mc.js** (auto-generated): CreateJS graphics definitions
+- **areadice.js** (auto-generated): dice graphics library
+- **index.js** (2 lines): simple redirect
 
-### Migration Verdict Summary
+### Migration verdict summary
 
-| File        | Migration Difficulty | Recommended Approach                                |
+| File        | Migration difficulty | Recommended approach                                |
 | ----------- | -------------------- | --------------------------------------------------- |
 | game.js     | Moderate             | Phased migration with state management focus        |
 | main.js     | Hard                 | Adapter pattern for UI, gradual extraction of logic |
@@ -24,9 +24,9 @@ The legacy codebase consists of five main files:
 | areadice.js | Should Not Migrate   | Include via MCAdapter                               |
 | index.js    | Easy                 | Already migrated                                    |
 
-## Detailed Analysis
+## Detailed analysis
 
-### 1. game.js - Core Game Logic
+### 1. game.js: core game logic
 
 **Responsibilities:**
 
@@ -37,7 +37,7 @@ The legacy codebase consists of five main files:
 - Turn management
 - History tracking for replay
 
-**Global Dependencies:**
+**Global dependencies:**
 
 - Defines: `Game` constructor function
 - Uses: External AI functions (`window.ai_default`, etc.)
@@ -46,7 +46,7 @@ The legacy codebase consists of five main files:
 
 **Migration Assessment: MODERATE DIFFICULTY**
 
-**Can Be Migrated:**
+**Can be migrated:**
 
 - All data structures (AreaData, PlayerData, JoinData, HistoryData)
 - Map generation algorithm (`make_map`, `percolate`)
@@ -61,7 +61,7 @@ The legacy codebase consists of five main files:
 - AI system expects global functions
 - Some methods are very long (make_map is 200+ lines)
 
-**Recommended Migration Strategy:**
+**Recommended migration strategy:**
 
 1. **Phase 1**: Create ES6 data models with immutable patterns
 2. **Phase 2**: Extract pure functions (map generation, battle calculations)
@@ -69,7 +69,7 @@ The legacy codebase consists of five main files:
 4. **Phase 4**: Gradually move methods to the new GameEngine
 5. **Phase 5**: Replace legacy Game instantiation with ES6 version
 
-### 2. main.js - UI and Game Control
+### 2. main.js: UI and game control
 
 **Responsibilities:**
 
@@ -81,7 +81,7 @@ The legacy codebase consists of five main files:
 - Screen layouts and transitions
 - AI vs AI spectator mode
 
-**Global Dependencies:**
+**Global dependencies:**
 
 - Uses: CreateJS library extensively
 - Creates: Many global variables (`canvas`, `stage`, `game`, etc.)
@@ -90,27 +90,27 @@ The legacy codebase consists of five main files:
 
 **Migration Assessment: HARD**
 
-**Can Be Migrated:**
+**Can be migrated:**
 
 - Game flow state machine logic
 - Input validation logic
 - Score calculation
 - Configuration management
 
-**Should Use Adapter:**
+**Should use adapter:**
 
 - All CreateJS sprite management
 - Animation sequences
 - Sound system integration
 - Canvas rendering
 
-**Cannot Be Migrated (easily):**
+**Cannot be migrated (easily):**
 
 - CreateJS event handling patterns
 - Sprite sheet builder integration
 - Complex animation timelines
 
-**Recommended Migration Strategy:**
+**Recommended migration strategy:**
 
 1. **Create MainAdapter**: Wraps all CreateJS functionality
 2. **Extract State Machine**: Create ES6 GameStateManager
@@ -118,7 +118,7 @@ The legacy codebase consists of five main files:
 4. **Bridge Events**: Use event emitters to connect legacy UI to ES6 logic
 5. **Gradual Extraction**: Move non-visual logic piece by piece
 
-### 3. mc.js - CreateJS Movie Clips
+### 3. mc.js: CreateJS movie clips
 
 **Responsibilities:**
 
@@ -132,16 +132,16 @@ The legacy codebase consists of five main files:
 
 - Auto-generated from Flash/Animate CC
 - Tightly coupled to CreateJS MovieClip API
-- No business logic - pure asset definitions
+- No business logic, pure asset definitions
 - Would require complete rewrite for different rendering system
 
-**Current Solution:**
+**Current solution:**
 
 - MCAdapter already implemented
 - Provides clean ES6 interface to access graphics
 - This is the correct approach
 
-### 4. areadice.js - Dice Graphics Library
+### 4. areadice.js: dice graphics library
 
 **Responsibilities:**
 
@@ -153,25 +153,25 @@ The legacy codebase consists of five main files:
 
 **Reasoning:**
 
-- Similar to mc.js - auto-generated graphics
+- Similar to mc.js, auto-generated graphics
 - No business logic
 - Tightly coupled to CreateJS
 
-**Recommended Approach:**
+**Recommended approach:**
 
 - Include via MCAdapter pattern
 - Could create DiceRenderer adapter if needed
 
-### 5. index.js - Entry Point
+### 5. index.js: entry point
 
 **Migration Assessment: ALREADY COMPLETE**
 
 - Simple redirect to modular version
 - No migration needed
 
-## Global Variable Analysis
+## Global variable analysis
 
-**Critical Global Dependencies:**
+**Critical global dependencies:**
 
 ```javascript
 // From game.js
@@ -187,59 +187,59 @@ window.spectate_mode; // Game mode
 window.ai_default, window.ai_defensive, etc.window.GAME_CONFIG; // AI functions // Configuration object
 ```
 
-## Migration Priority and Order
+## Migration priority and order
 
-### High Priority (Business Logic)
+### High priority (business logic)
 
-1. **Game State Models** - Create immutable ES6 versions
-2. **Map Generation** - Pure functional implementation
-3. **Battle System** - Extract and modularize
-4. **AI Interface** - Standardize with ES6 modules
+1. **Game state models**: create immutable ES6 versions
+2. **Map generation**: pure functional implementation
+3. **Battle system**: extract and modularize
+4. **AI interface**: standardize with ES6 modules
 
-### Medium Priority (Hybrid Approach)
+### Medium priority (hybrid approach)
 
-1. **Game Flow Control** - Extract state machine from main.js
-2. **Turn Management** - Separate from UI concerns
-3. **Configuration System** - Already partially complete
+1. **Game flow control**: extract state machine from main.js
+2. **Turn management**: separate from UI concerns
+3. **Configuration system**: already partially complete
 
-### Low Priority (Adapter Pattern)
+### Low priority (adapter pattern)
 
-1. **Rendering System** - Keep CreateJS, use adapters
-2. **Sound System** - Wrap with ES6 interface
-3. **Animation System** - Abstract behind interfaces
+1. **Rendering system**: keep CreateJS, use adapters
+2. **Sound system**: wrap with ES6 interface
+3. **Animation system**: abstract behind interfaces
 
-## Risk Assessment
+## Risk assessment
 
-### High Risk Areas
+### High-risk areas
 
-1. **Timing Dependencies** - main.js relies on specific initialization order
-2. **Event System** - CreateJS events deeply integrated
-3. **Global State Mutations** - Both files modify shared state
+1. **Timing dependencies**: main.js relies on specific initialization order
+2. **Event system**: CreateJS events deeply integrated
+3. **Global state mutations**: both files modify shared state
 
-### Mitigation Strategies
+### Mitigation strategies
 
-1. **Extensive Testing** - Create regression tests before migration
-2. **Incremental Migration** - Small, tested changes
-3. **Bridge Pattern** - Maintain compatibility during transition
-4. **Feature Flags** - Toggle between legacy and new implementations
+1. **Extensive testing**: create regression tests before migration
+2. **Incremental migration**: small, tested changes
+3. **Bridge pattern**: maintain compatibility during transition
+4. **Feature flags**: toggle between legacy and new implementations
 
 ## Recommendations
 
-### Immediate Actions
+### Immediate actions
 
 1. **Complete the bridge initialization fix** (timing issues)
-2. **Create comprehensive tests** for game.js logic
+2. **Create thorough tests** for game.js logic
 3. **Document all global dependencies**
 4. **Establish performance baselines**
 
-### Short-term Goals
+### Short-term goals
 
 1. **Migrate game state to immutable models**
 2. **Extract pure functions from game.js**
 3. **Create GameStateManager from main.js logic**
 4. **Standardize AI interface**
 
-### Long-term Vision
+### Long-term vision
 
 1. **game.js**: Fully migrated to ES6 GameEngine class
 2. **main.js**: Thin adapter layer over ES6 modules

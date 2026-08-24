@@ -1,17 +1,17 @@
-# Reinforcement Optimization Strategy
+# Reinforcement optimization strategy
 
-The reinforcement optimization strategy focuses on making the most effective use of reinforcement dice granted at the end of each turn. Strategic allocation of these dice can significantly impact your game position.
+Get the most out of the reinforcement dice granted at the end of each turn. Where those dice land shapes both your next defense and your next attack.
 
-## Core Concept
+## Core concept
 
-In Dice Wars, players receive reinforcement dice based on their largest connected territory. This strategy involves:
+Players receive reinforcement dice based on their largest connected territory. This strategy involves:
 
 1. Understanding how reinforcements are calculated
-2. Identifying the most strategically valuable territories for reinforcement
-3. Using reinforcement anticipation in attack planning
-4. Possibly foregoing attacks to preserve advantageous reinforcement positions
+2. Identifying the territories where reinforcements matter most
+3. Factoring reinforcement changes into attack planning
+4. Sometimes skipping an attack to preserve a strong reinforcement position
 
-## Game Mechanics for Reinforcements
+## Game mechanics for reinforcements
 
 ```javascript
 // In the game engine, reinforcements are based on the largest connected territory
@@ -23,9 +23,9 @@ set_area_tc(pn) {
 
 Players receive reinforcement dice proportional to the size of their largest connected territory group.
 
-## Implementation Approach
+## Implementation approach
 
-### 1. Reinforcement Prediction
+### 1. Reinforcement prediction
 
 ```javascript
 function predictReinforcements(game, player) {
@@ -43,9 +43,9 @@ function predictReinforcements(game, player) {
 }
 ```
 
-### 2. Strategic Territory Identification
+### 2. Strategic territory identification
 
-Identify territories that would benefit most from reinforcements:
+Identify the territories that would benefit most from reinforcements:
 
 ```javascript
 function identifyReinforcementCandidates(game, area_info) {
@@ -122,7 +122,7 @@ function hasStrongAttackPotential(game, territory) {
 }
 ```
 
-### 3. Attack Planning with Reinforcement Consideration
+### 3. Attack planning with reinforcement impact
 
 ```javascript
 function evaluateAttackWithReinforcementImpact(game, from, to) {
@@ -163,7 +163,7 @@ function evaluateAttackWithReinforcementImpact(game, from, to) {
 }
 ```
 
-### 4. Deployment Optimization
+### 4. Deployment planning
 
 ```javascript
 function optimizeReinforcementDeployment(game, reinforcementAmount) {
@@ -230,11 +230,11 @@ function isValuableTarget(game, territory) {
 }
 ```
 
-## Strategic Considerations
+## Strategic considerations
 
-### 1. Reinforcement vs. Immediate Attack
+### 1. Reinforcement vs. immediate attack
 
-Sometimes it's better to forego an attack to maintain a stronger reinforcement position:
+Sometimes it's better to skip an attack and keep a stronger reinforcement position:
 
 ```javascript
 function shouldForgoAttackForReinforcements(game, from, to) {
@@ -252,9 +252,9 @@ function shouldForgoAttackForReinforcements(game, from, to) {
 }
 ```
 
-### 2. Territory Consolidation
+### 2. Territory consolidation
 
-Sometimes expanding your largest connected territory is more valuable than making tactically successful attacks:
+Expanding your largest connected group can be worth more than a tactically safe capture elsewhere:
 
 ```javascript
 function findConsolidationAttacks(game) {
@@ -305,20 +305,18 @@ function findConsolidationAttacks(game) {
 }
 ```
 
-## When to Use
+## When to use
 
-Reinforcement optimization is most effective:
-
-1. In the mid to late game when territory patterns are established
+1. In the mid to late game, once territory patterns are established
 2. When your territories are fragmented and need consolidation
-3. When facing multiple opponents and needing to efficiently allocate resources
+3. When facing multiple opponents and dice have to be rationed
 4. When planning multi-turn strategies
 
-## Combining with Other Strategies
+## Combining with other strategies
 
 Reinforcement optimization works well with:
 
-1. **Territory connections** - Directly influences reinforcement calculation
-2. **Border security** - Helps determine where reinforcements are most needed
-3. **Choke point control** - Identifies critical territories for reinforcement
-4. **Player ranking** - Adjusts reinforcement priorities based on threat assessment
+1. **Territory connections** - The largest connected group is what sets your reinforcement count
+2. **Border security** - Tells you which borders need the dice most
+3. **Choke point control** - Flags the territories worth keeping topped up
+4. **Player ranking** - Shifts reinforcement priorities toward the biggest threat

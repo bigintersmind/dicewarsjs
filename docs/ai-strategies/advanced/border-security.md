@@ -217,7 +217,7 @@ function findBorderImprovingAttacks(game, area_info) {
 ## When to use
 
 1. In the middle and late stages of the game
-2. When you have real territory to protect
+2. When you have strategic territory to protect
 3. When facing multiple opponents
 4. When you want to play defensively without giving up attacking entirely
 

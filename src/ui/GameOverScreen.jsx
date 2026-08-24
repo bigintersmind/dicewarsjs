@@ -87,6 +87,8 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
   const playerNames = useGameStore(store, s => s.playerNames);
 
   const battleRef = useRef(null);
+  const rulesOpen = useGameStore(store, s => s.rulesOpen);
+  const focusClaimed = useRef(false);
 
   /*
    * Move focus to BATTLE when this screen mounts: the game ends on its own, so
@@ -97,19 +99,26 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
    * player. Mouse users see no ring — :focus-visible only lights up after
    * keyboard input.
    *
-   * Stands down while the "How to play" card is up: the card outlives the game
-   * ending behind it (triggerGameOver deliberately leaves `rulesOpen` alone),
-   * it layers above this screen and traps Tab inside itself, so pulling focus
-   * to BATTLE under the scrim would strand the keyboard outside the trap. The
-   * card hands focus to a live control — this BATTLE — when it closes.
+   * Waits out the "How to play" card: the card outlives the game ending behind
+   * it (triggerGameOver deliberately leaves `rulesOpen` alone), it layers above
+   * this screen and traps Tab inside itself, so pulling focus to BATTLE under
+   * the scrim would strand the keyboard outside the trap. So the claim is made
+   * exactly once — at mount if the card is down, otherwise the moment it
+   * closes — and never again: a card opened later from this screen's own
+   * HOW TO PLAY hands focus back to that button on close, not here. On the
+   * deferred close, RulesModal's own restore runs first (it is the earlier
+   * sibling in App, so its cleanup precedes this effect in the same flush) and,
+   * with the HUD's RULES opener gone, aims at the first button still on
+   * screen — the settings die; this effect then carries focus on to BATTLE.
    *
    * Above the `!gameState` early return, so the hook order stays fixed whether
    * or not there is a terminal state to show.
    */
   useEffect(() => {
-    if (store.getState().rulesOpen) return;
+    if (rulesOpen || focusClaimed.current) return;
+    focusClaimed.current = true;
     battleRef.current?.focus({ preventScroll: true });
-  }, []);
+  }, [rulesOpen]);
 
   if (!gameState) return null;
 

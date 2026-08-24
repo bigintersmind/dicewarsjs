@@ -273,10 +273,14 @@ export function MenuScreen({ title, children, focusTitleOnMount = false }) {
    * here would run after TopNav's effect and steal focus straight back off the
    * tab — a #188 regression. Leave it off for anything with a rail.
    *
-   * tabIndex={-1} is unconditional and harmless: it makes the h1 focusable
-   * programmatically without putting it in the tab order, and every focus rule
-   * in the app is :focus-visible (CHROME_CSS), which programmatic focus does
-   * not trigger — so no stray ring, and no `outline: none` needed.
+   * tabIndex={-1} is unconditional: it makes the h1 focusable programmatically
+   * without putting it in the tab order. The headline has no focus rule of its
+   * own and the shared chrome styles only ever use :focus-visible (CHROME_CSS),
+   * which programmatic focus does not trigger — so no stray ring, and no
+   * `outline: none` needed. Its one side effect is silent: Chrome and Safari
+   * focus a tabindex="-1" element on mousedown, so a click on the headline
+   * moves focus there (still no ring) and the next Tab picks up from the
+   * screen's first control instead of wherever focus was.
    */
   useEffect(() => {
     if (focusTitleOnMount) titleRef.current?.focus({ preventScroll: true });

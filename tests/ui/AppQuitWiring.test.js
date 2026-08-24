@@ -94,4 +94,29 @@ describe('App playing-screen quit wiring', () => {
     expect(controller.closeQuitConfirm).toHaveBeenCalledTimes(1);
     expect(controller.goToTitle).not.toHaveBeenCalled();
   });
+
+  /*
+   * #189: the one route to the title where two focus mechanisms meet.
+   * QuitConfirm hands focus back to its opener as it unmounts, and TitleScreen
+   * claims START as it mounts; the opener — the HUD's QUIT — is torn down with
+   * the board, so START is where the keyboard has to end up.
+   */
+  it('lands focus on START after QUIT in the dialog', () => {
+    const { store, controller } = renderPlaying();
+    controller.openQuitConfirm.mockImplementation(() => store.setState({ quitConfirmOpen: true }));
+    controller.goToTitle.mockImplementation(() =>
+      store.setState({ screen: 'title', gameState: null, quitConfirmOpen: false })
+    );
+
+    // Opened from the HUD control by keyboard, so the dialog has a real opener to restore to.
+    quitBtn().focus();
+    act(() => quitBtn().click());
+    expect(dialogBtn('QUIT')).toBeTruthy();
+
+    act(() => dialogBtn('QUIT').click());
+
+    const start = [...container.querySelectorAll('button')].find(b => b.textContent === 'START');
+    expect(start).toBeTruthy();
+    expect(document.activeElement).toBe(start);
+  });
 });

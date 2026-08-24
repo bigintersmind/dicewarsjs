@@ -180,9 +180,13 @@ describe('TitleScreen', () => {
     });
   });
 
-  it('renders an error banner when error prop is set', () => {
+  // An alert, not just a div: the mount focus (#189) lands on START below the
+  // banner, so the message has to announce itself rather than wait to be found.
+  it('renders an error banner, as an alert, when error prop is set', () => {
     renderTitle({ error: 'Map generation failed' });
-    expect(container.textContent).toContain('Map generation failed');
+    const banner = container.querySelector('[role="alert"]');
+    expect(banner).toBeTruthy();
+    expect(banner.textContent).toContain('Map generation failed');
   });
 
   describe('per-slot bot picker', () => {
@@ -931,7 +935,9 @@ describe('TitleScreen', () => {
       expect(document.activeElement).toBe(easy);
 
       act(() => easy.click());
-      expect(document.activeElement).not.toBe(startBtn());
+      // The click really changed the lineup (Standard is the default), so this
+      // re-render is one a badly-keyed effect could misfire on — not a no-op.
+      expect(modeBtn('Easy').getAttribute('aria-pressed')).toBe('true');
       expect(document.activeElement).toBe(modeBtn('Easy'));
     });
   });

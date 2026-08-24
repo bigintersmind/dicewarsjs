@@ -404,14 +404,16 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
    * Move focus to START when this screen mounts. Everything that leads back
    * here unmounts the control the player just activated, so focus would
    * otherwise drop to <body> and the next Tab would restart from the top of
-   * the document — this one effect covers all four routes in: map preview's
-   * ← BACK (and its Escape twin), game over's BATTLE, quit-to-title (the
-   * QuitConfirm restore correctly declines, since its isConnected guard sees
-   * the HUD button is gone with the game), and the rail's Battle tab (since
-   * #182 the title carries no rail, so TopNav — and the tab that was focused —
-   * unmounts on that hop). On a cold load it also makes "press Enter to start"
-   * work without reaching for the mouse first. Mouse users see no ring:
-   * :focus-visible only lights up after keyboard input.
+   * the document — this one effect covers every route in: map preview's
+   * ← BACK (and its Escape twin), game over's BATTLE, quit-to-title
+   * (QuitConfirm's own restore runs first, during the board's teardown, and
+   * aims at a HUD QUIT button that is on its way out with it; this effect runs
+   * after, on the deferred effect pass, so START wins), the rail's Battle tab
+   * (since #182 the title carries no rail, so TopNav — and the tab that was
+   * focused — unmounts on that hop), and the replay viewer's ← BACK when the
+   * replay was opened from a hub screen. On a cold load it also makes "press
+   * Enter to start" work without reaching for the mouse first. Mouse users see
+   * no ring: :focus-visible only lights up after keyboard input.
    *
    * Mount only. No setup interaction — preset clicks, the luck rungs, the
    * per-slot pickers — remounts TitleScreen, so focus is never yanked back to
@@ -494,7 +496,16 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
 
       <TitleWordmark className={animate ? 'dw-anim-rise' : ''} style={STYLE.wordmark} />
 
-      {error && <div style={STYLE.errorBanner}>{error}</div>}
+      {/*
+       * role="alert": the mount effect parks focus on START, below this
+       * banner, so a screen reader has to be told about the message rather
+       * than left to find it on the way up.
+       */}
+      {error && (
+        <div role="alert" style={STYLE.errorBanner}>
+          {error}
+        </div>
+      )}
 
       <div className="dw-hero" style={STYLE.hero}>
         <TitleLogo className={animate ? 'dw-anim-pop' : ''} style={STYLE.logo} />

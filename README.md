@@ -68,7 +68,7 @@ npm run arena -- --games 50              # 50 games
 npm run arena -- --bots Default,Adaptive # specific bots
 ```
 
-To enter the **daily online tournament** with ELO rankings, submit your bot via GitHub. See [Submitting Your Bot](docs/BOT_GUIDE.md#submitting-your-bot).
+To enter the **daily online tournament** with ELO rankings, submit your bot via GitHub. See [Submitting your bot](docs/BOT_GUIDE.md#submitting-your-bot).
 
 ## Available scripts
 
@@ -126,7 +126,7 @@ See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.
 
 > Players face a difficulty ladder (#167). **Easy** is led by Basic and Defensive (Basic is the `ai_example` stub). **Standard**, the default, puts the original game's AI in every seat. **Hard** is led by the self-play personas, the strongest roster. **Custom** lets you pick any bot per seat. The competitive surfaces (Arena, Tournament, the online leaderboard) keep a curated 7-bot roster, strongest first: Conqueror, Blitz, Survivor, Lookahead, Strategist, Adaptive, Default. Basic and Defensive appear only in the game-setup picker, Expectimax stays dev-only, and all three remain reachable by name from the CLI (`--bots`).
 >
-> Custom also offers a luck setting for your seat (#179): **Normal** (fair dice), **Lucky**, or **Very lucky**. On the lucky rungs your seat rolls one or two extra dice and drops that many of the lowest, both attacking and defending. The Easy/Standard/Hard presets always mean fair dice, and picking one puts the rung back to Normal. To keep the Hard opponents and still win, pick **Hard**, then **Custom** (which keeps the Hard lineup), then a luck rung. The kept dice are the ones the animation shows, ties still go to the defender, and the setting is recorded in the replay. It is always off for AI-vs-AI games and on every competitive surface. See [docs/GAME_RULES.md](docs/GAME_RULES.md#luck-handicap-advantage-dice).
+> Custom also offers **Your luck** (#179), a dice setting for your seat: **Normal** (fair dice), **Lucky**, or **Very lucky**. On the lucky rungs your seat rolls one or two extra dice and drops that many of the lowest, both attacking and defending. The Easy/Standard/Hard presets always mean fair dice, and picking one puts the rung back to Normal. To keep the Hard opponents and still win, pick **Hard**, then **Custom** (which keeps the Hard lineup), then a luck rung. The kept dice are the ones the animation shows, ties still go to the defender, and the setting is recorded in the replay. It is always off for AI-vs-AI games and on every competitive surface. See [docs/GAME_RULES.md](docs/GAME_RULES.md#luck-handicap-advantage-dice).
 >
 > **Strategist** and **Lookahead** are the strongest _heuristic_ built-in bots, each authored by an AI coding assistant: Strategist by Claude Opus 4.8 and Lookahead by GPT-5.5. The names describe their technique (expected-value scoring vs. shallow search) rather than the tool that wrote them.
 >

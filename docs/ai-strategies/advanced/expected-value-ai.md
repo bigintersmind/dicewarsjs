@@ -64,7 +64,7 @@ captures by their effect on _income_, not on the territory tally:
   resulting jump in your largest-group size.
 - **Cutting the enemy's largest group.** Capturing an enemy articulation point
   (a [choke point](./choke-point-control.md)) can split their group in two,
-  lowering their reinforcement income. The bot credits the move with
+  permanently lowering their reinforcement income. The bot credits the move with
   the drop in _their_ largest-group size.
 - **Chokepoint awareness on defense.** Leaving the attacking cell at 1 die is
   charged as exposure, and, if that cell is one of _your_ articulation

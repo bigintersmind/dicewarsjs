@@ -25,7 +25,7 @@ npm install
 
 [ESLint](https://eslint.org/) checks code quality. The configuration:
 
-- Extends the `airbnb-base` style guide
+- Based on `airbnb-base` style guide
 - Includes plugins for import, Jest, and Prettier
 - Allows ES6+ features (optional chaining, nullish coalescing, etc.)
 - Adds custom rules where game code needs them

@@ -1930,7 +1930,7 @@ describe('GameController', () => {
       await controller.endHumanTurn();
 
       expect(store.getState().screen).toBe('gameOver');
-      // ReplayViewer's header line joins these ("You vs Conqueror vs Blitz — … — Winner: …").
+      // ReplayViewer's header line joins these ("You vs Conqueror vs Blitz · … · Winner: …").
       expect(store.getState().currentReplay.metadata.bots).toEqual(['You', 'Conqueror', 'Blitz']);
     });
 

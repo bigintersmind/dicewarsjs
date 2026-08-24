@@ -49,7 +49,7 @@ This logic avoids risky attacks when the AI already has a substantial connected 
 
 ## Why connections matter
 
-A larger connected group means more reinforcement dice every turn, and those reinforcements land where the group needs defending. Losing a link that splits your group in two cuts your income immediately, which is why opponents will aim for exactly those territories.
+A larger connected group earns more reinforcement dice every turn. Those dice are dropped at random across your territories, so a bigger income is what keeps your borders stocked. Losing a link that splits your group in two cuts your income immediately, which is why opponents will aim for exactly those territories.
 
 ## Implementation techniques
 

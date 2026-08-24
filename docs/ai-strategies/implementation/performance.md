@@ -107,7 +107,7 @@ function generateMoves(game, strategy, currentPlayer) {
 
 ### 3. Avoid deep copy operations
 
-Simulate on the live state and restore it, rather than deep-copying the whole game:
+When possible, avoid deep-copying the whole game state to simulate a move:
 
 ```javascript
 // AVOID: Creating expensive copies

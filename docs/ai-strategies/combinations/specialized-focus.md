@@ -505,7 +505,7 @@ function isLastTerritory(game, territory, player) {
 
 ## Implementation example: switching specialists
 
-You can also carry several specialists and activate one per game phase:
+You can also carry several specialists and activate one depending on the situation:
 
 ```javascript
 function ai_adaptive_specialist(game) {

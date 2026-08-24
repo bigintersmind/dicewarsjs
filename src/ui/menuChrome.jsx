@@ -254,12 +254,43 @@ export const MENU_STYLE = {
  * @param {Object} props
  * @param {string} props.title - Headline text (rendered in the wordmark bevel)
  * @param {import('preact').ComponentChildren} props.children
+ * @param {boolean} [props.focusTitleOnMount] - Take focus onto the headline
+ *   when the screen mounts. Opt-in; see the effect below for why it is off.
  */
-export function MenuScreen({ title, children }) {
+export function MenuScreen({ title, children, focusTitleOnMount = false }) {
+  const titleRef = useRef(null);
+
+  /*
+   * The route-change focus convention's generic fallback: a screen arrived at
+   * by activating a control that unmounted with the previous screen has to put
+   * focus somewhere, and a screen with no obvious primary control can land it
+   * on the headline instead — which also announces the destination.
+   *
+   * Opt-in, and off by default, because no current consumer wants it: Arena,
+   * Tournament and OnlineLeaderboard are all rail screens, and TopNav already
+   * focuses its aria-current tab on mount (#188). App renders the rail as an
+   * EARLIER sibling than the screen content, so an unconditional headline focus
+   * here would run after TopNav's effect and steal focus straight back off the
+   * tab — a #188 regression. Leave it off for anything with a rail.
+   *
+   * tabIndex={-1} is unconditional and harmless: it makes the h1 focusable
+   * programmatically without putting it in the tab order, and every focus rule
+   * in the app is :focus-visible (CHROME_CSS), which programmatic focus does
+   * not trigger — so no stray ring, and no `outline: none` needed.
+   */
+  useEffect(() => {
+    if (focusTitleOnMount) titleRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
     <div style={MENU_STYLE.container}>
       <style>{CHROME_CSS}</style>
-      <h1 className="dw-screen-title dw-anim-rise" style={MENU_STYLE.screenTitle}>
+      <h1
+        className="dw-screen-title dw-anim-rise"
+        style={MENU_STYLE.screenTitle}
+        ref={titleRef}
+        tabIndex={-1}
+      >
         {title}
       </h1>
       {children}

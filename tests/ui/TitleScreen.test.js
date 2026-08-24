@@ -909,6 +909,32 @@ describe('TitleScreen', () => {
       expect(rulesBtn()).toBeNull();
     });
   });
+
+  /*
+   * #189: every route back to the title unmounts the control the player just
+   * activated (map preview's BACK, game over's BATTLE, quit-to-title, the
+   * rail's Battle tab), so this screen has to pick focus back up or it drops
+   * to <body>.
+   */
+  describe('route-change focus (#189)', () => {
+    it('moves focus onto START when it mounts', () => {
+      renderTitle();
+      expect(document.activeElement).toBe(startBtn());
+    });
+
+    // Mount only: setup happens entirely inside a mounted TitleScreen, so a
+    // preset click must not yank focus off the control the player is using.
+    it('leaves focus alone once the player is choosing a setup', () => {
+      renderTitle();
+      const easy = modeBtn('Easy');
+      easy.focus();
+      expect(document.activeElement).toBe(easy);
+
+      act(() => easy.click());
+      expect(document.activeElement).not.toBe(startBtn());
+      expect(document.activeElement).toBe(modeBtn('Easy'));
+    });
+  });
 });
 
 describe('player color palettes', () => {

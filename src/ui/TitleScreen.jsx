@@ -25,7 +25,7 @@
  * @module ui/TitleScreen
  */
 
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import {
   DEFAULT_MAP_SIZE,
   DEFAULT_LUCK,
@@ -398,6 +398,29 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
     (store.getState().config.aiAssignments ?? []).slice()
   );
 
+  const startRef = useRef(null);
+
+  /*
+   * Move focus to START when this screen mounts. Everything that leads back
+   * here unmounts the control the player just activated, so focus would
+   * otherwise drop to <body> and the next Tab would restart from the top of
+   * the document — this one effect covers all four routes in: map preview's
+   * ← BACK (and its Escape twin), game over's BATTLE, quit-to-title (the
+   * QuitConfirm restore correctly declines, since its isConnected guard sees
+   * the HUD button is gone with the game), and the rail's Battle tab (since
+   * #182 the title carries no rail, so TopNav — and the tab that was focused —
+   * unmounts on that hop). On a cold load it also makes "press Enter to start"
+   * work without reaching for the mouse first. Mouse users see no ring:
+   * :focus-visible only lights up after keyboard input.
+   *
+   * Mount only. No setup interaction — preset clicks, the luck rungs, the
+   * per-slot pickers — remounts TitleScreen, so focus is never yanked back to
+   * START from a control the player deliberately moved to.
+   */
+  useEffect(() => {
+    startRef.current?.focus({ preventScroll: true });
+  }, []);
+
   /*
    * A preset click replaces the whole lineup with the mode's and puts the dice
    * back to Normal — discarding any hand edits, so a preset's label is the
@@ -665,7 +688,12 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
               Pick your players, map and difficulty, then START.
             </div>
             <div className="dw-rows" style={STYLE.buttonRow}>
-              <button className="dw-btn" style={MENU_STYLE.heroBtn} onClick={handleStart}>
+              <button
+                className="dw-btn"
+                style={MENU_STYLE.heroBtn}
+                onClick={handleStart}
+                ref={startRef}
+              >
                 START
               </button>
               {/* The label alone doesn't say what it does, and `title` is

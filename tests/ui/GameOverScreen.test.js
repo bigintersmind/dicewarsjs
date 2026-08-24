@@ -23,6 +23,7 @@ function renderGameOver(overrides = {}) {
     humanEliminated: overrides.humanEliminated ?? false,
     gameOverReason: overrides.gameOverReason ?? null,
     playerNames: overrides.playerNames ?? ['You', 'Blitz', 'Conqueror'],
+    rulesOpen: overrides.rulesOpen ?? false,
   });
 
   const onTitle = overrides.onTitle ?? vi.fn();
@@ -129,5 +130,25 @@ describe('GameOverScreen', () => {
       renderGameOver({ gameState: { winner: 2 } });
       expect(rulesBtn()).toBeNull();
     });
+  });
+
+  // #189: the game ends on its own, so focus is on the canvas or nowhere —
+  // this screen has to take it, and BATTLE is its primary action.
+  it('moves focus onto BATTLE when it mounts', () => {
+    renderGameOver({ gameState: { winner: 2 } });
+    const battle = [...container.querySelectorAll('button')].find(b => b.textContent === 'BATTLE');
+    expect(document.activeElement).toBe(battle);
+  });
+
+  // The "How to play" card survives the game ending behind it and owns focus
+  // while it is up; mounting under its scrim must not pull focus out of it.
+  it('leaves focus alone when it mounts behind an open rules card', () => {
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    anchor.focus();
+
+    renderGameOver({ gameState: { winner: 2 }, rulesOpen: true });
+    expect(document.activeElement).toBe(anchor);
+    anchor.remove();
   });
 });

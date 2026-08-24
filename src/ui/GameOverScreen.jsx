@@ -7,6 +7,7 @@
  * @module ui/GameOverScreen
  */
 
+import { useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 import { playerName } from '../store/GameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
@@ -84,6 +85,32 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
   const humanEliminated = useGameStore(store, s => s.humanEliminated);
   const gameOverReason = useGameStore(store, s => s.gameOverReason);
   const playerNames = useGameStore(store, s => s.playerNames);
+
+  const battleRef = useRef(null);
+
+  /*
+   * Move focus to BATTLE when this screen mounts: the game ends on its own, so
+   * focus is sitting on the canvas or nowhere at all, and BATTLE is the primary
+   * action here — the way on to the next game. It fires again on the way back
+   * from the HISTORY replay viewer (goBackFromReplay remounts this screen),
+   * which is what you want: the viewer's ← BACK just unmounted underneath the
+   * player. Mouse users see no ring — :focus-visible only lights up after
+   * keyboard input.
+   *
+   * Stands down while the "How to play" card is up: the card outlives the game
+   * ending behind it (triggerGameOver deliberately leaves `rulesOpen` alone),
+   * it layers above this screen and traps Tab inside itself, so pulling focus
+   * to BATTLE under the scrim would strand the keyboard outside the trap. The
+   * card hands focus to a live control — this BATTLE — when it closes.
+   *
+   * Above the `!gameState` early return, so the hook order stays fixed whether
+   * or not there is a terminal state to show.
+   */
+  useEffect(() => {
+    if (store.getState().rulesOpen) return;
+    battleRef.current?.focus({ preventScroll: true });
+  }, []);
+
   if (!gameState) return null;
 
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
@@ -119,7 +146,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
         </p>
       )}
       <div style={STYLE.buttonRow}>
-        <button style={STYLE.btn} onClick={onTitle}>
+        <button style={STYLE.btn} onClick={onTitle} ref={battleRef}>
           BATTLE
         </button>
         {onHistory && (

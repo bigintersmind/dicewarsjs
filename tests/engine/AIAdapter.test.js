@@ -214,15 +214,17 @@ describe('runFullAITurn', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const state = createTestState();
 
-    const invalidMoveAI = game => {
+    const invalidMoveAI = vi.fn(game => {
       game.area_from = 999;
       game.area_to = 998;
-    };
+    });
 
     const newState = runFullAITurn(state, invalidMoveAI);
 
-    // Should have ended the turn (not crashed)
+    // One invalid move ends the turn: the AI is not asked again, no throw.
+    expect(invalidMoveAI).toHaveBeenCalledTimes(1);
     expect(newState.currentPlayerIndex).not.toBe(state.currentPlayerIndex);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('invalid move'));
     warnSpy.mockRestore();
   });

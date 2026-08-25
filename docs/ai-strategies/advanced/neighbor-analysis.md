@@ -13,49 +13,60 @@ For each territory, work out:
 
 ## Implementation from ai_defensive.js
 
+`analyzeTerritory` is a closure inside `ai_defensive`, so it reads `game` from the enclosing scope:
+
 ```javascript
-function area_get_info(area_id) {
-  let friendly_neighbors = 0;
-  let unfriendly_neighbors = 0;
-  let highest_friendly_neighbor_dice = 0;
-  let highest_unfriendly_neighbor_dice = 0;
-  let second_highest_unfriendly_neighbor_dice = 0;
-  let num_neighbors = 0;
-
-  for (let i = 0; i < game.AREA_MAX; i++) {
-    if (i == area_id) continue;
-
-    // Skip non-adjacent territories
-    if (!game.adat[area_id].join[i]) continue;
-
-    const num_dice = game.adat[i].dice;
-
-    if (game.adat[area_id].arm == game.adat[i].arm) {
-      friendly_neighbors += 1;
-      // Track highest dice count among friendly neighbors
-      if (highest_friendly_neighbor_dice < num_dice) highest_friendly_neighbor_dice = num_dice;
-    } else {
-      unfriendly_neighbors += 1;
-      // Track highest and second highest dice counts among enemy neighbors
-      if (highest_unfriendly_neighbor_dice < num_dice) {
-        second_highest_unfriendly_neighbor_dice = highest_unfriendly_neighbor_dice;
-        highest_unfriendly_neighbor_dice = num_dice;
-      } else if (second_highest_unfriendly_neighbor_dice < num_dice)
-        second_highest_unfriendly_neighbor_dice = num_dice;
-    }
-  }
-
-  num_neighbors = friendly_neighbors + unfriendly_neighbors;
-
-  return {
-    friendly_neighbors,
-    unfriendly_neighbors,
-    highest_friendly_neighbor_dice,
-    highest_unfriendly_neighbor_dice,
-    second_highest_unfriendly_neighbor_dice,
-    num_neighbors,
+const analyzeTerritory = area_id => {
+  // Initialize neighbor data with default values
+  const neighborData = {
+    friendly_neighbors: 0,
+    unfriendly_neighbors: 0,
+    highest_friendly_neighbor_dice: 0,
+    highest_unfriendly_neighbor_dice: 0,
+    second_highest_unfriendly_neighbor_dice: 0,
+    num_neighbors: 0,
   };
-}
+
+  // Get the current area's data
+  const currentArea = game.adat[area_id];
+
+  // Create array of adjacent territories
+  const adjacentTerritories = [...Array(game.AREA_MAX).keys()].filter(
+    i => i !== area_id && currentArea.join[i]
+  );
+
+  // Process each adjacent territory
+  adjacentTerritories.forEach(i => {
+    const { arm: owner, dice: num_dice } = game.adat[i];
+    const isFriendly = currentArea.arm === owner;
+
+    if (isFriendly) {
+      // Update friendly neighbor data
+      neighborData.friendly_neighbors += 1;
+      neighborData.highest_friendly_neighbor_dice = Math.max(
+        neighborData.highest_friendly_neighbor_dice,
+        num_dice
+      );
+    } else {
+      // Update unfriendly neighbor data
+      neighborData.unfriendly_neighbors += 1;
+
+      // Update highest and second highest dice counts
+      if (neighborData.highest_unfriendly_neighbor_dice < num_dice) {
+        neighborData.second_highest_unfriendly_neighbor_dice =
+          neighborData.highest_unfriendly_neighbor_dice;
+        neighborData.highest_unfriendly_neighbor_dice = num_dice;
+      } else if (neighborData.second_highest_unfriendly_neighbor_dice < num_dice) {
+        neighborData.second_highest_unfriendly_neighbor_dice = num_dice;
+      }
+    }
+  });
+
+  // Calculate total neighbors
+  neighborData.num_neighbors = neighborData.friendly_neighbors + neighborData.unfriendly_neighbors;
+
+  return neighborData;
+};
 ```
 
 ## Strategic applications
@@ -63,40 +74,62 @@ function area_get_info(area_id) {
 ### 1. Vulnerability assessment
 
 ```javascript
+const attackerArea = adat[attacker];
+
 // Skip if winning would leave territory vulnerable to counter-attack
-if (area_info[i].highest_friendly_neighbor_dice > game.adat[j].dice) continue;
+if (area_info[defender].highest_friendly_neighbor_dice > attackerArea.dice) return false;
 ```
 
-This code skips an attack if the friendly neighbor with the highest dice count could counterattack and take the territory after we capture it.
+Inside `isValidAttack(defender, attacker)`, this check rejects an attack when the target's strongest ally has more dice than the attacking territory, because that neighbor could retake the territory right after the capture.
 
 ### 2. Defensive priority
 
 ```javascript
 // Skip if we have a large territory to protect and no reinforcements
-if (game.player[pn].area_tc > 4
-    && area_info[j].second_highest_unfriendly_neighbor_dice > 2
-    && game.player[pn].stock == 0) continue;
+if (
+  player[pn].area_tc > 4 &&
+  area_info[attacker].second_highest_unfriendly_neighbor_dice > 2 &&
+  player[pn].stock === 0
+)
+  return false;
 ```
 
 This logic avoids attacking from a territory that might be needed for defense, especially when you have a large connected territory and no reinforcement dice in reserve.
 
 ### 3. Prioritizing safe attacks
 
+`getBetterAttack` compares two candidate attacks by the territory each would attack from:
+
 ```javascript
-// Prioritize attacks from territories with only one enemy neighbor
-if (area_info[game.area_from].unfriendly_neighbors == 1) {
-    if (area_info[j].unfriendly_neighbors == 1) {
-        // If both have one enemy neighbor, prefer larger dice count
-        if (game.adat[j].dice < game.adat[game.area_from].dice) continue;
-        else if (game.adat[j].dice == game.adat[game.area_from].dice)
-            // If equal dice, prefer less connected territory
-            if (area_info[j].num_neighbors < area_info[game.area_from].num_neighbors)
-                continue;
-    } else continue; // Let the territory with one enemy neighbor attack first
-}
+const getBetterAttack = (attack1, attack2) => {
+  // If first attack is not set, use the second
+  if (attack1.from === -1) return attack2;
+
+  const fromTerritory1 = attack1.from;
+  const fromTerritory2 = attack2.from;
+
+  // Prioritize attacks from territories with only one enemy neighbor
+  if (area_info[fromTerritory1].unfriendly_neighbors === 1) {
+    if (area_info[fromTerritory2].unfriendly_neighbors === 1) {
+      // If both have one enemy neighbor, prefer larger dice count
+      if (adat[fromTerritory2].dice < adat[fromTerritory1].dice) {
+        return attack1;
+      } else if (adat[fromTerritory2].dice === adat[fromTerritory1].dice) {
+        // If equal dice, prefer less connected territory
+        if (area_info[fromTerritory2].num_neighbors < area_info[fromTerritory1].num_neighbors) {
+          return attack1;
+        }
+      }
+    } else {
+      return attack1; // Keep the territory with one enemy neighbor
+    }
+  }
+
+  return attack2; // Default to new attack
+};
 ```
 
-This prioritizes attacks from territories with only one enemy neighbor, since they stay less exposed after the attack. If multiple territories qualify, it selects based on dice count and connectivity.
+It keeps the attack whose origin has only one enemy neighbor, since that territory stays less exposed after the attack. When both qualify, it prefers the larger stack, then the less connected territory.
 
 ## Implementation techniques
 
@@ -104,7 +137,7 @@ This prioritizes attacks from territories with only one enemy neighbor, since th
 
 ```javascript
 // Pre-compute neighbor information for all territories to avoid redundant calculations
-const area_info = [...Array(game.AREA_MAX).keys()].map(area_get_info);
+const area_info = [...Array(game.AREA_MAX).keys()].map(analyzeTerritory);
 ```
 
 Calculating neighbor information for all territories once per turn avoids repeating the same scans inside the move loop.
@@ -114,11 +147,13 @@ Calculating neighbor information for all territories once per turn avoids repeat
 The defensive AI tracks the highest enemy dice count and also the second highest:
 
 ```javascript
-if (highest_unfriendly_neighbor_dice < num_dice) {
-  second_highest_unfriendly_neighbor_dice = highest_unfriendly_neighbor_dice;
-  highest_unfriendly_neighbor_dice = num_dice;
-} else if (second_highest_unfriendly_neighbor_dice < num_dice)
-  second_highest_unfriendly_neighbor_dice = num_dice;
+if (neighborData.highest_unfriendly_neighbor_dice < num_dice) {
+  neighborData.second_highest_unfriendly_neighbor_dice =
+    neighborData.highest_unfriendly_neighbor_dice;
+  neighborData.highest_unfriendly_neighbor_dice = num_dice;
+} else if (neighborData.second_highest_unfriendly_neighbor_dice < num_dice) {
+  neighborData.second_highest_unfriendly_neighbor_dice = num_dice;
+}
 ```
 
 The distinction matters: a territory facing one strong enemy is in a different position from one facing two, because the second stack can still attack after the first one commits.

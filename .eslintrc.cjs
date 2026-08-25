@@ -124,9 +124,10 @@ module.exports = {
     'dist/',
     'node_modules/',
     'coverage/',
-    // Generated model weights (compact single-line array dump; do not lint/format)
-    'src/ai/bcPolicyWeights.js',
-    'src/ai/ppoPolicyWeights.js',
+    // Generated model weights (compact single-line dump from export_weights.py; do not lint).
+    // The glob also catches unpackPolicyWeights.js, the hand-written decoder, so exempt it.
+    'src/ai/*PolicyWeights.js',
+    '!src/ai/unpackPolicyWeights.js',
 
     // Config files
     '.prettierrc.cjs',

@@ -47,7 +47,7 @@ npm install
 
 **No `max-len`, on purpose.** Prettier owns line width through `printWidth`. An ESLint `max-len` would only fire on the lines Prettier cannot break, is not auto-fixable, and would block commits over a rare long expression. Prettier does not reflow comments or string contents, so a long comment passes both tools. Do not hand-wrap comments to hit 100 columns, because nothing enforces it.
 
-**Not linted.** `ignorePatterns` in `.eslintrc.cjs` covers `dist/`, `node_modules/`, `coverage/`, `.prettierrc.cjs`, `tests/setup.js`, `.github/workflows/*.yml`, the generated weight modules `src/ai/bcPolicyWeights.js` and `src/ai/ppoPolicyWeights.js`, and `bots/` plus `community-bots/`, whose files are bare function bodies with a top-level `return` rather than ES modules. There is no `.eslintignore`.
+**Not linted.** `ignorePatterns` in `.eslintrc.cjs` covers `dist/`, `node_modules/`, `coverage/`, `.prettierrc.cjs`, `tests/setup.js`, `.github/workflows/*.yml`, the generated weight modules `src/ai/*PolicyWeights.js`, and `bots/` plus `community-bots/`, whose files are bare function bodies with a top-level `return` rather than ES modules. A negation, `!src/ai/unpackPolicyWeights.js`, keeps the hand-written decoder linted, since the glob would otherwise swallow it. There is no `.eslintignore`.
 
 ## Prettier configuration
 
@@ -63,7 +63,7 @@ npm install
 - No parentheses around a single arrow-function parameter
 - LF line endings, and prose left exactly as written
 
-`.prettierignore` keeps Prettier away from build output (`dist/`, `coverage/`), `package.json` and its lockfile, minified files, `src/utils/config.js`, the generated weight modules `src/ai/bcPolicyWeights.js`, `src/ai/ppoPolicyWeights.js`, and `src/ai/conquerorPolicyWeights.js` along with their parity fixtures in `tests/fixtures/bc/`, and the Python subproject `/ml/`, which has its own tooling. Both ignore lists name the weight modules one by one, so a newly exported one has to be added by hand.
+`.prettierignore` keeps Prettier away from build output (`dist/`, `coverage/`), `package.json` and its lockfile, minified files, the generated weight modules `src/ai/*PolicyWeights.js` along with their parity fixtures in `tests/fixtures/bc/`, and the Python subproject `/ml/`, which has its own tooling. It carries the same `!src/ai/unpackPolicyWeights.js` negation as the ESLint list. Both lists match the weight modules by glob, so a newly exported `*PolicyWeights.js` is covered without a hand edit.
 
 ## Using the tools
 

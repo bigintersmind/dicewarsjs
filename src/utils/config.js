@@ -47,7 +47,9 @@ export function resolveMapSize(size) {
      * Guarded by `import.meta.env?.DEV` so production builds stay silent and the
      * `?.` keeps it safe under plain Node (arena/CLI), where env is undefined.
      */
-    console.warn(`resolveMapSize: unknown map size "${size}", falling back to "${DEFAULT_MAP_SIZE}".`);
+    console.warn(
+      `resolveMapSize: unknown map size "${size}", falling back to "${DEFAULT_MAP_SIZE}".`
+    );
   }
   return preset ?? MAP_SIZE_PRESETS[DEFAULT_MAP_SIZE];
 }

@@ -17,7 +17,7 @@ The rules every strategy builds on:
 - **Territories and ownership**: The map is divided into territories, each owned by a player and containing 1-8 dice.
 - **Adjacency**: Territories can only attack adjacent territories.
 - **Attack mechanics**: When attacking, all dice from both territories are rolled. The higher total wins, with ties going to the defender.
-- **Reinforcements**: Players receive reinforcement dice at the end of their turn based on their largest connected territory group.
+- **Reinforcements**: Players receive reinforcement dice at the end of their turn equal to the size of their largest connected territory group. The dice are placed one at a time on randomly chosen territories of theirs that are below the 8-dice cap, so nobody chooses where reinforcements land.
 - **Goal**: Eliminate all opponents by capturing all their territories.
 
 ## Basic strategies

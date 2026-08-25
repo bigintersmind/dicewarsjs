@@ -15,19 +15,23 @@ if (defending_area.dice >= attacking_area.dice) continue;
 
 ## Probability analysis
 
-The probability of winning a battle depends on the difference in dice:
+Both sides roll every die and compare the sums, and the defender wins ties. Exact win probabilities for a one-die lead:
 
-| Attacker Dice | Defender Dice | Win Probability |
+| Attacker dice | Defender dice | Win probability |
 | ------------- | ------------- | --------------- |
-| 2             | 1             | ~75%            |
-| 3             | 2             | ~66%            |
-| 4             | 3             | ~62%            |
-| 5             | 4             | ~60%            |
-| 6             | 5             | ~59%            |
-| 7             | 6             | ~58%            |
-| 8             | 7             | ~57%            |
+| 2             | 1             | 83.8%           |
+| 3             | 2             | 77.9%           |
+| 4             | 3             | 74.3%           |
+| 5             | 4             | 71.8%           |
+| 6             | 5             | 70.0%           |
+| 7             | 6             | 68.5%           |
+| 8             | 7             | 67.3%           |
 
-These are approximate values and assume fair dice.
+One extra die is worth most on small stacks. As both sides grow, the sums cluster tighter around their averages and a single die matters less: 2 vs 1 wins 83.8% of the time, 8 vs 7 only 67.3%.
+
+Equal dice never favor the attacker, because ties go to the defender. 2 vs 2 wins 44.4%, 3 vs 3 wins 45.4%, and 8 vs 8 wins 47.1%. The odds edge toward even as the stacks grow but never reach it.
+
+These figures come from `src/ai/diceOdds.js`, which builds the full table by convolving the d6 distributions at module load. Use `winProbability(attackerDice, defenderDice)` from there rather than hard-coding numbers.
 
 ## Example from ai_example.js
 

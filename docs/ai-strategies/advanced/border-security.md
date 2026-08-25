@@ -9,7 +9,7 @@ Every territory that touches an enemy is a border, and borders are where you los
 1. Identifying vulnerable border territories
 2. Avoiding attacks that would create new vulnerabilities
 3. Targeting the enemy territories that threaten your borders
-4. Strengthening border territories with reinforcements
+4. Growing the income that restocks those borders, since you cannot aim the dice yourself
 
 ## Implementation approach
 
@@ -94,49 +94,36 @@ if (area_info[game.area_from].unfriendly_neighbors == 1) {
 }
 ```
 
-### 3. Border reinforcement prioritization
+### 3. Choosing what to strip, not where to reinforce
+
+You cannot reinforce a border. At the end of your turn the engine grants dice equal to the size of your largest connected group and drops them one at a time on randomly chosen territories of yours that are below the 8-dice cap (`distributeReinforcements` in `src/engine/TurnManager.js`). A threatened border gets topped up only by luck, and a bigger connected group just buys more chances at it.
+
+What you do control is where dice leave from. A successful attack moves all but one of the attacker's dice onto the captured territory, and a failed one throws them away, so either way the attacking territory ends the move on 1 die. The border question is therefore which territory you are willing to empty:
 
 ```javascript
-function prioritizeBorderReinforcements(game, area_info) {
-  const candidates = [];
+// How much it costs to leave this territory on 1 die.
+// A high score means don't attack from here, even when the odds look fine.
+function stripCost(game, territory_id, area_info) {
+  // Nothing can reach it, so emptying it is free
+  if (area_info[territory_id].unfriendly_neighbors == 0) return 0;
 
-  // Consider all territories owned by current player
-  const player = game.get_pn();
-  for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
-    if (game.adat[i].arm != player) continue;
-    if (game.adat[i].dice >= 8) continue; // Already at max dice
+  // The strongest enemy neighbor is the one that walks in next turn
+  let cost = area_info[territory_id].highest_unfriendly_neighbor_dice;
 
-    // Check if it's a border territory
-    let isBorder = false;
-    for (let j = 1; j < game.AREA_MAX; j++) {
-      if (game.adat[j].size == 0) continue;
-      if (!game.adat[i].join[j]) continue;
-      if (game.adat[j].arm != player) {
-        isBorder = true;
-        break;
-      }
-    }
+  // More enemy neighbors, more chances that one of them tries
+  cost += area_info[territory_id].unfriendly_neighbors * 0.5;
 
-    if (isBorder) {
-      // Calculate priority based on threat and strategic value
-      const threat = assessBorderThreat(game, i, area_info);
-      const diceNeeded = Math.min(8 - game.adat[i].dice, game.player[player].stock);
+  // Friendly neighbors can take it back; an isolated territory cannot be helped
+  cost -= area_info[territory_id].friendly_neighbors * 0.5;
 
-      candidates.push({
-        territory: i,
-        priority: threat * diceNeeded, // Higher threat and more dice needed = higher priority
-        diceNeeded,
-      });
-    }
-  }
+  // A territory holding your group together costs income too, not just ground
+  if (area_info[territory_id].friendly_neighbors <= 1) cost += 2;
 
-  // Sort by priority (highest first)
-  candidates.sort((a, b) => b.priority - a.priority);
-
-  return candidates;
+  return Math.max(0, cost);
 }
 ```
+
+Feed that into move selection: rank attacks by what you gain minus what you expose, and drop the ones that empty a territory you cannot afford to lose.
 
 ### 4. Border expansion planning
 
@@ -227,5 +214,5 @@ Border security pairs well with:
 
 1. **Neighbor analysis** - Provides the data for border threat assessment
 2. **Territory connections** - Border losses are often what splits a connected group
-3. **Reinforcement optimization** - Sends reinforcements to the borders that need them
+3. **Reinforcement optimization** - Explains what actually sets your income and how each attack changes it
 4. **Choke point control** - Identifies the territories that control access to your domain

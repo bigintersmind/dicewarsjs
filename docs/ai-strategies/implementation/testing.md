@@ -400,9 +400,18 @@ function generateParameterCombinations(ranges) {
 
 ### 3. Evolutionary algorithms
 
-For a parameter space too large to sweep, evolve it:
+For a parameter space too large to sweep, evolve it.
+
+The search itself needs randomness, and it needs to be reproducible: a tuning run you cannot repeat tells you nothing about whether the winning parameters were real or lucky. This harness runs outside a match, so there is no `game` object and no `game.random()` to draw from. Give it its own seeded stream from the engine's PRNG instead. Inside a bot the rule is different and stricter: draw from `game.random()`, never from a stream of your own and never from `Math.random` (issue #151).
 
 ```javascript
+import { createRng } from '../../src/engine/rng.js';
+
+// One seeded stream for the whole tuning run. Keep the seed to reproduce a result,
+// change it to search from a different starting point.
+const rng = createRng(20260825);
+const random = rng.nextFloat; // drop-in for Math.random: floats in [0, 1)
+
 function evolveParameters(numGenerations = 10) {
   // Initial population with random parameters
   let population = generateInitialPopulation(20);
@@ -437,11 +446,11 @@ function generateInitialPopulation(size) {
 
   for (let i = 0; i < size; i++) {
     population.push({
-      AGGRESSION_LEVEL: Math.random(),
-      RISK_TOLERANCE: Math.random(),
-      DICE_ADVANTAGE_WEIGHT: 1 + Math.random() * 2,
-      STRATEGIC_POSITION_WEIGHT: 1 + Math.random() * 2,
-      CONNECTIVITY_WEIGHT: 1 + Math.random() * 2,
+      AGGRESSION_LEVEL: random(),
+      RISK_TOLERANCE: random(),
+      DICE_ADVANTAGE_WEIGHT: 1 + random() * 2,
+      STRATEGIC_POSITION_WEIGHT: 1 + random() * 2,
+      CONNECTIVITY_WEIGHT: 1 + random() * 2,
     });
   }
 
@@ -475,8 +484,8 @@ function createOffspring(parents) {
 
   while (offspring.length < parents.length) {
     // Select two parents randomly
-    const parent1 = parents[Math.floor(Math.random() * parents.length)];
-    const parent2 = parents[Math.floor(Math.random() * parents.length)];
+    const parent1 = parents[Math.floor(random() * parents.length)];
+    const parent2 = parents[Math.floor(random() * parents.length)];
 
     // Create a child through crossover
     const child = crossover(parent1, parent2);
@@ -495,7 +504,7 @@ function crossover(parent1, parent2) {
 
   // For each parameter, randomly select from either parent
   for (const key in parent1) {
-    child[key] = Math.random() < 0.5 ? parent1[key] : parent2[key];
+    child[key] = random() < 0.5 ? parent1[key] : parent2[key];
   }
 
   return child;
@@ -504,10 +513,10 @@ function crossover(parent1, parent2) {
 function mutate(params) {
   // Small chance to mutate each parameter
   for (const key in params) {
-    if (Math.random() < 0.2) {
+    if (random() < 0.2) {
       // 20% mutation chance
       // Apply a small random adjustment
-      const mutationAmount = (Math.random() - 0.5) * 0.2; // ±10%
+      const mutationAmount = (random() - 0.5) * 0.2; // ±10%
       params[key] += params[key] * mutationAmount;
 
       // Ensure values stay in reasonable ranges

@@ -20,13 +20,13 @@ function ai_adaptive(game) {
   const currentStrategy = determineStrategy(game, gameState, pn);
 
   // Generate moves based on current strategy
-  const moves = generateMoves(game, currentStrategy, pn);
+  const moves = generateMoves(game, gameState, currentStrategy, pn);
 
   // If no moves available, end turn
   if (moves.length === 0) return 0;
 
-  // Execute best move
-  const bestMove = selectBestMove(moves, currentStrategy);
+  // Execute best move (game.random is the seeded random source)
+  const bestMove = selectBestMove(moves, currentStrategy, game.random);
   game.area_from = bestMove.from;
   game.area_to = bestMove.to;
 }
@@ -135,7 +135,6 @@ function determineStrategy(game, gameState, pn) {
       weakestPlayer: false,
       specificPlayer: -1,
     },
-    reinforcementFocus: 'balanced', // 'offensive', 'defensive', or 'balanced'
   };
 
   // Adjust based on game phase
@@ -205,14 +204,13 @@ function determineStrategy(game, gameState, pn) {
     strategy.expansion = Math.max(0.2, strategy.expansion - 0.3);
   }
 
-  // Adjust for reinforcement strategy
+  // Adjust for exposure. Reinforcement dice land at random across your territories,
+  // so a stretched border cannot be topped up on demand. The lever is attacking less
+  // and keeping the group tight until income catches up.
   const borderRatio = gameState.borderTerritories[pn] / gameState.territories.byPlayer[pn];
   if (borderRatio > 0.7) {
-    // Many border territories, need defensive reinforcement
-    strategy.reinforcementFocus = 'defensive';
-  } else if (strategy.aggression > 0.7) {
-    // Highly aggressive, reinforce for offense
-    strategy.reinforcementFocus = 'offensive';
+    strategy.aggression = Math.max(0.2, strategy.aggression - 0.2);
+    strategy.expansion = Math.max(0.2, strategy.expansion - 0.2);
   }
 
   return strategy;
@@ -224,7 +222,7 @@ function determineStrategy(game, gameState, pn) {
 Generate possible moves based on the current strategy:
 
 ```javascript
-function generateMoves(game, strategy, pn) {
+function generateMoves(game, gameState, strategy, pn) {
   const moves = [];
 
   // Get neighbor info for all territories
@@ -257,13 +255,13 @@ function generateMoves(game, strategy, pn) {
       if (attackRisk > 0.7 && strategy.riskTolerance < 0.4) continue;
 
       // Calculate strategic value
-      const strategicValue = calculateStrategicValue(game, i, j, area_info, strategy);
+      const strategicValue = calculateStrategicValue(game, gameState, i, j, area_info, strategy);
 
       // Target selection adjustments
       let targetValue = 0;
       const defendingPlayer = game.adat[j].arm;
 
-      if (strategy.targetSelection.dominantPlayer && defendingPlayer === game.dominantPlayer) {
+      if (strategy.targetSelection.dominantPlayer && defendingPlayer === gameState.dominantPlayer) {
         targetValue += 3;
       }
 
@@ -333,7 +331,7 @@ function calculateAttackRisk(game, from, to, area_info) {
   return Math.min(1, risk); // Ensure risk is between 0 and 1
 }
 
-function calculateStrategicValue(game, from, to, area_info, strategy) {
+function calculateStrategicValue(game, gameState, from, to, area_info, strategy) {
   let value = 0;
 
   // Value from expansion vs. consolidation strategy
@@ -368,20 +366,23 @@ function calculateStrategicValue(game, from, to, area_info, strategy) {
   return value;
 }
 
-function selectBestMove(moves, strategy) {
+// `random` is game.random, the seeded source passed in from ai_adaptive
+function selectBestMove(moves, strategy, random) {
   // Usually select the highest valued move
   if (moves.length === 0) return null;
 
   // Some randomness for unpredictability, weighted by risk tolerance
-  if (Math.random() < strategy.riskTolerance * 0.3) {
+  if (random() < strategy.riskTolerance * 0.3) {
     // Select from top 3 moves
     const topMoves = moves.slice(0, Math.min(3, moves.length));
-    return topMoves[Math.floor(Math.random() * topMoves.length)];
+    return topMoves[Math.floor(random() * topMoves.length)];
   }
 
   return moves[0];
 }
 ```
+
+Two things to note in the code above. Every helper that reads the board summary takes `gameState` as a parameter, because `analyzeGameState` returns it and nothing puts it on `game`. And randomness comes from `game.random()`, the seeded source on the game view: it is a drop-in for `Math.random` returning floats in `[0, 1)`, but it is derived from the match seed, so the same seed replays the same game. `Math.random` would break that and make arena results unrepeatable (issue #151).
 
 ## Adaptation examples
 
@@ -453,7 +454,6 @@ function adaptToDiceDistribution(strategy, diceStats) {
   if (diceStats.vulnerableTerritories > diceStats.totalTerritories * 0.4) {
     // We need to be more defensive
     strategy.aggression = Math.max(0.2, strategy.aggression - 0.3);
-    strategy.reinforcementFocus = 'defensive';
   }
 
   // If we have a good average dice count

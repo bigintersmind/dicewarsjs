@@ -10,11 +10,15 @@
  * aria-current + mount focus) and the
  * App wiring: rail on every hub screen but the title, footer row on the title,
  * each routing to the right controller method; neither in the game flow.
+ *
+ * Also the route-change focus convention (#189) where it crosses this chrome:
+ * the rail → title hop, which unmounts the rail, and MenuScreen's opt-in
+ * headline fallback, which must stay off so it can't outrun the rail's focus.
  */
 
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
-import { TopNav, FooterNav, NAV_TABS } from '../../src/ui/menuChrome.jsx';
+import { TopNav, FooterNav, MenuScreen, NAV_TABS } from '../../src/ui/menuChrome.jsx';
 import { App, NAV_METHODS } from '../../src/ui/App.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { ATTRACT_SCREENS } from '../../src/controller/TitleAttractMode.js';
@@ -136,7 +140,13 @@ describe('FooterNav (#182)', () => {
 });
 
 describe('App mode-rail wiring', () => {
-  function renderAppAt(screen) {
+  /*
+   * The default controller is inert — every method is a bare spy, so the store
+   * never leaves `screen` and the chrome stays mounted for repeated taps.
+   * `makeOverrides` (given the store) is for the cases that need a navigation
+   * to actually land on the next screen.
+   */
+  function renderAppAt(screen, makeOverrides = () => ({})) {
     const store = createGameStore();
     store.setState({ screen });
     const controller = {
@@ -145,6 +155,7 @@ describe('App mode-rail wiring', () => {
       goToTournament: vi.fn(),
       goToOnlineLeaderboard: vi.fn(),
       goToReplay: vi.fn(),
+      ...makeOverrides(store),
     };
     act(() => {
       render(h(App, { store, controller }), container);
@@ -237,5 +248,79 @@ describe('App mode-rail wiring', () => {
     renderAppAt('mapPreview');
     expect(rail()).toBeNull();
     expect(footerNav()).toBeNull();
+  });
+
+  /*
+   * #189: the hub → title hop is the one rail navigation that unmounts the
+   * rail (the title carries FooterNav instead, #182), taking the focused tab
+   * with it. The end-to-end shape matters here — TitleScreen's mount focus has
+   * to survive TopNav's teardown — so drive it through App rather than the
+   * components in isolation.
+   */
+  it('lands focus on START when the rail navigates back to the title', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: false, status: 503 }))
+    );
+    renderAppAt('onlineLeaderboard', store => ({
+      goToTitle: vi.fn(() => store.setState({ screen: 'title' })),
+    }));
+
+    act(() => tab('Battle').click());
+
+    // The rail is gone, so TopNav (and the tab that had focus) unmounted.
+    expect(rail()).toBeNull();
+    const start = [...container.querySelectorAll('button')].find(b => b.textContent === 'START');
+    expect(start).toBeTruthy();
+    expect(document.activeElement).toBe(start);
+
+    // Settle the leaderboard fetch this render kicked off before teardown.
+    await act(async () => {});
+  });
+
+  // The other side of that convention: on a rail screen the rail owns focus.
+  // MenuScreen's headline fallback is opt-in precisely so it can't take it.
+  it('leaves focus on the rail tab, not the screen headline, on a hub screen', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: false, status: 503 }))
+    );
+    renderAppAt('onlineLeaderboard');
+
+    expect(document.activeElement).toBe(tab('Leaderboard'));
+    await act(async () => {});
+  });
+});
+
+/*
+ * The generic route-change focus fallback for a screen with no obvious primary
+ * control (#189). Off unless asked for — see the App-level pin above, which is
+ * what would break if it ever defaulted on.
+ */
+describe('MenuScreen headline focus (#189)', () => {
+  const heading = () => container.querySelector('h1.dw-screen-title');
+
+  it('takes focus onto the headline when focusTitleOnMount is set', () => {
+    act(() => {
+      render(h(MenuScreen, { title: 'X', focusTitleOnMount: true }), container);
+    });
+    expect(document.activeElement).toBe(heading());
+  });
+
+  it('leaves focus where it was by default', () => {
+    act(() => {
+      render(h(MenuScreen, { title: 'X' }), container);
+    });
+    expect(heading()).toBeTruthy();
+    expect(document.activeElement).not.toBe(heading());
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  // Focusable programmatically, but never in the tab order.
+  it('keeps the headline out of the tab order', () => {
+    act(() => {
+      render(h(MenuScreen, { title: 'X' }), container);
+    });
+    expect(heading().getAttribute('tabindex')).toBe('-1');
   });
 });

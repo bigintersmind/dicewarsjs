@@ -180,9 +180,13 @@ describe('TitleScreen', () => {
     });
   });
 
-  it('renders an error banner when error prop is set', () => {
+  // An alert, not just a div: the mount focus (#189) lands on START below the
+  // banner, so the message has to announce itself rather than wait to be found.
+  it('renders an error banner, as an alert, when error prop is set', () => {
     renderTitle({ error: 'Map generation failed' });
-    expect(container.textContent).toContain('Map generation failed');
+    const banner = container.querySelector('[role="alert"]');
+    expect(banner).toBeTruthy();
+    expect(banner.textContent).toContain('Map generation failed');
   });
 
   describe('per-slot bot picker', () => {
@@ -907,6 +911,34 @@ describe('TitleScreen', () => {
     it('is left out of an isolated render with no onRules', () => {
       renderTitle();
       expect(rulesBtn()).toBeNull();
+    });
+  });
+
+  /*
+   * #189: every route back to the title unmounts the control the player just
+   * activated (map preview's BACK, game over's BATTLE, quit-to-title, the
+   * rail's Battle tab), so this screen has to pick focus back up or it drops
+   * to <body>.
+   */
+  describe('route-change focus (#189)', () => {
+    it('moves focus onto START when it mounts', () => {
+      renderTitle();
+      expect(document.activeElement).toBe(startBtn());
+    });
+
+    // Mount only: setup happens entirely inside a mounted TitleScreen, so a
+    // preset click must not yank focus off the control the player is using.
+    it('leaves focus alone once the player is choosing a setup', () => {
+      renderTitle();
+      const easy = modeBtn('Easy');
+      easy.focus();
+      expect(document.activeElement).toBe(easy);
+
+      act(() => easy.click());
+      // The click really changed the lineup (Standard is the default), so this
+      // re-render is one a badly-keyed effect could misfire on — not a no-op.
+      expect(modeBtn('Easy').getAttribute('aria-pressed')).toBe('true');
+      expect(document.activeElement).toBe(modeBtn('Easy'));
     });
   });
 });

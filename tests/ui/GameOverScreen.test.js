@@ -13,6 +13,19 @@ import { GameOverScreen } from '../../src/ui/GameOverScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 
 let container;
+/*
+ * A button outside the screen to park focus on. Removed in afterEach rather
+ * than inline, so a failing assertion cannot leak a focused control into the
+ * next test.
+ */
+let anchor;
+
+function parkFocusOutside() {
+  anchor = document.createElement('button');
+  document.body.appendChild(anchor);
+  anchor.focus();
+  return anchor;
+}
 
 /** Render GameOverScreen against a store seeded with the given terminal state. */
 function renderGameOver(overrides = {}) {
@@ -23,6 +36,7 @@ function renderGameOver(overrides = {}) {
     humanEliminated: overrides.humanEliminated ?? false,
     gameOverReason: overrides.gameOverReason ?? null,
     playerNames: overrides.playerNames ?? ['You', 'Blitz', 'Conqueror'],
+    rulesOpen: overrides.rulesOpen ?? false,
   });
 
   const onTitle = overrides.onTitle ?? vi.fn();
@@ -36,6 +50,8 @@ function renderGameOver(overrides = {}) {
 }
 
 afterEach(() => {
+  anchor?.remove();
+  anchor = null;
   if (container) {
     render(null, container);
     container.remove();
@@ -129,5 +145,44 @@ describe('GameOverScreen', () => {
       renderGameOver({ gameState: { winner: 2 } });
       expect(rulesBtn()).toBeNull();
     });
+  });
+
+  // #189: the game ends on its own, so focus is on the canvas or nowhere —
+  // this screen has to take it, and BATTLE is its primary action.
+  it('moves focus onto BATTLE when it mounts', () => {
+    renderGameOver({ gameState: { winner: 2 } });
+    const battle = [...container.querySelectorAll('button')].find(b => b.textContent === 'BATTLE');
+    expect(document.activeElement).toBe(battle);
+  });
+
+  // The "How to play" card survives the game ending behind it and owns focus
+  // while it is up; mounting under its scrim must not pull focus out of it.
+  it('leaves focus alone when it mounts behind an open rules card', () => {
+    const parked = parkFocusOutside();
+
+    renderGameOver({ gameState: { winner: 2 }, rulesOpen: true });
+    expect(document.activeElement).toBe(parked);
+  });
+
+  // ...and takes BATTLE the moment that card closes: the one claim, deferred.
+  it('claims BATTLE once the rules card closes', () => {
+    parkFocusOutside();
+    const { store } = renderGameOver({ gameState: { winner: 2 }, rulesOpen: true });
+
+    act(() => store.setState({ rulesOpen: false }));
+    const battle = [...container.querySelectorAll('button')].find(b => b.textContent === 'BATTLE');
+    expect(document.activeElement).toBe(battle);
+  });
+
+  // Exactly once: a card opened afterwards from this screen hands focus back
+  // to whatever opened it (RulesModal's job), and this effect must not
+  // second-guess that by grabbing BATTLE again.
+  it('does not take BATTLE a second time when a later card closes', () => {
+    const { store } = renderGameOver({ gameState: { winner: 2 } });
+    const parked = parkFocusOutside();
+
+    act(() => store.setState({ rulesOpen: true }));
+    act(() => store.setState({ rulesOpen: false }));
+    expect(document.activeElement).toBe(parked);
   });
 });

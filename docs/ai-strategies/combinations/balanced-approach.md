@@ -339,7 +339,7 @@ function selectBestMove(moves, strategy, random) {
 }
 ```
 
-Randomness has to come from `game.random()`, the seeded source on the game view. It is a drop-in for `Math.random` that returns floats in `[0, 1)`, but it is derived from the match seed, so the same seed replays the same game. `Math.random` would break that and make arena results unrepeatable (issue #151). Pass the source into helpers that need it instead of reaching for the global.
+Randomness has to come from `game.random()`, the seeded source on the game view, passed into helpers that need it instead of reaching for the global. [AI structure](../implementation/ai-structure.md#move-selection) explains why `Math.random` is off limits.
 
 ## Adapting to game phase
 

@@ -27,7 +27,7 @@ Both sides roll every die and compare the sums, and the defender wins ties. Exac
 | 7             | 6             | 68.5%           |
 | 8             | 7             | 67.3%           |
 
-One extra die is worth most on small stacks. As both sides grow, the sums cluster tighter around their averages and a single die matters less: 2 vs 1 wins 83.8% of the time, 8 vs 7 only 67.3%.
+One extra die is worth most on small stacks. The extra die always adds the same 3.5 points on average, but the spread of both totals widens as the stacks grow, so that fixed edge covers less and less of the variance: 2 vs 1 wins 83.8% of the time, 8 vs 7 only 67.3%.
 
 Equal dice never favor the attacker, because ties go to the defender. 2 vs 2 wins 44.4%, 3 vs 3 wins 45.4%, and 8 vs 8 wins 47.1%. The odds edge toward even as the stacks grow but never reach it.
 

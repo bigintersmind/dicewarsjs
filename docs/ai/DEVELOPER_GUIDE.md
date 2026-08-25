@@ -61,7 +61,7 @@ The `game` object passed to your AI function provides access to the game state:
 
 - `game.adat`: array of territory objects, indexed by territory ID from 1
 - `game.AREA_MAX`: one past the highest territory ID, so loops run `for (let i = 1; i < game.AREA_MAX; i++)`
-- `game.player`: array of player objects, each with `area_c` (territory count), `dice_c` (total dice), `area_tc` (largest connected group), `dice_jun` (rank), and `stock` (reserve dice)
+- `game.player`: array of player objects, each with `area_c` (territory count), `dice_c` (total dice), `area_tc` (largest connected group), `dice_jun` (rank; the view always hands you 0, so compute and write it yourself the way `ai_default` does), and `stock` (reserve dice)
 - `game.get_pn()`: get current player number
 - `game.jun`: array of player order
 - `game.ban`: current index in the player order
@@ -75,7 +75,7 @@ Do not assume eight players either. The online tournament seats larger fields, s
 
 Each territory (`game.adat[i]`) has these properties:
 
-- `size`: number of cells in the territory, or 0 for an unused slot
+- `size`: number of cells in the territory, or 0 for an unused slot. On the arena path (step 4 below) it is always 1 for a real territory, because `BotState` does not carry cell counts, so don't weight a strategy by it
 - `arm`: player ID who owns this territory
 - `dice`: number of dice in this territory
 - `join`: array indexed by territory ID, where 1 means adjacent
@@ -117,7 +117,7 @@ game.area_to = targetTerritoryId;
 
 Set both. The adapter only treats the pair as a move when `area_from` and `area_to` are both greater than 0, so leaving one at its default of 0 silently ends the turn.
 
-Returning an object does not work. `return { from, to }` is the modern bot contract from the [bot guide](../BOT_GUIDE.md), and a built-in AI that returns one gets a console warning ("returned unexpected value") and ends its turn, every call.
+Returning an object does not work. `return { from, to }` is the modern bot contract from the [bot guide](../BOT_GUIDE.md), and a built-in AI that returns one ends its turn, every call. In the game you get a console warning ("returned unexpected value"); in the arena the legacy wrapper returns `null` with no message at all.
 
 Here is the shape every built-in follows, matching `src/ai/ai_default.js`:
 
@@ -144,7 +144,7 @@ To end the turn, return 0 without setting `area_from` or `area_to`:
 return 0;
 ```
 
-Illegal moves are never applied. Depending on the runner they either end your turn on the spot or get skipped, and three in a row always stop it. A turn is capped at 100 attacks either way, so an AI that never returns 0 still loses the turn.
+Illegal moves are never applied. The in-game and arena runners skip the move and end your turn after three invalid ones in a row; `runFullAITurn` in the adapter ends it on the first. A turn is also capped at 100 decisions, invalid ones included, so an AI that never returns 0 still loses the turn.
 
 ## Strategy considerations
 
@@ -288,8 +288,8 @@ game.area_to = possibleAttacks[0].to;
    };
    ```
 
-3. That is enough to make it selectable per player in the title screen's AI picker, which reads the registry through `getAIStrategiesByCategory()`. Anything flagged `hidden` is left out of the picker but stays resolvable by ID.
-4. To also run it in the arena and tournament, register it in `src/arena/builtInBots.js` wrapped in `adaptLegacyBot(ai_myCustom, 'My Custom')`. That adapter is what lets a legacy AI read the arena's `BotState`.
+3. That is enough to make it selectable per player in the title screen's AI picker, which reads the registry through `getAIStrategiesByCategory()`. Anything flagged `hidden` is left out of the picker but stays resolvable by ID. The picker order is pinned in `tests/ai/aiConfig.test.js`, so add your entry to the expected lists there or those tests fail.
+4. To also run it in the arena and tournament, register it in `src/arena/builtInBots.js` wrapped in `adaptLegacyBot(ai_myCustom, 'My Custom')`, and place its id in that file's `STRENGTH_ORDER` (or flag the entry `hidden`). An un-hidden bot missing from `STRENGTH_ORDER` throws at import and takes every consumer of the module down with it. The adapter is what lets a legacy AI read the arena's `BotState`.
 
 `docs/ai/AI_CONFIG_NOTES.md` covers the config system in more detail, including `createAIFunctionMapping()` for driving games from code.
 

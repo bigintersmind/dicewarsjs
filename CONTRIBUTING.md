@@ -95,7 +95,7 @@ Community bots compete in daily automated tournaments with a persistent ELO lead
      "active": true
    }
    ```
-6. **Open a PR**: CI will automatically validate your bot (syntax, compilation, test match)
+6. **Open a PR.** CI validates your bot automatically (syntax, compilation, test match)
 
 You can also test locally before submitting:
 

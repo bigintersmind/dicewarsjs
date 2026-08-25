@@ -143,7 +143,7 @@ function wouldDisconnectPlayerTerritories(game, player) {
 
 ### 1. Defensive choke point control
 
-You cannot send dice to a choke point. Reinforcements are placed at random across your territories (`distributeReinforcements` in `src/engine/TurnManager.js`), so a choke point is defended by what you do with your attacks: never emptying it, and taking out the enemy territories that are massing against it.
+You cannot send dice to a choke point. Reinforcements land at random across your territories ([Reinforcement optimization](./reinforcement-optimization.md) covers the rule), so a choke point is defended by what you do with your attacks: never emptying it, and taking out the enemy territories that are massing against it.
 
 ```javascript
 function rankThreatenedChokePoints(game, chokePoints) {
@@ -184,6 +184,8 @@ function rankThreatenedChokePoints(game, chokePoints) {
   return defensePriorities;
 }
 ```
+
+Use the ranking two ways: refuse to attack out of the top-ranked choke points, and point the offensive targeting in the next section at whoever is stacking against them.
 
 ### 2. Offensive choke point targeting
 

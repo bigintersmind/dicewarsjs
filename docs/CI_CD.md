@@ -78,9 +78,7 @@ If a CI build fails, check the logs in the GitHub Actions tab. Common fixes:
 4. Coverage below the floor: `npm run test:coverage` names the file and metric that fell short
 5. Build errors: reproduce with `npm run build` locally
 
-## Future improvements
-
-Not done yet:
+## Not done yet
 
 - Performance regression monitoring. The benchmarks run in CI, but nothing compares the numbers against a baseline or fails on a regression.
 - Bundle size monitoring

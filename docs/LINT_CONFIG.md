@@ -6,12 +6,7 @@ This document explains how lint findings are graded in DiceWarsJS: what fails a 
 
 ## ESLint configuration
 
-The config is `.eslintrc.cjs`, in the eslintrc format on ESLint 8.
-
-- Extends `plugin:vitest/recommended` and `plugin:prettier/recommended`. No shared base ruleset, so nothing is on unless the config names it.
-- Plugins: `vitest`, `prettier`, and `react` with only `react/jsx-uses-vars` enabled for Preact's JSX.
-- ECMAScript 2022, ES modules, JSX enabled. Browser, Node, and es2021 globals.
-- A `tests/**` override supplies the Vitest globals through `vitest/env`.
+The config is `.eslintrc.cjs`, in the eslintrc format on ESLint 8. What it extends, which plugins it loads and why, and the rules it relaxes for game code are described in [Code style guidelines](./CODE_STYLE.md#eslint-configuration). This page covers only how findings are graded.
 
 ## Warnings vs. errors
 
@@ -19,9 +14,9 @@ The config is `.eslintrc.cjs`, in the eslintrc format on ESLint 8.
 
 - Syntax errors, and any reference to an undeclared variable (`no-undef` is on explicitly, since the config does not extend `eslint:recommended`)
 - Formatting that disagrees with Prettier, reported as `prettier/prettier`
-- The modern-JavaScript rules: `prefer-const`, `no-var`, `object-shorthand`, `prefer-template`, `prefer-arrow-callback`, `arrow-body-style`, `arrow-parens`, `prefer-rest-params`, `prefer-spread`, `no-useless-constructor`, `no-useless-rename`, `no-duplicate-imports`, `template-curly-spacing`
+- The modern-JavaScript set (`prefer-const`, `no-var`, `object-shorthand`, `prefer-template`, and nine more; the full list is in [Code style guidelines](./CODE_STYLE.md#eslint-configuration))
 - `spaced-comment`, and `react/jsx-uses-vars`
-- Whatever `plugin:vitest/recommended` flags in test files, less `vitest/valid-title` and `vitest/expect-expect`, which are switched off
+- Whatever `plugin:vitest/recommended` flags, less `vitest/valid-title` and `vitest/expect-expect`, which are switched off. Those rules apply repo-wide but only fire on test constructs
 
 Most of the rule-based errors are auto-fixable, so `npm run lint:fix` clears them. `no-undef` is not: only you know what the identifier was supposed to be.
 

@@ -7,7 +7,7 @@ Reinforcement dice arrive at the end of every turn, and you never choose where t
 Income is the size of your largest connected territory group, so every attack is also an income decision. This strategy covers:
 
 1. How the engine actually grants and places reinforcements
-2. Working out what an attack would do to your income
+2. Measuring the income of any board, so you can score what an attack would do to it
 3. Preferring the captures that extend the group you already have
 4. Keeping room on the board for the dice you earn
 
@@ -164,7 +164,7 @@ function absorptionCapacity(game, player) {
 }
 ```
 
-When capacity is below your income, some of what you earn idles. Attacking out of a territory that is already at 8 dice fixes that: win or lose, the attacker drops to 1, which frees at least seven slots for next turn's placement. It is the one situation where a marginal attack is worth making for reasons that have nothing to do with the target.
+When capacity is below your stock plus this turn's income, some of what you earn idles. Attacking out of a territory that is already at 8 dice fixes that: win or lose, the attacker drops to 1, which frees at least seven slots for next turn's placement. It is the one situation where a marginal attack is worth making for reasons that have nothing to do with the target.
 
 ## Strategic considerations
 
@@ -182,8 +182,9 @@ function pickIncomeAwareAttack(game) {
   if (candidates.length === 0) return null;
 
   // A safe attack that adds nothing to the group is worth less than a
-  // slightly riskier one that grows it, but not at any price
-  const best = candidates.find(c => c.incomeGain > 0 && c.diceAdvantage >= 1);
+  // slightly riskier one that grows it, but not at any price: every
+  // candidate already has a one-die edge, so ask for two before paying for income
+  const best = candidates.find(c => c.incomeGain > 0 && c.diceAdvantage >= 2);
 
   return best || candidates[0];
 }

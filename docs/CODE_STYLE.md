@@ -38,12 +38,12 @@ npm install
 **Errors.**
 
 - `no-undef`. On explicitly, because `eslint:recommended` is not extended and the rule would otherwise be off. It is the cheapest net for a typo'd or un-threaded identifier that lints clean and throws on the first run.
-- The modern-JavaScript set: `prefer-const`, `no-var`, `object-shorthand`, `prefer-template`, `prefer-arrow-callback`, `arrow-body-style`, `arrow-parens`, `prefer-rest-params`, `prefer-spread`, `no-useless-constructor`, `no-useless-rename`, `no-duplicate-imports`, `template-curly-spacing`.
+- The modern-JavaScript set: `prefer-const`, `no-var`, `object-shorthand`, `prefer-template`, `prefer-arrow-callback`, and the rest of that family (nine more, listed in the config).
 - `spaced-comment`, which requires a space after `//` and `/*`. Auto-fixable.
 
 **Warnings.** Three: `no-unused-vars`, `no-shadow`, `no-prototype-builtins`. They do not fail the build until the warning cap is reached. See [Lint and style configuration](./LINT_CONFIG.md).
 
-**Relaxed for game code.** `no-console` is off, since the game logs deliberately. So are `camelcase`, `no-plusplus`, `no-continue`, `no-underscore-dangle`, `no-restricted-syntax`, `no-use-before-define`, `no-param-reassign`, `no-else-return`, `class-methods-use-this`, `default-case`, `array-callback-return`, `prefer-destructuring`, `no-return-assign`, `func-names`, and `global-require`. `vitest/valid-title` and `vitest/expect-expect` are off for benchmark titles and helper-driven assertions.
+**Relaxed for game code.** `no-console` is off, since the game logs deliberately. So is a block of rules that fight game loops and legacy naming: `camelcase`, `no-plusplus`, `no-continue`, `no-param-reassign`, `no-restricted-syntax`, and a dozen more, each with a one-line reason next to it in the config. `vitest/valid-title` and `vitest/expect-expect` are off for benchmark titles and helper-driven assertions.
 
 **No `max-len`, on purpose.** Prettier owns line width through `printWidth`. An ESLint `max-len` would only fire on the lines Prettier cannot break, is not auto-fixable, and would block commits over a rare long expression. Prettier does not reflow comments or string contents, so a long comment passes both tools. Do not hand-wrap comments to hit 100 columns, because nothing enforces it.
 
@@ -61,7 +61,7 @@ npm install
 - ES5-compatible trailing commas
 - Spaces inside object braces, and a closing bracket on its own line
 - No parentheses around a single arrow-function parameter
-- LF line endings, and prose left unwrapped
+- LF line endings, and prose left exactly as written
 
 `.prettierignore` keeps Prettier away from build output (`dist/`, `coverage/`), `package.json` and its lockfile, minified files, `src/utils/config.js`, the generated weight modules `src/ai/bcPolicyWeights.js`, `src/ai/ppoPolicyWeights.js`, and `src/ai/conquerorPolicyWeights.js` along with their parity fixtures in `tests/fixtures/bc/`, and the Python subproject `/ml/`, which has its own tooling. Both ignore lists name the weight modules one by one, so a newly exported one has to be added by hand.
 

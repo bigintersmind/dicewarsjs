@@ -9,7 +9,7 @@ Every territory that touches an enemy is a border, and borders are where you los
 1. Identifying vulnerable border territories
 2. Avoiding attacks that would create new vulnerabilities
 3. Targeting the enemy territories that threaten your borders
-4. Growing the income that restocks those borders, since you cannot aim the dice yourself
+4. Deciding which territories you can afford to empty, since you cannot aim reinforcement dice yourself
 
 ## Implementation approach
 
@@ -96,14 +96,14 @@ if (area_info[game.area_from].unfriendly_neighbors == 1) {
 
 ### 3. Choosing what to strip, not where to reinforce
 
-You cannot reinforce a border. At the end of your turn the engine grants dice equal to the size of your largest connected group and drops them one at a time on randomly chosen territories of yours that are below the 8-dice cap (`distributeReinforcements` in `src/engine/TurnManager.js`). A threatened border gets topped up only by luck, and a bigger connected group just buys more chances at it.
+You cannot reinforce a border. Reinforcement dice land at random on your territories below the 8-dice cap ([Reinforcement optimization](./reinforcement-optimization.md) covers the rule), so a threatened border gets topped up only by luck, and a bigger connected group just buys more chances at it.
 
 What you do control is where dice leave from. A successful attack moves all but one of the attacker's dice onto the captured territory, and a failed one throws them away, so either way the attacking territory ends the move on 1 die. The border question is therefore which territory you are willing to empty:
 
 ```javascript
 // How much it costs to leave this territory on 1 die.
 // A high score means don't attack from here, even when the odds look fine.
-function stripCost(game, territory_id, area_info) {
+function stripCost(territory_id, area_info) {
   // Nothing can reach it, so emptying it is free
   if (area_info[territory_id].unfriendly_neighbors == 0) return 0;
 

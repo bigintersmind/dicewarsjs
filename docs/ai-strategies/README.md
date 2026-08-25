@@ -36,7 +36,7 @@ Techniques that build on the basics:
 - [Neighbor analysis](./advanced/neighbor-analysis.md) - Evaluating the risk of counterattacks
 - [Border security](./advanced/border-security.md) - Protecting vulnerable territories
 - [Choke point control](./advanced/choke-point-control.md) - Identifying and controlling map bottlenecks
-- [Reinforcement optimization](./advanced/reinforcement-optimization.md) - Getting the most out of reinforcement dice
+- [Reinforcement optimization](./advanced/reinforcement-optimization.md) - Growing the income that decides how many dice you earn, since you cannot choose where they land
 - [Expected-value AI](./advanced/expected-value-ai.md) - Scoring every move by expected income/risk, plus how to benchmark bots with confidence intervals
 - [Lookahead expectimax AI](./advanced/lookahead-expectimax-ai.md) - Standalone shallow expectimax over win/loss branches with board-value evaluation
 

@@ -8,7 +8,7 @@ After identifying all valid moves (typically attacks with a dice advantage), ran
 
 ## Implementation
 
-Draw from `game.random()`, the seeded random source on the game view. It is a drop-in for `Math.random` that returns floats in `[0, 1)`, but it comes from the match seed, so the same seed always replays the same game. Calling `Math.random` instead breaks that reproducibility and makes arena results impossible to compare (issue #151).
+Draw from `game.random()`, the seeded drop-in for `Math.random` on the game view. Same seed, same game; `Math.random` would break that (issue #151). [AI structure](../implementation/ai-structure.md#move-selection) has the full reasoning.
 
 ```javascript
 // Randomly select a move from the valid options

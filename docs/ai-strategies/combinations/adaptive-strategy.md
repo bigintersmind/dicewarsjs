@@ -382,7 +382,7 @@ function selectBestMove(moves, strategy, random) {
 }
 ```
 
-Two things to note in the code above. Every helper that reads the board summary takes `gameState` as a parameter, because `analyzeGameState` returns it and nothing puts it on `game`. And randomness comes from `game.random()`, the seeded source on the game view: it is a drop-in for `Math.random` returning floats in `[0, 1)`, but it is derived from the match seed, so the same seed replays the same game. `Math.random` would break that and make arena results unrepeatable (issue #151).
+Two things to note in the code above. Every helper that reads the board summary takes `gameState` as a parameter, because `analyzeGameState` returns it and nothing puts it on `game`. And randomness comes from `game.random()`, the seeded source on the game view, passed into the helper that needs it. [AI structure](../implementation/ai-structure.md#move-selection) explains why `Math.random` is off limits.
 
 ## Adaptation examples
 

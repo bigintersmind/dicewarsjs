@@ -314,6 +314,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         gameState: null,
         animationPhase: 'idle',
         awaitingInput: null,
+        candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
         error: "That luck setting isn't available. Pick another and try again.",
@@ -358,6 +359,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         animationPhase: 'idle',
         awaitingInput: null,
         focusedAreaId: null,
+        candidateAreas: null,
         humanEliminated: false,
         gameOverReason: null,
         /*
@@ -391,6 +393,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         gameState: null,
         animationPhase: 'idle',
         awaitingInput: null,
+        candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
         error: 'Failed to start game. Please try again.',
@@ -426,6 +429,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       store.setState({
         screen: 'title',
         gameState: null,
+        candidateAreas: null,
         error: "That luck setting isn't available. Pick another and try again.",
       });
       return;
@@ -443,6 +447,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       store.setState({
         screen: 'title',
         gameState: null,
+        candidateAreas: null,
         error: 'Map generation failed. Please try again.',
       });
       return;
@@ -490,6 +495,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       animationPhase: 'idle',
       awaitingInput: null,
       focusedAreaId: null,
+      candidateAreas: null,
       currentReplay: null,
       replayOrigin: null,
       humanEliminated: false,
@@ -582,8 +588,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     if (isHuman) {
       store.setState({ awaitingInput: 'selectFrom' });
+      refreshCandidateHighlights();
       if (soundManager) soundManager.play('myturn');
     } else {
+      refreshCandidateHighlights(); // clears: no hints on an AI's turn
       runAITurn(currentPlayerId);
     }
   }
@@ -773,6 +781,79 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   /**
+   * Territories the board hints should be outlining for the human right now, or
+   * null when no hint applies.
+   *
+   * Derived from the engine's own `getValidMoves`, so what the board offers and
+   * what the rules allow can't drift apart: while awaiting `selectFrom` it is
+   * every territory that could start an attack (2+ dice AND an enemy neighbor);
+   * while awaiting `selectTo` it is the enemies the chosen territory can
+   * actually reach.
+   *
+   * @param {Object} storeState - Current store state
+   * @returns {number[] | null}
+   */
+  function computeCandidateAreas(storeState) {
+    const state = storeState.gameState;
+    if (!state) return null;
+    // No hints for a spectator (nobody is playing), or with the pref off.
+    if (storeState.humanPlayerIndex === null) return null;
+    /*
+     * The preferences manager is the source of truth, exactly as isReducedMotion
+     * treats it; the store's copy is a mirror kept in sync by a main.jsx
+     * subscriber, so reading it here would quietly depend on that subscriber
+     * running first. Falls back to the mirror when no manager was supplied.
+     */
+    const hints = preferencesManager
+      ? preferencesManager.get('boardHints')
+      : (storeState.preferences?.boardHints ?? 'on');
+    if (hints === 'off') return null;
+    // Nor on an AI's turn.
+    if (state.turnOrder[state.currentPlayerIndex] !== storeState.humanPlayerIndex) return null;
+
+    if (storeState.awaitingInput === 'selectFrom') {
+      return [...new Set(getValidMoves(state).map(m => m.from))];
+    }
+    if (storeState.awaitingInput === 'selectTo' && storeState.selectedFrom != null) {
+      return getValidMoves(state)
+        .filter(m => m.from === storeState.selectedFrom)
+        .map(m => m.to);
+    }
+    // awaitingInput is null while an animation owns the board — nothing to offer.
+    return null;
+  }
+
+  /**
+   * The single seam between the game state and the board hints: recompute the
+   * candidate set, publish it to the store (for observers — none in the UI yet)
+   * and paint it (for the player). Idempotent — every caller just calls it after
+   * whatever it changed, rather than each working out what the board should
+   * show.
+   *
+   * Call it AFTER any `clearHighlights()`, which deliberately wipes this layer
+   * along with the selection.
+   */
+  function refreshCandidateHighlights() {
+    const candidates = computeCandidateAreas(store.getState());
+    /*
+     * Skip the write when nothing was on offer and nothing is: every AI-turn
+     * seam passes through here, and a null-over-null setState still notifies
+     * every store subscriber, re-rendering UI that reads none of this.
+     */
+    if (candidates !== null || store.getState().candidateAreas !== null) {
+      store.setState({ candidateAreas: candidates });
+    }
+
+    if (!renderer || !renderer.hexGrid) return;
+    if (candidates && candidates.length > 0) {
+      const kind = store.getState().awaitingInput === 'selectTo' ? 'target' : 'attacker';
+      renderer.hexGrid.setCandidateHighlights(candidates, kind);
+    } else {
+      renderer.hexGrid.clearCandidateHighlights();
+    }
+  }
+
+  /**
    * Handle a territory click during human turn.
    * @param {number} areaId
    */
@@ -803,6 +884,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         renderer.hexGrid.clearHighlights();
         renderer.hexGrid.setHighlight('from', areaId);
       }
+      refreshCandidateHighlights();
       if (soundManager) soundManager.play('click');
     } else if (storeState.awaitingInput === 'selectTo') {
       // If clicking own territory again, reselect
@@ -813,6 +895,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
           renderer.hexGrid.clearHighlights();
           renderer.hexGrid.setHighlight('from', areaId);
         }
+        refreshCandidateHighlights();
         if (soundManager) soundManager.play('click');
         return;
       }
@@ -840,6 +923,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
   async function executeAttack(fromId, toId) {
     // Block further input during animation
     store.setState({ awaitingInput: null });
+    refreshCandidateHighlights(); // the offer is spent — take the candidates down
 
     const prevState = store.getState().gameState;
 
@@ -859,6 +943,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         awaitingInput: 'selectFrom',
       });
       if (renderer) renderer.hexGrid.clearHighlights();
+      refreshCandidateHighlights();
       return;
     }
 
@@ -925,6 +1010,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     });
 
     if (renderer) renderer.hexGrid.clearHighlights();
+    refreshCandidateHighlights(); // re-arm the offer on the post-attack board
 
     if (isOver) await triggerGameOver(nextState);
   }
@@ -1065,6 +1151,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       awaitingInput: null,
       error: null,
     });
+    refreshCandidateHighlights(); // nobody to hint to once the seat is an AI's
 
     startTurn();
   }
@@ -1134,6 +1221,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       store.setState({
         screen: 'title',
         gameState: null,
+        candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
         error: 'An error occurred. Returning to title screen.',
@@ -1157,6 +1245,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       awaitingInput: null,
       animationPhase: 'idle',
     });
+    refreshCandidateHighlights(); // the turn is over — nothing left to offer
 
     // Update renderer, then animate reinforcements on top
     if (renderer && changes.length > 0 && !isReducedMotion()) {
@@ -1219,6 +1308,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     goToReplay,
     handleTerritoryClick,
     endHumanTurn,
+    refreshCandidateHighlights,
     viewGameReplay,
     goBackFromReplay,
     startSpectate,

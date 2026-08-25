@@ -41,6 +41,7 @@ import {
   ReinforceFigure,
   TipsFigure,
 } from './rulesArt.jsx';
+import { BOARD_HINTS_LABEL } from './SettingsPanel.jsx';
 
 /**
  * The reference itself. `body` is a paragraph; `bullets` is a list. Kept here
@@ -60,7 +61,7 @@ export const RULES_SECTIONS = [
     eyebrow: 'Attack',
     heading: 'Two clicks to attack',
     Figure: AttackFigure,
-    body: 'Click one of your territories with 2 or more dice, then click an adjacent enemy territory. Attack as many times as you like, then end your turn.',
+    body: `Click one of your territories with 2 or more dice, then click an adjacent enemy territory. Attack as many times as you like, then end your turn. Territories that can attack are outlined, and once you pick one the enemies it can reach light up (Settings → ${BOARD_HINTS_LABEL} turns that off).`,
   },
   {
     id: 'battle',

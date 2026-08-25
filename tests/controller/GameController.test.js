@@ -127,6 +127,35 @@ vi.mock('../../src/utils/config.js', async importOriginal => ({
  * ---------------------------------------------------------------------------
  */
 
+/**
+ * The hint layer as a one-field model: `candidatesUp` is whether anything is
+ * currently outlined on the board.
+ *
+ * Bare vi.fn()s can't see the failure that actually matters here. The
+ * controller hand-orders `clearHighlights()` and `refreshCandidateHighlights()`
+ * at five separate seams, and `clearHighlights()` takes the hints down with the
+ * selection — so swapping the two at any of them leaves the live board blank
+ * while every "was it called" assertion still passes. Modelling the one bit of
+ * state makes the order observable.
+ */
+function createMockHexGrid() {
+  const hexGrid = {
+    candidatesUp: false,
+    clearHighlights: vi.fn(() => {
+      hexGrid.candidatesUp = false; // the real one wipes the hint layer too
+    }),
+    setHighlight: vi.fn(),
+    setCandidateHighlights: vi.fn(() => {
+      hexGrid.candidatesUp = true;
+    }),
+    clearCandidateHighlights: vi.fn(() => {
+      hexGrid.candidatesUp = false;
+    }),
+    _getPlayerColor: vi.fn(() => 0xffffff),
+  };
+  return hexGrid;
+}
+
 function createMockRenderer() {
   return {
     initialized: true,
@@ -134,11 +163,7 @@ function createMockRenderer() {
     update: vi.fn(),
     hitTest: vi.fn(() => 0),
     screenToMap: vi.fn(() => ({ x: 0, y: 0 })),
-    hexGrid: {
-      clearHighlights: vi.fn(),
-      setHighlight: vi.fn(),
-      _getPlayerColor: vi.fn(() => 0xffffff),
-    },
+    hexGrid: createMockHexGrid(),
     getPlayerColor: vi.fn(() => 0xffffff),
     battle: {
       play: vi.fn(async () => {}),
@@ -1745,6 +1770,23 @@ describe('GameController', () => {
    */
 
   describe('executeAttack error handling', () => {
+    /*
+     * A non-empty move list, so the board hints have something real to be
+     * re-armed with once the attack is rejected.
+     */
+    beforeEach(async () => {
+      const { getValidMoves } = await import('../../src/engine/index.js');
+      getValidMoves.mockImplementation(() => [
+        { from: 1, to: 2 },
+        { from: 1, to: 3 },
+      ]);
+    });
+
+    afterEach(async () => {
+      const { getValidMoves } = await import('../../src/engine/index.js');
+      getValidMoves.mockImplementation(() => []);
+    });
+
     it('resets selection on applyAction failure', async () => {
       const { applyAction } = await import('../../src/engine/index.js');
 
@@ -1763,6 +1805,14 @@ describe('GameController', () => {
       expect(store.getState().selectedFrom).toBeNull();
       expect(store.getState().awaitingInput).toBe('selectFrom');
       expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
+      /*
+       * ...and the board is handed back playable. The failure path clears every
+       * highlight, so the offer has to be repainted after that — a rejected
+       * attack must not leave the player staring at an unmarked board for the
+       * rest of the turn.
+       */
+      expect(store.getState().candidateAreas).toEqual([1]);
+      expect(renderer.hexGrid.candidatesUp).toBe(true);
     });
   });
 
@@ -2147,6 +2197,13 @@ describe('GameController', () => {
       expect(state.screen).toBe('title');
       expect(state.error).toBeTruthy();
       expect(state.gameState).toBeNull();
+      /*
+       * The board hints have to come down with the game. Leaving them set means
+       * the title screen is published as still offering moves in a game that no
+       * longer exists — and the store's gameState is null, so nothing can
+       * recompute them into truth.
+       */
+      expect(state.candidateAreas).toBeNull();
     });
   });
 
@@ -2541,6 +2598,239 @@ describe('GameController', () => {
       expect(renderer.animateReinforcements).not.toHaveBeenCalled();
       // But renderer.update should still be called
       expect(renderer.update).toHaveBeenCalled();
+    });
+  });
+  /*
+   * -----------------------------------------------------------------------
+   * Board hints (candidateAreas)
+   * -----------------------------------------------------------------------
+   *
+   * The controller is the single owner of the mapping — it derives the set from
+   * the engine's own getValidMoves, publishes it as store.candidateAreas for
+   * the UI, and paints it via HexGridRenderer. So what the board offers and
+   * what the rules allow cannot drift apart, and nothing is offered to a player
+   * who isn't there.
+   */
+
+  describe('board hints', () => {
+    let getValidMoves;
+
+    beforeEach(async () => {
+      ({ getValidMoves } = await import('../../src/engine/index.js'));
+      // Two attackers, one of them with two reachable targets.
+      getValidMoves.mockImplementation(() => [
+        { from: 1, to: 2, attackerDice: 3, defenderDice: 2 },
+        { from: 1, to: 3, attackerDice: 3, defenderDice: 1 },
+        { from: 5, to: 2, attackerDice: 2, defenderDice: 2 },
+      ]);
+    });
+
+    afterEach(() => {
+      getValidMoves.mockImplementation(() => []);
+    });
+
+    async function startPlaying(overrides = {}) {
+      await controller.startNewGame({ playerCount: 2, spectator: false, ...overrides });
+      controller.acceptMap();
+    }
+
+    it('offers every territory that can attack while awaiting a source', async () => {
+      await startPlaying();
+
+      expect(store.getState().candidateAreas).toEqual([1, 5]); // unique `from` ids
+      expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenLastCalledWith([1, 5], 'attacker');
+    });
+
+    it('narrows to the reachable enemies once a source is picked', async () => {
+      await startPlaying();
+      renderer.hexGrid.setCandidateHighlights.mockClear();
+
+      controller.handleTerritoryClick(1);
+
+      expect(store.getState().candidateAreas).toEqual([2, 3]);
+      expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenLastCalledWith([2, 3], 'target');
+      /*
+       * And they are still up at the end of the click. Selecting a source calls
+       * clearHighlights() first, so painting before clearing would leave the
+       * real board bare with the call log looking identical.
+       */
+      expect(renderer.hexGrid.candidatesUp).toBe(true);
+    });
+
+    it('repaints for a re-picked source rather than leaving the old targets up', async () => {
+      await startPlaying();
+      controller.handleTerritoryClick(1);
+      getValidMoves.mockImplementation(() => [
+        { from: 5, to: 2, attackerDice: 2, defenderDice: 2 },
+      ]);
+
+      // Area 5 isn't on the fixture board; re-pick area 1 and let the move list
+      // stand in for a different source's reach.
+      controller.handleTerritoryClick(1);
+
+      expect(store.getState().candidateAreas).toEqual([]);
+      expect(renderer.hexGrid.clearCandidateHighlights).toHaveBeenCalled();
+    });
+
+    it('re-narrows to the new source when a different own territory is picked', async () => {
+      await startPlaying();
+      /*
+       * The branch a player hits constantly: changing your mind about the
+       * source mid-selection. The fixture board only has areas 1-3, so give
+       * player 0 a second attacker (area 5) with an enemy neighbor to switch to.
+       */
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: { ...gs.areas, 5: { owner: 0, dice: 2, neighborAreaIds: [2] } },
+        },
+      });
+
+      controller.handleTerritoryClick(1);
+      expect(store.getState().candidateAreas).toEqual([2, 3]);
+
+      renderer.hexGrid.setCandidateHighlights.mockClear();
+      controller.handleTerritoryClick(5);
+
+      expect(store.getState().selectedFrom).toBe(5);
+      expect(store.getState().candidateAreas).toEqual([2]); // area 5's reach only
+      expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenLastCalledWith([2], 'target');
+      expect(renderer.hexGrid.candidatesUp).toBe(true);
+    });
+
+    it('publishes an empty set — not null — when it is your move but nothing qualifies', async () => {
+      /*
+       * `[]` and `null` are different states: `[]` says "your move, no legal
+       * attacks" (which an observer could word as such), `null` says "no hint
+       * applies at all". Collapsing them would lose that.
+       */
+      getValidMoves.mockImplementation(() => []);
+      await startPlaying();
+
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(store.getState().candidateAreas).toEqual([]);
+      expect(renderer.hexGrid.clearCandidateHighlights).toHaveBeenCalled();
+      expect(renderer.hexGrid.candidatesUp).toBe(false);
+    });
+
+    it('takes the offer down for the attack, then re-arms it afterwards', async () => {
+      await startPlaying();
+      controller.handleTerritoryClick(1);
+
+      const attack = controller.handleTerritoryClick(2);
+      // Mid-animation: input is blocked, so nothing is on offer.
+      expect(store.getState().candidateAreas).toBeNull();
+
+      await attack;
+      await vi.runAllTimersAsync();
+
+      // Back to awaiting a source on the post-attack board.
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(store.getState().candidateAreas).toEqual([1, 5]);
+      // ...and actually painted: the post-attack seam clears every highlight
+      // before it re-arms, so the two must not be the other way round.
+      expect(renderer.hexGrid.candidatesUp).toBe(true);
+    });
+
+    it('clears the offer when the turn ends', async () => {
+      await startPlaying();
+      expect(store.getState().candidateAreas).toEqual([1, 5]);
+
+      await controller.endHumanTurn();
+
+      expect(store.getState().candidateAreas).toBeNull();
+      expect(renderer.hexGrid.clearCandidateHighlights).toHaveBeenCalled();
+    });
+
+    it('clears the offer when the game is abandoned', async () => {
+      await startPlaying();
+      // Start-up already called clearHighlights; only the quit's call counts.
+      renderer.hexGrid.clearHighlights.mockClear();
+
+      controller.goToTitle();
+
+      expect(store.getState().candidateAreas).toBeNull();
+      expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
+      expect(renderer.hexGrid.candidatesUp).toBe(false);
+    });
+
+    it('offers nothing in spectator mode', async () => {
+      await startPlaying({ spectator: true });
+      expect(store.getState().humanPlayerIndex).toBeNull();
+      expect(store.getState().candidateAreas).toBeNull();
+      expect(renderer.hexGrid.setCandidateHighlights).not.toHaveBeenCalled();
+    });
+
+    it('offers nothing on an opponent turn', async () => {
+      await startPlaying();
+      const gs = store.getState().gameState;
+      store.setState({ gameState: { ...gs, currentPlayerIndex: 1 }, awaitingInput: null });
+
+      controller.refreshCandidateHighlights();
+
+      expect(store.getState().candidateAreas).toBeNull();
+    });
+
+    /*
+     * The controller under test is built without a preferences manager, so the
+     * store's `preferences` copy is the fallback source it reads — which is what
+     * these two drive. The test below covers the other, primary source.
+     */
+    it('offers nothing while the board-hints preference is off', async () => {
+      store.setState({ preferences: { ...store.getState().preferences, boardHints: 'off' } });
+      await startPlaying();
+
+      expect(store.getState().candidateAreas).toBeNull();
+      expect(renderer.hexGrid.setCandidateHighlights).not.toHaveBeenCalled();
+      expect(renderer.hexGrid.clearCandidateHighlights).toHaveBeenCalled();
+    });
+
+    it('picks the offer back up when the preference is turned on mid-game', async () => {
+      store.setState({ preferences: { ...store.getState().preferences, boardHints: 'off' } });
+      await startPlaying();
+      expect(store.getState().candidateAreas).toBeNull();
+
+      // What main.jsx does on a preferences change.
+      store.setState({ preferences: { ...store.getState().preferences, boardHints: 'on' } });
+      controller.refreshCandidateHighlights();
+
+      expect(store.getState().candidateAreas).toEqual([1, 5]);
+      expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenLastCalledWith([1, 5], 'attacker');
+    });
+
+    it('reads the preference from the manager, not the store copy', async () => {
+      /*
+       * The store's `preferences` is a mirror, kept fresh only because main.jsx
+       * registers the prefs→store sync subscriber before the hints one. Reading
+       * it here would make the board's correctness depend on that registration
+       * order; the manager is the source of truth (isReducedMotion treats it the
+       * same way). Set the two in conflict — manager 'off', mirror 'on' — and
+       * the manager has to win.
+       */
+      const prefsManager = {
+        get: vi.fn(key => (key === 'boardHints' ? 'off' : undefined)),
+        effectiveReducedMotion: vi.fn(() => true),
+      };
+      const managedStore = createGameStore();
+      managedStore.setState({
+        preferences: { ...managedStore.getState().preferences, boardHints: 'on' },
+      });
+      const managedRenderer = createMockRenderer();
+      const managed = createGameController(
+        managedStore,
+        managedRenderer,
+        soundManager,
+        prefsManager
+      );
+
+      await managed.startNewGame({ playerCount: 2, spectator: false });
+      managed.acceptMap();
+
+      expect(prefsManager.get).toHaveBeenCalledWith('boardHints');
+      expect(managedStore.getState().preferences.boardHints).toBe('on'); // the stale mirror
+      expect(managedStore.getState().candidateAreas).toBeNull();
+      expect(managedRenderer.hexGrid.setCandidateHighlights).not.toHaveBeenCalled();
     });
   });
 });

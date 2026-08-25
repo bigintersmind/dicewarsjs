@@ -126,6 +126,12 @@ const DICE_DISPLAY_OPTIONS = [
   { value: 'number', label: 'Number' },
 ];
 
+/*
+ * The board-hints row is named verbatim in the HOW TO PLAY card ("Settings →
+ * Board hints turns that off"), so the two share the string rather than drift.
+ */
+export const BOARD_HINTS_LABEL = 'Board hints';
+
 const SPEED_OPTIONS = [
   { value: 0.5, label: '0.5x' },
   { value: 1, label: '1x' },
@@ -384,6 +390,13 @@ export function SettingsPanel({ store, preferencesManager }) {
             options={DICE_DISPLAY_OPTIONS}
             value={prefs.diceDisplayMode || 'dice'}
             onSelect={v => setPref('diceDisplayMode', v)}
+          />
+
+          <OptionGroup
+            label={BOARD_HINTS_LABEL}
+            options={ON_OFF_OPTIONS}
+            value={prefs.boardHints || 'on'}
+            onSelect={v => setPref('boardHints', v)}
           />
 
           {/* Player-facing polarity: SOUND ON means audible (muted: false). */}

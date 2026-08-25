@@ -23,6 +23,7 @@ function createMockPreferencesManager(initial = {}) {
     animationSpeed: 1,
     reducedMotion: 'system',
     muted: false,
+    boardHints: 'on',
     ...initial,
   };
   return {
@@ -45,6 +46,7 @@ function renderPanel(storeOverrides = {}, prefsOverrides = {}) {
       animationSpeed: 1,
       reducedMotion: 'system',
       muted: false,
+      boardHints: 'on',
       ...prefsOverrides,
     },
     ...storeOverrides,
@@ -270,6 +272,36 @@ describe('SettingsPanel', () => {
     act(() => onBtn.click());
 
     expect(pm.set).toHaveBeenCalledWith('reducedMotion', 'on');
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Board hints
+   * -----------------------------------------------------------------------
+   */
+
+  it('shows the board-hints preference as on by default', () => {
+    renderPanel();
+    act(() => container.querySelector('button[aria-label="Settings"]').click());
+
+    expect(optionIn('Board hints', 'On').getAttribute('aria-pressed')).toBe('true');
+    expect(optionIn('Board hints', 'Off').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('calls setPref with the boardHints value', () => {
+    const { pm } = renderPanel();
+    act(() => container.querySelector('button[aria-label="Settings"]').click());
+
+    act(() => optionIn('Board hints', 'Off').click());
+
+    expect(pm.set).toHaveBeenCalledWith('boardHints', 'off');
+  });
+
+  it('reflects board hints already turned off — the way back on', () => {
+    renderPanel({}, { boardHints: 'off' });
+    act(() => container.querySelector('button[aria-label="Settings"]').click());
+
+    expect(optionIn('Board hints', 'Off').getAttribute('aria-pressed')).toBe('true');
   });
 
   /*

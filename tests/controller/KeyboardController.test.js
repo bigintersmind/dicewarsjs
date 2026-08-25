@@ -66,6 +66,7 @@ function createMockRenderer() {
 function createMockController() {
   return {
     handleTerritoryClick: vi.fn(),
+    refreshCandidateHighlights: vi.fn(),
   };
 }
 
@@ -231,11 +232,37 @@ describe('KeyboardController', () => {
         selectedFrom: 1,
       });
 
+      // What the controller would see if it recomputed the hints right now.
+      let awaitingAtRefresh;
+      mockController.refreshCandidateHighlights.mockImplementation(() => {
+        awaitingAtRefresh = store.getState().awaitingInput;
+      });
+
       const event = fireKey('Escape');
 
       expect(store.getState().awaitingInput).toBe('selectFrom');
       expect(store.getState().selectedFrom).toBeNull();
       expect(mockRenderer.hexGrid.clearHighlights).toHaveBeenCalled();
+      /*
+       * clearHighlights() wipes the board hints along with the selection, and
+       * this lands back on selectFrom — so the controller (which owns that
+       * mapping) has to be asked to repaint the attack candidates, or the board
+       * silently stops offering them for the rest of the turn.
+       */
+      expect(mockController.refreshCandidateHighlights).toHaveBeenCalled();
+      /*
+       * ...and in that order. Refreshing first and clearing second wipes the
+       * hints it just painted, which no assertion on "was it called" can see.
+       */
+      expect(mockRenderer.hexGrid.clearHighlights.mock.invocationCallOrder[0]).toBeLessThan(
+        mockController.refreshCandidateHighlights.mock.invocationCallOrder[0]
+      );
+      /*
+       * The store has to be back on selectFrom before the refresh runs, too:
+       * recomputing against a stale 'selectTo' would repaint the old source's
+       * reachable enemies as if they were the attack candidates.
+       */
+      expect(awaitingAtRefresh).toBe('selectFrom');
       // Claimed: the quit confirm must not also open on this keypress (#181).
       expect(event.defaultPrevented).toBe(true);
     });

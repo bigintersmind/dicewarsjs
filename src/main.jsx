@@ -84,6 +84,20 @@ async function main() {
   const controller = createGameController(store, gameRenderer, soundManager, preferencesManager);
 
   /*
+   * Board hints are gated on a preference, so toggling it mid-game has to reach
+   * the board immediately — the controller only recomputes at its own game-loop
+   * seams, none of which a settings click passes through. Gated on the key
+   * actually changing, since every theme/sound/speed click notifies here too.
+   * The refresh is idempotent, so calling it at any moment is safe.
+   */
+  let lastBoardHints = preferencesManager.get('boardHints');
+  preferencesManager.subscribe(prefs => {
+    if (prefs.boardHints === lastBoardHints) return;
+    lastBoardHints = prefs.boardHints;
+    controller.refreshCandidateHighlights();
+  });
+
+  /*
    * Background AI game behind the title and bot-hub screens (ATTRACT_SCREENS).
    * Owns a private engine state (never touches store.gameState) and runs only
    * on those screens, so it can't fight the controller for the renderer.

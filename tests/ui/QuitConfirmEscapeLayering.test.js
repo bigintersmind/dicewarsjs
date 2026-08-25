@@ -55,7 +55,9 @@ function mountBoth(overrides = {}) {
   });
 
   const renderer = { hexGrid: { clearHighlights: vi.fn(), setFocusHighlight: vi.fn() } };
-  const controller = { handleTerritoryClick: vi.fn() };
+  // The two controller methods KeyboardController calls; both are required —
+  // the Escape path repaints the board hints through refreshCandidateHighlights.
+  const controller = { handleTerritoryClick: vi.fn(), refreshCandidateHighlights: vi.fn() };
   kbc = createKeyboardController(store, controller, renderer);
 
   const onOpen = vi.fn(() => store.setState({ quitConfirmOpen: true }));

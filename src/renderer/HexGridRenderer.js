@@ -10,6 +10,7 @@
 
 import { Container, Graphics } from 'pixi.js';
 import { traceBorder, buildCellToArea } from './territoryBorder.js';
+import { THEMES } from './themes.js';
 import {
   PLAYER_COLORS,
   COLORBLIND_PLAYER_COLORS,
@@ -104,9 +105,28 @@ function drawTerritoryPath(
   strokeWidth,
   fillAlpha = 1
 ) {
-  if (border.length < 2) return;
-
   gfx.clear();
+  appendTerritoryPath(gfx, border, cellPos, fillColor, strokeColor, strokeWidth, fillAlpha);
+}
+
+/**
+ * Append one territory outline to a Graphics **without clearing it first**, so
+ * several territories can share a single Graphics object (the candidate-
+ * highlight layer draws the whole hint set — attackers or reachable targets —
+ * into one).
+ *
+ * Same parameters as `drawTerritoryPath`.
+ */
+function appendTerritoryPath(
+  gfx,
+  border,
+  cellPos,
+  fillColor,
+  strokeColor,
+  strokeWidth,
+  fillAlpha = 1
+) {
+  if (border.length < 2) return;
 
   /*
    * Build polygon points from the border segments
@@ -143,6 +163,19 @@ export class HexGridRenderer {
     /** @type {Graphics[]} Territory Graphics indexed by areaId */
     this._territoryGfx = [];
 
+    /*
+     * Board-hint layer: every territory the player can act on right now, drawn
+     * into ONE Graphics. Added FIRST of the four overlays and never re-pinned,
+     * so it is the LOWEST of them: it paints above the territories themselves
+     * (drawMap's addChildAt(gfx, 0) puts each territory below every overlay)
+     * but beneath the keyboard focus ring, the dice, and the from/to selection.
+     * A hint is an offer; the committed selection has to stay dominant.
+     */
+    /** @type {Graphics} Board-hint overlay for attack candidates */
+    this._highlightCandidates = new Graphics();
+    this._highlightCandidates.visible = false;
+    this.container.addChild(this._highlightCandidates);
+
     /** @type {Graphics} Highlight overlay for selectedFrom */
     this._highlightFrom = new Graphics();
     this._highlightFrom.visible = false;
@@ -176,8 +209,19 @@ export class HexGridRenderer {
     this._highlightColor = HIGHLIGHT_COLOR;
     /** @type {number} Current highlight fill color */
     this._highlightFill = HIGHLIGHT_FILL;
+    /** @type {number} Current attack-candidate highlight color */
+    this._candidateAttackerColor = THEMES.dark.candidateAttacker;
+    /** @type {number} Current attack-target highlight color */
+    this._candidateTargetColor = THEMES.dark.candidateTarget;
+    /** @type {number} Rim drawn under a candidate ring so it reads on any territory */
+    this._candidateHaloColor = THEMES.dark.candidateHalo;
     /** @type {boolean} Color-blind mode */
     this._colorBlindMode = false;
+
+    /** @type {number[]} Territories currently marked by the board-hint layer */
+    this._candidateIds = [];
+    /** @type {'attacker' | 'target'} Treatment the board-hint layer is painting */
+    this._candidateKind = 'attacker';
   }
 
   /**
@@ -192,12 +236,21 @@ export class HexGridRenderer {
 
   /**
    * Apply a theme to the renderer.
-   * @param {{ borderColor: number, highlightColor: number, highlightFill: number }} theme
+   *
+   * Every key is required — `themes.test.js` pins that on each entry of THEMES,
+   * so a missing one is a bug in the theme, not a case to paper over here.
+   *
+   * @param {{ borderColor: number, highlightColor: number, highlightFill: number,
+   *   candidateAttacker: number, candidateTarget: number, candidateHalo: number }} theme
    */
   setTheme(theme) {
     this._borderColor = theme.borderColor;
     this._highlightColor = theme.highlightColor;
     this._highlightFill = theme.highlightFill;
+    this._candidateAttackerColor = theme.candidateAttacker;
+    this._candidateTargetColor = theme.candidateTarget;
+    this._candidateHaloColor = theme.candidateHalo;
+    this._redrawCandidates();
   }
 
   /**
@@ -249,6 +302,10 @@ export class HexGridRenderer {
     this._territoryGfx = new Array(areas.length).fill(null);
     this._borders = new Array(areas.length).fill(null);
 
+    // Borders are being retraced from scratch: anything the board-hint layer
+    // drew against the previous map's outlines is now stale geometry.
+    this.clearCandidateHighlights();
+
     // Trace borders and draw each territory
     for (let a = 1; a < areas.length; a++) {
       const area = areas[a];
@@ -278,7 +335,12 @@ export class HexGridRenderer {
     this.container.x = layout.x;
     this.container.y = layout.y;
 
-    // Ensure highlights are on top
+    /*
+     * Ensure highlights are on top. This re-pins the from/to selection above
+     * everything added since — the keyboard focus ring included — while the
+     * board-hint layer keeps the index it was constructed at and stays the
+     * lowest overlay.
+     */
     this.container.setChildIndex(this._highlightFrom, this.container.children.length - 1);
     this.container.setChildIndex(this._highlightTo, this.container.children.length - 2);
   }
@@ -341,6 +403,12 @@ export class HexGridRenderer {
   /**
    * Show a focus highlight on a territory (keyboard navigation).
    * Uses a thin white semi-transparent border distinct from selection highlights.
+   *
+   * Its own Graphics, stacked above the board hints, so its darkened fill
+   * separates the focused territory from the thin attacker rims around it. The
+   * two layers are independent: moving focus never disturbs the hints, and
+   * repainting the hints never disturbs focus.
+   *
    * @param {number} areaId
    */
   setFocusHighlight(areaId) {
@@ -351,15 +419,119 @@ export class HexGridRenderer {
     this._highlightFocus.alpha = 0.7;
   }
 
-  /** Clear the keyboard focus highlight. */
+  /**
+   * Board hints: outline a set of territories as "you can act on these right
+   * now". Replaces whatever the layer held before — one call paints the whole
+   * set.
+   *
+   * The treatments are deliberately quieter than `setHighlight`'s selection
+   * ring, and differ from each other in weight as well as hue so they don't
+   * rely on color alone:
+   *   'attacker' — your territories that could start an attack (thin ring)
+   *   'target'   — the enemies the selected territory can reach (denser ring)
+   *
+   * Both arguments are programmer-supplied, not runtime data, so a bad one is a
+   * wiring bug and throws. Coercing them instead would paint the wrong
+   * treatment (or nothing) with no way to notice.
+   *
+   * @param {number[]} areaIds - Territories to mark (empty clears the layer)
+   * @param {'attacker' | 'target'} [kind='attacker']
+   * @throws {TypeError} if `areaIds` is not an array or `kind` is not one of the two treatments
+   */
+  setCandidateHighlights(areaIds, kind = 'attacker') {
+    if (!Array.isArray(areaIds)) {
+      throw new TypeError(
+        `setCandidateHighlights: areaIds must be an array, got ${typeof areaIds}`
+      );
+    }
+    if (kind !== 'attacker' && kind !== 'target') {
+      throw new TypeError(
+        `setCandidateHighlights: kind must be 'attacker' or 'target', got ${JSON.stringify(kind)}`
+      );
+    }
+    this._candidateIds = [...areaIds];
+    this._candidateKind = kind;
+    this._redrawCandidates();
+  }
+
+  /** Clear the board-hint layer. Leaves the selection and focus rings alone. */
+  clearCandidateHighlights() {
+    this._candidateIds = [];
+    this._highlightCandidates.visible = false;
+    this._highlightCandidates.clear();
+  }
+
+  /**
+   * Repaint the board-hint layer from `_candidateIds`. Its only two callers are
+   * `setCandidateHighlights` (the set changed) and `setTheme` (the colors did) —
+   * territory redraws never touch this Graphics, so they need no hook here.
+   */
+  _redrawCandidates() {
+    const gfx = this._highlightCandidates;
+    gfx.clear();
+
+    const ids = this._candidateIds;
+    if (ids.length === 0) {
+      gfx.visible = false;
+      return;
+    }
+
+    /*
+     * A target is the louder mark of the two: a fat warm ring over a warm wash,
+     * against the attack candidate's thin white outline. Halo first, bright core
+     * on top — see the `candidateHalo` note in themes.js for why.
+     */
+    const isTarget = this._candidateKind === 'target';
+    const color = isTarget ? this._candidateTargetColor : this._candidateAttackerColor;
+    const coreWidth = isTarget ? 5 : 2;
+    const haloWidth = coreWidth + 4;
+    const fillAlpha = isTarget ? 0.25 : 0.1;
+
+    let drew = false;
+    const skipped = [];
+    for (const id of ids) {
+      const border = this._borders[id];
+      if (!border) {
+        skipped.push(id);
+        continue;
+      }
+      // A degenerate outline draws nothing (appendTerritoryPath bails under two
+      // segments), so it must not be what makes the layer visible.
+      if (border.length < 2) continue;
+      const pos = this._cellPos;
+      appendTerritoryPath(gfx, border, pos, color, this._candidateHaloColor, haloWidth, 0);
+      appendTerritoryPath(gfx, border, pos, color, color, coreWidth, fillAlpha);
+      drew = true;
+    }
+
+    /*
+     * An id with no traced border means the caller is hinting against a board
+     * this renderer isn't showing. Warn once for the whole set rather than
+     * throwing: this runs inside startTurn, and taking the turn down over a
+     * cosmetic layer would be far worse than a missing outline.
+     */
+    if (skipped.length > 0) {
+      console.warn(
+        '[HexGridRenderer] setCandidateHighlights: no border for area ids',
+        skipped,
+        '— renderer map may not match the store game'
+      );
+    }
+
+    gfx.alpha = isTarget ? 1 : 0.85;
+    gfx.visible = drew;
+  }
+
+  /** Clear the keyboard focus highlight. Leaves the board hints alone. */
   clearFocusHighlight() {
     this._highlightFocus.visible = false;
     this._highlightFocus.clear();
   }
 
-  /** Clear all selection highlights (including keyboard focus). */
+  /** Clear every overlay: selection, keyboard focus, and the board hints. */
   clearHighlights() {
     this.clearFocusHighlight();
+    this.clearCandidateHighlights();
     this._highlightFrom.visible = false;
     this._highlightFrom.clear();
     this._highlightTo.visible = false;

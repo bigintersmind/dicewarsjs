@@ -25,6 +25,19 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  * @property {AnimationPhase} animationPhase
  * @property {AwaitingInput} awaitingInput
  * @property {number | null} humanPlayerIndex
+ * @property {number[] | null} candidateAreas - Territories the board hints are
+ *   currently outlining for the human player: every territory that could start
+ *   an attack while awaiting `selectFrom`, or the reachable enemies of
+ *   `selectedFrom` while awaiting `selectTo`. Three distinct states, and the
+ *   empty one is not the null one: `[]` means it IS the human's move but
+ *   nothing qualifies (no territory with 2+ dice next to an enemy, or a
+ *   selected source with nothing reachable), while `null` means no hint applies
+ *   at all — the `boardHints` preference is off, nobody is playing
+ *   (`humanPlayerIndex === null`), it is an AI's turn, or an animation owns the
+ *   board. Written only by GameController, the single owner of the mapping onto
+ *   HexGridRenderer.setCandidateHighlights. Nothing in the UI reads it yet; it
+ *   is published so an observer can (the text hints parked in #196 would be the
+ *   first).
  * @property {boolean} humanEliminated
  * @property {'turnLimit' | null} gameOverReason - Why a game ended without a conqueror.
  *   'turnLimit' when the browser turn cap (GameController MAX_GAME_TURNS) drew a stalled
@@ -82,12 +95,14 @@ const DEFAULT_STATE = {
   currentReplay: null,
   replayOrigin: null,
   focusedAreaId: null,
+  candidateAreas: null,
   preferences: {
     theme: 'dark',
     colorBlindMode: false,
     diceDisplayMode: 'dice',
     animationSpeed: 1,
     reducedMotion: 'system',
+    boardHints: 'on',
   },
   config: {
     playerCount: 7,

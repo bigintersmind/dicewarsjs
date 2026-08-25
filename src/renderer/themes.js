@@ -7,12 +7,43 @@
  * @module renderer/themes
  */
 
+/*
+ * `candidateAttacker` / `candidateTarget` are the board-hint colors: the
+ * outlines that show which of your territories can start an attack right now,
+ * and which enemies the selected one can reach. They are deliberately NOT
+ * player colors and NOT the selection red — a hint outline must never be
+ * mistaken for a seat or for the committed from/to selection — and they are
+ * unaffected by color-blind mode, which swaps the player and dice palettes,
+ * never these. The two never appear at the same time (they belong to the
+ * mutually exclusive selectFrom / selectTo phases), so hue alone doesn't have
+ * to carry the distinction; the stroke weight and fill density differ as well.
+ *
+ * Both are drawn over a `candidateHalo` rim, because the player palette is
+ * almost entirely BRIGHT (lime, cyan, yellow, lavender): a light ring alone
+ * would vanish on half the board. The dark rim under the bright core is what
+ * makes a hint legible on any territory in either theme — which is also why the
+ * core colors barely differ between themes. It is the territory colors, not the
+ * page, that these have to survive, and those are the same in both.
+ *
+ * Checked against COLORBLIND_PLAYER_COLORS, where the amber target ring has to
+ * hold up on the two seats nearest it in hue — the Orange and Yellow seats. It
+ * does: the halo separates ring from fill, so it still reads as a ring rather
+ * than a shade, and at the other extreme (the Black seat, where the halo itself
+ * disappears) the amber core carries it alone. No per-mode target hue is
+ * needed. The white attacker rim never has to survive the Black seat — it only
+ * ever marks the human's own territories, and GameController pins
+ * `humanPlayerIndex` to 0, so the human never gets the Black seat (index 7).
+ * Revisit if the human seat becomes selectable.
+ */
 export const THEMES = {
   dark: {
     bgColor: 0x1a1a2e,
     borderColor: 0x222244,
     highlightColor: 0xff0000,
     highlightFill: 0x000000,
+    candidateAttacker: 0xffffff,
+    candidateTarget: 0xffc233,
+    candidateHalo: 0x000000,
     uiBg: 'rgba(0, 0, 0, 0.5)',
     uiOverlayBg: 'rgba(0, 0, 0, 0.75)',
     uiText: '#ffffff',
@@ -29,6 +60,9 @@ export const THEMES = {
     borderColor: 0x444466,
     highlightColor: 0xcc0000,
     highlightFill: 0xeeeeee,
+    candidateAttacker: 0xffffff,
+    candidateTarget: 0xffb300,
+    candidateHalo: 0x1a1a2e,
     uiBg: 'rgba(255, 255, 255, 0.85)',
     uiOverlayBg: 'rgba(240, 240, 245, 0.9)',
     uiText: '#1a1a2e',

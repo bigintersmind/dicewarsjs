@@ -4,47 +4,39 @@ Notes on the centralized AI configuration system in DiceWarsJS.
 
 ## Overview
 
-AI configuration is centralized in `src/ai/aiConfig.js` so the game and the bot arena manage AI strategies the same way. This keeps the code maintainable and makes new strategies easy to add.
+AI configuration is centralized in `src/ai/aiConfig.js` so the game and the bot arena manage AI strategies the same way. This keeps the code maintainable and makes new strategies easy to add. `src/ai/index.js` re-exports the module and nothing else.
 
 ## Key components
 
-1. **AI strategy registry**: `AI_STRATEGIES` in `aiConfig.js`
+`AI_STRATEGIES` is the registry: a map from strategy ID to metadata. Each entry carries `id`, `name`, `description`, `difficulty` (1 to 5), an async `loader`, and `implementation: null`. Some entries add `category: 'self-play'` (the persona nets) or `hidden: true`.
 
-   - Maps string identifiers to AI strategy objects with metadata
-   - Includes name, description, difficulty, and implementation function
-   - Single source of truth for all AI strategy information
+`implementation` starts empty on purpose. `getAIImplementation(id)` runs the entry's `loader` on first use, which is a dynamic `import()` of the strategy file, then caches the function back onto the entry. A strategy's code is fetched only when a seat actually uses it; persona entries pull a weights chunk on top of their module, and their loaders also wrap the bot in `adaptModernBot`, since a persona reads a sanitized BotState rather than the legacy mutable game view. Listing strategies loads nothing, because the metadata above is static.
 
-2. **Helper functions**
+Helper functions:
 
-   - `getAIById()`: gets strategy details by ID
-   - `getAIImplementation()`: gets just the AI function implementation
-   - `getAllAIStrategies()`: lists all available strategies
-   - `createAIFunctionMapping()`: creates player-to-AI function mappings
+- `getAIById(id)`: the full registry entry, metadata included. Unknown IDs fall back to `ai_default`.
+- `getAIImplementation(id)`: the callable AI function, loading it on first use. Same fallback.
+- `getAllAIStrategies()`: every entry, hidden ones included.
+- `getAIStrategiesByCategory()`: what the title-screen picker renders. Drops `hidden` entries and splits the rest into `selfPlay` (the personas) and `general` (the hand-written heuristics), each in registry order.
 
-3. **Default assignments**
-   - `DEFAULT_AI_ASSIGNMENTS`: default mapping of player indices to AI strategy IDs
+`hidden` in this registry means one thing: not offered in the game-setup picker. A hidden entry still resolves through `getAIById` and `getAIImplementation`. `src/arena/builtInBots.js` has a separate `hidden` flag meaning "kept off competitive surfaces" (arena, tournament, leaderboard). The two sets differ on purpose: since #167, Defensive and Basic are picker-visible as Easy-mode ingredients while staying hidden on the arena side.
 
-## Assigning AIs to players
+`DEFAULT_AI_ASSIGNMENTS` mirrors the Standard difficulty preset and is pinned against it by `tests/ai/aiConfig.test.js`. Nothing consumes it at runtime.
 
-AI strategies are assigned per player with an `aiAssignments` array. Each entry is a strategy ID for that player index; `null` marks a human player:
+Difficulty presets live in `src/ai/difficultyModes.js`. Easy, Standard, and Hard are each an explicit 8-slot lineup of registry IDs with slot 0 as the human seat, sliced down to the chosen player count by the title screen. Custom has no lineup; it is the per-slot picker, seeded from the last preset. Every ID in a lineup is validated against `AI_STRATEGIES` at import time, so a typo fails the test suite rather than a player's game.
 
-```javascript
-const aiAssignments = [
-  null, // Player 0 (human)
-  'ai_defensive', // Player 1
-  'ai_defensive', // Player 2
-  // ...
-];
-```
+## How a seat gets its AI
 
-`createAIFunctionMapping(aiAssignments)` resolves these IDs to the actual AI functions the engine runs.
+The title screen writes `config.aiAssignments` into the GameStore: one entry per seat, where a strategy ID names a built-in bot, `community:<id>` names a community bot, and `null` marks the human seat.
 
-## Adding new AI strategies
+When a game starts, `GameController.loadAIFunctions` (`src/controller/GameController.js`) reads that array back out of the store and resolves each entry through `resolveAIFunction`. A `community:` prefix is stripped and the rest handed to `loadCommunityBot` plus `adaptModernBot`; everything else goes to `getAIImplementation`. Each seat also gets its picker name, so the HUD says "Conqueror is thinking..." instead of "Player 3".
 
-To add a new AI strategy:
+A seat whose bot fails to load gets `ai_default` plus a visible notice ("Player 3: ... could not load. Using Balanced AI instead."), never a silent substitution.
 
-1. Create your AI implementation file (e.g., `src/ai/ai_myCustom.js`)
-2. Add a dynamic loader and registry entry in `aiConfig.js`:
+## Adding a new strategy
+
+1. Write the implementation in `src/ai/ai_myCustom.js`.
+2. Add a dynamic loader and a registry entry in `aiConfig.js`:
 
 ```javascript
 export const load_ai_myCustom = async () => (await import('./ai_myCustom.js')).ai_myCustom;
@@ -64,26 +56,32 @@ export const AI_STRATEGIES = {
 };
 ```
 
-3. Assign it to players in the `aiAssignments` array:
+3. That is enough to make it selectable. The picker reads the registry, so an entry appears on its own unless it is flagged `hidden`. Picker order is pinned by `tests/ai/aiConfig.test.js`, so add the new ID to the expected lists there or those tests fail.
+4. To put it in a preset lineup, edit `src/ai/difficultyModes.js`. To run it in the arena and tournament, register it in `src/arena/builtInBots.js`; `docs/ai/DEVELOPER_GUIDE.md` covers that step.
 
-```javascript
-aiAssignments[3] = 'ai_myCustom'; // Assign to player 3
-```
+## Driving games from code
 
-## Testing
+`createAIFunctionMapping(aiAssignments)` maps an array of strategy IDs to an array of loaded AI functions. The game does not use it (the controller path above is what seats bots in a real game), so treat it as a convenience for tests, benchmarks, and scripts. Its only failure handling is to log the error and substitute `ai_default`.
 
-When testing AI functionality, you can use:
+Pair it with `simulateGame` from `src/engine/GameRunner.js` to play a headless game:
 
 ```javascript
 import { createAIFunctionMapping } from '../ai/index.js';
+import { simulateGame } from '../engine/GameRunner.js';
 
-// Map strategy IDs to AI functions (async, since strategies load on demand)
-const aiAssignments = ['ai_default', 'ai_defensive', null, 'ai_adaptive'];
-const aiFunctions = await createAIFunctionMapping(aiAssignments);
+// Every seat needs a function. A null (human) entry makes simulateGame throw
+// "No AI function assigned", so use a full AI lineup here.
+const fns = await createAIFunctionMapping([
+  'ai_default',
+  'ai_lookahead',
+  'ai_strategist',
+  'ai_adaptive',
+]);
 
-// aiFunctions[i] is the AI for player i (null = human)
+const { winner, turnCount, completed } = simulateGame({
+  config: { playerCount: 4 },
+  aiAssignments: fns, // fns[i] is the AI for player i
+  seed: 12345,
+  maxTurns: 300,
+});
 ```
-
-## Performance
-
-The AI configuration system adds minimal overhead in exchange for better organization and metadata. Centralizing it also leaves room for later optimizations like lazy-loading AI strategies or dynamic strategy selection.

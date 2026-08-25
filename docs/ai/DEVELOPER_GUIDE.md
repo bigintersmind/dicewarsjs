@@ -291,7 +291,7 @@ game.area_to = possibleAttacks[0].to;
 3. That is enough to make it selectable per player in the title screen's AI picker, which reads the registry through `getAIStrategiesByCategory()`. Anything flagged `hidden` is left out of the picker but stays resolvable by ID. The picker order is pinned in `tests/ai/aiConfig.test.js`, so add your entry to the expected lists there or those tests fail.
 4. To also run it in the arena and tournament, register it in `src/arena/builtInBots.js` wrapped in `adaptLegacyBot(ai_myCustom, 'My Custom')`, and place its id in that file's `STRENGTH_ORDER` (or flag the entry `hidden`). An un-hidden bot missing from `STRENGTH_ORDER` throws at import and takes every consumer of the module down with it. The adapter is what lets a legacy AI read the arena's `BotState`.
 
-`docs/ai/AI_CONFIG_NOTES.md` covers the config system in more detail, including `createAIFunctionMapping()` for driving games from code.
+`docs/ai/AI_CONFIG_NOTES.md` covers the config system in more detail: the registry and its lazy loaders, how a seat gets its AI from the store through `GameController`, and how to drive headless games from code.
 
 ## Testing and debugging
 

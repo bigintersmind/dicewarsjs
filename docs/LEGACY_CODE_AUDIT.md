@@ -184,7 +184,8 @@ window.soundon; // Sound state
 window.spectate_mode; // Game mode
 
 // Used by both
-window.ai_default, window.ai_defensive, etc.window.GAME_CONFIG; // AI functions // Configuration object
+window.ai_default, window.ai_defensive; // AI functions (and the other ai_* globals)
+window.GAME_CONFIG; // Configuration object
 ```
 
 ## Migration priority and order

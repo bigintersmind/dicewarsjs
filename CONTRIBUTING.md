@@ -74,7 +74,7 @@ Community bots compete in daily automated tournaments with a persistent ELO lead
 
 1. **Fork** the repository and create a branch
 2. **Create your bot directory**: `community-bots/<your-github-username>/`
-3. **Add your bot file** (e.g., `my-bot.js`) — a bare function body that receives `state` and returns `{ from, to }` or `null`. Same format as the bots in `bots/`.
+3. **Add your bot file** (e.g., `my-bot.js`): a bare function body that receives `state` and returns `{ from, to }` or `null`. Same format as the bots in `bots/`.
 4. **Add a metadata file** (e.g., `my-bot.meta.json`):
    ```json
    {
@@ -95,7 +95,7 @@ Community bots compete in daily automated tournaments with a persistent ELO lead
      "active": true
    }
    ```
-6. **Open a PR** — CI will automatically validate your bot (syntax, compilation, test match)
+6. **Open a PR**: CI will automatically validate your bot (syntax, compilation, test match)
 
 You can also test locally before submitting:
 

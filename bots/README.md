@@ -34,9 +34,9 @@ See the [Bot Guide](../docs/BOT_GUIDE.md) for the full SDK reference, or start b
 
 Your bot is a function body that receives a `state` parameter:
 
-- `state.myAreas` — territories you own
-- `state.allAreas` — all territories on the board
-- `state.players` — all player stats
+- `state.myAreas`: territories you own
+- `state.allAreas`: all territories on the board
+- `state.players`: all player stats
 - Return `{ from, to }` to attack, or `null` to end your turn
 
 ## Submit Your Bot

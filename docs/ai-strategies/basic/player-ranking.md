@@ -28,7 +28,7 @@ for (let i = 0; i < 8 - 1; i++) {
 // Count total dice and territories for each player
 let sum = 0;
 for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
+    if (game.adat[i].size === 0) continue;
     const arm = game.adat[i].arm;
     game.player[arm].area_c++;
     game.player[arm].dice_c += game.adat[i].dice;
@@ -54,17 +54,17 @@ for (let i = 0; i < 8; i++) {
 }
 
 // Handle equal dice situations based on player ranking
-if (game.adat[j].dice == game.adat[i].dice) {
+if (game.adat[j].dice === game.adat[i].dice) {
     const en = game.adat[j].arm;
     let f = 0;
-    if (game.player[pn].dice_jun == 0) f = 1;  // Attack if we're top ranked
-    if (game.player[en].dice_jun == 0) f = 1;  // Attack if opponent is top ranked
+    if (game.player[pn].dice_jun === 0) f = 1;  // Attack if we're top ranked
+    if (game.player[en].dice_jun === 0) f = 1;  // Attack if opponent is top ranked
     // ...
 }
 
 // If there's a dominant player, only consider attacks involving them
 if (top >= 0) {
-    if (game.adat[i].arm != top && game.adat[j].arm != top) continue;
+    if (game.adat[i].arm !== top && game.adat[j].arm !== top) continue;
 }
 ```
 
@@ -100,7 +100,7 @@ for (let i = 0; i < 8; i++) {
 
 // If there's a dominant player, only consider attacks involving them
 if (top >= 0) {
-    if (game.adat[i].arm != top && game.adat[j].arm != top) continue;
+    if (game.adat[i].arm !== top && game.adat[j].arm !== top) continue;
 }
 ```
 

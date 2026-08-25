@@ -40,17 +40,17 @@ These figures come from `src/ai/diceOdds.js`, which builds the full table by con
 for (let i = 1; i < game.AREA_MAX; i++) {
   const attacking_area = game.adat[i];
 
-  if (attacking_area.size == 0) continue; // Skip empty territories
-  if (attacking_area.arm != current_player) continue; // Skip enemy territories
+  if (attacking_area.size === 0) continue; // Skip empty territories
+  if (attacking_area.arm !== current_player) continue; // Skip enemy territories
   if (attacking_area.dice <= 1) continue; // Skip territories with 1 or fewer dice
 
   // For each potential attacker, look for valid targets
   for (let j = 1; j < game.AREA_MAX; j++) {
     const defending_area = game.adat[j];
 
-    if (defending_area.size == 0) continue; // Skip empty territories
-    if (defending_area.arm == current_player) continue; // Skip own territories
-    if (attacking_area.join[j] == 0) continue; // Skip non-adjacent territories
+    if (defending_area.size === 0) continue; // Skip empty territories
+    if (defending_area.arm === current_player) continue; // Skip own territories
+    if (attacking_area.join[j] === 0) continue; // Skip non-adjacent territories
 
     // Skip if defender has equal or more dice (considered a bad move)
     if (defending_area.dice >= game.adat[i].dice) continue;

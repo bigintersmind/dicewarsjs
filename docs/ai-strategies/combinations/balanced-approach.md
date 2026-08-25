@@ -406,13 +406,13 @@ From the default AI, logic for equal-dice situations:
 
 ```javascript
 // Handle equal dice situations
-if (game.adat[j].dice == game.adat[i].dice) {
+if (game.adat[j].dice === game.adat[i].dice) {
     const en = game.adat[j].arm;
     let f = 0;
-    if (game.player[pn].dice_jun == 0) f = 1;  // Attack if we're top ranked
-    if (game.player[en].dice_jun == 0) f = 1;  // Attack if opponent is top ranked
+    if (game.player[pn].dice_jun === 0) f = 1;  // Attack if we're top ranked
+    if (game.player[en].dice_jun === 0) f = 1;  // Attack if opponent is top ranked
     if (game.random() > 0.1) f = 1;  // 90% chance to attack in equal dice situations
-    if (f == 0) continue;
+    if (f === 0) continue;
 }
 ```
 

@@ -199,8 +199,8 @@ function findAttackPath(game, start_territory, max_depth = 3) {
 
     // Check all adjacent enemy territories
     for (let i = 1; i < game.AREA_MAX; i++) {
-      if (game.adat[i].size == 0) continue;
-      if (game.adat[i].arm == game.adat[territory].arm) continue;
+      if (game.adat[i].size === 0) continue;
+      if (game.adat[i].arm === game.adat[territory].arm) continue;
       if (!game.adat[territory].join[i]) continue;
       if (visited.has(i)) continue;
 

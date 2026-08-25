@@ -30,7 +30,7 @@ for (let i = 1; i < game.AREA_MAX; i++) {
 }
 
 // End turn if no valid attacks found
-if (lc == 0) return 0;
+if (lc === 0) return 0;
 
 // Choose a random valid attack from the list
 const n = Math.floor(game.random() * lc);

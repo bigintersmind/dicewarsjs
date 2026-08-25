@@ -31,11 +31,11 @@ function identifyChokePoints(game) {
   let countedTerritories = 0;
 
   for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
+    if (game.adat[i].size === 0) continue;
 
     let connections = 0;
     for (let j = 1; j < game.AREA_MAX; j++) {
-      if (game.adat[j].size == 0) continue;
+      if (game.adat[j].size === 0) continue;
       if (game.adat[i].join[j]) connections++;
     }
 
@@ -48,7 +48,7 @@ function identifyChokePoints(game) {
 
   // Find territories with below-average connectivity that connect different regions
   for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
+    if (game.adat[i].size === 0) continue;
 
     // Below average connectivity is the first indicator
     if (connectivity[i] <= averageConnectivity) {
@@ -105,8 +105,8 @@ function wouldDisconnectPlayerTerritories(game, player) {
   // Get all territories for this player
   const territories = [];
   for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
-    if (game.adat[i].arm == player) {
+    if (game.adat[i].size === 0) continue;
+    if (game.adat[i].arm === player) {
       territories.push(i);
     }
   }
@@ -123,8 +123,8 @@ function wouldDisconnectPlayerTerritories(game, player) {
 
     // Check all adjacent territories
     for (let i = 1; i < game.AREA_MAX; i++) {
-      if (game.adat[i].size == 0) continue;
-      if (game.adat[i].arm != player) continue;
+      if (game.adat[i].size === 0) continue;
+      if (game.adat[i].arm !== player) continue;
       if (!game.adat[current].join[i]) continue;
 
       if (!visited.has(i)) {
@@ -159,7 +159,7 @@ function rankThreatenedChokePoints(game, chokePoints) {
     let enemyNeighbors = 0;
 
     for (let i = 1; i < game.AREA_MAX; i++) {
-      if (game.adat[i].size == 0) continue;
+      if (game.adat[i].size === 0) continue;
       if (!game.adat[cp.territory].join[i]) continue;
 
       if (game.adat[i].arm !== player) {
@@ -200,7 +200,7 @@ function targetEnemyChokePoints(game, chokePoints) {
 
     // Find our territories that can attack this choke point
     for (let i = 1; i < game.AREA_MAX; i++) {
-      if (game.adat[i].size == 0) continue;
+      if (game.adat[i].size === 0) continue;
       if (game.adat[i].arm !== player) continue;
       if (game.adat[i].dice <= 1) continue; // Need at least 2 dice to attack
       if (!game.adat[i].join[cp.territory]) continue;
@@ -240,7 +240,7 @@ function findTerritoryCuts(game) {
 
   // Check all enemy territories
   for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
+    if (game.adat[i].size === 0) continue;
     if (game.adat[i].arm === player) continue;
 
     const enemyPlayer = game.adat[i].arm;
@@ -264,7 +264,7 @@ function findTerritoryCuts(game) {
       let bestDiceAdvantage = -1;
 
       for (let j = 1; j < game.AREA_MAX; j++) {
-        if (game.adat[j].size == 0) continue;
+        if (game.adat[j].size === 0) continue;
         if (game.adat[j].arm !== player) continue;
         if (game.adat[j].dice <= 1) continue;
         if (!game.adat[j].join[i]) continue;

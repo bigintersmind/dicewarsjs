@@ -2,6 +2,8 @@
 
 How to test a DiceWars bot and improve it systematically.
 
+The code below runs against the live engine, and the blocks build on each other in order: each one imports only what it adds and reuses the helpers defined above it. Import paths are written as they look from a file in `scripts/` or `tests/`, so add one `../` per extra directory level. Every bot in this series uses the legacy contract, a function that reads a mutable `game` view, writes `game.area_from` and `game.area_to`, and returns `0` to end its turn. That is what `simulateGame` and `runAI` expect. For the modern `state => { from, to } | null` contract, see [BOT_GUIDE.md](../../BOT_GUIDE.md).
+
 ## Testing challenges
 
 Testing a game AI is harder than testing ordinary code:
@@ -16,387 +18,348 @@ Testing a game AI is harder than testing ordinary code:
 
 ### 1. AI vs. AI tournaments
 
-The single most informative test is letting your bot play against other implementations, many times:
+The single most informative test is letting your bot play against other implementations, many times. `simulateGame` plays a whole game headlessly: hand it a config, one AI per seat, and a seed.
 
 ```javascript
-// Simple tournament runner
-function runTournament(aiList, numGames = 100) {
+import { simulateGame } from '../src/engine/GameRunner.js';
+import { ai_default } from '../src/ai/ai_default.js';
+import { ai_defensive } from '../src/ai/ai_defensive.js';
+import { ai_example } from '../src/ai/ai_example.js';
+
+// A small board keeps a game in the low milliseconds, so a 50-game run is instant.
+const MATCH_CONFIG = { mapWidth: 20, mapHeight: 20, maxAreas: 20 };
+const BASE_SEED = 20260825;
+
+function runTournament(aiList, numGames = 50, baseSeed = BASE_SEED) {
   const wins = new Array(aiList.length).fill(0);
-  const scores = new Array(aiList.length).fill(0);
+  const territories = new Array(aiList.length).fill(0);
+  let draws = 0;
 
-  for (let gameNum = 0; gameNum < numGames; gameNum++) {
-    // Initialize a new game with random map
-    const game = new Game();
-    game.make_map();
+  for (let i = 0; i < numGames; i++) {
+    /*
+     * aiAssignments is indexed by player id, so aiList[p] plays seat p.
+     * One seed per game, so the whole run repeats exactly when you rerun it.
+     */
+    const result = simulateGame({
+      config: { ...MATCH_CONFIG, playerCount: aiList.length },
+      aiAssignments: aiList,
+      seed: baseSeed + i,
+      maxTurns: 300,
+    });
 
-    // Assign AIs to players
-    for (let i = 0; i < aiList.length; i++) {
-      game.ai[i] = aiList[i];
-    }
+    // completed is false when the turn cap hit first: a draw, not a loss for anyone.
+    if (result.completed && result.winner !== null) wins[result.winner]++;
+    else draws++;
 
-    // Run the game until completion
-    const winner = runGameToCompletion(game);
-
-    // Record results
-    if (winner >= 0) {
-      wins[winner]++;
-    }
-
-    // Record scores (e.g., territories controlled, dice owned)
-    for (let i = 0; i < aiList.length; i++) {
-      scores[i] += calculateScore(game, i);
+    for (let p = 0; p < aiList.length; p++) {
+      territories[p] += result.finalState.players[p].territoryCount;
     }
   }
 
-  // Output results
-  for (let i = 0; i < aiList.length; i++) {
-    console.log(`AI ${i}: ${wins[i]} wins, average score: ${scores[i] / numGames}`);
-  }
+  return {
+    draws,
+    standings: aiList.map((ai, p) => ({
+      seat: p,
+      name: ai.name,
+      wins: wins[p],
+      winRate: wins[p] / numGames,
+      avgTerritories: territories[p] / numGames,
+    })),
+  };
 }
 
-function runGameToCompletion(game) {
-  game.start_game();
-
-  // Set a reasonable limit to avoid infinite games
-  const MAX_TURNS = 1000;
-  let turnCount = 0;
-
-  while (turnCount < MAX_TURNS) {
-    // Check win condition
-    const remainingPlayers = countRemainingPlayers(game);
-    if (remainingPlayers === 1) {
-      // Return the winner
-      for (let i = 0; i < 8; i++) {
-        if (game.player[i].area_c > 0) return i;
-      }
-    }
-
-    // No winner yet, continue game
-    while (true) {
-      // Process one AI turn
-      const pn = game.jun[game.ban];
-      const result = game.ai[pn](game);
-
-      // If the AI returns 0, end its turn
-      if (result === 0) break;
-
-      // Otherwise, process the attack
-      processAttack(game);
-    }
-
-    // Move to next player
-    advanceToNextPlayer(game);
-    turnCount++;
-  }
-
-  // If no clear winner after MAX_TURNS, return the player with most territories
-  let bestPlayer = -1;
-  let mostTerritories = 0;
-  for (let i = 0; i < 8; i++) {
-    if (game.player[i].area_c > mostTerritories) {
-      mostTerritories = game.player[i].area_c;
-      bestPlayer = i;
-    }
-  }
-
-  return bestPlayer;
+const tournament = runTournament([ai_default, ai_defensive, ai_example], 50);
+for (const entry of tournament.standings) {
+  console.log(
+    `seat ${entry.seat} ${entry.name}: ${entry.wins} wins ` +
+      `(${(entry.winRate * 100).toFixed(1)}%), avg territories ${entry.avgTerritories.toFixed(1)}`
+  );
 }
+console.log(`draws: ${tournament.draws}`);
 ```
+
+Two things this loop does not do. It never rotates seats, so whatever advantage a seat has on a given map lands on the same bot every game. And it reports raw win counts with no measure of how much of the gap is noise.
+
+The repo already has tools that handle both:
+
+```bash
+npm run arena                            # deterministic ELO ranking across the built-in field
+npm run arena:sweep                      # multi-seed sweep: win% and ELO with 95% confidence intervals
+npm run benchmark-bot -- bots/my-bot.js  # one bot: timing, win rate, ELO, placement
+```
+
+Use those to decide whether a bot is stronger. Use the loop above to understand what they are doing. [BOT_GUIDE.md](../../BOT_GUIDE.md) covers the command-line workflow end to end, and [docs/TESTING.md](../../TESTING.md) covers the project's test suite.
 
 ### 2. Specific scenario testing
 
-Build fixed game states to check how your AI handles particular situations:
+Fixed boards answer questions a win rate cannot: does the bot take a free capture, does it end its turn when it has no legal attack. `createGame` builds a board from a seed, and `runAI` asks a bot for a single decision on it without playing the game out.
 
 ```javascript
-// Test handling of choke points
-function testChokePointHandling(aiFunction) {
-  // Create a game with a predefined map containing choke points
-  const game = createChokePointMap();
+import { createGame } from '../src/engine/GameRunner.js';
+import { runAI } from '../src/engine/AIAdapter.js';
+import { getValidMoves } from '../src/engine/StateManager.js';
 
-  // Set the AI we're testing
-  game.ai[1] = aiFunction;
-
-  // Set up the specific scenario
-  // Player 1 has territories on both sides of a choke point
-  // Enemy player 2 controls the choke point
-  setupChokePointScenario(game);
-
-  // Run the AI and see if it targets the choke point
-  const result = aiFunction(game);
-
-  // Check if the AI correctly identified and attacked the choke point
-  if (game.area_to === CHOKE_POINT_TERRITORY) {
-    return 'PASS: AI correctly targeted the choke point';
-  } else {
-    return 'FAIL: AI did not target the choke point';
-  }
+/*
+ * Engine state is plain data, so structuredClone gives a safe scratch copy.
+ * There is no engine helper for "set the dice on this territory": the engine only
+ * recomputes per-player totals inside applyAction, so a hand-patched board has to
+ * keep players[].diceCount in step itself or a bot reads a stale total.
+ */
+function setDice(state, areaId, dice) {
+  const patched = structuredClone(state);
+  const area = patched.areas[areaId];
+  patched.players[area.owner].diceCount += dice - area.dice;
+  area.dice = dice;
+  return patched;
 }
 
-// Test defensive behavior when threatened
-function testDefensiveBehavior(aiFunction) {
-  // Create a game with a predefined map
-  const game = createTestMap();
+// A board where the acting player has exactly one launchpad and one soft target.
+function freeCaptureScenario(seed = 4242) {
+  let state = createGame({ ...MATCH_CONFIG, playerCount: 3, seed });
+  const me = state.turnOrder[state.currentPlayerIndex];
 
-  // Set the AI we're testing
-  game.ai[1] = aiFunction;
+  const moves = getValidMoves(state);
+  if (moves.length === 0) throw new Error(`seed ${seed}: acting player has no legal attack`);
+  const { from, to } = moves[0];
 
-  // Set up the specific scenario
-  // Player 1 has a vulnerable territory with a strong enemy adjacent
-  setupThreatenedScenario(game);
-
-  // Run the AI and check if it avoids attacking from the threatened territory
-  const result = aiFunction(game);
-
-  // The AI should not attack from the threatened territory
-  if (game.area_from !== THREATENED_TERRITORY) {
-    return 'PASS: AI correctly avoided attacking from the threatened territory';
-  } else {
-    return 'FAIL: AI attacked from a threatened territory';
+  // Every other stack down to one die, so `from` is the only territory that can attack.
+  for (const area of state.areas) {
+    if (area.owner === me && area.id !== from) state = setDice(state, area.id, 1);
   }
+  state = setDice(state, from, 8);
+  state = setDice(state, to, 1);
+  // Every other neighbor of `from` maxed out, so 8 against 1 is unambiguously the best move.
+  for (const id of state.areas[from].neighborAreaIds) {
+    if (id !== to && state.areas[id].owner !== me) state = setDice(state, id, 8);
+  }
+
+  return { state, me, from, to };
+}
+
+function testTakesFreeCapture(aiFunction) {
+  const { state, from, to } = freeCaptureScenario();
+  const move = runAI(state, aiFunction);
+
+  if (!move) return `FAIL: ${aiFunction.name} passed on an 8 against 1 capture`;
+  if (move.from !== from || move.to !== to) {
+    return `FAIL: ${aiFunction.name} attacked ${move.from} to ${move.to}, expected ${from} to ${to}`;
+  }
+  return `PASS: ${aiFunction.name} took the free capture`;
+}
+
+function testEndsTurnWithNoAttacks(aiFunction) {
+  let { state, me } = freeCaptureScenario();
+  for (const area of state.areas) {
+    if (area.owner === me) state = setDice(state, area.id, 1);
+  }
+
+  const move = runAI(state, aiFunction);
+  return move === null
+    ? `PASS: ${aiFunction.name} ended its turn`
+    : `FAIL: ${aiFunction.name} proposed ${move.from} to ${move.to} with no legal attack`;
+}
+
+for (const ai of [ai_default, ai_defensive, ai_example]) {
+  console.log(testTakesFreeCapture(ai));
+  console.log(testEndsTurnWithNoAttacks(ai));
 }
 ```
+
+`runAI` returns `{ from, to }` or `null` for "end turn", whichever calling convention the bot uses, so a scenario test reads the same for a legacy AI and a modern bot. It builds a fresh game view per call and never mutates the state you pass in, which is why the same `state` can be reused across tests.
+
+Two rules keep hand-patched boards honest. Change as little as possible, because every field you set is a fact you now have to keep true. And remember which derived values the engine will not recompute for you: `players[].territoryCount`, `diceCount`, and `largestGroup` are snapshots, refreshed only inside `applyAction`.
 
 ### 3. Unit testing strategy components
 
-Test the individual pieces of your AI in isolation:
+Test the individual pieces of your AI in isolation, and check them against the engine rather than against your own reading of the rules.
 
 ```javascript
-// Test territory evaluation function
-function testTerritoryEvaluation() {
-  const game = createTestMap();
+import assert from 'node:assert/strict';
+import { createLegacyGameView } from '../src/engine/AIAdapter.js';
 
-  // Set up specific territories with known characteristics
-  const borderTerritory = 5;
-  const internalTerritory = 10;
-  const chokePointTerritory = 15;
+// The helper under test. In a real bot it lives in your AI file and is imported here.
+function generateAttacks(view, pn) {
+  const attacks = [];
 
-  // Evaluate each territory
-  const borderValue = evaluateTerritory(game, borderTerritory);
-  const internalValue = evaluateTerritory(game, internalTerritory);
-  const chokePointValue = evaluateTerritory(game, chokePointTerritory);
+  for (let from = 1; from < view.AREA_MAX; from++) {
+    const attacker = view.adat[from];
+    if (attacker.size === 0 || attacker.arm !== pn || attacker.dice < 2) continue;
 
-  // Check that the evaluations match expectations
-  console.assert(
-    borderValue < internalValue,
-    'Border territory should be less valuable than internal territory'
-  );
+    for (let to = 1; to < view.AREA_MAX; to++) {
+      const defender = view.adat[to];
+      if (defender.size === 0 || defender.arm === pn || attacker.join[to] === 0) continue;
+      attacks.push({ from, to, edge: attacker.dice - defender.dice });
+    }
+  }
 
-  console.assert(
-    chokePointValue > borderValue,
-    'Choke point should be more valuable than regular border territory'
-  );
-
-  // Additional assertions...
+  return attacks;
 }
 
-// Test move generation and filtering
-function testMoveGeneration() {
-  const game = createTestMap();
+function testGenerateAttacksMatchesEngine() {
+  const state = createGame({ ...MATCH_CONFIG, playerCount: 3, seed: 4242 });
+  const view = createLegacyGameView(state);
 
-  // Set up a known game state
-  // ...
+  const mine = generateAttacks(view, view.get_pn())
+    .map(a => `${a.from}->${a.to}`)
+    .sort();
+  // getValidMoves is the engine's own legal-move list: the ground truth to check against.
+  const engine = getValidMoves(state)
+    .map(m => `${m.from}->${m.to}`)
+    .sort();
 
-  // Generate moves
-  const moves = generateMoves(game, DEFAULT_STRATEGY, 1);
-
-  // Verify move count
-  console.assert(
-    moves.length === EXPECTED_MOVE_COUNT,
-    `Expected ${EXPECTED_MOVE_COUNT} moves, got ${moves.length}`
-  );
-
-  // Verify specific moves are included
-  const hasExpectedMove = moves.some(
-    move => move.from === EXPECTED_FROM && move.to === EXPECTED_TO
-  );
-
-  console.assert(hasExpectedMove, 'Expected move not found in generated moves');
-
-  // Verify invalid moves are excluded
-  const hasInvalidMove = moves.some(move => move.from === INVALID_FROM && move.to === INVALID_TO);
-
-  console.assert(!hasInvalidMove, 'Invalid move was incorrectly included');
+  assert.deepEqual(mine, engine);
 }
+
+function testNoAttacksFromSingleDice() {
+  const board = structuredClone(createGame({ ...MATCH_CONFIG, playerCount: 3, seed: 4242 }));
+  const me = board.turnOrder[board.currentPlayerIndex];
+  for (const area of board.areas) {
+    if (area.owner === me) area.dice = 1;
+  }
+
+  assert.equal(generateAttacks(createLegacyGameView(board), me).length, 0);
+}
+
+testGenerateAttacksMatchesEngine();
+testNoAttacksFromSingleDice();
+console.log('unit checks passed');
 ```
+
+The second test patches `area.dice` directly instead of going through `setDice`, because `generateAttacks` reads only `adat` and never touches player totals. Reach for `setDice` as soon as the code under test reads `player[].dice_c`.
+
+These functions drop into a file under `tests/` unchanged; swap `node:assert` for Vitest's `expect` to match the rest of the suite. `tests/mocks/gameMock.js` builds a legacy game view territory by territory when you want a board with no map generator involved at all.
 
 ### 4. Comparative analysis
 
 Give several AIs the same board and compare what they choose:
 
 ```javascript
-function compareAIDecisions(aiList, game) {
-  const decisions = [];
+function compareAIDecisions(aiList, state) {
+  /*
+   * Engine state is immutable and runAI builds a fresh legacy view per call,
+   * so every bot sees the identical board. Nothing needs cloning.
+   */
+  const decisions = aiList.map(ai => ({ name: ai.name, move: runAI(state, ai) }));
 
-  // Clone the game state for each AI
-  for (let i = 0; i < aiList.length; i++) {
-    const gameCopy = cloneGameState(game);
-
-    // Run the AI
-    aiList[i](gameCopy);
-
-    // Record the decision
-    decisions.push({
-      ai: i,
-      from: gameCopy.area_from,
-      to: gameCopy.area_to,
-    });
+  for (const { name, move } of decisions) {
+    console.log(move ? `${name}: attacks ${move.from} to ${move.to}` : `${name}: ends turn`);
   }
 
-  // Analyze the decisions
-  console.log('AI decisions for the same game state:');
-  for (const decision of decisions) {
-    if (decision.from === 0 && decision.to === 0) {
-      console.log(`AI ${decision.ai} chose to end turn`);
-    } else {
-      console.log(`AI ${decision.ai} attacked from ${decision.from} to ${decision.to}`);
-    }
-  }
+  const unique = new Set(decisions.map(d => (d.move ? `${d.move.from}-${d.move.to}` : 'end')));
+  console.log(
+    unique.size === 1 ? 'All bots chose the same move' : `${unique.size} different choices`
+  );
 
-  // Find consensus or disagreement
-  const uniqueDecisions = new Set(decisions.map(d => `${d.from}-${d.to}`));
-  if (uniqueDecisions.size === 1) {
-    console.log('All AIs made the same decision');
-  } else {
-    console.log(`AIs disagreed, with ${uniqueDecisions.size} different decisions`);
-  }
+  return decisions;
 }
+
+compareAIDecisions(
+  [ai_default, ai_defensive, ai_example],
+  createGame({ ...MATCH_CONFIG, playerCount: 3, seed: 4242 })
+);
 ```
+
+Disagreement on an early board is normal and tells you little on its own. What is worth chasing is a board where your bot is the only one ending its turn, or the only one attacking into worse odds.
 
 ## Tuning approaches
 
 ### 1. Parameter tuning
 
-Most strategies have parameters worth tuning:
+Most strategies have parameters worth tuning. Keep them in one object so a tuning run can vary them without touching the logic:
 
 ```javascript
-// AI with tunable parameters
-function ai_tunable(game) {
-  // Strategy parameters
-  const params = {
-    // Aggression parameters
-    AGGRESSION_LEVEL: 0.6, // 0-1 scale (0 = defensive, 1 = aggressive)
-    RISK_TOLERANCE: 0.4, // 0-1 scale (0 = risk-averse, 1 = risk-seeking)
+const DEFAULT_PARAMS = {
+  MIN_DICE_ADVANTAGE: 1, // attack only with at least this many dice more than the defender
+  EVEN_ODDS_CHANCE: 0.5, // how often to take an even-dice attack anyway
+};
 
-    // Evaluation weights
-    DICE_ADVANTAGE_WEIGHT: 2.0,
-    STRATEGIC_POSITION_WEIGHT: 1.5,
-    CONNECTIVITY_WEIGHT: 1.0,
-    BORDER_REDUCTION_WEIGHT: 1.2,
+function createTunedAI(overrides = {}) {
+  const params = { ...DEFAULT_PARAMS, ...overrides };
 
-    // Thresholds
-    MIN_DICE_ADVANTAGE: 1, // Minimum dice advantage for an attack
-    MAX_BORDER_EXPOSURE: 3, // Maximum number of exposed borders
+  return function ai_tuned(game) {
+    const pn = game.get_pn();
+    let best = null;
+
+    for (let from = 1; from < game.AREA_MAX; from++) {
+      const attacker = game.adat[from];
+      if (attacker.size === 0 || attacker.arm !== pn || attacker.dice < 2) continue;
+
+      for (let to = 1; to < game.AREA_MAX; to++) {
+        const defender = game.adat[to];
+        if (defender.size === 0 || defender.arm === pn || attacker.join[to] === 0) continue;
+
+        const edge = attacker.dice - defender.dice;
+        if (edge < params.MIN_DICE_ADVANTAGE) {
+          // Randomness inside a bot always comes from game.random(), never Math.random.
+          if (edge !== 0 || game.random() >= params.EVEN_ODDS_CHANCE) continue;
+        }
+        if (!best || edge > best.edge) best = { from, to, edge };
+      }
+    }
+
+    if (!best) return 0;
+    game.area_from = best.from;
+    game.area_to = best.to;
   };
-
-  // Implementation using these parameters
-  // ...
 }
 
-// Systematic parameter tuning
-function tuneParameters() {
-  // Define the parameter to tune and its range
-  const paramToTune = 'AGGRESSION_LEVEL';
-  const values = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+function winRateOf(ai, opponents, numGames = 30) {
+  const { standings } = runTournament([ai, ...opponents], numGames);
+  return standings[0].winRate;
+}
 
-  const results = [];
+function tuneParameter(name, values) {
+  const results = values.map(value => ({
+    value,
+    winRate: winRateOf(createTunedAI({ [name]: value }), [ai_default, ai_defensive]),
+  }));
 
-  // Test each value
-  for (const value of values) {
-    // Create a version of the AI with this parameter value
-    const tunedAI = createTunedAI(paramToTune, value);
-
-    // Run a tournament with this AI
-    const winRate = runTournament([tunedAI, ai_default, ai_defensive], 50);
-
-    results.push({
-      value,
-      winRate,
-    });
-  }
-
-  // Find the optimal value
   results.sort((a, b) => b.winRate - a.winRate);
-
   console.log(
-    `Optimal value for ${paramToTune}: ${results[0].value} (win rate: ${results[0].winRate})`
+    `Best ${name}: ${results[0].value} (win rate ${(results[0].winRate * 100).toFixed(1)}%)`
   );
   return results;
 }
 
-function createTunedAI(paramName, value) {
-  return function (game) {
-    // Clone the default parameters
-    const params = { ...DEFAULT_PARAMS };
-
-    // Override the specified parameter
-    params[paramName] = value;
-
-    // Run the AI implementation with these parameters
-    return ai_implementation(game, params);
-  };
-}
+tuneParameter('MIN_DICE_ADVANTAGE', [0, 1, 2, 3]);
 ```
+
+Thirty games per value is enough to see a large effect and nowhere near enough to trust a small one. Once a candidate looks good, re-measure it with `npm run arena:sweep`, which reports confidence intervals across seeds.
 
 ### 2. Grid search
 
 To tune several parameters at once, sweep the combinations:
 
 ```javascript
-function gridSearch() {
-  // Define parameter ranges
-  const parameterRanges = {
-    AGGRESSION_LEVEL: [0.4, 0.6, 0.8],
-    RISK_TOLERANCE: [0.3, 0.5, 0.7],
-    DICE_ADVANTAGE_WEIGHT: [1.5, 2.0, 2.5],
-  };
-
-  // Generate all combinations
-  const parameterCombinations = generateParameterCombinations(parameterRanges);
-
-  // Test each combination
-  const results = [];
-
-  for (const params of parameterCombinations) {
-    const tunedAI = createAIWithParams(params);
-    const winRate = runTournament([tunedAI, ai_default, ai_defensive], 20);
-
-    results.push({
-      params,
-      winRate,
-    });
-  }
-
-  // Sort by win rate
-  results.sort((a, b) => b.winRate - a.winRate);
-
-  // Return the top 3 parameter combinations
-  return results.slice(0, 3);
-}
-
 function generateParameterCombinations(ranges) {
-  const keys = Object.keys(ranges);
-  const combinations = [{}];
+  let combinations = [{}];
 
-  for (const key of keys) {
-    const values = ranges[key];
-    const newCombinations = [];
-
-    for (const value of values) {
-      for (const combo of combinations) {
-        newCombinations.push({
-          ...combo,
-          [key]: value,
-        });
-      }
-    }
-
-    combinations.length = 0;
-    combinations.push(...newCombinations);
+  for (const [key, values] of Object.entries(ranges)) {
+    combinations = values.flatMap(value => combinations.map(combo => ({ ...combo, [key]: value })));
   }
 
   return combinations;
 }
+
+function gridSearch() {
+  const ranges = {
+    MIN_DICE_ADVANTAGE: [0, 1, 2],
+    EVEN_ODDS_CHANCE: [0.0, 0.5, 1.0],
+  };
+
+  const results = generateParameterCombinations(ranges).map(params => ({
+    params,
+    winRate: winRateOf(createTunedAI(params), [ai_default, ai_defensive]),
+  }));
+
+  results.sort((a, b) => b.winRate - a.winRate);
+  return results.slice(0, 3);
+}
+
+console.log(gridSearch());
 ```
+
+The cost is the product of the ranges, so a grid grows out of reach fast. Three parameters at five values each is 125 tournaments.
 
 ### 3. Evolutionary algorithms
 
@@ -405,94 +368,78 @@ For a parameter space too large to sweep, evolve it.
 The search itself needs randomness, and it needs to be reproducible: a tuning run you cannot repeat tells you nothing about whether the winning parameters were real or lucky. This harness runs outside a match, so there is no `game` object and no `game.random()` to draw from. Give it its own seeded stream from the engine's PRNG instead. Inside a bot the rule is different and stricter: draw from `game.random()`, never from a stream of your own and never from `Math.random` (issue #151).
 
 ```javascript
-import { createRng } from '../../src/engine/rng.js';
+import { createRng } from '../src/engine/rng.js';
 
 // One seeded stream for the whole tuning run. Keep the seed to reproduce a result,
 // change it to search from a different starting point.
 const rng = createRng(20260825);
 const random = rng.nextFloat; // drop-in for Math.random: floats in [0, 1)
 
-function evolveParameters(numGenerations = 10) {
-  // Initial population with random parameters
-  let population = generateInitialPopulation(20);
+// The genome: one range per tunable parameter of createTunedAI.
+const PARAM_RANGES = {
+  MIN_DICE_ADVANTAGE: [0, 3],
+  EVEN_ODDS_CHANCE: [0, 1],
+};
+
+function clamp(key, value) {
+  const [low, high] = PARAM_RANGES[key];
+  return Math.min(high, Math.max(low, value));
+}
+
+function evolveParameters(numGenerations = 4, populationSize = 8) {
+  let population = generateInitialPopulation(populationSize);
 
   for (let generation = 0; generation < numGenerations; generation++) {
-    // Evaluate fitness of all individuals
     const fitnessScores = evaluatePopulationFitness(population);
-
-    // Select parents for the next generation
     const parents = selectParents(population, fitnessScores);
-
-    // Create offspring through crossover and mutation
     const offspring = createOffspring(parents);
 
-    // Replace the population with the new generation
-    population = [...parents.slice(0, 5), ...offspring];
-
-    // Log the best parameters in this generation
     const bestIndex = fitnessScores.indexOf(Math.max(...fitnessScores));
     console.log(`Generation ${generation + 1} best:`, population[bestIndex]);
+
+    // Keep the parents, so a generation can never be worse than the one before it.
+    population = [...parents, ...offspring].slice(0, populationSize);
   }
 
-  // Return the best individual from the final generation
   const finalFitness = evaluatePopulationFitness(population);
-  const bestIndex = finalFitness.indexOf(Math.max(...finalFitness));
-
-  return population[bestIndex];
+  return population[finalFitness.indexOf(Math.max(...finalFitness))];
 }
 
 function generateInitialPopulation(size) {
   const population = [];
 
   for (let i = 0; i < size; i++) {
-    population.push({
-      AGGRESSION_LEVEL: random(),
-      RISK_TOLERANCE: random(),
-      DICE_ADVANTAGE_WEIGHT: 1 + random() * 2,
-      STRATEGIC_POSITION_WEIGHT: 1 + random() * 2,
-      CONNECTIVITY_WEIGHT: 1 + random() * 2,
-    });
+    const individual = {};
+    for (const [key, [low, high]] of Object.entries(PARAM_RANGES)) {
+      individual[key] = low + random() * (high - low);
+    }
+    population.push(individual);
   }
 
   return population;
 }
 
 function evaluatePopulationFitness(population) {
-  const fitnessScores = [];
-
-  for (const params of population) {
-    const ai = createAIWithParams(params);
-    const winRate = runTournament([ai, ai_default, ai_defensive], 10);
-    fitnessScores.push(winRate);
-  }
-
-  return fitnessScores;
+  return population.map(params => winRateOf(createTunedAI(params), [ai_default, ai_defensive], 20));
 }
 
 function selectParents(population, fitnessScores) {
-  // Sort population by fitness
-  const sortedPopulation = population
+  return population
     .map((params, index) => ({ params, fitness: fitnessScores[index] }))
-    .sort((a, b) => b.fitness - a.fitness);
-
-  // Return the top half as parents
-  return sortedPopulation.slice(0, Math.ceil(population.length / 2)).map(entry => entry.params);
+    .sort((a, b) => b.fitness - a.fitness)
+    .slice(0, Math.ceil(population.length / 2))
+    .map(entry => entry.params);
 }
 
 function createOffspring(parents) {
   const offspring = [];
 
   while (offspring.length < parents.length) {
-    // Select two parents randomly
     const parent1 = parents[Math.floor(random() * parents.length)];
     const parent2 = parents[Math.floor(random() * parents.length)];
 
-    // Create a child through crossover
     const child = crossover(parent1, parent2);
-
-    // Apply mutation
     mutate(child);
-
     offspring.push(child);
   }
 
@@ -502,8 +449,8 @@ function createOffspring(parents) {
 function crossover(parent1, parent2) {
   const child = {};
 
-  // For each parameter, randomly select from either parent
-  for (const key in parent1) {
+  // For each parameter, take the value from one parent or the other.
+  for (const key of Object.keys(PARAM_RANGES)) {
     child[key] = random() < 0.5 ? parent1[key] : parent2[key];
   }
 
@@ -511,120 +458,117 @@ function crossover(parent1, parent2) {
 }
 
 function mutate(params) {
-  // Small chance to mutate each parameter
-  for (const key in params) {
+  // Small chance to nudge each parameter, clamped back into its range.
+  for (const key of Object.keys(params)) {
     if (random() < 0.2) {
-      // 20% mutation chance
-      // Apply a small random adjustment
-      const mutationAmount = (random() - 0.5) * 0.2; // ±10%
-      params[key] += params[key] * mutationAmount;
-
-      // Ensure values stay in reasonable ranges
-      if (key.includes('LEVEL') || key.includes('TOLERANCE')) {
-        params[key] = Math.max(0, Math.min(1, params[key]));
-      } else {
-        params[key] = Math.max(0.1, params[key]);
-      }
+      const [low, high] = PARAM_RANGES[key];
+      params[key] = clamp(key, params[key] + (random() - 0.5) * (high - low) * 0.2);
     }
   }
 }
+
+console.log('Best parameters:', evolveParameters());
 ```
+
+The population and generation counts here are deliberately tiny so the run finishes in about a second. Real tuning wants both an order of magnitude larger, and more games per fitness evaluation, or selection just chases noise.
 
 ## Performance metrics
 
-Track more than win rate. A bot that never wins but always finishes second is very different from one that wins occasionally and busts out early the rest of the time:
+Track more than win rate. A bot that never wins but always finishes second is very different from one that wins occasionally and busts out early the rest of the time.
+
+The arena's own match loop, `runMatch`, already returns placements, elimination order, and per-bot attack counts, so a metric run only has to add survival on top. `simulateGame` would mean deriving all of that by hand. `runMatch` takes modern-contract bots, so a legacy AI goes through `adaptLegacyBot` first.
 
 ```javascript
-function evaluateAI(aiFunction, numGames = 100) {
-  const metrics = {
-    wins: 0,
-    territoriesControlled: [],
-    diceOwned: [],
-    averageTurnLength: [],
-    survivalTurns: [],
-    eliminationsPerformed: [],
-  };
+import { runMatch } from '../src/arena/matchRunner.js';
+import { adaptLegacyBot } from '../src/arena/legacyBotAdapter.js';
 
-  for (let gameNum = 0; gameNum < numGames; gameNum++) {
-    const game = new Game();
-    game.make_map();
+const SEAT = 0; // the seat under test; bots[i] plays player i
 
-    // Assign the AI to player 1
-    game.ai[1] = aiFunction;
+function average(values) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
 
-    // Fill other players with default AI
-    for (let i = 2; i < 8; i++) {
-      game.ai[i] = ai_default;
-    }
+function evaluateAI(aiFunction, numGames = 30, baseSeed = BASE_SEED) {
+  const bots = [
+    { name: 'candidate', fn: adaptLegacyBot(aiFunction, 'candidate') },
+    { name: 'default-a', fn: adaptLegacyBot(ai_default, 'default-a') },
+    { name: 'default-b', fn: adaptLegacyBot(ai_default, 'default-b') },
+  ];
 
-    // Run the game and collect metrics
-    const gameMetrics = runGameAndTrackMetrics(game, 1);
+  const games = [];
 
-    // Aggregate metrics
-    if (gameMetrics.winner === 1) metrics.wins++;
-    metrics.territoriesControlled.push(gameMetrics.maxTerritories);
-    metrics.diceOwned.push(gameMetrics.maxDice);
-    metrics.averageTurnLength.push(gameMetrics.avgTurnLength);
-    metrics.survivalTurns.push(gameMetrics.survivalTurns);
-    metrics.eliminationsPerformed.push(gameMetrics.eliminations);
+  for (let i = 0; i < numGames; i++) {
+    let survivalTurns = 0;
+
+    const result = runMatch({
+      bots,
+      seed: baseSeed + i,
+      maxTurns: 300,
+      // The one metric runMatch does not already track: how long the seat stayed alive.
+      onTurn: (turnCount, state) => {
+        if (!state.players[SEAT].eliminated) survivalTurns = turnCount;
+      },
+    });
+
+    const stats = result.botStats[SEAT];
+    games.push({
+      won: result.winner === SEAT,
+      placement: stats.placement,
+      territories: stats.finalTerritories,
+      dice: stats.finalDice,
+      attackWinRate: stats.attacksMade > 0 ? stats.attacksWon / stats.attacksMade : 0,
+      attacksPerTurn: stats.turns > 0 ? stats.attacksMade / stats.turns : 0,
+      survivalTurns,
+    });
   }
 
-  // Calculate final metrics
-  const winRate = metrics.wins / numGames;
-  const avgTerritories = average(metrics.territoriesControlled);
-  const avgDice = average(metrics.diceOwned);
-  const avgTurnLength = average(metrics.averageTurnLength);
-  const avgSurvival = average(metrics.survivalTurns);
-  const avgEliminations = average(metrics.eliminationsPerformed);
-
   return {
-    winRate,
-    avgTerritories,
-    avgDice,
-    avgTurnLength,
-    avgSurvival,
-    avgEliminations,
+    name: aiFunction.name,
+    winRate: games.filter(g => g.won).length / numGames,
+    avgPlacement: average(games.map(g => g.placement)),
+    avgTerritories: average(games.map(g => g.territories)),
+    avgDice: average(games.map(g => g.dice)),
+    avgAttackWinRate: average(games.map(g => g.attackWinRate)),
+    avgAttacksPerTurn: average(games.map(g => g.attacksPerTurn)),
+    avgSurvivalTurns: average(games.map(g => g.survivalTurns)),
   };
 }
 
-function average(array) {
-  return array.reduce((sum, value) => sum + value, 0) / array.length;
-}
+console.log(evaluateAI(ai_default));
+console.log(evaluateAI(ai_defensive));
 ```
+
+Average placement is the metric that separates a solid bot from a lucky one: it moves on games your bot did not win, where win rate records nothing. Attacks per turn and attack win rate describe style rather than strength, and they are what you watch when a tuning change is supposed to make the bot more cautious.
 
 ## Visualizing results
 
 Even crude console bar charts make patterns easier to spot than raw numbers:
 
 ```javascript
-function visualizeResults(results) {
-  // Assuming results is an array of metrics from multiple AIs
-
-  // Compare win rates
-  console.log('Win Rates:');
-  for (let i = 0; i < results.length; i++) {
-    const winPercentage = results[i].winRate * 100;
-    console.log(
-      `AI ${i}: ${'#'.repeat(Math.round(winPercentage / 2))} ${winPercentage.toFixed(1)}%`
-    );
-  }
-
-  // Compare territory control
-  console.log('\nAverage Max Territories Controlled:');
-  for (let i = 0; i < results.length; i++) {
-    const territories = results[i].avgTerritories;
-    console.log(`AI ${i}: ${'#'.repeat(Math.round(territories))} ${territories.toFixed(1)}`);
-  }
-
-  // Compare survival turns
-  console.log('\nAverage Survival Turns:');
-  for (let i = 0; i < results.length; i++) {
-    const turns = results[i].avgSurvival;
-    console.log(`AI ${i}: ${'#'.repeat(Math.round(turns / 10))} ${turns.toFixed(1)}`);
-  }
-
-  // Additional visualizations...
+function bar(value, scale) {
+  return '#'.repeat(Math.max(0, Math.round(value / scale)));
 }
+
+function visualizeResults(results) {
+  console.log('Win rate');
+  for (const r of results) {
+    const percent = r.winRate * 100;
+    console.log(`  ${r.name.padEnd(14)} ${bar(percent, 2)} ${percent.toFixed(1)}%`);
+  }
+
+  console.log('Average placement (lower is better)');
+  for (const r of results) {
+    console.log(`  ${r.name.padEnd(14)} ${bar(r.avgPlacement, 0.1)} ${r.avgPlacement.toFixed(2)}`);
+  }
+
+  console.log('Average turns survived');
+  for (const r of results) {
+    const turns = r.avgSurvivalTurns;
+    console.log(`  ${r.name.padEnd(14)} ${bar(turns, 5)} ${turns.toFixed(1)}`);
+  }
+}
+
+visualizeResults([evaluateAI(ai_default), evaluateAI(ai_defensive)]);
 ```
 
 ## Regression testing
@@ -632,39 +576,33 @@ function visualizeResults(results) {
 Check that a change didn't make the bot worse before keeping it:
 
 ```javascript
-function regressionTest(newAI, baselineAI) {
-  console.log('Running regression tests...');
+function regressionTest(newAI, baselineAI, numGames = 30) {
+  // Same seeds for both, so the two bots play the same boards against the same opponents.
+  const baseline = evaluateAI(baselineAI, numGames);
+  const candidate = evaluateAI(newAI, numGames);
 
-  // Test 1: Win rate against standard opponents
-  const winRateNew = evaluateAI(newAI).winRate;
-  const winRateBaseline = evaluateAI(baselineAI).winRate;
+  const line = (label, before, after, digits = 1) =>
+    `${label.padEnd(10)} ${before.toFixed(digits)} -> ${after.toFixed(digits)} ` +
+    `(${after - before >= 0 ? '+' : ''}${(after - before).toFixed(digits)})`;
 
-  console.log(
-    `Win rate - Baseline: ${(winRateBaseline * 100).toFixed(1)}%, New: ${(winRateNew * 100).toFixed(1)}%`
-  );
-  console.log(`Change: ${((winRateNew - winRateBaseline) * 100).toFixed(1)}%`);
+  console.log(line('win rate:', baseline.winRate * 100, candidate.winRate * 100));
+  console.log(line('placement:', baseline.avgPlacement, candidate.avgPlacement, 2));
+  console.log(line('survival:', baseline.avgSurvivalTurns, candidate.avgSurvivalTurns));
 
-  // Test 2: Specific scenarios
-  const scenarioTests = [testChokePointHandling, testDefensiveBehavior, testEqualDiceHandling];
-
-  for (const test of scenarioTests) {
-    const resultBaseline = test(baselineAI);
-    const resultNew = test(newAI);
-
-    console.log(`${test.name}:`);
-    console.log(`  Baseline: ${resultBaseline}`);
-    console.log(`  New: ${resultNew}`);
+  // Behaviour the win rate would not have caught either way.
+  for (const test of [testTakesFreeCapture, testEndsTurnWithNoAttacks]) {
+    console.log(`${test.name}`);
+    console.log(`  baseline:  ${test(baselineAI)}`);
+    console.log(`  candidate: ${test(newAI)}`);
   }
 
-  // Test 3: Performance metrics
-  console.time('Baseline AI - 10 games');
-  evaluateAI(baselineAI, 10);
-  console.timeEnd('Baseline AI - 10 games');
-
-  console.time('New AI - 10 games');
+  // A bot that thinks too long stalls the game, however good its moves are.
+  console.time('candidate: 10 games');
   evaluateAI(newAI, 10);
-  console.timeEnd('New AI - 10 games');
+  console.timeEnd('candidate: 10 games');
 }
+
+regressionTest(ai_defensive, ai_default);
 ```
 
 ## Best practices
@@ -687,7 +625,10 @@ function regressionTest(newAI, baselineAI) {
 3. **Shallow testing** - A handful of game states proves very little
 4. **Ignoring speed** - A theoretically strong bot that stalls the game loses in practice
 5. **Untracked changes** - Tuning without recording results means re-learning the same lessons
+6. **Fixed seating** - Leaving a bot in the same seat every game measures the seat as much as the bot
 
 ## Iterative improvement workflow
 
 Establish a baseline, form a hypothesis, make the change, test it rigorously, compare against the baseline, tune, and write down what you found. Then start the loop again.
+
+The command-line side of that loop lives in [docs/ai/DEVELOPER_GUIDE.md](../../ai/DEVELOPER_GUIDE.md), under "Testing and debugging".

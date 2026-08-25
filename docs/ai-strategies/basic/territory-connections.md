@@ -8,17 +8,7 @@ Players receive reinforcement dice based on the size of their largest connected 
 
 ## Game mechanic
 
-The `set_area_tc` function in the game calculates a player's largest connected territory:
-
-```javascript
-set_area_tc(pn) {
-  // ...
-  // Find the largest connected group for a player
-  // ...
-  // Store the size of the largest connected group
-  this.player[pn].area_tc = max;
-}
-```
+The engine computes each player's largest connected group in `findLargestConnectedGroup` (`src/engine/StateManager.js`) and hands the size to a legacy bot as `game.player[pn].area_tc`. That number is a snapshot taken when the game view is built. The view's `set_area_tc()` is a no-op kept so old bots still load, so a bot that wants the size of a hypothetical board has to walk `adat[].join` itself; [Reinforcement optimization](../advanced/reinforcement-optimization.md) has a `largestGroupSize(game, player)` flood fill for that, and the bridge finder below is the same walk with one territory left out.
 
 ## Implementation
 
@@ -28,7 +18,7 @@ This strategy has two main components:
 2. **Target strategic connections** - Prioritize attacks that connect or expand territory groups
 
 ```javascript
-// Example: don't empty a territory that is holding a large connected group together
+// Example: don't strip a border territory to one die while you have a big group to defend and no reserve dice
 // `attacking_area` is the territory the attack would leave on one die
 if (
   game.player[pn].area_tc > 4 &&
@@ -69,37 +59,49 @@ Ways to implement territory connection analysis:
 
 ## Example: finding bridge territories
 
-Bridge territories are critical connections that, if lost, would split your territory into disconnected parts:
+Bridge territories are critical connections that, if lost, would split your territory into disconnected parts. The view's `area_tc` never changes under a bot's hands, so the check recomputes the largest group with each candidate left out:
 
 ```javascript
-function findBridgeTerritories(game, player) {
-  const bridges = [];
+// Size of `player`'s largest connected group with `excluded` treated as lost.
+function largestGroupWithout(game, player, excluded) {
+  const mine = id => id !== excluded && game.adat[id].size !== 0 && game.adat[id].arm === player;
+  const seen = new Set();
+  let largest = 0;
 
-  // For each territory owned by the player
-  for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
-    if (game.adat[i].arm != player) continue;
+  for (let start = 1; start < game.AREA_MAX; start++) {
+    if (!mine(start) || seen.has(start)) continue;
 
-    // Simulate removing this territory
-    const originalArm = game.adat[i].arm;
-    game.adat[i].arm = -1;
-
-    // Calculate connected territories without this one
-    const originalSize = game.player[player].area_tc;
-    game.set_area_tc(player);
-    const newSize = game.player[player].area_tc;
-
-    // If removing this territory reduces the connected size, it's a bridge
-    if (newSize < originalSize - 1) {
-      bridges.push(i);
+    // Flood fill the group containing this territory
+    let size = 0;
+    const queue = [start];
+    seen.add(start);
+    while (queue.length > 0) {
+      const current = queue.pop();
+      size++;
+      for (let i = 1; i < game.AREA_MAX; i++) {
+        if (seen.has(i) || !mine(i) || !game.adat[current].join[i]) continue;
+        seen.add(i);
+        queue.push(i);
+      }
     }
 
-    // Restore the territory
-    game.adat[i].arm = originalArm;
+    if (size > largest) largest = size;
   }
 
-  // Restore the original connected territory calculation
-  game.set_area_tc(player);
+  return largest;
+}
+
+function findBridgeTerritories(game, player) {
+  const bridges = [];
+  const currentSize = game.player[player].area_tc;
+
+  for (let i = 1; i < game.AREA_MAX; i++) {
+    if (game.adat[i].size === 0) continue;
+    if (game.adat[i].arm !== player) continue;
+
+    // Losing a territory that is not a bridge shrinks the largest group by at most one: itself.
+    if (largestGroupWithout(game, player, i) < currentSize - 1) bridges.push(i);
+  }
 
   return bridges;
 }

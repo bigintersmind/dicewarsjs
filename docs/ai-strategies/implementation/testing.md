@@ -2,7 +2,7 @@
 
 How to test a DiceWars bot and improve it systematically.
 
-The code below runs against the live engine, and the blocks build on each other in order: each one imports only what it adds and reuses the helpers defined above it. Import paths are written as they look from a file in `scripts/` or `tests/`, so add one `../` per extra directory level. Every bot in this series uses the legacy contract, a function that reads a mutable `game` view, writes `game.area_from` and `game.area_to`, and returns `0` to end its turn. That is what `simulateGame` and `runAI` expect. For the modern `state => { from, to } | null` contract, see [BOT_GUIDE.md](../../BOT_GUIDE.md).
+The code below runs against the live engine, and the blocks build on each other in order: each one imports only what it adds and reuses the helpers defined above it. Import paths are written as they look from a file in `scripts/` or `tests/`, so add one `../` per extra directory level. Every bot in this series uses the legacy contract, a function that reads a mutable `game` view, writes `game.area_from` and `game.area_to`, and returns `0` to end its turn. `simulateGame` takes those directly, and `runAI` accepts either contract. For the modern `state => { from, to } | null` contract, see [the bot guide](../../BOT_GUIDE.md).
 
 ## Testing challenges
 
@@ -80,15 +80,15 @@ console.log(`draws: ${tournament.draws}`);
 
 Two things this loop does not do. It never rotates seats, so whatever advantage a seat has on a given map lands on the same bot every game. And it reports raw win counts with no measure of how much of the gap is noise.
 
-The repo already has tools that handle both:
+The repo's arena tools measure the noise (`arena:sweep` reports confidence intervals across seeds), but they share the fixed seating: `runMatch` maps `bots[i]` to seat `i`, in every game. For a seat-fair measurement, every bot in every seat on every map, `npm run arena:ml` and `npm run ppo:gate` replay each seed through every rotation of the field.
 
 ```bash
-npm run arena                            # deterministic ELO ranking across the built-in field
+npm run arena                            # deterministic ELO ranking across the player-visible roster
 npm run arena:sweep                      # multi-seed sweep: win% and ELO with 95% confidence intervals
 npm run benchmark-bot -- bots/my-bot.js  # one bot: timing, win rate, ELO, placement
 ```
 
-Use those to decide whether a bot is stronger. Use the loop above to understand what they are doing. [BOT_GUIDE.md](../../BOT_GUIDE.md) covers the command-line workflow end to end, and [docs/TESTING.md](../../TESTING.md) covers the project's test suite.
+Use those to decide whether a bot is stronger. Use the loop above to understand what they are doing. [The bot guide](../../BOT_GUIDE.md) covers the command-line workflow for a community bot end to end, and [the testing guide](../../TESTING.md) covers the project's test suite.
 
 ### 2. Specific scenario testing
 
@@ -108,6 +108,8 @@ import { getValidMoves } from '../src/engine/StateManager.js';
 function setDice(state, areaId, dice) {
   const patched = structuredClone(state);
   const area = patched.areas[areaId];
+  if (area.size === 0) throw new Error(`area ${areaId} is not on the board`);
+  if (dice < 1 || dice > 8) throw new Error(`dice must be 1 to 8, got ${dice}`);
   patched.players[area.owner].diceCount += dice - area.dice;
   area.dice = dice;
   return patched;
@@ -128,7 +130,12 @@ function freeCaptureScenario(seed = 4242) {
   }
   state = setDice(state, from, 8);
   state = setDice(state, to, 1);
-  // Every other neighbor of `from` maxed out, so 8 against 1 is unambiguously the best move.
+  /*
+   * Every other enemy neighbor of `from` maxed out, so 8 against 1 is the best move by
+   * dice odds. It is not the only legal one: 8 against 8 stays legal, and a bot that ranks
+   * targets by connectivity rather than odds may prefer it. The three built-in bots agree on
+   * seed 4242; on other seeds they often do not, which is what section 4 below is for.
+   */
   for (const id of state.areas[from].neighborAreaIds) {
     if (id !== to && state.areas[id].owner !== me) state = setDice(state, id, 8);
   }
@@ -166,6 +173,8 @@ for (const ai of [ai_default, ai_defensive, ai_example]) {
 ```
 
 `runAI` returns `{ from, to }` or `null` for "end turn", whichever calling convention the bot uses, so a scenario test reads the same for a legacy AI and a modern bot. It builds a fresh game view per call and never mutates the state you pass in, which is why the same `state` can be reused across tests.
+
+`testTakesFreeCapture` is pinned to the seed-4242 board. A scenario test fixes one board and one expected answer, and it is only as general as that board: change the seed and two of the three built-in bots pick an 8-against-8 into a better-connected target on many boards, and `ai_default` sometimes declines the capture outright rather than empty a territory that holds its group together. `testEndsTurnWithNoAttacks` holds across seeds because it tests a rule, not a preference.
 
 Two rules keep hand-patched boards honest. Change as little as possible, because every field you set is a fact you now have to keep true. And remember which derived values the engine will not recompute for you: `players[].territoryCount`, `diceCount`, and `largestGroup` are snapshots, refreshed only inside `applyAction`.
 
@@ -381,9 +390,14 @@ const PARAM_RANGES = {
   EVEN_ODDS_CHANCE: [0, 1],
 };
 
+// MIN_DICE_ADVANTAGE is compared against an integer dice edge, so a float there is the same
+// bot as the next integer up. Round it, so the reported genome means what it says.
+const INTEGER_PARAMS = new Set(['MIN_DICE_ADVANTAGE']);
+
 function clamp(key, value) {
   const [low, high] = PARAM_RANGES[key];
-  return Math.min(high, Math.max(low, value));
+  const clamped = Math.min(high, Math.max(low, value));
+  return INTEGER_PARAMS.has(key) ? Math.round(clamped) : clamped;
 }
 
 function evolveParameters(numGenerations = 4, populationSize = 8) {
@@ -411,7 +425,7 @@ function generateInitialPopulation(size) {
   for (let i = 0; i < size; i++) {
     const individual = {};
     for (const [key, [low, high]] of Object.entries(PARAM_RANGES)) {
-      individual[key] = low + random() * (high - low);
+      individual[key] = clamp(key, low + random() * (high - low));
     }
     population.push(individual);
   }
@@ -470,13 +484,13 @@ function mutate(params) {
 console.log('Best parameters:', evolveParameters());
 ```
 
-The population and generation counts here are deliberately tiny so the run finishes in about a second. Real tuning wants both an order of magnitude larger, and more games per fitness evaluation, or selection just chases noise.
+The population and generation counts here are deliberately tiny so the run finishes in about a second. Real tuning wants both an order of magnitude larger, and more games per fitness evaluation, or selection chases noise.
 
 ## Performance metrics
 
 Track more than win rate. A bot that never wins but always finishes second is very different from one that wins occasionally and busts out early the rest of the time.
 
-The arena's own match loop, `runMatch`, already returns placements, elimination order, and per-bot attack counts, so a metric run only has to add survival on top. `simulateGame` would mean deriving all of that by hand. `runMatch` takes modern-contract bots, so a legacy AI goes through `adaptLegacyBot` first.
+The arena's own match loop, `runMatch`, already returns placements (which encode elimination order) and per-bot attack counts, so a metric run only has to add survival on top. `simulateGame` would mean deriving all of that by hand. `runMatch` takes modern-contract bots, so a legacy AI goes through `adaptLegacyBot` first. It also builds its own board from the seed at the engine's default size (28 by 32, 32 territories) and takes no map config, so its numbers are not comparable with `winRateOf`'s 20 by 20 results; compare `evaluateAI` outputs only with each other.
 
 ```javascript
 import { runMatch } from '../src/arena/matchRunner.js';
@@ -631,4 +645,4 @@ regressionTest(ai_defensive, ai_default);
 
 Establish a baseline, form a hypothesis, make the change, test it rigorously, compare against the baseline, tune, and write down what you found. Then start the loop again.
 
-The command-line side of that loop lives in [docs/ai/DEVELOPER_GUIDE.md](../../ai/DEVELOPER_GUIDE.md), under "Testing and debugging".
+The command-line side of that loop for a built-in strategy, the vitest, benchmark, and arena commands, is in [the developer guide](../../ai/DEVELOPER_GUIDE.md#testing-and-debugging).

@@ -46,7 +46,7 @@ for (let i = 0; i < 8; i++) {
 Add neighbor analysis for counterattack awareness:
 
 ```javascript
-function area_get_info(area_id) {
+function analyzeTerritory(area_id) {
   // ... (implementation from neighbor-analysis.md)
   return {
     friendly_neighbors,
@@ -59,7 +59,7 @@ function area_get_info(area_id) {
 }
 
 // Pre-compute neighbor information for all territories
-const area_info = [...Array(game.AREA_MAX).keys()].map(area_get_info);
+const area_info = [...Array(game.AREA_MAX).keys()].map(analyzeTerritory);
 ```
 
 ### 4. Border security evaluation
@@ -95,7 +95,7 @@ function ai_balanced(game) {
   const pn = game.get_pn();
 
   // Pre-compute neighbor information for all territories
-  const area_info = [...Array(game.AREA_MAX).keys()].map(area => area_get_info(game, area));
+  const area_info = [...Array(game.AREA_MAX).keys()].map(area => analyzeTerritory(game, area));
 
   // Calculate player rankings
   calculatePlayerRankings(game);

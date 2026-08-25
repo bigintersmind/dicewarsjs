@@ -4,9 +4,9 @@ Notes on the centralized AI configuration system in DiceWarsJS.
 
 ## Overview
 
-AI configuration is centralized in `src/ai/aiConfig.js` so the game and the bot arena manage AI strategies the same way. This keeps the code maintainable and makes new strategies easy to add. `src/ai/index.js` re-exports the module and nothing else.
+AI configuration is centralized in `src/ai/aiConfig.js` so the game and the bot arena manage AI strategies the same way. `src/ai/index.js` re-exports the module and nothing else.
 
-## Key components
+## The registry
 
 `AI_STRATEGIES` is the registry: a map from strategy ID to metadata. Each entry carries `id`, `name`, `description`, `difficulty` (1 to 5), an async `loader`, and `implementation: null`. Some entries add `category: 'self-play'` (the persona nets) or `hidden: true`.
 
@@ -21,7 +21,7 @@ Helper functions:
 
 `hidden` in this registry means one thing: not offered in the game-setup picker. A hidden entry still resolves through `getAIById` and `getAIImplementation`. `src/arena/builtInBots.js` has a separate `hidden` flag meaning "kept off competitive surfaces" (arena, tournament, leaderboard). The two sets differ on purpose: since #167, Defensive and Basic are picker-visible as Easy-mode ingredients while staying hidden on the arena side.
 
-`DEFAULT_AI_ASSIGNMENTS` mirrors the Standard difficulty preset and is pinned against it by `tests/ai/aiConfig.test.js`. Nothing consumes it at runtime.
+`DEFAULT_AI_ASSIGNMENTS` mirrors the Standard difficulty preset from slot 1 on (slot 0 is arbitrary; the store uses `null` there for the human seat) and is pinned against it by `tests/ai/aiConfig.test.js`. Nothing consumes it at runtime.
 
 Difficulty presets live in `src/ai/difficultyModes.js`. Easy, Standard, and Hard are each an explicit 8-slot lineup of registry IDs with slot 0 as the human seat, sliced down to the chosen player count by the title screen. Custom has no lineup; it is the per-slot picker, seeded from the last preset. Every ID in a lineup is validated against `AI_STRATEGIES` at import time, so a typo fails the test suite rather than a player's game.
 
@@ -35,39 +35,17 @@ A seat whose bot fails to load gets `ai_default` plus a visible notice ("Player 
 
 ## Adding a new strategy
 
-1. Write the implementation in `src/ai/ai_myCustom.js`.
-2. Add a dynamic loader and a registry entry in `aiConfig.js`:
-
-```javascript
-export const load_ai_myCustom = async () => (await import('./ai_myCustom.js')).ai_myCustom;
-
-export const AI_STRATEGIES = {
-  // Existing strategies...
-
-  // Your new strategy
-  ai_myCustom: {
-    id: 'ai_myCustom',
-    name: 'My Custom AI',
-    description: 'Description of your strategy approach',
-    difficulty: 3, // Rating from 1-5
-    loader: load_ai_myCustom,
-    implementation: null,
-  },
-};
-```
-
-3. That is enough to make it selectable. The picker reads the registry, so an entry appears on its own unless it is flagged `hidden`. Picker order is pinned by `tests/ai/aiConfig.test.js`, so add the new ID to the expected lists there or those tests fail.
-4. To put it in a preset lineup, edit `src/ai/difficultyModes.js`. To run it in the arena and tournament, register it in `src/arena/builtInBots.js`; `docs/ai/DEVELOPER_GUIDE.md` covers that step.
+`docs/ai/DEVELOPER_GUIDE.md` covers registration step by step: the loader, the registry entry, the pinned picker order in `tests/ai/aiConfig.test.js`, and the arena entry in `src/arena/builtInBots.js`. The one step on the config side it does not cover: to put a new ID in a preset lineup, edit `src/ai/difficultyModes.js`, which validates every ID against `AI_STRATEGIES` at import time.
 
 ## Driving games from code
 
 `createAIFunctionMapping(aiAssignments)` maps an array of strategy IDs to an array of loaded AI functions. The game does not use it (the controller path above is what seats bots in a real game), so treat it as a convenience for tests, benchmarks, and scripts. Its only failure handling is to log the error and substitute `ai_default`.
 
-Pair it with `simulateGame` from `src/engine/GameRunner.js` to play a headless game:
+Pair it with `simulateGame` from `src/engine/GameRunner.js` to play a headless game (import paths as from a file in `scripts/` or `tests/`):
 
 ```javascript
-import { createAIFunctionMapping } from '../ai/index.js';
-import { simulateGame } from '../engine/GameRunner.js';
+import { createAIFunctionMapping } from '../src/ai/index.js';
+import { simulateGame } from '../src/engine/GameRunner.js';
 
 // Every seat needs a function. A null (human) entry makes simulateGame throw
 // "No AI function assigned", so use a full AI lineup here.

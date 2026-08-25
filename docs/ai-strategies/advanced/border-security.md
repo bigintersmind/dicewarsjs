@@ -84,20 +84,35 @@ function assessBorderThreat(game, territory_id, area_info) {
 
 ### 2. Safe attack identification
 
-Identify attacks that won't weaken your border:
+Identify attacks that won't weaken your border. `ai_defensive` does it when comparing two candidate attacks, keeping the one whose origin has a single enemy neighbor:
 
 ```javascript
-// Prioritize attacks from territories with only one enemy neighbor
-if (area_info[game.area_from].unfriendly_neighbors == 1) {
-    if (area_info[j].unfriendly_neighbors == 1) {
-        // If both have one enemy neighbor, prefer larger dice count
-        if (game.adat[j].dice < game.adat[game.area_from].dice) continue;
-        else if (game.adat[j].dice == game.adat[game.area_from].dice)
-            // If equal dice, prefer less connected territory
-            if (area_info[j].num_neighbors < area_info[game.area_from].num_neighbors)
-                continue;
-    } else continue; // Let the territory with one enemy neighbor attack first
-}
+const getBetterAttack = (attack1, attack2) => {
+  // If first attack is not set, use the second
+  if (attack1.from === -1) return attack2;
+
+  const fromTerritory1 = attack1.from;
+  const fromTerritory2 = attack2.from;
+
+  // Prioritize attacks from territories with only one enemy neighbor
+  if (area_info[fromTerritory1].unfriendly_neighbors === 1) {
+    if (area_info[fromTerritory2].unfriendly_neighbors === 1) {
+      // If both have one enemy neighbor, prefer larger dice count
+      if (adat[fromTerritory2].dice < adat[fromTerritory1].dice) {
+        return attack1;
+      } else if (adat[fromTerritory2].dice === adat[fromTerritory1].dice) {
+        // If equal dice, prefer less connected territory
+        if (area_info[fromTerritory2].num_neighbors < area_info[fromTerritory1].num_neighbors) {
+          return attack1;
+        }
+      }
+    } else {
+      return attack1; // Keep the territory with one enemy neighbor
+    }
+  }
+
+  return attack2; // Default to new attack
+};
 ```
 
 ### 3. Choosing what to strip, not where to reinforce

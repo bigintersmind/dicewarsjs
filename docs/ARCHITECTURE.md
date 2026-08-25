@@ -55,9 +55,9 @@ Click on territory → GameController.handleClick()
 
 ```
 GameController advances to AI turn
-  → engine.runFullAITurn(state, aiFunction)
-  → AI function reads game state, returns attacks
-  → engine applies each attack + END_TURN
+  → GameController steps engine.runAI + applyAction one move at a time (its own loop, so each battle can animate)
+  → AI function reads the legacy game view, returns one attack or ends its turn
+  → engine applies each attack, then END_TURN
   → GameStore.setState(newState) after each step
   → Renderer animates battles
 ```

@@ -21,8 +21,6 @@ Helper functions:
 
 `hidden` in this registry means one thing: not offered in the game-setup picker. A hidden entry still resolves through `getAIById` and `getAIImplementation`. `src/arena/builtInBots.js` has a separate `hidden` flag meaning "kept off competitive surfaces" (arena, tournament, leaderboard). The two sets differ on purpose: since #167, Defensive and Basic are picker-visible as Easy-mode ingredients while staying hidden on the arena side.
 
-`DEFAULT_AI_ASSIGNMENTS` mirrors the Standard difficulty preset from slot 1 on (slot 0 is arbitrary; the store uses `null` there for the human seat) and is pinned against it by `tests/ai/aiConfig.test.js`. Nothing consumes it at runtime.
-
 Difficulty presets live in `src/ai/difficultyModes.js`. Easy, Standard, and Hard are each an explicit 8-slot lineup of registry IDs with slot 0 as the human seat, sliced down to the chosen player count by the title screen. Custom has no lineup; it is the per-slot picker, seeded from the last preset. Every ID in a lineup is validated against `AI_STRATEGIES` at import time, so a typo fails the test suite rather than a player's game.
 
 ## How a seat gets its AI
@@ -39,22 +37,16 @@ A seat whose bot fails to load gets `ai_default` plus a visible notice ("Player 
 
 ## Driving games from code
 
-`createAIFunctionMapping(aiAssignments)` maps an array of strategy IDs to an array of loaded AI functions. The game does not use it (the controller path above is what seats bots in a real game), so treat it as a convenience for tests, benchmarks, and scripts. Its only failure handling is to log the error and substitute `ai_default`.
-
-Pair it with `simulateGame` from `src/engine/GameRunner.js` to play a headless game (import paths as from a file in `scripts/` or `tests/`):
+To play a headless game, resolve each strategy ID with `getAIImplementation` and hand the functions to `simulateGame` from `src/engine/GameRunner.js`. An unknown ID resolves to `ai_default`, so a typo in the lineup plays Balanced AI rather than failing. Import paths below are written as from a file in `scripts/` or `tests/`.
 
 ```javascript
-import { createAIFunctionMapping } from '../src/ai/index.js';
+import { getAIImplementation } from '../src/ai/index.js';
 import { simulateGame } from '../src/engine/GameRunner.js';
 
 // Every seat needs a function. A null (human) entry makes simulateGame throw
 // "No AI function assigned", so use a full AI lineup here.
-const fns = await createAIFunctionMapping([
-  'ai_default',
-  'ai_lookahead',
-  'ai_strategist',
-  'ai_adaptive',
-]);
+const ids = ['ai_default', 'ai_lookahead', 'ai_strategist', 'ai_adaptive'];
+const fns = await Promise.all(ids.map(id => getAIImplementation(id)));
 
 const { winner, turnCount, completed } = simulateGame({
   config: { playerCount: 4 },

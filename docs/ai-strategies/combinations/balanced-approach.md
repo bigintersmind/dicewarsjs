@@ -111,7 +111,7 @@ function ai_balanced(game) {
   if (moves.length === 0) return 0;
 
   // Choose the best move based on strategy
-  const bestMove = selectBestMove(moves, strategy);
+  const bestMove = selectBestMove(moves, strategy, game.random);
 
   // Execute the move
   game.area_from = bestMove.from;
@@ -321,22 +321,25 @@ function calculateDefensiveValue(game, from, to, area_info) {
   return value;
 }
 
-function selectBestMove(moves, strategy) {
+// `random` is game.random, the seeded source passed in from ai_balanced
+function selectBestMove(moves, strategy, random) {
   // In a truly balanced approach, we might sometimes choose a lower-ranked move
   // for variety, but with a bias toward higher-valued moves
 
   if (moves.length === 0) return null;
 
   // Usually pick the best move
-  if (Math.random() < 0.8) {
+  if (random() < 0.8) {
     return moves[0];
   }
 
   // Sometimes pick a random move from the top 3
   const topMoves = moves.slice(0, Math.min(3, moves.length));
-  return topMoves[Math.floor(Math.random() * topMoves.length)];
+  return topMoves[Math.floor(random() * topMoves.length)];
 }
 ```
+
+Randomness has to come from `game.random()`, the seeded source on the game view, passed into helpers that need it instead of reaching for the global. [AI structure](../implementation/ai-structure.md#move-selection) explains why `Math.random` is off limits.
 
 ## Adapting to game phase
 
@@ -403,7 +406,7 @@ if (game.adat[j].dice == game.adat[i].dice) {
     let f = 0;
     if (game.player[pn].dice_jun == 0) f = 1;  // Attack if we're top ranked
     if (game.player[en].dice_jun == 0) f = 1;  // Attack if opponent is top ranked
-    if (Math.random() * 10 > 1) f = 1;  // 90% chance to attack in equal dice situations
+    if (game.random() > 0.1) f = 1;  // 90% chance to attack in equal dice situations
     if (f == 0) continue;
 }
 ```

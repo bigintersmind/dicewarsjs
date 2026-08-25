@@ -1,307 +1,192 @@
 # Reinforcement optimization strategy
 
-Get the most out of the reinforcement dice granted at the end of each turn. Where those dice land shapes both your next defense and your next attack.
+Reinforcement dice arrive at the end of every turn, and you never choose where they land. What you do choose is how many you earn and how much of your board can hold them. Both are decided by the attacks you make.
 
 ## Core concept
 
-Players receive reinforcement dice based on their largest connected territory. This strategy involves:
+Income is the size of your largest connected territory group, so every attack is also an income decision. This strategy covers:
 
-1. Understanding how reinforcements are calculated
-2. Identifying the territories where reinforcements matter most
-3. Factoring reinforcement changes into attack planning
-4. Sometimes skipping an attack to preserve a strong reinforcement position
+1. How the engine actually grants and places reinforcements
+2. Measuring the income of any board, so you can score what an attack would do to it
+3. Preferring the captures that extend the group you already have
+4. Keeping room on the board for the dice you earn
 
-## Game mechanics for reinforcements
+## How the engine grants reinforcements
 
-```javascript
-// In the game engine, reinforcements are based on the largest connected territory
-set_area_tc(pn) {
-  // ...logic to find the largest connected territory group...
-  this.player[pn].area_tc = max;
-}
-```
+At the end of a player's turn, `calculateReinforcements` and `distributeReinforcements` in `src/engine/TurnManager.js` do the following:
 
-Players receive reinforcement dice proportional to the size of their largest connected territory group.
+1. Income equals the number of territories in your largest connected group. Ten territories in one block earns 10 dice. The same ten split into a block of 6 and a block of 4 earns 6.
+2. Those dice are added to your stock, which is capped at 64.
+3. The engine places them one at a time, each on a territory picked at random from the ones you own that are below the 8-dice cap. A territory that reaches 8 stops being eligible.
+4. If every territory of yours hits 8 before the stock runs out, the remainder stays in stock for later turns.
+
+Nothing in that sequence asks the bot for a preference. There is no deployment call, no priority list, and no way to steer a die to a particular territory. The two levers are income in step 1 and how much room your board has to absorb it in step 3.
+
+The legacy game view exposes the current income as `game.player[pn].area_tc` and the carried-over reserve as `game.player[pn].stock`. Note that `game.set_area_tc()` is a no-op on the modern adapter: `area_tc` is snapshotted when the view is built, so it does not change as you simulate moves. Compute the value yourself when you need it for a hypothetical board.
 
 ## Implementation approach
 
-### 1. Reinforcement prediction
+### 1. Income for a hypothetical board
 
 ```javascript
-function predictReinforcements(game, player) {
-  // Calculate connected territory size
-  let originalAreaTC = game.player[player].area_tc;
+// Size of the player's largest connected group, which is exactly their income
+function largestGroupSize(game, player) {
+  const seen = new Set();
+  let largest = 0;
 
-  // The game likely has a specific formula for reinforcement calculation
-  // This is a simplified example - replace with the actual formula
-  const expectedReinforcements = Math.floor(originalAreaTC / 2);
+  for (let start = 1; start < game.AREA_MAX; start++) {
+    if (game.adat[start].size === 0) continue;
+    if (game.adat[start].arm !== player) continue;
+    if (seen.has(start)) continue;
 
-  return {
-    territorySize: originalAreaTC,
-    expectedDice: expectedReinforcements,
-  };
-}
-```
+    // Flood fill the group containing this territory
+    let size = 0;
+    const queue = [start];
+    seen.add(start);
 
-### 2. Strategic territory identification
+    while (queue.length > 0) {
+      const current = queue.pop();
+      size++;
 
-Identify the territories that would benefit most from reinforcements:
+      for (let i = 1; i < game.AREA_MAX; i++) {
+        if (seen.has(i)) continue;
+        if (game.adat[i].size === 0) continue;
+        if (game.adat[i].arm !== player) continue;
+        if (!game.adat[current].join[i]) continue;
 
-```javascript
-function identifyReinforcementCandidates(game, area_info) {
-  const player = game.get_pn();
-  const candidates = [];
-
-  // Check all owned territories
-  for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
-    if (game.adat[i].arm != player) continue;
-    if (game.adat[i].dice >= 8) continue; // Already at max dice
-
-    let score = 0;
-
-    // Border territories are more valuable for reinforcement
-    if (area_info[i].unfriendly_neighbors > 0) {
-      score += 3; // Base points for being on the border
-
-      // More enemy neighbors = higher priority
-      score += area_info[i].unfriendly_neighbors * 1.5;
-
-      // Strong enemy neighbors = higher priority
-      score += area_info[i].highest_unfriendly_neighbor_dice * 0.5;
-
-      // Few dice = higher priority
-      score += (8 - game.adat[i].dice) * 0.75;
-
-      // Strategic territories (like choke points) get bonus points
-      if (isChokePoint(game, i)) {
-        score += 5;
-      }
-
-      // Territories that could be used for strong attacks next turn
-      if (hasStrongAttackPotential(game, i)) {
-        score += 4;
+        seen.add(i);
+        queue.push(i);
       }
     }
 
-    candidates.push({
-      territory: i,
-      score: score,
-      currentDice: game.adat[i].dice,
-      maxReinforcement: 8 - game.adat[i].dice,
-    });
+    if (size > largest) largest = size;
   }
 
-  // Sort by score (highest first)
-  candidates.sort((a, b) => b.score - a.score);
-
-  return candidates;
-}
-
-function isChokePoint(game, territory) {
-  // Implementation from the Choke Point Control strategy
-  // ...
-}
-
-function hasStrongAttackPotential(game, territory) {
-  // Check if this territory is adjacent to valuable enemy territories
-  const player = game.get_pn();
-
-  for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
-    if (game.adat[i].arm == player) continue;
-    if (!game.adat[territory].join[i]) continue;
-
-    // If adding dice would create a strong attack opportunity
-    if (game.adat[territory].dice + 2 > game.adat[i].dice + 1) {
-      return true;
-    }
-  }
-
-  return false;
+  return largest;
 }
 ```
 
-### 3. Attack planning with reinforcement impact
+### 2. Scoring an attack by its income impact
 
 ```javascript
-function evaluateAttackWithReinforcementImpact(game, from, to) {
+function evaluateAttackWithIncomeImpact(game, from, to) {
   const player = game.get_pn();
+  const currentIncome = largestGroupSize(game, player);
 
-  // Calculate current reinforcement expectation
-  const currentReinforcement = predictReinforcements(game, player);
-
-  // Simulate the attack
+  // Simulate a successful attack: the target changes hands, the attacker
+  // keeps one die and the rest move onto the captured territory
   const originalToOwner = game.adat[to].arm;
   const originalToDice = game.adat[to].dice;
   const originalFromDice = game.adat[from].dice;
 
-  // Assume attack success
   game.adat[to].arm = player;
   game.adat[to].dice = originalFromDice - 1;
   game.adat[from].dice = 1;
 
-  // Calculate new reinforcement expectation
-  const newReinforcement = predictReinforcements(game, player);
+  const newIncome = largestGroupSize(game, player);
 
-  // Restore original state
+  // Restore the board before returning
   game.adat[to].arm = originalToOwner;
   game.adat[to].dice = originalToDice;
   game.adat[from].dice = originalFromDice;
-
-  // Calculate the net impact
-  const reinforcementChange = newReinforcement.expectedDice - currentReinforcement.expectedDice;
 
   return {
     from: from,
     to: to,
     diceAdvantage: originalFromDice - originalToDice,
-    reinforcementChange: reinforcementChange,
-    // Higher scores for attacks that maintain or increase reinforcements
-    score: originalFromDice - originalToDice + reinforcementChange * 2,
+    incomeGain: newIncome - currentIncome,
+    score: originalFromDice - originalToDice + (newIncome - currentIncome) * 2,
   };
 }
 ```
 
-### 4. Deployment planning
+Editing the live view and putting it back works, but it is easy to get wrong once the function grows. Copy the fields you need instead if the restore starts looking fragile.
 
-```javascript
-function optimizeReinforcementDeployment(game, reinforcementAmount) {
-  const candidates = identifyReinforcementCandidates(game, calculateAreaInfo(game));
-  const deploymentPlan = [];
-  let remainingDice = reinforcementAmount;
+### 3. Finding the captures that connect
 
-  // Allocate dice in order of priority until we run out
-  for (const candidate of candidates) {
-    if (remainingDice <= 0) break;
-
-    // How many dice to allocate to this territory
-    const allocation = Math.min(
-      candidate.maxReinforcement, // Don't exceed max dice (8)
-      remainingDice, // Don't allocate more than we have
-      calculateOptimalDiceForTerritory(game, candidate.territory) // Don't over-allocate
-    );
-
-    if (allocation > 0) {
-      deploymentPlan.push({
-        territory: candidate.territory,
-        allocation: allocation,
-      });
-
-      remainingDice -= allocation;
-    }
-  }
-
-  return deploymentPlan;
-}
-
-function calculateOptimalDiceForTerritory(game, territory) {
-  // Calculate the optimal number of dice for this territory based on threats
-  // and attack opportunities
-  const area_info = calculateAreaInfo(game);
-
-  // Start with the current threats
-  let optimalDice = area_info[territory].highest_unfriendly_neighbor_dice + 1;
-
-  // Consider attack opportunities
-  for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
-    if (game.adat[i].arm == game.adat[territory].arm) continue;
-    if (!game.adat[territory].join[i]) continue;
-
-    // If attacking this territory would be valuable
-    if (isValuableTarget(game, i)) {
-      // We'd want enough dice to have a strong advantage
-      const diceNeededForAttack = game.adat[i].dice + 2;
-      if (diceNeededForAttack > optimalDice) {
-        optimalDice = diceNeededForAttack;
-      }
-    }
-  }
-
-  // Cap at maximum dice
-  return Math.min(optimalDice, 8);
-}
-
-function isValuableTarget(game, territory) {
-  // Determine if a territory is a valuable target
-  // Could consider: choke points, connected territory impact, etc.
-  // ...
-}
-```
-
-## Strategic considerations
-
-### 1. Reinforcement vs. immediate attack
-
-Sometimes it's better to skip an attack and keep a stronger reinforcement position:
-
-```javascript
-function shouldForgoAttackForReinforcements(game, from, to) {
-  const attackEvaluation = evaluateAttackWithReinforcementImpact(game, from, to);
-
-  // If this attack would significantly decrease our reinforcements
-  if (attackEvaluation.reinforcementChange < -1) {
-    // Only worth it if we have a massive dice advantage or the target is extremely valuable
-    if (attackEvaluation.diceAdvantage <= 3 && !isExtremelyValuableTarget(game, to)) {
-      return true; // Should forego the attack
-    }
-  }
-
-  return false; // Attack is worth it
-}
-```
-
-### 2. Territory consolidation
-
-Expanding your largest connected group can be worth more than a tactically safe capture elsewhere:
+Every capture adds a territory. Only some of them add income, and a capture that bridges two groups you already own adds a lot of it:
 
 ```javascript
 function findConsolidationAttacks(game) {
-    const player = game.get_pn();
-    const consolidationTargets = [];
+  const player = game.get_pn();
+  const currentIncome = largestGroupSize(game, player);
+  const targets = [];
 
-    // Find the largest connected group
-    game.set_area_tc(player);
-    const largestGroupSize = game.player[player].area_tc;
+  for (let i = 1; i < game.AREA_MAX; i++) {
+    if (game.adat[i].size === 0) continue;
+    if (game.adat[i].arm !== player) continue;
+    if (game.adat[i].dice <= 1) continue;
 
-    // Initialize territory group tracking
-    for (let i = 0; i < game.AREA_MAX; i++) game.chk[i] = i;
+    for (let j = 1; j < game.AREA_MAX; j++) {
+      if (game.adat[j].size === 0) continue;
+      if (game.adat[j].arm === player) continue;
+      if (!game.adat[i].join[j]) continue;
+      if (game.adat[j].dice >= game.adat[i].dice) continue;
 
-    // Identify which territories belong to the largest group
-    // ... (implement group identification logic) ...
+      // Only ownership matters for connectivity, so only `arm` has to move
+      const originalOwner = game.adat[j].arm;
+      game.adat[j].arm = player;
+      const incomeGain = largestGroupSize(game, player) - currentIncome;
+      game.adat[j].arm = originalOwner;
 
-    // Look for attacks that would connect separate territory groups
-    for (let i = 1; i < game.AREA_MAX; i++) {
-        if (game.adat[i].size == 0) continue;
-        if (game.adat[i].arm != player) continue;
-        if (game.adat[i].dice <= 1) continue;
-
-        // Check if this territory is NOT in the largest group
-        const isInLargestGroup = /* determine if in largest group */;
-
-        for (let j = 1; j < game.AREA_MAX; j++) {
-            if (game.adat[j].size == 0) continue;
-            if (game.adat[j].arm == player) continue;
-            if (!game.adat[i].join[j]) continue;
-
-            // Check if capturing this would connect to the largest group
-            const wouldConnectToLargestGroup = /* logic to determine */;
-
-            if (wouldConnectToLargestGroup && game.adat[i].dice > game.adat[j].dice) {
-                consolidationTargets.push({
-                    from: i,
-                    to: j,
-                    diceAdvantage: game.adat[i].dice - game.adat[j].dice,
-                    // Higher priority for attacks that connect larger separate groups
-                    priority: (game.adat[i].dice - game.adat[j].dice) +
-                              (/* size of group being connected */ * 2)
-                });
-            }
-        }
+      targets.push({
+        from: i,
+        to: j,
+        incomeGain: incomeGain,
+        diceAdvantage: game.adat[i].dice - game.adat[j].dice,
+      });
     }
+  }
 
-    return consolidationTargets;
+  // Prefer income, break ties on how safe the attack is
+  targets.sort((a, b) => b.incomeGain - a.incomeGain || b.diceAdvantage - a.diceAdvantage);
+
+  return targets;
+}
+```
+
+### 4. Leaving room for the dice you earn
+
+Income you cannot place sits in stock instead of on the map, where it defends nothing:
+
+```javascript
+// How many dice your territories can still absorb before they all hit the cap
+function absorptionCapacity(game, player) {
+  let room = 0;
+
+  for (let i = 1; i < game.AREA_MAX; i++) {
+    if (game.adat[i].size === 0) continue;
+    if (game.adat[i].arm !== player) continue;
+    room += 8 - game.adat[i].dice;
+  }
+
+  return room;
+}
+```
+
+When capacity is below your stock plus this turn's income, some of what you earn idles. Attacking out of a territory that is already at 8 dice fixes that: win or lose, the attacker drops to 1, which frees at least seven slots for next turn's placement. It is the one situation where a marginal attack is worth making for reasons that have nothing to do with the target.
+
+## Strategic considerations
+
+### 1. Your own attacks never cost you income
+
+An attack changes ownership only when it succeeds, and only for the territory it captures. A failed attack leaves both territories with their owners and simply drops the attacker to 1 die (see `applyAction` in `src/engine/StateManager.js`). So your income never falls because of a move you made. It falls when an opponent takes a territory that was holding your largest group together, which is what makes those linking territories worth defending and worth not stripping to 1 die on a speculative attack.
+
+### 2. Which capture, not whether to capture
+
+The real trade is between captures. One that extends your largest group pays income every turn from here on. One that lands off to the side adds a territory and a fresh border to hold, and pays nothing until it connects:
+
+```javascript
+function pickIncomeAwareAttack(game) {
+  const candidates = findConsolidationAttacks(game);
+  if (candidates.length === 0) return null;
+
+  // A safe attack that adds nothing to the group is worth less than a
+  // slightly riskier one that grows it, but not at any price: every
+  // candidate already has a one-die edge, so ask for two before paying for income
+  const best = candidates.find(c => c.incomeGain > 0 && c.diceAdvantage >= 2);
+
+  return best || candidates[0];
 }
 ```
 
@@ -309,14 +194,14 @@ function findConsolidationAttacks(game) {
 
 1. In the mid to late game, once territory patterns are established
 2. When your territories are fragmented and need consolidation
-3. When facing multiple opponents and dice have to be rationed
+3. When your board is close to the dice cap and income is going to waste
 4. When planning multi-turn strategies
 
 ## Combining with other strategies
 
 Reinforcement optimization works well with:
 
-1. **Territory connections** - The largest connected group is what sets your reinforcement count
-2. **Border security** - Tells you which borders need the dice most
-3. **Choke point control** - Flags the territories worth keeping topped up
-4. **Player ranking** - Shifts reinforcement priorities toward the biggest threat
+1. **Territory connections** - The largest connected group is what sets your income
+2. **Border security** - Names the territories whose loss would cut that group
+3. **Choke point control** - Finds the single territories a whole group hangs on
+4. **Player ranking** - Tells you whose income is worth attacking first

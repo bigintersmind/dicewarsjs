@@ -8,9 +8,11 @@ After identifying all valid moves (typically attacks with a dice advantage), ran
 
 ## Implementation
 
+Draw from `game.random()`, the seeded drop-in for `Math.random` on the game view. Same seed, same game; `Math.random` would break that (issue #151). [AI structure](../implementation/ai-structure.md#move-selection) has the full reasoning.
+
 ```javascript
 // Randomly select a move from the valid options
-const n = Math.floor(Math.random() * number_of_moves);
+const n = Math.floor(game.random() * number_of_moves);
 const move = list_moves[n];
 
 // Set the selected move in the game state
@@ -31,7 +33,7 @@ for (let i = 1; i < game.AREA_MAX; i++) {
 if (lc == 0) return 0;
 
 // Choose a random valid attack from the list
-const n = Math.floor(Math.random() * lc);
+const n = Math.floor(game.random() * lc);
 game.area_from = list_from[n];
 game.area_to = list_to[n];
 ```
@@ -61,14 +63,14 @@ const strongMoves = findMovesWithStrengthAdvantage(game, 2);
 
 // If we have strong moves, pick one randomly
 if (strongMoves.length > 0) {
-  const index = Math.floor(Math.random() * strongMoves.length);
+  const index = Math.floor(game.random() * strongMoves.length);
   return strongMoves[index];
 }
 
 // Otherwise, fall back to any valid move with a dice advantage
 const validMoves = findAllValidMoves(game);
 if (validMoves.length > 0) {
-  const index = Math.floor(Math.random() * validMoves.length);
+  const index = Math.floor(game.random() * validMoves.length);
   return validMoves[index];
 }
 

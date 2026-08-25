@@ -34,7 +34,8 @@ function ai_your_name(game) {
   const possibleMoves = generateMoves(game, strategy, pn);
 
   // Phase 4: Move evaluation and selection
-  const selectedMove = selectBestMove(possibleMoves, strategy);
+  // game.random is the seeded random source; pass it to anything that needs randomness
+  const selectedMove = selectBestMove(possibleMoves, strategy, game.random);
 
   // No valid moves, end turn
   if (!selectedMove) return 0;
@@ -139,8 +140,10 @@ function evaluateMove(game, from, to, strategy) {
 
 ### Move selection
 
+Any randomness has to come from `game.random()`, the seeded source on the game view. It is a drop-in for `Math.random` that returns floats in `[0, 1)`, but it is derived from the match seed, so the same seed replays the same game. `Math.random` would break that and make arena results unrepeatable (issue #151). A helper that needs randomness should take the source as a parameter rather than reaching for the global, which is what `ai_adaptive` does.
+
 ```javascript
-function selectBestMove(moves, strategy) {
+function selectBestMove(moves, strategy, random) {
   if (moves.length === 0) return null;
 
   // Sort moves by value
@@ -148,10 +151,10 @@ function selectBestMove(moves, strategy) {
 
   // Usually select the highest-valued move
   // Sometimes add randomness based on strategy
-  if (Math.random() < strategy.randomness) {
+  if (random() < strategy.randomness) {
     // Select randomly from top N moves
     const topMoves = moves.slice(0, Math.min(3, moves.length));
-    return topMoves[Math.floor(Math.random() * topMoves.length)];
+    return topMoves[Math.floor(random() * topMoves.length)];
   }
 
   return moves[0];

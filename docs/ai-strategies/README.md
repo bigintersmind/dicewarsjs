@@ -17,7 +17,7 @@ The rules every strategy builds on:
 - **Territories and ownership**: The map is divided into territories, each owned by a player and containing 1-8 dice.
 - **Adjacency**: Territories can only attack adjacent territories.
 - **Attack mechanics**: When attacking, all dice from both territories are rolled. The higher total wins, with ties going to the defender.
-- **Reinforcements**: Players receive reinforcement dice at the end of their turn based on their largest connected territory group.
+- **Reinforcements**: Players receive reinforcement dice at the end of their turn equal to the size of their largest connected territory group. The dice are placed one at a time on randomly chosen territories of theirs that are below the 8-dice cap, so nobody chooses where reinforcements land.
 - **Goal**: Eliminate all opponents by capturing all their territories.
 
 ## Basic strategies
@@ -36,7 +36,7 @@ Techniques that build on the basics:
 - [Neighbor analysis](./advanced/neighbor-analysis.md) - Evaluating the risk of counterattacks
 - [Border security](./advanced/border-security.md) - Protecting vulnerable territories
 - [Choke point control](./advanced/choke-point-control.md) - Identifying and controlling map bottlenecks
-- [Reinforcement optimization](./advanced/reinforcement-optimization.md) - Getting the most out of reinforcement dice
+- [Reinforcement optimization](./advanced/reinforcement-optimization.md) - Growing the income that decides how many dice you earn, since you cannot choose where they land
 - [Expected-value AI](./advanced/expected-value-ai.md) - Scoring every move by expected income/risk, plus how to benchmark bots with confidence intervals
 - [Lookahead expectimax AI](./advanced/lookahead-expectimax-ai.md) - Standalone shallow expectimax over win/loss branches with board-value evaluation
 

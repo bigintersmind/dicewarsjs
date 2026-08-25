@@ -143,12 +143,14 @@ function wouldDisconnectPlayerTerritories(game, player) {
 
 ### 1. Defensive choke point control
 
+You cannot send dice to a choke point. Reinforcements land at random across your territories ([Reinforcement optimization](./reinforcement-optimization.md) covers the rule), so a choke point is defended by what you do with your attacks: never emptying it, and taking out the enemy territories that are massing against it.
+
 ```javascript
-function defendChokePoints(game, chokePoints) {
+function rankThreatenedChokePoints(game, chokePoints) {
   const player = game.get_pn();
   const defensePriorities = [];
 
-  // Evaluate owned choke points for defensive reinforcement
+  // Rank the choke points you own by how much pressure they are under
   for (const cp of chokePoints) {
     if (cp.owner !== player) continue;
 
@@ -173,7 +175,6 @@ function defendChokePoints(game, chokePoints) {
       territory: cp.territory,
       priority: priority,
       currentDice: cp.dice,
-      maxReinforcement: 8 - cp.dice,
     });
   }
 
@@ -183,6 +184,8 @@ function defendChokePoints(game, chokePoints) {
   return defensePriorities;
 }
 ```
+
+Use the ranking two ways: refuse to attack out of the top-ranked choke points, and point the offensive targeting in the next section at whoever is stacking against them.
 
 ### 2. Offensive choke point targeting
 
@@ -313,4 +316,4 @@ Choke point control works well with:
 1. **Territory connections** - Choke points decide whether groups stay connected
 2. **Border security** - Choke points are often the border territories that matter most
 3. **Neighbor analysis** - Supplies the connectivity data for finding choke points
-4. **Reinforcement optimization** - Directs reinforcements to the choke points you hold
+4. **Reinforcement optimization** - Shows what a lost choke point costs you in income

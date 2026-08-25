@@ -86,9 +86,16 @@ async function main() {
   /*
    * Board hints are gated on a preference, so toggling it mid-game has to reach
    * the board immediately — the controller only recomputes at its own game-loop
-   * seams, none of which a settings click passes through.
+   * seams, none of which a settings click passes through. Gated on the key
+   * actually changing, since every theme/sound/speed click notifies here too.
+   * The refresh is idempotent, so calling it at any moment is safe.
    */
-  preferencesManager.subscribe(() => controller.refreshCandidateHighlights());
+  let lastBoardHints = preferencesManager.get('boardHints');
+  preferencesManager.subscribe(prefs => {
+    if (prefs.boardHints === lastBoardHints) return;
+    lastBoardHints = prefs.boardHints;
+    controller.refreshCandidateHighlights();
+  });
 
   /*
    * Background AI game behind the title and bot-hub screens (ATTRACT_SCREENS).

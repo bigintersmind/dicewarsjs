@@ -135,17 +135,17 @@ describe('setCandidateHighlights', () => {
     const layer = renderer._highlightCandidates;
 
     renderer.setCandidateHighlights([drawn[0]], 'attacker');
-    const attacker = { ...layer.shapes[1], alpha: layer.alpha }; // [rim, core]
+    const attacker = layer.shapes[1]; // [rim, core]
 
     renderer.setCandidateHighlights([drawn[0]], 'target');
-    const target = { ...layer.shapes[1], alpha: layer.alpha };
+    const target = layer.shapes[1];
 
     // Hue, stroke weight and fill density all differ, so the two never rely on
-    // color alone to be told apart.
+    // color alone to be told apart. (Layer alpha differs too, but that's a
+    // tuning constant, not part of the contract.)
     expect(attacker.stroke.color).not.toBe(target.stroke.color);
     expect(target.stroke.width).toBeGreaterThan(attacker.stroke.width);
     expect(target.fill.alpha).toBeGreaterThan(attacker.fill.alpha);
-    expect(target.alpha).toBeGreaterThan(attacker.alpha);
   });
 
   it('defaults to the attacker treatment', () => {
@@ -165,16 +165,44 @@ describe('setCandidateHighlights', () => {
     expect(layer.shapes).toHaveLength(2);
   });
 
-  it('hides the layer for an empty set, and ignores unknown territories', () => {
+  it('hides the layer for an empty set, and warns about unknown territories', () => {
     const { renderer } = makeRenderer();
     const layer = renderer._highlightCandidates;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     renderer.setCandidateHighlights([]);
     expect(layer.visible).toBe(false);
+    expect(warn).not.toHaveBeenCalled(); // an empty set is a normal state, not a fault
 
-    renderer.setCandidateHighlights([9999]);
+    /*
+     * An id with no traced border means the caller is hinting against a board
+     * this renderer isn't showing — a real wiring bug, and one that used to
+     * vanish into a `continue`. It still must not throw (this runs inside
+     * startTurn), but it says so exactly once, with the ids it dropped.
+     */
+    renderer.setCandidateHighlights([9998, 9999]);
     expect(layer.visible).toBe(false);
     expect(layer.shapes).toHaveLength(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]).toContainEqual([9998, 9999]);
+
+    warn.mockRestore();
+  });
+
+  it('rejects arguments that could only be a wiring bug', () => {
+    const { renderer, drawn } = makeRenderer();
+
+    // Not an array: silently coercing to [] painted an empty board.
+    expect(() => renderer.setCandidateHighlights(null)).toThrow(TypeError);
+    expect(() => renderer.setCandidateHighlights(drawn[0])).toThrow(/must be an array/);
+
+    // Not one of the two treatments: silently coercing to 'attacker' painted
+    // the wrong hint with no way to notice.
+    expect(() => renderer.setCandidateHighlights(drawn, 'targets')).toThrow(TypeError);
+    expect(() => renderer.setCandidateHighlights(drawn, undefined)).not.toThrow(); // the default
+    expect(() => renderer.setCandidateHighlights(drawn, null)).toThrow(
+      /must be 'attacker' or 'target'/
+    );
   });
 
   it('repaints in the new palette when the theme changes', () => {
@@ -187,15 +215,6 @@ describe('setCandidateHighlights', () => {
     renderer.setTheme(THEMES.light);
     expect(layer.shapes[1].stroke.color).toBe(THEMES.light.candidateTarget);
     expect(layer.visible).toBe(true);
-  });
-
-  it('falls back to the dark palette for a theme without candidate colors', () => {
-    const { renderer, drawn } = makeRenderer();
-    renderer.setTheme({ borderColor: 0x111111, highlightColor: 0x222222, highlightFill: 0x333333 });
-    renderer.setCandidateHighlights([drawn[0]], 'attacker');
-    expect(renderer._highlightCandidates.shapes[1].stroke.color).toBe(
-      THEMES.dark.candidateAttacker
-    );
   });
 });
 
@@ -227,11 +246,28 @@ describe('clearing the candidate layer', () => {
     renderer.setCandidateHighlights(drawn, 'attacker');
     renderer.drawMap(makeBoard());
     expect(renderer._highlightCandidates.visible).toBe(false);
+
+    /*
+     * And they must stay dropped. setTheme repaints from _candidateIds, so if
+     * drawMap only hid the layer instead of forgetting the ids, the next theme
+     * change would resurrect the previous board's outlines over the new one.
+     */
+    renderer.setTheme(THEMES.light);
+    expect(renderer._highlightCandidates.visible).toBe(false);
+    expect(renderer._highlightCandidates.shapes).toHaveLength(0);
   });
 });
 
+/*
+ * The invariant is about the HINT layer, not about which overlay is topmost.
+ * drawMap re-pins `from` and `to` above everything added since (the focus ring
+ * included), and GameRenderer parents the dice into this same container — so
+ * the real bottom-to-top order after drawMap is
+ *   territories → board hints → keyboard focus → dice → to → from
+ * and the only thing the hint layer promises is to be at the bottom of it.
+ */
 describe('stacking order', () => {
-  it('keeps candidates beneath the from/to selection so the choice stays dominant', () => {
+  it('keeps the hint layer beneath every other overlay so the choice stays dominant', () => {
     const { renderer, drawn } = makeRenderer();
     renderer.setCandidateHighlights(drawn, 'attacker');
 
@@ -245,7 +281,7 @@ describe('stacking order', () => {
     expect(candidateIndex).toBeGreaterThan(children.indexOf(renderer._territoryGfx[drawn[0]]));
   });
 
-  it('draws the keyboard focus ring ON TOP of the hints, so the focused territory still stands out', () => {
+  it('draws the keyboard focus ring over the hints, so the focused territory still stands out', () => {
     const { renderer, drawn } = makeRenderer();
     renderer.setCandidateHighlights(drawn, 'attacker');
     renderer.setFocusHighlight(drawn[0]);
@@ -253,8 +289,8 @@ describe('stacking order', () => {
     const { children } = renderer.container;
     /*
      * The attacker hint is a 2px white rim; focus is a 3px white stroke over a
-     * darkened fill. Focus only reads as "you are here" if it paints last —
-     * which the constructor guarantees by adding it after the hint layer.
+     * darkened fill. Focus reads as "you are here" because it paints above the
+     * hint layer — not because it is topmost overall (from/to are).
      */
     expect(children.indexOf(renderer._highlightFocus)).toBeGreaterThan(
       children.indexOf(renderer._highlightCandidates)

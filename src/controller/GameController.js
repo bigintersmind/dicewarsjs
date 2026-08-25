@@ -314,6 +314,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         gameState: null,
         animationPhase: 'idle',
         awaitingInput: null,
+        candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
         error: "That luck setting isn't available. Pick another and try again.",
@@ -392,6 +393,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         gameState: null,
         animationPhase: 'idle',
         awaitingInput: null,
+        candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
         error: 'Failed to start game. Please try again.',
@@ -427,6 +429,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       store.setState({
         screen: 'title',
         gameState: null,
+        candidateAreas: null,
         error: "That luck setting isn't available. Pick another and try again.",
       });
       return;
@@ -444,6 +447,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       store.setState({
         screen: 'title',
         gameState: null,
+        candidateAreas: null,
         error: 'Map generation failed. Please try again.',
       });
       return;
@@ -794,8 +798,17 @@ export function createGameController(store, renderer, soundManager, preferencesM
     if (!state) return null;
     // No hints for a spectator (nobody is playing), or with the pref off.
     if (storeState.humanPlayerIndex === null) return null;
-    if ((storeState.preferences?.boardHints ?? 'on') === 'off') return null;
-    // Nor on an AI's turn, nor while an animation owns the board.
+    /*
+     * The preferences manager is the source of truth, exactly as isReducedMotion
+     * treats it; the store's copy is a mirror kept in sync by a main.jsx
+     * subscriber, so reading it here would quietly depend on that subscriber
+     * running first. Falls back to the mirror when no manager was supplied.
+     */
+    const hints = preferencesManager
+      ? preferencesManager.get('boardHints')
+      : (storeState.preferences?.boardHints ?? 'on');
+    if (hints === 'off') return null;
+    // Nor on an AI's turn.
     if (state.turnOrder[state.currentPlayerIndex] !== storeState.humanPlayerIndex) return null;
 
     if (storeState.awaitingInput === 'selectFrom') {
@@ -806,21 +819,30 @@ export function createGameController(store, renderer, soundManager, preferencesM
         .filter(m => m.from === storeState.selectedFrom)
         .map(m => m.to);
     }
+    // awaitingInput is null while an animation owns the board — nothing to offer.
     return null;
   }
 
   /**
    * The single seam between the game state and the board hints: recompute the
-   * candidate set, publish it to the store (for the UI) and paint it (for the
-   * player). Idempotent — every caller just calls it after whatever it changed,
-   * rather than each working out what the board should show.
+   * candidate set, publish it to the store (for observers — none in the UI yet)
+   * and paint it (for the player). Idempotent — every caller just calls it after
+   * whatever it changed, rather than each working out what the board should
+   * show.
    *
    * Call it AFTER any `clearHighlights()`, which deliberately wipes this layer
    * along with the selection.
    */
   function refreshCandidateHighlights() {
     const candidates = computeCandidateAreas(store.getState());
-    store.setState({ candidateAreas: candidates });
+    /*
+     * Skip the write when nothing was on offer and nothing is: every AI-turn
+     * seam passes through here, and a null-over-null setState still notifies
+     * every store subscriber, re-rendering UI that reads none of this.
+     */
+    if (candidates !== null || store.getState().candidateAreas !== null) {
+      store.setState({ candidateAreas: candidates });
+    }
 
     if (!renderer || !renderer.hexGrid) return;
     if (candidates && candidates.length > 0) {
@@ -1199,6 +1221,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       store.setState({
         screen: 'title',
         gameState: null,
+        candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
         error: 'An error occurred. Returning to title screen.',

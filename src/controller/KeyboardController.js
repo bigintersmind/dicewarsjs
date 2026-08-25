@@ -152,7 +152,7 @@ export function createKeyboardController(store, controller, renderer) {
      * is a return to selectFrom — so hand back to the controller, which owns
      * that mapping, to repaint the attack candidates.
      */
-    if (controller.refreshCandidateHighlights) controller.refreshCandidateHighlights();
+    controller.refreshCandidateHighlights();
     return true;
   }
 

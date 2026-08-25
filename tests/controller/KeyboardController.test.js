@@ -232,6 +232,12 @@ describe('KeyboardController', () => {
         selectedFrom: 1,
       });
 
+      // What the controller would see if it recomputed the hints right now.
+      let awaitingAtRefresh;
+      mockController.refreshCandidateHighlights.mockImplementation(() => {
+        awaitingAtRefresh = store.getState().awaitingInput;
+      });
+
       const event = fireKey('Escape');
 
       expect(store.getState().awaitingInput).toBe('selectFrom');
@@ -244,18 +250,21 @@ describe('KeyboardController', () => {
        * silently stops offering them for the rest of the turn.
        */
       expect(mockController.refreshCandidateHighlights).toHaveBeenCalled();
+      /*
+       * ...and in that order. Refreshing first and clearing second wipes the
+       * hints it just painted, which no assertion on "was it called" can see.
+       */
+      expect(mockRenderer.hexGrid.clearHighlights.mock.invocationCallOrder[0]).toBeLessThan(
+        mockController.refreshCandidateHighlights.mock.invocationCallOrder[0]
+      );
+      /*
+       * The store has to be back on selectFrom before the refresh runs, too:
+       * recomputing against a stale 'selectTo' would repaint the old source's
+       * reachable enemies as if they were the attack candidates.
+       */
+      expect(awaitingAtRefresh).toBe('selectFrom');
       // Claimed: the quit confirm must not also open on this keypress (#181).
       expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('tolerates a controller without the board-hint hook', () => {
-      kbc.destroy();
-      const bare = { handleTerritoryClick: vi.fn() };
-      kbc = createKeyboardController(store, bare, mockRenderer);
-      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
-
-      expect(() => fireKey('Escape')).not.toThrow();
-      expect(store.getState().awaitingInput).toBe('selectFrom');
     });
 
     it('does nothing when already in selectFrom', () => {

@@ -13,6 +13,7 @@ import { act } from 'preact/test-utils';
 import { RulesModal, RULES_SECTIONS } from '../../src/ui/RulesModal.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { MAX_DICE } from '../../src/engine/constants.js';
+import { BOARD_HINTS_LABEL } from '../../src/ui/SettingsPanel.jsx';
 
 let container;
 /** Stand-in for the HUD's RULES button — whatever had focus before the card. */
@@ -106,6 +107,12 @@ describe('RulesModal', () => {
     expect(container.textContent).toMatch(/ties go to the defender/i);
     expect(container.textContent).toMatch(new RegExp(`${MAX_DICE} dice at most`, 'i'));
     expect(container.textContent).toMatch(/turn limit/i);
+    /*
+     * The card sends the player to a specific Settings row by name, so it has
+     * to be the name that row actually carries — both sides read the same
+     * exported constant, and this pins that the card still spells it out.
+     */
+    expect(container.textContent).toMatch(new RegExp(BOARD_HINTS_LABEL));
   });
 
   it('closes from the close button', () => {

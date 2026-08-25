@@ -20,7 +20,8 @@ export const DEFAULTS = {
    * Board hints: outline the territories that can attack right now, and the
    * enemies the selected one can reach. On by default — early playtesters
    * reported the rules were not self-apparent — and turned off from the
-   * settings panel. (The contextual hint strip is a separate initiative, #196.)
+   * settings panel. (Carved out of the Coach prototype, #196; the text hint
+   * strip stays parked there.)
    */
   boardHints: 'on', // 'on' | 'off'
 };

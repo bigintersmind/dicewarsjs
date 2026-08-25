@@ -13,10 +13,10 @@
  * and which enemies the selected one can reach. They are deliberately NOT
  * player colors and NOT the selection red — a hint outline must never be
  * mistaken for a seat or for the committed from/to selection — and they are
- * unaffected by color-blind mode, which only swaps the player palette. The two
- * never appear at the same time (they belong to the mutually exclusive
- * selectFrom / selectTo phases), so hue alone doesn't have to carry the
- * distinction; the stroke weight and fill density differ as well.
+ * unaffected by color-blind mode, which swaps the player and dice palettes,
+ * never these. The two never appear at the same time (they belong to the
+ * mutually exclusive selectFrom / selectTo phases), so hue alone doesn't have
+ * to carry the distinction; the stroke weight and fill density differ as well.
  *
  * Both are drawn over a `candidateHalo` rim, because the player palette is
  * almost entirely BRIGHT (lime, cyan, yellow, lavender): a light ring alone
@@ -26,13 +26,14 @@
  * page, that these have to survive, and those are the same in both.
  *
  * Checked against COLORBLIND_PLAYER_COLORS, where the amber target ring has to
- * hold up on the two seats nearest it in hue — orange 0xe69f00 and yellow
- * 0xf0e442. It does: the halo separates ring from fill, so it still reads as a
- * ring rather than a shade, and at the other extreme (the black 0x000000 seat,
- * where the halo itself disappears) the amber core carries it alone. No
- * per-mode target hue is needed. The white attacker rim never has to survive
- * that black seat — it only ever marks the human's own territories, and the
- * human is always seat 0.
+ * hold up on the two seats nearest it in hue — the Orange and Yellow seats. It
+ * does: the halo separates ring from fill, so it still reads as a ring rather
+ * than a shade, and at the other extreme (the Black seat, where the halo itself
+ * disappears) the amber core carries it alone. No per-mode target hue is
+ * needed. The white attacker rim never has to survive the Black seat — it only
+ * ever marks the human's own territories, and GameController pins
+ * `humanPlayerIndex` to 0, so the human never gets the Black seat (index 7).
+ * Revisit if the human seat becomes selectable.
  */
 export const THEMES = {
   dark: {

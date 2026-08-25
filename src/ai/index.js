@@ -1,6 +1,6 @@
 /**
- * AI index: re-exports the registry and helpers from aiConfig.js. Strategy
- * implementations are not exported here; they load on demand through
- * getAIImplementation() or the load_* functions.
+ * AI index: re-exports aiConfig.js in full (the registry, its helpers, and the
+ * load_* loaders). Strategy implementations are not exported here; they load
+ * on demand through getAIImplementation() or the loaders.
  */
 export * from './aiConfig.js';

@@ -37,14 +37,16 @@ A seat whose bot fails to load gets `ai_default` plus a visible notice ("Player 
 
 ## Driving games from code
 
-To play a headless game, resolve each strategy ID with `getAIImplementation` and hand the functions to `simulateGame` from `src/engine/GameRunner.js`. An unknown ID resolves to `ai_default`, so a typo in the lineup plays Balanced AI rather than failing. Import paths below are written as from a file in `scripts/` or `tests/`.
+To play a headless game, resolve each strategy ID with `getAIImplementation` and hand the functions to `simulateGame` from `src/engine/GameRunner.js`. Import paths below assume a file in `scripts/`.
 
 ```javascript
 import { getAIImplementation } from '../src/ai/index.js';
 import { simulateGame } from '../src/engine/GameRunner.js';
 
-// Every seat needs a function. A null (human) entry makes simulateGame throw
-// "No AI function assigned", so use a full AI lineup here.
+// Every seat needs a function. getAIImplementation resolves an unknown or
+// null ID to ai_default, so a typo or a human seat left null here plays
+// Balanced AI instead of failing; pass a full lineup of real IDs. A strategy
+// whose module fails to import still throws.
 const ids = ['ai_default', 'ai_lookahead', 'ai_strategist', 'ai_adaptive'];
 const fns = await Promise.all(ids.map(id => getAIImplementation(id)));
 

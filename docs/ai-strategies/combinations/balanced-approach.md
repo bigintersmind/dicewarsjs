@@ -402,17 +402,32 @@ if (isLateGame(game)) {
 
 ## Handling equal dice
 
-From the default AI, logic for equal-dice situations:
+From the default AI's `isValidAttack` helper, logic for equal-dice situations (`attackerArea`, `defenderArea`, `currentPlayer`, and `defenderPlayer` come from the enclosing scope):
 
 ```javascript
 // Handle equal dice situations
-if (game.adat[j].dice === game.adat[i].dice) {
-    const en = game.adat[j].arm;
-    let f = 0;
-    if (game.player[pn].dice_jun === 0) f = 1;  // Attack if we're top ranked
-    if (game.player[en].dice_jun === 0) f = 1;  // Attack if opponent is top ranked
-    if (game.random() > 0.1) f = 1;  // 90% chance to attack in equal dice situations
-    if (f === 0) continue;
+if (defenderArea.dice === attackerArea.dice) {
+  // Default to not attacking
+  let shouldAttack = false;
+
+  // Attack if we're top ranked
+  if (game.player[currentPlayer].dice_jun === 0) {
+    shouldAttack = true;
+  }
+
+  // Attack if opponent is top ranked
+  if (game.player[defenderPlayer].dice_jun === 0) {
+    shouldAttack = true;
+  }
+
+  // 90% chance to attack in equal dice situations
+  if (game.random() > 0.1) {
+    shouldAttack = true;
+  }
+
+  if (!shouldAttack) {
+    return false;
+  }
 }
 ```
 

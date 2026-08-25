@@ -35,32 +35,40 @@ These figures come from `src/ai/diceOdds.js`, which builds the full table by con
 
 ## Example from ai_example.js
 
+`ai_example` lifts the filter into two predicates, with `currentPlayer` coming from `game.get_pn()` at the top of the function:
+
 ```javascript
+const validMoves = [];
+
+// Helper function to check if a territory belongs to current player and has multiple dice
+const isValidAttacker = area => area.size !== 0 && area.arm === currentPlayer && area.dice > 1;
+
+// Helper function to check if a territory is a valid target
+const isValidTarget = (attacker, defender, defenderIndex) =>
+  defender.size !== 0 &&
+  defender.arm !== currentPlayer &&
+  attacker.join[defenderIndex] !== 0 &&
+  defender.dice < attacker.dice;
+
 // Iterate through all territories to find potential attackers
 for (let i = 1; i < game.AREA_MAX; i++) {
-  const attacking_area = game.adat[i];
+  const attackingArea = game.adat[i];
 
-  if (attacking_area.size === 0) continue; // Skip empty territories
-  if (attacking_area.arm !== current_player) continue; // Skip enemy territories
-  if (attacking_area.dice <= 1) continue; // Skip territories with 1 or fewer dice
+  // Skip invalid attackers
+  if (!isValidAttacker(attackingArea)) continue;
 
   // For each potential attacker, look for valid targets
   for (let j = 1; j < game.AREA_MAX; j++) {
-    const defending_area = game.adat[j];
+    const defendingArea = game.adat[j];
 
-    if (defending_area.size === 0) continue; // Skip empty territories
-    if (defending_area.arm === current_player) continue; // Skip own territories
-    if (attacking_area.join[j] === 0) continue; // Skip non-adjacent territories
-
-    // Skip if defender has equal or more dice (considered a bad move)
-    if (defending_area.dice >= game.adat[i].dice) continue;
+    // Skip invalid targets
+    if (!isValidTarget(attackingArea, defendingArea, j)) continue;
 
     // Add valid move to the list
-    list_moves[number_of_moves] = {
-      attacker: i, // Index of the attacking territory
-      defender: j, // Index of the defending territory
-    };
-    number_of_moves++;
+    validMoves.push({
+      attacker: i,
+      defender: j,
+    });
   }
 }
 ```

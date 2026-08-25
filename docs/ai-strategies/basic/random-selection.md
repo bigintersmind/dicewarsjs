@@ -22,20 +22,23 @@ game.area_to = move['defender'];
 
 ## Example from ai_default.js
 
+`ai_default` collects every legal attack in a helper, then picks one at the end of the function:
+
 ```javascript
-// Build list of valid attacks
-for (let i = 1; i < game.AREA_MAX; i++) {
-  // [Code that finds valid moves and adds them to list_from and list_to arrays]
-  // ...
-}
+// Get all valid attacks
+const validAttacks = findValidAttacks();
 
 // End turn if no valid attacks found
-if (lc === 0) return 0;
+if (validAttacks.length === 0) {
+  return 0;
+}
 
 // Choose a random valid attack from the list
-const n = Math.floor(game.random() * lc);
-game.area_from = list_from[n];
-game.area_to = list_to[n];
+const selectedAttack = validAttacks[Math.floor(game.random() * validAttacks.length)];
+
+// Update game state with the selected attack
+game.area_from = selectedAttack.attacker;
+game.area_to = selectedAttack.defender;
 ```
 
 ## Trade-offs

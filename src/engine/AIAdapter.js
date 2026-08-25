@@ -189,6 +189,11 @@ export function runAI(state, aiFunction) {
  * Run a full AI turn: repeatedly call the AI and apply attacks
  * until it ends its turn, then apply END_TURN.
  *
+ * An invalid move ends the turn on the first offence: the move is never applied,
+ * the AI is not asked again this turn, and the turn is closed out with END_TURN.
+ * Only the in-game `GameController` and the arena's `matchRunner` implement the
+ * softer three-strikes rule, each with its own loop.
+ *
  * @param {import('./types.js').GameState} state
  * @param {Function} aiFunction - Legacy AI function
  * @param {Object} [options]
@@ -197,9 +202,7 @@ export function runAI(state, aiFunction) {
  */
 export function runFullAITurn(state, aiFunction, options = {}) {
   const maxMoves = options.maxMoves ?? 100;
-  const maxConsecutiveInvalid = 3;
   let currentState = state;
-  let consecutiveInvalid = 0;
 
   for (let i = 0; i < maxMoves; i++) {
     // Check if the game is over
@@ -215,20 +218,12 @@ export function runFullAITurn(state, aiFunction, options = {}) {
     const isValid = validMoves.some(m => m.from === move.from && m.to === move.to);
 
     if (!isValid) {
-      consecutiveInvalid++;
       const playerId = state.turnOrder[state.currentPlayerIndex];
-      if (consecutiveInvalid >= maxConsecutiveInvalid) {
-        throw new Error(
-          `AI for player ${playerId} produced ${maxConsecutiveInvalid} consecutive invalid moves — likely an adapter bug`
-        );
-      }
       console.warn(
         `AI proposed invalid move from=${move.from} to=${move.to} for player ${playerId}. Ending turn.`
       );
       break;
     }
-
-    consecutiveInvalid = 0;
 
     // Apply the attack
     currentState = applyAction(currentState, {

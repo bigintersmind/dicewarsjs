@@ -67,8 +67,9 @@ const area_info = [...Array(game.AREA_MAX).keys()].map(area_get_info);
 Add defensive checks:
 
 ```javascript
-// Skip if winning would leave territory vulnerable to counter-attack
-if (area_info[i].highest_friendly_neighbor_dice > game.adat[j].dice) continue;
+// `i` is our attacking territory, `j` the enemy target
+// Skip if winning would leave the captured territory vulnerable to counter-attack
+if (area_info[j].highest_friendly_neighbor_dice > game.adat[i].dice) continue;
 ```
 
 ### 5. Reinforcement awareness
@@ -76,10 +77,14 @@ if (area_info[i].highest_friendly_neighbor_dice > game.adat[j].dice) continue;
 Consider reinforcement implications:
 
 ```javascript
+// `i` is our attacking territory, the one the attack leaves on one die
 // Skip if we have a large territory to protect and no reinforcements
-if (game.player[pn].area_tc > 4
-    && area_info[j].second_highest_unfriendly_neighbor_dice > 2
-    && game.player[pn].stock == 0) continue;
+if (
+  game.player[pn].area_tc > 4 &&
+  area_info[i].second_highest_unfriendly_neighbor_dice > 2 &&
+  game.player[pn].stock === 0
+)
+  continue;
 ```
 
 ## Implementation example
@@ -236,13 +241,13 @@ function generateMoves(game, player, area_info, strategy, dominantPlayer) {
 
       // Defensive checks (if we're playing defensively)
       if (strategy.defensive > 0.5) {
-        // Skip if winning would leave territory vulnerable to counter-attack
-        if (area_info[i].highest_unfriendly_neighbor_dice > game.adat[j].dice) continue;
+        // Skip if winning would leave the captured territory vulnerable to counter-attack
+        if (area_info[j].highest_friendly_neighbor_dice > game.adat[i].dice) continue;
 
         // Skip if we have a large territory to protect and no reinforcements
         if (
           game.player[player].area_tc > 4 &&
-          area_info[j].second_highest_unfriendly_neighbor_dice > 2 &&
+          area_info[i].second_highest_unfriendly_neighbor_dice > 2 &&
           game.player[player].stock === 0
         )
           continue;

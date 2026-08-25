@@ -28,10 +28,14 @@ This strategy has two main components:
 2. **Target strategic connections** - Prioritize attacks that connect or expand territory groups
 
 ```javascript
-// Example: Defensive consideration for territory size
-if (game.player[pn].area_tc > 4
-    && area_info[j].second_highest_unfriendly_neighbor_dice > 2
-    && game.player[pn].stock == 0) continue;
+// Example: don't empty a territory that is holding a large connected group together
+// `attacking_area` is the territory the attack would leave on one die
+if (
+  game.player[pn].area_tc > 4 &&
+  area_info[attacking_area].second_highest_unfriendly_neighbor_dice > 2 &&
+  game.player[pn].stock === 0
+)
+  continue;
 ```
 
 ## Example from ai_defensive.js
@@ -40,12 +44,15 @@ The defensive AI considers territory connections when deciding whether to attack
 
 ```javascript
 // Skip if we have a large territory to protect and no reinforcements
-if (game.player[pn].area_tc > 4
-    && area_info[j].second_highest_unfriendly_neighbor_dice > 2
-    && game.player[pn].stock == 0) continue;
+if (
+  player[pn].area_tc > 4 &&
+  area_info[attacker].second_highest_unfriendly_neighbor_dice > 2 &&
+  player[pn].stock === 0
+)
+  return false;
 ```
 
-This logic avoids risky attacks when the AI already has a substantial connected territory (more than 4 territories) but no reinforcement dice in reserve, especially if there are strong enemy territories nearby.
+This logic avoids risky attacks when the AI already has a substantial connected territory (more than 4 territories) but no reinforcement dice in reserve, especially when the territory it would attack from has a second strong enemy neighbor waiting.
 
 ## Why connections matter
 

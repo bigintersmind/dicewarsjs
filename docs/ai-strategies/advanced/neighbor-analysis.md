@@ -63,19 +63,24 @@ function area_get_info(area_id) {
 ### 1. Vulnerability assessment
 
 ```javascript
+const attackerArea = adat[attacker];
+
 // Skip if winning would leave territory vulnerable to counter-attack
-if (area_info[i].highest_friendly_neighbor_dice > game.adat[j].dice) continue;
+if (area_info[defender].highest_friendly_neighbor_dice > attackerArea.dice) return false;
 ```
 
-This code skips an attack if the friendly neighbor with the highest dice count could counterattack and take the territory after we capture it.
+Inside `isValidAttack(defender, attacker)`, this check rejects an attack when the target's strongest ally has more dice than the attacking territory, because that neighbor could retake the territory right after the capture.
 
 ### 2. Defensive priority
 
 ```javascript
 // Skip if we have a large territory to protect and no reinforcements
-if (game.player[pn].area_tc > 4
-    && area_info[j].second_highest_unfriendly_neighbor_dice > 2
-    && game.player[pn].stock == 0) continue;
+if (
+  player[pn].area_tc > 4 &&
+  area_info[attacker].second_highest_unfriendly_neighbor_dice > 2 &&
+  player[pn].stock === 0
+)
+  return false;
 ```
 
 This logic avoids attacking from a territory that might be needed for defense, especially when you have a large connected territory and no reinforcement dice in reserve.

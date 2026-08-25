@@ -33,19 +33,25 @@ function isBorderTerritory(game, territory_id) {
 
 ## Example from ai_defensive.js
 
-The defensive AI applies several border checks before committing to an attack:
+Inside its `isValidAttack(defender, attacker)` predicate, the defensive AI applies several border checks before committing to an attack:
 
 ```javascript
+const defenderArea = adat[defender];
+const attackerArea = adat[attacker];
+
 // Skip if attacker doesn't have advantage (unless at max dice)
-if (game.adat[i].dice >= game.adat[j].dice && game.adat[j].dice != 8) continue;
+if (defenderArea.dice >= attackerArea.dice && attackerArea.dice !== 8) return false;
 
 // Skip if winning would leave territory vulnerable to counter-attack
-if (area_info[i].highest_friendly_neighbor_dice > game.adat[j].dice) continue;
+if (area_info[defender].highest_friendly_neighbor_dice > attackerArea.dice) return false;
 
 // Skip if we have a large territory to protect and no reinforcements
-if (game.player[pn].area_tc > 4
-    && area_info[j].second_highest_unfriendly_neighbor_dice > 2
-    && game.player[pn].stock == 0) continue;
+if (
+  player[pn].area_tc > 4 &&
+  area_info[attacker].second_highest_unfriendly_neighbor_dice > 2 &&
+  player[pn].stock === 0
+)
+  return false;
 ```
 
 ## Border security tactics

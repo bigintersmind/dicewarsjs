@@ -60,7 +60,7 @@ export const RULES_SECTIONS = [
     eyebrow: 'Attack',
     heading: 'Two clicks to attack',
     Figure: AttackFigure,
-    body: 'Click one of your territories with 2 or more dice, then click an adjacent enemy territory. Attack as many times as you like, then end your turn.',
+    body: 'Click one of your territories with 2 or more dice, then click an adjacent enemy territory. Attack as many times as you like, then end your turn. Territories that can attack are outlined, and once you pick one the enemies it can reach light up (Settings → Board hints turns that off).',
   },
   {
     id: 'battle',

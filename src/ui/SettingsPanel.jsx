@@ -386,6 +386,15 @@ export function SettingsPanel({ store, preferencesManager }) {
             onSelect={v => setPref('diceDisplayMode', v)}
           />
 
+          {/* Board hints: the outlines marking which territories can attack and
+              which enemies the selected one can reach. */}
+          <OptionGroup
+            label="Board hints"
+            options={ON_OFF_OPTIONS}
+            value={prefs.boardHints || 'on'}
+            onSelect={v => setPref('boardHints', v)}
+          />
+
           {/* Player-facing polarity: SOUND ON means audible (muted: false). */}
           <OptionGroup
             label="Sound"

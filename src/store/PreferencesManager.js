@@ -16,6 +16,13 @@ export const DEFAULTS = {
   animationSpeed: 1,
   reducedMotion: 'system', // 'system' | 'on' | 'off'
   muted: false,
+  /*
+   * Board hints: outline the territories that can attack right now, and the
+   * enemies the selected one can reach. On by default — early playtesters
+   * reported the rules were not self-apparent — and turned off from the
+   * settings panel. (The contextual hint strip is a separate initiative, #196.)
+   */
+  boardHints: 'on', // 'on' | 'off'
 };
 
 const VALIDATORS = {
@@ -25,6 +32,7 @@ const VALIDATORS = {
   animationSpeed: v => typeof v === 'number' && v > 0 && v <= 10,
   reducedMotion: v => typeof v === 'string' && ['system', 'on', 'off'].includes(v),
   muted: v => typeof v === 'boolean',
+  boardHints: v => typeof v === 'string' && ['on', 'off'].includes(v),
 };
 
 /**

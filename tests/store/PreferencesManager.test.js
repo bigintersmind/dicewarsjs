@@ -16,6 +16,7 @@ describe('PreferencesManager', () => {
         animationSpeed: 1,
         reducedMotion: 'system',
         muted: false,
+        boardHints: 'on',
       });
       pm.destroy();
     });
@@ -158,7 +159,41 @@ describe('PreferencesManager', () => {
         animationSpeed: 1,
         reducedMotion: 'system',
         muted: false,
+        boardHints: 'on',
       });
+      pm.destroy();
+    });
+  });
+
+  describe('boardHints', () => {
+    it('defaults to on and round-trips a valid value through localStorage', () => {
+      const pm = createPreferencesManager();
+      expect(pm.get('boardHints')).toBe('on');
+      expect(pm.set('boardHints', 'off')).toBe(true);
+      expect(pm.get('boardHints')).toBe('off');
+      pm.destroy();
+
+      // A second manager reads the persisted value rather than the default.
+      const reloaded = createPreferencesManager();
+      expect(reloaded.get('boardHints')).toBe('off');
+      reloaded.destroy();
+    });
+
+    it('rejects values off the on/off pair', () => {
+      const pm = createPreferencesManager();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      for (const bad of ['yes', true, 1, null]) {
+        expect(pm.set('boardHints', bad)).toBe(false);
+      }
+      expect(pm.get('boardHints')).toBe('on');
+      warnSpy.mockRestore();
+      pm.destroy();
+    });
+
+    it('ignores an invalid persisted value', () => {
+      localStorage.setItem('dicewars_prefs', JSON.stringify({ boardHints: 'maybe' }));
+      const pm = createPreferencesManager();
+      expect(pm.get('boardHints')).toBe('on');
       pm.destroy();
     });
   });

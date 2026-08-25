@@ -12,6 +12,7 @@ Built on the original [Dice Wars](https://www.gamedesign.jp/games/dicewars/) by 
 - **Choose your opponents.** Pick a difficulty (Easy/Standard/Hard), or go Custom and pick a bot per slot, including the curated community bots. Duplicates are allowed.
 - **Tilt the dice your way.** Custom mode has an optional luck handicap: Normal, Lucky, or Very lucky. Your seat rolls extra dice and drops as many of the lowest as it added, attacking and defending. The presets always roll fair dice.
 - **Built-in rulebook.** A HOW TO PLAY card reachable from the title screen, the in-game bar, and the game-over screen.
+- **Board hints.** Your territories that can attack are outlined, and picking one lights up the enemies it can reach. Off in a click under Settings.
 - **Configurable map size.** Small (20×24), Medium (28×32, default) or Large (36×40), chosen before each game.
 - **Bot SDK.** Write a bot in a single function and compete in the arena.
 - **Arena mode.** Run tournaments with ELO ratings and match replays.

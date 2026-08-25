@@ -4,6 +4,7 @@
  */
 
 import { THEMES, getTheme } from '../../src/renderer/themes.js';
+import { PLAYER_COLORS, COLORBLIND_PLAYER_COLORS } from '../../src/renderer/constants.js';
 
 describe('themes', () => {
   /*
@@ -30,6 +31,31 @@ describe('themes', () => {
       expect(typeof theme.borderColor).toBe('number');
       expect(typeof theme.highlightColor).toBe('number');
       expect(typeof theme.highlightFill).toBe('number');
+      // Board-hint colors: both themes must define all three, or the hint
+      // layer paints `undefined` into a stroke on one of them.
+      expect(typeof theme.candidateAttacker).toBe('number');
+      expect(typeof theme.candidateTarget).toBe('number');
+      expect(typeof theme.candidateHalo).toBe('number');
+      // ...and they must be distinguishable from each other and from the
+      // selection ring they sit under.
+      expect(theme.candidateAttacker).not.toBe(theme.candidateTarget);
+      expect(theme.candidateAttacker).not.toBe(theme.highlightColor);
+      expect(theme.candidateTarget).not.toBe(theme.highlightColor);
+    }
+  });
+
+  it('board-hint colors are not seat colors in either palette', () => {
+    /*
+     * A hint outline must never be mistakable for a territory's owner. The
+     * halo is exempt: it is a rim under the bright core, never a mark of its
+     * own, and black is both a color-blind seat and the only rim dark enough
+     * to work on the dark theme.
+     */
+    const seats = [...PLAYER_COLORS, ...COLORBLIND_PLAYER_COLORS];
+    for (const name of ['dark', 'light']) {
+      const theme = THEMES[name];
+      expect(seats).not.toContain(theme.candidateAttacker);
+      expect(seats).not.toContain(theme.candidateTarget);
     }
   });
 

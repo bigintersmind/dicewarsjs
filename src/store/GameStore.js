@@ -25,6 +25,15 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  * @property {AnimationPhase} animationPhase
  * @property {AwaitingInput} awaitingInput
  * @property {number | null} humanPlayerIndex
+ * @property {number[] | null} candidateAreas - Territories the board hints are
+ *   currently outlining for the human player: every territory that could start
+ *   an attack while awaiting `selectFrom`, or the reachable enemies of
+ *   `selectedFrom` while awaiting `selectTo`. Null whenever no hint applies —
+ *   the `boardHints` preference is off, nobody is playing
+ *   (`humanPlayerIndex === null`), it is an AI's turn, or an animation owns the
+ *   board. Written by GameController (the single owner of the mapping onto
+ *   HexGridRenderer.setCandidateHighlights); the UI reads it, nothing else
+ *   writes it.
  * @property {boolean} humanEliminated
  * @property {'turnLimit' | null} gameOverReason - Why a game ended without a conqueror.
  *   'turnLimit' when the browser turn cap (GameController MAX_GAME_TURNS) drew a stalled
@@ -82,12 +91,14 @@ const DEFAULT_STATE = {
   currentReplay: null,
   replayOrigin: null,
   focusedAreaId: null,
+  candidateAreas: null,
   preferences: {
     theme: 'dark',
     colorBlindMode: false,
     diceDisplayMode: 'dice',
     animationSpeed: 1,
     reducedMotion: 'system',
+    boardHints: 'on',
   },
   config: {
     playerCount: 7,

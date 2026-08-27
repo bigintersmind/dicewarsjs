@@ -528,14 +528,27 @@ export class HexGridRenderer {
     this._highlightFocus.clear();
   }
 
-  /** Clear every overlay: selection, keyboard focus, and the board hints. */
-  clearHighlights() {
-    this.clearFocusHighlight();
+  /**
+   * Clear the selection rings and the board hints; leaves the keyboard focus
+   * ring — the cursor — alone. The mid-game clear: nothing about where the
+   * keyboard is has changed (#211).
+   */
+  clearSelectionHighlights() {
     this.clearCandidateHighlights();
     this._highlightFrom.visible = false;
     this._highlightFrom.clear();
     this._highlightTo.visible = false;
     this._highlightTo.clear();
+  }
+
+  /**
+   * Clear every overlay, keyboard focus included. Reserved for the seams where
+   * the store's `focusedAreaId` is nulled in the same breath (quit to title);
+   * anywhere else use clearSelectionHighlights() (#211).
+   */
+  clearHighlights() {
+    this.clearFocusHighlight();
+    this.clearSelectionHighlights();
   }
 
   /**

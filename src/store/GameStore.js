@@ -43,13 +43,13 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   (a control, `<body>`, another window). A mirror, not a source: the board is
  *   real DOM since #211, and KeyboardController's focusin/focusout listeners
  *   copy every focus move into this field, whatever caused it — Tab, an arrow,
- *   a click, a dialog restoring focus. The renderer's focus ring never points
- *   somewhere focus is not, but it can be missing while this is set: every
- *   clearHighlights() (each attack, each selectFrom click) wipes the ring layer
- *   without touching this field, and cancelSelection is the one site that
- *   repaints it — the rest is #211 item 3. GameController nulls it at game
- *   start, game over, spectate and quit-to-title — the places the buttons
- *   unmount under focus, which fires no event that can be relied on.
+ *   a click, a dialog restoring focus. The renderer's focus ring is visible
+ *   exactly when this is non-null (#211 item 3): the mid-game seams clear the
+ *   board with clearSelectionHighlights(), which leaves the focus layer alone,
+ *   so the ring neither points somewhere focus is not nor goes missing while
+ *   this is set. GameController nulls it at game start, game over, spectate and
+ *   quit-to-title — the places the buttons unmount under focus, which fires no
+ *   event that can be relied on.
  * @property {boolean} humanEliminated
  * @property {'turnLimit' | null} gameOverReason - Why a game ended without a conqueror.
  *   'turnLimit' when the browser turn cap (GameController MAX_GAME_TURNS) drew a stalled

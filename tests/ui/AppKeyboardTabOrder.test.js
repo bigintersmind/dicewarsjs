@@ -53,6 +53,7 @@ function createMockRenderer() {
       setFocusHighlight: vi.fn(),
       clearFocusHighlight: vi.fn(),
       clearHighlights: vi.fn(),
+      clearSelectionHighlights: vi.fn(),
       _cellPos: { x: new Float64Array(40), y: new Float64Array(40) },
     },
   };

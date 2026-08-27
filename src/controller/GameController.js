@@ -702,7 +702,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
           selectedFrom: null,
           selectedTo: null,
         });
-        if (renderer) renderer.hexGrid.clearHighlights();
+        if (renderer) renderer.hexGrid.clearSelectionHighlights();
         aiRunning = false;
         return;
       }
@@ -740,7 +740,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       });
 
       if (renderer) {
-        renderer.hexGrid.clearHighlights();
+        renderer.hexGrid.clearSelectionHighlights();
       }
 
       // Check if human has been eliminated (but game continues)
@@ -830,8 +830,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * whatever it changed, rather than each working out what the board should
    * show.
    *
-   * Call it AFTER any `clearHighlights()`, which deliberately wipes this layer
-   * along with the selection.
+   * Call it AFTER any `clearSelectionHighlights()` (or `clearHighlights()`),
+   * which deliberately wipes this layer along with the selection.
    */
   function refreshCandidateHighlights() {
     const candidates = computeCandidateAreas(store.getState());
@@ -881,7 +881,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
       store.setState({ selectedFrom: areaId, awaitingInput: 'selectTo' });
       if (renderer) {
-        renderer.hexGrid.clearHighlights();
+        renderer.hexGrid.clearSelectionHighlights();
         renderer.hexGrid.setHighlight('from', areaId);
       }
       refreshCandidateHighlights();
@@ -892,7 +892,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         if (area.dice <= 1) return;
         store.setState({ selectedFrom: areaId, awaitingInput: 'selectTo' });
         if (renderer) {
-          renderer.hexGrid.clearHighlights();
+          renderer.hexGrid.clearSelectionHighlights();
           renderer.hexGrid.setHighlight('from', areaId);
         }
         refreshCandidateHighlights();
@@ -942,7 +942,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         selectedTo: null,
         awaitingInput: 'selectFrom',
       });
-      if (renderer) renderer.hexGrid.clearHighlights();
+      if (renderer) renderer.hexGrid.clearSelectionHighlights();
       refreshCandidateHighlights();
       return;
     }
@@ -1009,7 +1009,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       awaitingInput: isOver ? null : 'selectFrom',
     });
 
-    if (renderer) renderer.hexGrid.clearHighlights();
+    if (renderer) renderer.hexGrid.clearSelectionHighlights();
     refreshCandidateHighlights(); // re-arm the offer on the post-attack board
 
     if (isOver) await triggerGameOver(nextState);
@@ -1100,10 +1100,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
        */
       focusedAreaId: null,
     });
-    // The renderer's half of the same seam. Doing it here rather than trusting
-    // whichever caller ran clearHighlights() first keeps the ring off the board
-    // behind the game-over card by construction: the turn-cap draw reached from
-    // a human END TURN never clears them.
+    // The renderer's half of the same seam — and since #211 item 3 it is the
+    // ONLY half: the post-attack seam that precedes it runs
+    // clearSelectionHighlights(), which deliberately leaves the focus layer
+    // alone. The ring comes off the board behind the game-over card here,
+    // paired with the `focusedAreaId: null` above, or not at all.
     if (renderer) renderer.hexGrid.clearFocusHighlight();
     if (soundManager) soundManager.play('over');
   }
@@ -1166,6 +1167,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
       // as the game-over one — so the mirror is closed here too (#211).
       focusedAreaId: null,
     });
+    // The two unmount seams (game over, spectate) are paired by construction —
+    // store id and ring in the same function — not by what happened to run
+    // before them (#211).
+    if (renderer) renderer.hexGrid.clearFocusHighlight();
     refreshCandidateHighlights(); // nobody to hint to once the seat is an AI's
 
     startTurn();

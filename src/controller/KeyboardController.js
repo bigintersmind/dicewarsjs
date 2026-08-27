@@ -19,9 +19,16 @@
  * (or a `focusin` on any other control) nulls it and takes the ring down. Every
  * way focus can move — a Tab, an arrow, a mouse click on a control, a dialog
  * restoring focus to what opened it, the window losing focus — reaches the ring
- * by that one path, so the ring cannot point somewhere focus is not (it can
- * still be missing while the id is set: every `clearHighlights()` wipes the ring
- * layer without touching this field, and repainting it there is #211 item 3).
+ * by that one path, so the ring cannot point somewhere focus is not. Nor can it
+ * be missing while the id is set (#211 item 3): the focus layer is written only
+ * by `setFocus`/`clearBoardFocus` here and by GameController's unmount seams
+ * (game over, spectate, quit to title), and every mid-game clear goes through
+ * `clearSelectionHighlights()`, which leaves that layer alone — so the ring is
+ * visible exactly when `focusedAreaId` is set. Which means a focus parked on a
+ * territory through an AI turn — E pressed, or END TURN clicked on macOS Safari
+ * or Firefox, where a click does not move focus — keeps its ring for the whole
+ * turn, whoever ends up owning that territory, because that is where the next
+ * arrow steps from. It is a cursor, not a selection.
  * The arrow handler moves DOM focus and lets the listeners do the bookkeeping.
  *
  * The listener sits on `document` and would otherwise swallow keys aimed at real
@@ -367,20 +374,18 @@ export function createKeyboardController(store, controller, renderer) {
       selectedFrom: null,
       awaitingInput: 'selectFrom',
     });
-    if (renderer) renderer.hexGrid.clearHighlights();
     /*
-     * The selection and the keyboard's focus are different things, and
-     * clearHighlights() wipes both layers — but only the selection was
-     * cancelled, so repaint the ring where DOM focus still is (the store
-     * mirrors it). Without this the focused territory has nothing on screen.
+     * The selection and the keyboard's focus are different things, and only the
+     * selection was cancelled — so this is clearSelectionHighlights(), which
+     * leaves the focus ring where DOM focus still is (#211 item 3). It used to
+     * be clearHighlights() plus a repaint of the ring; now the ring never comes
+     * down.
      */
-    if (renderer && storeState.focusedAreaId != null) {
-      renderer.hexGrid.setFocusHighlight(storeState.focusedAreaId);
-    }
+    if (renderer) renderer.hexGrid.clearSelectionHighlights();
     /*
-     * clearHighlights() takes the board hints down with the selection, and this
-     * is a return to selectFrom — so hand back to the controller, which owns
-     * that mapping, to repaint the attack candidates.
+     * clearSelectionHighlights() takes the board hints down with the selection,
+     * and this is a return to selectFrom — so hand back to the controller, which
+     * owns that mapping, to repaint the attack candidates.
      */
     controller.refreshCandidateHighlights();
     return true;

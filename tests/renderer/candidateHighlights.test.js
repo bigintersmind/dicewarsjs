@@ -5,8 +5,9 @@
  * A fourth overlay that outlines every territory the human can act on right
  * now. It has to paint a *set* into one Graphics (the selection overlays only
  * ever hold one territory), stay beneath the from/to selection and the keyboard
- * focus ring so those keep the eye, and go down with `clearHighlights()` like
- * everything else.
+ * focus ring so those keep the eye, and go down with the selection at every
+ * mid-game clear — `clearSelectionHighlights()`, which leaves the focus ring
+ * alone (#211 item 3) — as well as with the full `clearHighlights()`.
  *
  * Only the GPU-touching PixiJS surface (Container, Graphics) is stubbed; the
  * board is a real engine map, so the borders traced here are real geometry.
@@ -239,6 +240,35 @@ describe('clearing the candidate layer', () => {
     expect(renderer._highlightFrom.visible).toBe(false);
     expect(renderer._highlightTo.visible).toBe(false);
     expect(renderer._highlightFocus.visible).toBe(false);
+  });
+
+  /*
+   * The mid-game clear. Every seam that ends an attack or re-picks a source runs
+   * this one, and the keyboard's focus ring must survive all of them: it is a
+   * cursor, not a selection, and it is where the next arrow steps from (#211
+   * item 3). Before the split these seams called clearHighlights() and a
+   * keyboard player finished every attack with DOM focus on the target and no
+   * ring on screen.
+   */
+  it('clearSelectionHighlights takes the selection and hints down, leaving the focus ring up', () => {
+    const { renderer, drawn } = makeRenderer();
+    renderer.setCandidateHighlights(drawn, 'attacker');
+    renderer.setHighlight('from', drawn[0]);
+    renderer.setHighlight('to', drawn[1]);
+    renderer.setFocusHighlight(drawn[2]);
+
+    renderer.clearSelectionHighlights();
+
+    expect(renderer._highlightCandidates.visible).toBe(false);
+    expect(renderer._highlightCandidates.shapes).toHaveLength(0);
+    expect(renderer._highlightFrom.visible).toBe(false);
+    expect(renderer._highlightFrom.shapes).toHaveLength(0);
+    expect(renderer._highlightTo.visible).toBe(false);
+    expect(renderer._highlightTo.shapes).toHaveLength(0);
+    // Untouched: still visible AND still holding its drawn outline, so a hidden
+    // -but-cleared layer can't pass for a surviving ring.
+    expect(renderer._highlightFocus.visible).toBe(true);
+    expect(renderer._highlightFocus.shapes).toHaveLength(1);
   });
 
   it('drops candidates when the map is redrawn (their geometry is stale)', () => {

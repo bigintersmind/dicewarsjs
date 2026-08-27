@@ -75,6 +75,7 @@ function createMockRenderer() {
       setFocusHighlight: vi.fn(),
       clearFocusHighlight: vi.fn(),
       clearHighlights: vi.fn(),
+      clearSelectionHighlights: vi.fn(),
       _cellPos: { x, y },
       _getPlayerColor: vi.fn(() => 0xffffff),
     },
@@ -332,6 +333,7 @@ describe('KeyboardController', () => {
         hexGrid: {
           setFocusHighlight: vi.fn(),
           clearFocusHighlight: vi.fn(),
+          clearSelectionHighlights: vi.fn(),
           _cellPos: null,
         },
       };
@@ -575,21 +577,21 @@ describe('KeyboardController', () => {
 
       expect(store.getState().awaitingInput).toBe('selectFrom');
       expect(store.getState().selectedFrom).toBeNull();
-      expect(mockRenderer.hexGrid.clearHighlights).toHaveBeenCalled();
+      expect(mockRenderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
       /*
-       * clearHighlights() wipes the board hints along with the selection, and
-       * this lands back on selectFrom — so the controller (which owns that
-       * mapping) has to be asked to repaint the attack candidates, or the board
-       * silently stops offering them for the rest of the turn.
+       * clearSelectionHighlights() wipes the board hints along with the
+       * selection, and this lands back on selectFrom — so the controller (which
+       * owns that mapping) has to be asked to repaint the attack candidates, or
+       * the board silently stops offering them for the rest of the turn.
        */
       expect(mockController.refreshCandidateHighlights).toHaveBeenCalled();
       /*
        * ...and in that order. Refreshing first and clearing second wipes the
        * hints it just painted, which no assertion on "was it called" can see.
        */
-      expect(mockRenderer.hexGrid.clearHighlights.mock.invocationCallOrder[0]).toBeLessThan(
-        mockController.refreshCandidateHighlights.mock.invocationCallOrder[0]
-      );
+      expect(
+        mockRenderer.hexGrid.clearSelectionHighlights.mock.invocationCallOrder[0]
+      ).toBeLessThan(mockController.refreshCandidateHighlights.mock.invocationCallOrder[0]);
       /*
        * The store has to be back on selectFrom before the refresh runs, too:
        * recomputing against a stale 'selectTo' would repaint the old source's
@@ -600,7 +602,7 @@ describe('KeyboardController', () => {
       expect(event.defaultPrevented).toBe(true);
     });
 
-    it('repaints the focus ring from the store id that mirrors DOM focus', () => {
+    it('leaves the focus layer alone — cancelling a selection never took the ring down', () => {
       areaButton(3).focus();
       store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
       // Past the focusin paint, so this asserts only what the Escape did.
@@ -610,26 +612,25 @@ describe('KeyboardController', () => {
 
       /*
        * The selection was cancelled; DOM focus was not, and it is still on the
-       * button for area 3. Leaving the ring unpainted would show nothing where
-       * the keyboard actually is.
+       * button for area 3. Before #211 item 3 this ran clearHighlights() and
+       * then repainted the ring from the store id; now the clear never reaches
+       * that layer, so there is nothing to put back — and "nothing happened to
+       * the ring" is the assertion, not "it was painted again".
        */
       expect(document.activeElement).toBe(areaButton(3));
       expect(store.getState().focusedAreaId).toBe(3);
-      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(3);
-      // After the wipe, and before the hints go back on top of it.
-      expect(mockRenderer.hexGrid.setFocusHighlight.mock.invocationCallOrder[0]).toBeGreaterThan(
-        mockRenderer.hexGrid.clearHighlights.mock.invocationCallOrder[0]
-      );
-      expect(mockRenderer.hexGrid.setFocusHighlight.mock.invocationCallOrder[0]).toBeLessThan(
-        mockController.refreshCandidateHighlights.mock.invocationCallOrder[0]
-      );
+      expect(mockRenderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
+      expect(mockRenderer.hexGrid.clearHighlights).not.toHaveBeenCalled();
+      expect(mockRenderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
+      expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
     });
 
     it('does nothing when already in selectFrom', () => {
       store.setState({ awaitingInput: 'selectFrom' });
       const event = fireKey('Escape');
-      // Should still be selectFrom, clearHighlights not called
+      // Should still be selectFrom, and nothing on the board was cleared
       expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(mockRenderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
       expect(mockRenderer.hexGrid.clearHighlights).not.toHaveBeenCalled();
       // Left uncancelled so QuitConfirm's window-level handler can act (#181).
       expect(event.defaultPrevented).toBe(false);

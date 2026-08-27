@@ -145,6 +145,7 @@ function createMockHexGrid() {
       hexGrid.candidatesUp = false; // the real one wipes the hint layer too
     }),
     setHighlight: vi.fn(),
+    clearFocusHighlight: vi.fn(),
     setCandidateHighlights: vi.fn(() => {
       hexGrid.candidatesUp = true;
     }),
@@ -1118,6 +1119,44 @@ describe('GameController', () => {
       expect(store.getState().screen).toBe('gameOver');
       // Otherwise a later Spectate (back to 'playing') would resurrect a stale dialog.
       expect(store.getState().quitConfirmOpen).toBe(false);
+    });
+
+    /*
+     * The game-over screen takes BoardFocus with it, and an element removed
+     * while it holds focus fires no focusout in Firefox or jsdom — so nothing
+     * else is going to close the mirror. Left set, it would point the ring at a
+     * territory of a finished game over the attract board behind the card.
+     */
+    it('drops the board focus and its ring when the game ends underneath it', async () => {
+      const finishBattle = await startAIBattle({ attackEndsGame: true });
+      store.setState({ focusedAreaId: 3 }); // as keyboard navigation would
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('gameOver');
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(renderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
+    });
+
+    // Spectate is the same silent unmount from the other direction: the buttons
+    // go with the human seat rather than with the screen.
+    it('drops the board focus when the eliminated human hands over to spectate', async () => {
+      const finishBattle = await startAIBattle({ eliminatesHuman: true });
+
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+      expect(store.getState().screen).toBe('gameOver');
+
+      store.setState({ focusedAreaId: 3 });
+      await controller.startSpectate();
+      await flushPromises();
+
+      expect(store.getState().screen).toBe('playing');
+      expect(store.getState().humanPlayerIndex).toBeNull();
+      expect(store.getState().focusedAreaId).toBeNull();
     });
 
     it('keeps the rules card up when the game ends underneath it', async () => {

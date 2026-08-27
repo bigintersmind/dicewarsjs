@@ -8,15 +8,14 @@
 
 import { useGameStore } from './hooks/useGameStore.js';
 import { playerName } from '../store/GameStore.js';
-import { END_TURN_BUTTON_ID } from '../controller/KeyboardController.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
 /*
  * END TURN cannot borrow `.dw-btn`'s focus ring: that ring is `--ui-accent`,
  * which is exactly this button's background, so it would be invisible on the
- * one control the keyboard tab-order seam aims at (#201). Its own ring is drawn
- * in the text color instead. :focus-visible, like the rest of the chrome, so a
- * mouse click leaves no ring behind.
+ * control a keyboard player tabs onto off the end of the board (#201). Its own
+ * ring is drawn in the text color instead. :focus-visible, like the rest of the
+ * chrome, so a mouse click leaves no ring behind.
  */
 const OVERLAY_CSS = `
 .dw-end-turn:focus-visible {
@@ -105,13 +104,13 @@ export function GameOverlay({ store, onEndTurn }) {
           is thinking...
         </p>
       )}
-      {/* The id is KeyboardController's handle on this button: the board is one
-          virtual tab stop sitting immediately before it, so Tab past the last
-          own territory lands here and Shift+Tab goes back (#201). E gets here
-          in one press; the title advertises it the way QUIT advertises Esc. */}
+      {/* Last in the playing screen's tab order: App renders BoardFocus — the
+          human's own territories, as real buttons — immediately before this
+          overlay, so Tab past the last of them lands here and Shift+Tab goes
+          back onto the board (#201, #211). E is the shortcut past that walk;
+          the title advertises it the way QUIT advertises Esc. */}
       {isHumanTurn && (
         <button
-          id={END_TURN_BUTTON_ID}
           className="dw-end-turn"
           style={STYLE.endTurnBtn}
           onClick={onEndTurn}

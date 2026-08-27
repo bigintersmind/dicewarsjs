@@ -38,6 +38,18 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   HexGridRenderer.setCandidateHighlights. Nothing in the UI reads it yet; it
  *   is published so an observer can (the text hints parked in #196 would be the
  *   first).
+ * @property {number | null} focusedAreaId - The territory whose BoardFocus
+ *   button currently holds DOM focus, and null whenever focus is anywhere else
+ *   (a control, `<body>`, another window). A mirror, not a source: the board is
+ *   real DOM since #211, and KeyboardController's focusin/focusout listeners
+ *   copy every focus move into this field, whatever caused it — Tab, an arrow,
+ *   a click, a dialog restoring focus. The renderer's focus ring never points
+ *   somewhere focus is not, but it can be missing while this is set: every
+ *   clearHighlights() (each attack, each selectFrom click) wipes the ring layer
+ *   without touching this field, and cancelSelection is the one site that
+ *   repaints it — the rest is #211 item 3. GameController nulls it at game
+ *   start, game over, spectate and quit-to-title — the places the buttons
+ *   unmount under focus, which fires no event that can be relied on.
  * @property {boolean} humanEliminated
  * @property {'turnLimit' | null} gameOverReason - Why a game ended without a conqueror.
  *   'turnLimit' when the browser turn cap (GameController MAX_GAME_TURNS) drew a stalled
@@ -67,8 +79,10 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   human seat leaves its "You" in place, deliberately. The in-game text
  *   ("Conqueror is thinking...", "Blitz wins!") reads it via playerName() so an
  *   opponent has an identity rather than a seat number; the visual labels lean
- *   on the seat color to tell two Conquerors apart, and the screen-reader
- *   announcer, which has no color, speaks the seat number for a repeated name.
+ *   on the seat color to tell two Conquerors apart. Speech has no color, so
+ *   spokenName() (src/ui/spokenName.js) adds the seat number to a repeated
+ *   name — one rule, serving both channels that speak a seat: the live region
+ *   and the territory buttons' accessible names.
  * @property {Object} config - Per-game setup carried between the title screen and
  *   the controller: { playerCount, mapSize, difficulty, aiAssignments, luck }.
  * @property {Object | null} currentReplay

@@ -6,13 +6,16 @@
  * the opponent by its bot ("Conqueror is thinking...") in the seat's color, so
  * each rival has an identity rather than a seat number — the color is what tells
  * two seats running the same bot apart.
+ *
+ * Also the two things the END TURN button owns here: its own focus-ring class
+ * (the shared one's accent is this button's background) and the
+ * `aria-keyshortcuts="E"` that announces the shortcut past the tab walk.
  */
 
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { GameOverlay } from '../../src/ui/GameOverlay.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
-import { END_TURN_BUTTON_ID } from '../../src/controller/KeyboardController.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../../src/renderer/constants.js';
 
 let container;
@@ -150,23 +153,11 @@ describe('GameOverlay — human turn', () => {
   });
 
   /*
-   * KeyboardController makes the board one virtual tab stop sitting immediately
-   * before this button and finds it by id (#201). Renaming the id here without
-   * the controller would silently strand a keyboard player on the board.
-   */
-  it('gives END TURN the id the keyboard tab-order seam aims at', () => {
-    renderOverlay({
-      gameState: makeGameState({ currentPlayerIndex: 0 }),
-      awaitingInput: 'selectFrom',
-    });
-    expect(endTurnButton().id).toBe(END_TURN_BUTTON_ID);
-  });
-
-  /*
-   * The seam's destination, so it has to show a focus ring — and it cannot use
-   * the shared .dw-btn one, whose accent color is this button's own background.
-   * E is the shortcut past the seam; the title advertises it the way QUIT
-   * advertises Esc, and aria-keyshortcuts says the same thing to a screen reader.
+   * Where a keyboard player lands off the end of the board (#201, #211), so it
+   * has to show a focus ring — and it cannot use the shared .dw-btn one, whose
+   * accent color is this button's own background. E is the shortcut past that
+   * walk; the title advertises it the way QUIT advertises Esc, and
+   * aria-keyshortcuts says the same thing to a screen reader.
    */
   it('advertises the E shortcut and carries its own focus-ring class', () => {
     renderOverlay({

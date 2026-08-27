@@ -54,7 +54,13 @@ function mountBoth(overrides = {}) {
     ...overrides,
   });
 
-  const renderer = { hexGrid: { clearHighlights: vi.fn(), setFocusHighlight: vi.fn() } };
+  const renderer = {
+    hexGrid: {
+      clearHighlights: vi.fn(),
+      clearSelectionHighlights: vi.fn(),
+      setFocusHighlight: vi.fn(),
+    },
+  };
   // The two controller methods KeyboardController calls; both are required —
   // the Escape path repaints the board hints through refreshCandidateHighlights.
   const controller = { handleTerritoryClick: vi.fn(), refreshCandidateHighlights: vi.fn() };
@@ -106,7 +112,7 @@ describe('Escape layering between the board and the quit confirm', () => {
     // KeyboardController took the key...
     expect(store.getState().awaitingInput).toBe('selectFrom');
     expect(store.getState().selectedFrom).toBeNull();
-    expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
+    expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(true);
     // ...so the same press must not also raise "Abandon this game?".
     expect(onOpen).not.toHaveBeenCalled();

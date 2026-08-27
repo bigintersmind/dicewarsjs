@@ -128,24 +128,40 @@ vi.mock('../../src/utils/config.js', async importOriginal => ({
  */
 
 /**
- * The hint layer as a one-field model: `candidatesUp` is whether anything is
- * currently outlined on the board.
+ * Two overlay layers as one-field models: `candidatesUp` is whether anything is
+ * currently outlined on the board, `focusUp` whether the keyboard focus ring is
+ * painted.
  *
- * Bare vi.fn()s can't see the failure that actually matters here. The
- * controller hand-orders `clearHighlights()` and `refreshCandidateHighlights()`
- * at five separate seams, and `clearHighlights()` takes the hints down with the
- * selection — so swapping the two at any of them leaves the live board blank
- * while every "was it called" assertion still passes. Modelling the one bit of
- * state makes the order observable.
+ * Bare vi.fn()s can't see the failures that actually matter here. The
+ * controller hand-orders its clear and `refreshCandidateHighlights()` at five
+ * separate seams, and the clear takes the hints down with the selection — so
+ * swapping the two at any of them leaves the live board blank while every "was
+ * it called" assertion still passes. And since #211 item 3 the mid-game seams
+ * must clear the selection WITHOUT touching the focus ring, which only a model
+ * that distinguishes the two layers can catch. It models the real renderer's
+ * outcomes, not its shape: `clearHighlights` wipes both layers (the real one by
+ * delegating to clearSelectionHighlights, this one by setting both flags), and
+ * `clearSelectionHighlights` leaves focus alone.
  */
 function createMockHexGrid() {
   const hexGrid = {
     candidatesUp: false,
+    focusUp: false,
     clearHighlights: vi.fn(() => {
       hexGrid.candidatesUp = false; // the real one wipes the hint layer too
+      hexGrid.focusUp = false; // ...and the keyboard focus ring
+    }),
+    clearSelectionHighlights: vi.fn(() => {
+      hexGrid.candidatesUp = false; // hints go with the selection
+      // focusUp deliberately untouched — the ring is the keyboard's cursor
     }),
     setHighlight: vi.fn(),
-    clearFocusHighlight: vi.fn(),
+    setFocusHighlight: vi.fn(() => {
+      hexGrid.focusUp = true;
+    }),
+    clearFocusHighlight: vi.fn(() => {
+      hexGrid.focusUp = false;
+    }),
     setCandidateHighlights: vi.fn(() => {
       hexGrid.candidatesUp = true;
     }),
@@ -201,6 +217,21 @@ function createMockSoundManager() {
 describe('GameController', () => {
   let store, renderer, soundManager, controller;
 
+  /*
+   * The engine mocks are module-level and shared by every test in this file, and
+   * the beforeEach's vi.clearAllMocks() drops recorded calls, not
+   * implementations — so an implementation swapped in by one test leaks into
+   * every test after it, closure state and all. (The invalidCount test's
+   * END_TURN counter is the sharp edge: left in place it ends every later turn
+   * in game over.) Swap through override() and it is put back afterwards.
+   */
+  let restoreMocks = [];
+  function override(mockFn, implementation) {
+    const original = mockFn.getMockImplementation();
+    restoreMocks.push(() => mockFn.mockImplementation(original));
+    mockFn.mockImplementation(implementation);
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -212,6 +243,8 @@ describe('GameController', () => {
   });
 
   afterEach(() => {
+    for (const restore of restoreMocks) restore();
+    restoreMocks = [];
     vi.useRealTimers();
   });
 
@@ -895,21 +928,6 @@ describe('GameController', () => {
    */
 
   describe('quit to title', () => {
-    /*
-     * The engine mocks are module-level and shared with every later test in
-     * this file, so any implementation swapped in here is put back afterwards.
-     */
-    let restoreMocks = [];
-    function override(mockFn, implementation) {
-      const original = mockFn.getMockImplementation();
-      restoreMocks.push(() => mockFn.mockImplementation(original));
-      mockFn.mockImplementation(implementation);
-    }
-    afterEach(() => {
-      for (const restore of restoreMocks) restore();
-      restoreMocks = [];
-    });
-
     const ATTACK_RESULT = {
       success: true,
       attackerRoll: { values: [6], total: 6 },
@@ -1129,7 +1147,9 @@ describe('GameController', () => {
      */
     it('drops the board focus and its ring when the game ends underneath it', async () => {
       const finishBattle = await startAIBattle({ attackEndsGame: true });
-      store.setState({ focusedAreaId: 3 }); // as keyboard navigation would
+      // Both halves of the mirror, as keyboard navigation would leave them.
+      store.setState({ focusedAreaId: 3 });
+      renderer.hexGrid.setFocusHighlight(3);
 
       finishBattle();
       await vi.runAllTimersAsync();
@@ -1138,6 +1158,10 @@ describe('GameController', () => {
       expect(store.getState().screen).toBe('gameOver');
       expect(store.getState().focusedAreaId).toBeNull();
       expect(renderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
+      // The ring is actually off the board behind the card, not merely asked to
+      // be: since #211 item 3 this seam owns it alone — the post-attack clear it
+      // follows leaves the focus layer up on purpose.
+      expect(renderer.hexGrid.focusUp).toBe(false);
     });
 
     // Spectate is the same silent unmount from the other direction: the buttons
@@ -1151,12 +1175,23 @@ describe('GameController', () => {
       expect(store.getState().screen).toBe('gameOver');
 
       store.setState({ focusedAreaId: 3 });
+      renderer.hexGrid.setFocusHighlight(3);
+      renderer.hexGrid.clearFocusHighlight.mockClear();
+
       await controller.startSpectate();
       await flushPromises();
 
       expect(store.getState().screen).toBe('playing');
       expect(store.getState().humanPlayerIndex).toBeNull();
       expect(store.getState().focusedAreaId).toBeNull();
+      /*
+       * Store id and ring are paired inside this one function (#211 item 3):
+       * nothing that ran before it can be relied on to have taken the ring down,
+       * and the AI-vs-AI board it hands over to must not carry a white ring
+       * around a territory nobody is steering.
+       */
+      expect(renderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
+      expect(renderer.hexGrid.focusUp).toBe(false);
     });
 
     it('keeps the rules card up when the game ends underneath it', async () => {
@@ -1220,7 +1255,7 @@ describe('GameController', () => {
 
       controller.goToTitle();
       applyAction.mockClear();
-      renderer.hexGrid.clearHighlights.mockClear();
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
 
       finishBattle();
       await vi.runAllTimersAsync();
@@ -1233,8 +1268,9 @@ describe('GameController', () => {
       expect(soundManager.play).not.toHaveBeenCalledWith('fail');
       expect(renderer.playParticleEffect).not.toHaveBeenCalled();
       expect(applyAction).not.toHaveBeenCalled(); // no further move, no end of turn
-      // The abandoned attack leaves no highlight on the canvas behind the title.
-      expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
+      // The abandoned attack leaves no selection on the canvas behind the title.
+      // (goToTitle already took the focus ring with it — this seam is mid-game.)
+      expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
     });
 
     it('abandoning the attack that eliminates the human skips the game-over hand-off', async () => {
@@ -1414,6 +1450,7 @@ describe('GameController', () => {
       controller.acceptMap();
       controller.handleTerritoryClick(1); // gold outline on the canvas
       store.setState({ focusedAreaId: 1 }); // as keyboard navigation would
+      renderer.hexGrid.setFocusHighlight(1); // ...and the ring the mirror paints
       renderer.hexGrid.clearHighlights.mockClear();
 
       controller.goToTitle();
@@ -1421,6 +1458,12 @@ describe('GameController', () => {
       // drawMap() doesn't clear highlights, so the outline would sit over the attract board.
       expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
       expect(store.getState().focusedAreaId).toBeNull();
+      /*
+       * Quit is the one seam that still takes EVERY layer down — it nulls the
+       * store id in the same breath, which is what earns it the full
+       * clearHighlights() the mid-game seams no longer use (#211 item 3).
+       */
+      expect(renderer.hexGrid.focusUp).toBe(false);
     });
 
     it('an engine failure on the way to the title takes the confirm with it', async () => {
@@ -1459,13 +1502,22 @@ describe('GameController', () => {
     });
 
     it('a new game never inherits an open confirm or a stale focus', async () => {
-      // Belt and braces: whatever left these set, the new game starts clean.
+      /*
+       * Belt and braces, both halves: whatever left these set, the new game
+       * starts clean. startNewGame nulls the store id and clears the ring in
+       * the same function rather than trusting the route in (#211 item 3) — and
+       * the drawMap that follows retraces every border and rescales, so a ring
+       * that survived would be last game's geometry at this game's scale.
+       */
       store.setState({ quitConfirmOpen: true, focusedAreaId: 3 });
+      renderer.hexGrid.setFocusHighlight(3);
 
       await controller.startNewGame({ playerCount: 2, spectator: false });
 
       expect(store.getState().quitConfirmOpen).toBe(false);
       expect(store.getState().focusedAreaId).toBeNull();
+      expect(renderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
+      expect(renderer.hexGrid.focusUp).toBe(false);
     });
   });
 
@@ -1843,7 +1895,7 @@ describe('GameController', () => {
 
       expect(store.getState().selectedFrom).toBeNull();
       expect(store.getState().awaitingInput).toBe('selectFrom');
-      expect(renderer.hexGrid.clearHighlights).toHaveBeenCalled();
+      expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
       /*
        * ...and the board is handed back playable. The failure path clears every
        * highlight, so the offer has to be repainted after that — a rejected
@@ -1872,7 +1924,7 @@ describe('GameController', () => {
        * With the fix, count resets after each valid move.
        */
       let moveCount = 0;
-      runAI.mockImplementation(() => {
+      override(runAI, () => {
         moveCount++;
         if (moveCount <= 2) return { from: 99, to: 99 }; // invalid
         if (moveCount === 3) return { from: 1, to: 2 }; // valid — resets counter
@@ -1881,14 +1933,14 @@ describe('GameController', () => {
         return null; // end turn
       });
 
-      getValidMoves.mockImplementation(() => [{ from: 1, to: 2 }]);
+      override(getValidMoves, () => [{ from: 1, to: 2 }]);
 
       /*
        * applyAction: ATTACK succeeds, first END_TURN advances player,
        * second END_TURN (AI's) triggers game over to stop the loop.
        */
       let endTurnCount = 0;
-      applyAction.mockImplementation((state, action) => {
+      override(applyAction, (state, action) => {
         if (action.type === 'ATTACK') {
           return {
             ...state,
@@ -2224,6 +2276,10 @@ describe('GameController', () => {
 
       await controller.startNewGame({ playerCount: 2, spectator: false });
       controller.acceptMap();
+      // E is a route into this catch, so a keyboard player reaches it with the
+      // ring up: set both halves of the mirror as the focusin listener would.
+      store.setState({ focusedAreaId: 1 });
+      renderer.hexGrid.setFocusHighlight(1);
 
       applyAction.mockImplementationOnce(() => {
         throw new Error('State corrupted');
@@ -2243,6 +2299,15 @@ describe('GameController', () => {
        * recompute them into truth.
        */
       expect(state.candidateAreas).toBeNull();
+      /*
+       * The playing screen is gone, so BoardFocus's buttons are gone with it —
+       * an unmount seam like goToTitle, and paired the same way: the store id
+       * nulled and the ring taken down together (#211 item 3). Left set, the
+       * ring would sit on the attract board behind the title screen with
+       * nothing able to move it.
+       */
+      expect(state.focusedAreaId).toBeNull();
+      expect(renderer.hexGrid.focusUp).toBe(false);
     });
   });
 
@@ -2690,8 +2755,8 @@ describe('GameController', () => {
       expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenLastCalledWith([2, 3], 'target');
       /*
        * And they are still up at the end of the click. Selecting a source calls
-       * clearHighlights() first, so painting before clearing would leave the
-       * real board bare with the call log looking identical.
+       * clearSelectionHighlights() first, so painting before clearing would
+       * leave the real board bare with the call log looking identical.
        */
       expect(renderer.hexGrid.candidatesUp).toBe(true);
     });
@@ -2784,8 +2849,7 @@ describe('GameController', () => {
 
     it('clears the offer when the game is abandoned', async () => {
       await startPlaying();
-      // Start-up already called clearHighlights; only the quit's call counts.
-      renderer.hexGrid.clearHighlights.mockClear();
+      renderer.hexGrid.clearHighlights.mockClear(); // count only the quit's call
 
       controller.goToTitle();
 
@@ -2870,6 +2934,173 @@ describe('GameController', () => {
       expect(managedStore.getState().preferences.boardHints).toBe('on'); // the stale mirror
       expect(managedStore.getState().candidateAreas).toBeNull();
       expect(managedRenderer.hexGrid.setCandidateHighlights).not.toHaveBeenCalled();
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Keyboard focus ring across the mid-game seams (#211 item 3)
+   * -----------------------------------------------------------------------
+   *
+   * The ring is the keyboard's cursor, not a selection: it marks where DOM
+   * focus is and where the next arrow steps from. So every seam that ends an
+   * attack, picks a source, or plays an AI turn has to clear the selection and
+   * the hints WITHOUT touching it — that is what clearSelectionHighlights() is
+   * for. Before the split all six ran clearHighlights() and a keyboard player
+   * finished every attack with focus on the target and nothing on screen.
+   */
+  describe('keyboard focus ring', () => {
+    let applyAction, getValidMoves, runAI;
+
+    /*
+     * Only getValidMoves needs an implementation of its own: the module
+     * factory's createGame, applyAction and runAI already do exactly what these
+     * tests want (a fresh makeGameState, END_TURN advancing the player, ATTACK
+     * appending a win, an AI that ends its turn), and they still do by the time
+     * the file reaches here — the one earlier swap that carried closure state
+     * (the invalidCount test's END_TURN counter, which would otherwise end
+     * every later turn in game over) goes through the outer describe's
+     * override(); the few direct swaps left in the file only ever set a mock to
+     * its factory default.
+     *
+     * `mockImplementationOnce` is used only where the consuming call is
+     * guaranteed inside the same test ('survives an attack the engine rejects'):
+     * vi.clearAllMocks() does not drain a once-queue, so one left unconsumed
+     * would silently eat a later test's move.
+     */
+    beforeEach(async () => {
+      ({ applyAction, getValidMoves } = await import('../../src/engine/index.js'));
+      ({ runAI } = await import('../../src/engine/AIAdapter.js'));
+      // The human's only legal attack. Deliberately the whole list, so FOCUSED
+      // below is neither a hint source nor a hint target.
+      override(getValidMoves, () => [{ from: 1, to: 2, attackerDice: 3, defenderDice: 2 }]);
+    });
+
+    /** One AI attack, then end of turn. */
+    function aiPlaysOneAttack() {
+      let played = false;
+      override(runAI, () => {
+        if (played) return null;
+        played = true;
+        return { from: 1, to: 2 };
+      });
+    }
+
+    const FOCUSED = 3; // the human's other territory: never the source, never the target
+
+    /**
+     * A game in progress with the keyboard parked on a territory — both halves
+     * of the mirror set, exactly as KeyboardController's focusin listener leaves
+     * them — and the clear calls counted from zero.
+     */
+    async function playingWithFocus() {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+      await flushPromises();
+      store.setState({ focusedAreaId: FOCUSED });
+      renderer.hexGrid.setFocusHighlight(FOCUSED);
+      renderer.hexGrid.clearHighlights.mockClear();
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+      renderer.hexGrid.clearFocusHighlight.mockClear();
+    }
+
+    /** The ring is still painted, still on the same territory, and nothing wiped it. */
+    function expectRingSurvived() {
+      expect(renderer.hexGrid.focusUp).toBe(true);
+      expect(store.getState().focusedAreaId).toBe(FOCUSED);
+      expect(renderer.hexGrid.clearHighlights).not.toHaveBeenCalled();
+      expect(renderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
+      expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
+    }
+
+    it('survives a human attack, so the ring is where the next arrow steps from', async () => {
+      await playingWithFocus();
+
+      controller.handleTerritoryClick(1); // source
+      await controller.handleTerritoryClick(2); // target — attack resolves
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().awaitingInput).toBe('selectFrom'); // the attack really ran
+      expectRingSurvived();
+    });
+
+    it('survives an attack the engine rejects', async () => {
+      await playingWithFocus();
+      applyAction.mockImplementationOnce(() => {
+        throw new Error('Invalid attack');
+      });
+
+      controller.handleTerritoryClick(1);
+      await controller.handleTerritoryClick(2);
+      await vi.runAllTimersAsync();
+
+      expect(store.getState().selectedFrom).toBeNull(); // the catch path really ran
+      expectRingSurvived();
+    });
+
+    it('survives picking a source and picking it again', async () => {
+      await playingWithFocus();
+
+      controller.handleTerritoryClick(1); // selectFrom
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      expect(renderer.hexGrid.focusUp).toBe(true);
+
+      controller.handleTerritoryClick(1); // re-pick, still in selectTo
+
+      expect(store.getState().selectedFrom).toBe(1);
+      expectRingSurvived();
+    });
+
+    it('a parked focus survives a whole AI turn — the AI attacks under it', async () => {
+      await playingWithFocus();
+      aiPlaysOneAttack();
+
+      controller.endHumanTurn();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(renderer.battle.play).toHaveBeenCalled(); // the AI attack really animated
+      expectRingSurvived();
+    });
+
+    it('the AI-aborted cleanup leaves the focus layer to the seam that aborted it', async () => {
+      await playingWithFocus();
+      aiPlaysOneAttack();
+      let finishBattle = () => {};
+      renderer.battle.play.mockImplementation(
+        () => new Promise(resolve => (finishBattle = resolve))
+      );
+      renderer.battle.cancel.mockImplementation(() => finishBattle());
+
+      controller.endHumanTurn();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(renderer.battle.play).toHaveBeenCalled(); // the AI attack is mid-roll
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+
+      /*
+       * A new game started mid-animation aborts the AI loop without going
+       * through goToTitle, so two clears run: startNewGame's own — which nulls
+       * the store id AND takes the ring down, paired in the one function — and
+       * the loop's aborted-cleanup at the top of the next iteration, which
+       * clears only the selection. So the ring ends down because the seam that
+       * owns it put it down, not because the cleanup wiped it.
+       *
+       * Reverting the cleanup to clearHighlights() would still leave the same
+       * end state, and that is fine: its clearSelectionHighlights() is
+       * uniformity across every aiAborted route, not a behaviour this test can
+       * observe. `clearHighlights not called` is what pins that shape.
+       */
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      finishBattle();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(renderer.hexGrid.focusUp).toBe(false);
+      expect(renderer.hexGrid.clearFocusHighlight).toHaveBeenCalledTimes(1); // startNewGame's
+      expect(renderer.hexGrid.clearHighlights).not.toHaveBeenCalled();
+      expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
     });
   });
 });

@@ -162,6 +162,22 @@ describe('GameOverlay — human turn', () => {
     expect(endTurnButton().id).toBe(END_TURN_BUTTON_ID);
   });
 
+  /*
+   * The seam's destination, so it has to show a focus ring — and it cannot use
+   * the shared .dw-btn one, whose accent color is this button's own background.
+   * E is the shortcut past the seam; the title advertises it the way QUIT
+   * advertises Esc, and aria-keyshortcuts says the same thing to a screen reader.
+   */
+  it('advertises the E shortcut and carries its own focus-ring class', () => {
+    renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+    });
+    expect(endTurnButton().getAttribute('title')).toContain('(E)');
+    expect(endTurnButton().getAttribute('aria-keyshortcuts')).toBe('E');
+    expect(endTurnButton().className).toContain('dw-end-turn');
+  });
+
   it('offers no END TURN button on an AI turn', () => {
     renderOverlay();
     expect(endTurnButton()).toBeUndefined();

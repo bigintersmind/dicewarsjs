@@ -61,7 +61,7 @@ export const RULES_SECTIONS = [
     eyebrow: 'Attack',
     heading: 'Two clicks to attack',
     Figure: AttackFigure,
-    body: `Click one of your territories with 2 or more dice, then click an adjacent enemy territory. Attack as many times as you like, then end your turn. Territories that can attack are outlined, and once you pick one the enemies it can reach light up (Settings → ${BOARD_HINTS_LABEL} turns that off). On a keyboard, Tab steps through your territories, the arrow keys move to a neighbor, and Enter picks the one in focus; Tab past your last territory reaches END TURN, and Shift+Tab from there comes back.`,
+    body: `Click one of your territories with 2 or more dice, then click an adjacent enemy territory. Attack as many times as you like, then end your turn. Territories that can attack are outlined, and once you pick one the enemies it can reach light up (Settings → ${BOARD_HINTS_LABEL} turns that off).`,
   },
   {
     id: 'battle',
@@ -87,6 +87,7 @@ export const RULES_SECTIONS = [
       "Don't leave a 1-die territory on a border facing an enemy: it can't attack, and it falls to anything.",
       'Bigger stacks win more often. 8 against 8 is barely better than a coin flip; 8 against 3 almost never loses.',
       'Under Custom difficulty, "Your luck" tilts the dice your way: you roll extra dice and drop as many of the lowest, attacking and defending.',
+      'Keyboard: Tab steps through your territories, the arrow keys move to a neighbor, Enter picks the one in focus, and E ends your turn (Tab past your last territory reaches END TURN too).',
     ],
   },
 ];

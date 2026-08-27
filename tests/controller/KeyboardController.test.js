@@ -6,7 +6,10 @@
  * Escape, Tab cycling, and guard conditions.
  */
 
-import { createKeyboardController } from '../../src/controller/KeyboardController.js';
+import {
+  createKeyboardController,
+  END_TURN_BUTTON_ID,
+} from '../../src/controller/KeyboardController.js';
 import { createGameStore } from '../../src/store/GameStore.js';
 
 /*
@@ -81,6 +84,22 @@ function fireKey(key, opts = {}) {
   return event;
 }
 
+/**
+ * The board's neighbors in the page's tab order, as real DOM. The seams are
+ * located through the document (getElementById + document order), not through
+ * props, so they need actual buttons to aim at.
+ */
+let mountedControls = [];
+
+function mountButton(id, label) {
+  const button = document.createElement('button');
+  if (id) button.id = id;
+  button.textContent = label;
+  document.body.appendChild(button);
+  mountedControls.push(button);
+  return button;
+}
+
 /*
  * ---------------------------------------------------------------------------
  * Tests
@@ -109,6 +128,9 @@ describe('KeyboardController', () => {
 
   afterEach(() => {
     kbc.destroy();
+    // Removing the focused element also drops focus back to <body> for the next test.
+    mountedControls.forEach(button => button.remove());
+    mountedControls = [];
   });
 
   /*
@@ -365,18 +387,185 @@ describe('KeyboardController', () => {
       expect(store.getState().focusedAreaId).toBe(3);
     });
 
-    it('Tab wraps around at the end', () => {
+    it('Tab does not wrap at the end — the board hands off instead (#201)', () => {
       store.setState({ focusedAreaId: 3 });
-      fireKey('Tab');
-      // After 3 → wraps to 1
-      expect(store.getState().focusedAreaId).toBe(1);
+      const event = fireKey('Tab');
+      // After the last own territory the ring comes down rather than cycling
+      // back to 1. Nothing to hand focus to here (no END TURN button in this
+      // bare DOM), so the key is left for the browser's own Tab.
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(event.defaultPrevented).toBe(false);
     });
 
     it('Shift+Tab cycles backward', () => {
-      store.setState({ focusedAreaId: 1 });
+      store.setState({ focusedAreaId: 3 });
       fireKey('Tab', { shiftKey: true });
-      // Own territories are [1, 3]. Before 1 → wraps to 3
+      // Own territories are [1, 3]. Before 3 → 1
+      expect(store.getState().focusedAreaId).toBe(1);
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Tab order seams (#201)
+   * -----------------------------------------------------------------------
+   * The board is one virtual tab stop sitting immediately before END TURN, and
+   * it only owns the keys while DOM focus is still on <body>. Without this a
+   * keyboard-only player could attack but never reach END TURN at all.
+   */
+
+  describe('tab order seams (#201)', () => {
+    it('Tab past the last own territory moves focus to END TURN', () => {
+      mountButton(null, 'RULES');
+      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      store.setState({ focusedAreaId: 3 });
+
+      const event = fireKey('Tab');
+
+      expect(document.activeElement).toBe(endTurn);
+      // The ring comes down with the hand-off, or two focus indicators show at once.
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(mockRenderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('leaves Tab native when there is no END TURN button to reach', () => {
+      store.setState({ focusedAreaId: 3 });
+
+      const event = fireKey('Tab');
+
+      // A dead key would be worse than a plain browser Tab out of <body>.
+      expect(event.defaultPrevented).toBe(false);
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(mockRenderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
+    });
+
+    it("Shift+Tab before the first own territory focuses END TURN's predecessor", () => {
+      const rules = mountButton(null, 'RULES');
+      mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      store.setState({ focusedAreaId: 1 });
+
+      const event = fireKey('Tab', { shiftKey: true });
+
+      expect(document.activeElement).toBe(rules);
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('leaves Shift+Tab native when END TURN has no predecessor', () => {
+      mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      store.setState({ focusedAreaId: 1 });
+
+      const event = fireKey('Tab', { shiftKey: true });
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(store.getState().focusedAreaId).toBeNull();
+    });
+
+    it('Shift+Tab on END TURN comes back to the last own territory', () => {
+      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      endTurn.focus();
+
+      const event = fireKey('Tab', { shiftKey: true });
+
+      // Focus back on <body> is what makes the board the owner of the keys again.
+      expect(document.activeElement).toBe(document.body);
       expect(store.getState().focusedAreaId).toBe(3);
+      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(3);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it("Tab on END TURN's predecessor enters the board at the first own territory", () => {
+      const rules = mountButton(null, 'RULES');
+      mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      rules.focus();
+
+      const event = fireKey('Tab');
+
+      expect(document.activeElement).toBe(document.body);
+      expect(store.getState().focusedAreaId).toBe(1);
+      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(1);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('leaves Tab alone on a control that is not one of the two seams', () => {
+      const quit = mountButton(null, 'QUIT');
+      mountButton(null, 'RULES');
+      mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      quit.focus();
+
+      const event = fireKey('Tab');
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(quit);
+      expect(store.getState().focusedAreaId).toBeNull();
+    });
+
+    it('Shift+Tab with nothing highlighted enters at the last own territory', () => {
+      // Arriving backwards means arriving at the far end of the group.
+      fireKey('Tab', { shiftKey: true });
+      expect(store.getState().focusedAreaId).toBe(3);
+    });
+
+    it('hands off in both directions when the human has no territories left', () => {
+      const rules = mountButton(null, 'RULES');
+      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      store.setState({
+        gameState: makeGameState({
+          areas: { 0: null, 1: { owner: 1, dice: 3, neighborAreaIds: [], centerCell: 10 } },
+        }),
+      });
+
+      fireKey('Tab');
+      expect(document.activeElement).toBe(endTurn);
+
+      endTurn.blur();
+      fireKey('Tab', { shiftKey: true });
+      expect(document.activeElement).toBe(rules);
+    });
+
+    it('never re-enters the board from a seam when there is nothing to focus', () => {
+      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      endTurn.focus();
+      store.setState({
+        gameState: makeGameState({
+          areas: { 0: null, 1: { owner: 1, dice: 3, neighborAreaIds: [], centerCell: 10 } },
+        }),
+      });
+
+      const event = fireKey('Tab', { shiftKey: true });
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(endTurn);
+      expect(store.getState().focusedAreaId).toBeNull();
+    });
+
+    it('leaves the board keys alone while a control has focus', () => {
+      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      endTurn.focus();
+      store.setState({ focusedAreaId: 1 });
+
+      // Enter and Space are the button's own activation; the arrows are the
+      // browser's (scrolling, a select, a radio group).
+      for (const key of ['ArrowRight', 'Enter', ' ']) {
+        const event = fireKey(key);
+        expect(event.defaultPrevented).toBe(false);
+      }
+      expect(store.getState().focusedAreaId).toBe(1);
+      expect(mockController.handleTerritoryClick).not.toHaveBeenCalled();
+      expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
+    });
+
+    it('still cancels a half-made attack on Escape from a focused control', () => {
+      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      endTurn.focus();
+      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+
+      const event = fireKey('Escape');
+
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(store.getState().selectedFrom).toBeNull();
+      expect(event.defaultPrevented).toBe(true);
     });
   });
 

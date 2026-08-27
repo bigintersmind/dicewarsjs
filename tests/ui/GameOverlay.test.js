@@ -12,6 +12,7 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { GameOverlay } from '../../src/ui/GameOverlay.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { END_TURN_BUTTON_ID } from '../../src/controller/KeyboardController.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../../src/renderer/constants.js';
 
 let container;
@@ -146,6 +147,19 @@ describe('GameOverlay — human turn', () => {
     });
     expect(container.textContent).toContain('Click a neighbor to attack');
     expect(container.textContent).not.toContain('attack from');
+  });
+
+  /*
+   * KeyboardController makes the board one virtual tab stop sitting immediately
+   * before this button and finds it by id (#201). Renaming the id here without
+   * the controller would silently strand a keyboard player on the board.
+   */
+  it('gives END TURN the id the keyboard tab-order seam aims at', () => {
+    renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+    });
+    expect(endTurnButton().id).toBe(END_TURN_BUTTON_ID);
   });
 
   it('offers no END TURN button on an AI turn', () => {

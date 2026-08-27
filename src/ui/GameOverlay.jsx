@@ -8,6 +8,7 @@
 
 import { useGameStore } from './hooks/useGameStore.js';
 import { playerName } from '../store/GameStore.js';
+import { END_TURN_BUTTON_ID } from '../controller/KeyboardController.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
 const STYLE = {
@@ -89,8 +90,11 @@ export function GameOverlay({ store, onEndTurn }) {
           is thinking...
         </p>
       )}
+      {/* The id is KeyboardController's handle on this button: the board is one
+          virtual tab stop sitting immediately before it, so Tab past the last
+          own territory lands here and Shift+Tab goes back (#201). */}
       {isHumanTurn && (
-        <button style={STYLE.endTurnBtn} onClick={onEndTurn}>
+        <button id={END_TURN_BUTTON_ID} style={STYLE.endTurnBtn} onClick={onEndTurn}>
           END TURN
         </button>
       )}

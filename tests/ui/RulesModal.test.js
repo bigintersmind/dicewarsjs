@@ -115,6 +115,18 @@ describe('RulesModal', () => {
     expect(container.textContent).toMatch(new RegExp(BOARD_HINTS_LABEL));
   });
 
+  /*
+   * The keyboard route is only discoverable if the card says it exists: before
+   * #201 there was no key that ended a turn at all.
+   */
+  it('tells a keyboard player how to reach END TURN (#201)', () => {
+    renderModal({ rulesOpen: true });
+
+    const attack = RULES_SECTIONS.find(section => section.id === 'attack');
+    expect(attack.body).toMatch(/END TURN/);
+    expect(container.textContent).toMatch(/Tab past your last territory reaches END TURN/);
+  });
+
   it('closes from the close button', () => {
     const { onClose } = renderModal({ rulesOpen: true });
 

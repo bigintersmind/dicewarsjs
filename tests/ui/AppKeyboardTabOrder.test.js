@@ -217,6 +217,14 @@ describe('App playing-screen tab order (#201)', () => {
     expect(event.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(document.body);
     expect(store.getState().focusedAreaId).toBe(1);
+    /*
+     * The one place the whole chain is asserted end to end (#211): the real controller writes the
+     * ring, the store carries it, and the announcer speaks it into the live region App renders.
+     * Either half tested alone only proves it agrees with the literal key `focusedAreaId`.
+     */
+    expect(container.querySelector('[aria-live]').textContent).toBe(
+      'Board. Territory 1, yours, 3 dice.'
+    );
   });
 
   it('still leaves the board on RULES with the settings dropdown open', () => {

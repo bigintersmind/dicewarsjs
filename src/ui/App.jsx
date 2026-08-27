@@ -18,6 +18,7 @@ import { useGameStore } from './hooks/useGameStore.js';
 import { ErrorBoundary } from './ErrorBoundary.jsx';
 import { TitleScreen } from './TitleScreen.jsx';
 import { GameHUD } from './GameHUD.jsx';
+import { BoardFocus } from './BoardFocus.jsx';
 import { MapPreview } from './MapPreview.jsx';
 import { GameOverlay } from './GameOverlay.jsx';
 import { GameOverScreen } from './GameOverScreen.jsx';
@@ -191,6 +192,9 @@ export function App({ store, controller, preferencesManager }) {
       <div style={{ height: '100%', position: 'relative' }}>
         {announcer}
         <GameHUD store={store} onQuit={() => controller.openQuitConfirm()} onRules={openRules} />
+        {/* Its position here IS the tab order: settings die → QUIT → RULES → own
+            territories → END TURN (#201, #211). */}
+        <BoardFocus store={store} onSelect={id => controller.handleTerritoryClick(id)} />
         <GameOverlay store={store} onEndTurn={() => controller.endHumanTurn()} />
         {/* Mounted whether or not the dialog is up: it also owns Escape (#181). */}
         <QuitConfirm

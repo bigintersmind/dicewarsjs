@@ -1,21 +1,19 @@
 // @vitest-environment jsdom
 /**
- * Playing-screen tab order (#201).
+ * Playing-screen tab order (#201, #211).
  *
- * KeyboardController.test.js proves the seams against hand-built buttons and
- * GameOverlay.test.js proves END TURN carries the id they aim at; neither sees
- * the real playing screen, where the seam's target is whatever App happens to
- * render before END TURN. Before this fix the board swallowed every Tab, so a
- * keyboard-only player could attack but had no key that ended the turn at all.
+ * BoardFocus.test.js proves the territory buttons are what they claim to be and
+ * KeyboardController.test.js proves the controller keeps its hands off Tab;
+ * neither sees the real playing screen, where the order is whatever App happens
+ * to render. What this file pins is that composed order — settings die → QUIT →
+ * RULES → own territories ascending → END TURN — as the browser would walk it,
+ * with the settings dropdown open as well as closed, because an open dropdown
+ * adds a dozen real focusables and all of them sit before QUIT.
  *
- * The playing screen's real focusables, in document order, are the settings die
- * → QUIT → RULES → END TURN. What this file pins is the pair of seams either
- * side of the board, which sit between RULES and END TURN: Tab off the last own
- * territory lands on END TURN, Shift+Tab off the first lands on RULES. Both are
- * asserted with the settings dropdown open as well as closed, because an open
- * dropdown adds a dozen real focusables — all of them before QUIT, so the
- * answer has to stay RULES. E and the focusin rule are checked here too, on the
- * same real DOM.
+ * Before #201 the board swallowed every Tab, so a keyboard-only player could
+ * attack but had no key that ended the turn at all; #211 replaced the virtual
+ * walk with real DOM, so the assertions here are about document order and
+ * `tabindex` rather than about a handler.
  */
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
@@ -27,9 +25,10 @@ import { createKeyboardController } from '../../src/controller/KeyboardControlle
 let container;
 let keyboard;
 let preferences;
+let renderer;
 
 /** Own territories are [1, 3] — area 2 belongs to the opponent. */
-function makeGameState() {
+function makeGameState(overrides = {}) {
   return {
     phase: 'playing',
     turnOrder: [0, 1],
@@ -44,6 +43,7 @@ function makeGameState() {
       { id: 0, territoryCount: 2, stock: 0, eliminated: false },
       { id: 1, territoryCount: 1, stock: 0, eliminated: false },
     ],
+    ...overrides,
   };
 }
 
@@ -58,15 +58,17 @@ function createMockRenderer() {
   };
 }
 
-function renderPlaying() {
+function renderPlaying(stateOverrides = {}) {
   const store = createGameStore();
   store.setState({
     screen: 'playing',
     animationPhase: 'idle',
     gameState: makeGameState(),
     humanPlayerIndex: 0,
+    playerNames: ['You', 'Blitz'],
     awaitingInput: 'selectFrom',
     focusedAreaId: null,
+    ...stateOverrides,
   });
   const controller = {
     openQuitConfirm: vi.fn(),
@@ -80,11 +82,7 @@ function renderPlaying() {
   };
 
   container = document.createElement('div');
-  /*
-   * The production scope: focusablePredecessor() searches inside #app, so a
-   * container without the id would exercise the document.body fallback instead
-   * of the code path the real page takes.
-   */
+  /* The production scope, and the id the page's own CSS targets. */
   container.id = 'app';
   document.body.appendChild(container);
   /* A real one, so the settings die renders and the dropdown really opens. */
@@ -92,37 +90,50 @@ function renderPlaying() {
   act(() => {
     render(h(App, { store, controller, preferencesManager: preferences }), container);
   });
-  // The real controller, on the real DOM: the seams are located by document order.
-  keyboard = createKeyboardController(store, controller, createMockRenderer());
+  // The real controller, on the real DOM.
+  renderer = createMockRenderer();
+  keyboard = createKeyboardController(store, controller, renderer);
   return { store, controller };
 }
 
 /** Tab as the browser delivers it: from whatever has focus, bubbling to document. */
-function tab(shiftKey = false) {
-  const event = new KeyboardEvent('keydown', {
-    key: 'Tab',
-    shiftKey,
-    bubbles: true,
-    cancelable: true,
-  });
+function press(key, opts = {}) {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts });
   act(() => {
     (document.activeElement || document).dispatchEvent(event);
   });
   return event;
 }
 
-function press(key) {
-  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
-  act(() => {
-    (document.activeElement || document).dispatchEvent(event);
-  });
-  return event;
+/**
+ * How each tab stop is named in the assertions below: its id when it has one
+ * (the territory buttons), otherwise its accessible name, otherwise its text.
+ * Naming them rather than counting them is the point — a count passes while the
+ * order is wrong.
+ */
+function tabStopName(el) {
+  return el.id || el.getAttribute('aria-label') || el.textContent.trim();
+}
+
+/**
+ * The page's tab stops inside #app, in document order — the browser's own walk,
+ * approximated closely enough for this DOM: nothing here is a hidden input, a
+ * <summary>, or contenteditable, and the HUD's centering twins are
+ * non-focusable <span>s.
+ */
+function tabStops() {
+  return [...container.querySelectorAll('a[href], button, [tabindex]')]
+    .filter(el => el.tabIndex >= 0 && !el.disabled)
+    .map(tabStopName);
 }
 
 const endTurnBtn = () =>
   [...container.querySelectorAll('button')].find(b => b.textContent.trim() === 'END TURN');
 const rulesBtn = () => container.querySelector('button[aria-label="Rules: how to play"]');
 const settingsBtn = () => container.querySelector('button[aria-label="Settings"]');
+const keepPlayingBtn = () =>
+  [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'KEEP PLAYING');
+const areaButton = id => container.querySelector(`#dw-area-${id}`);
 
 beforeEach(() => {
   localStorage.clear();
@@ -139,6 +150,7 @@ afterEach(() => {
     keyboard.destroy();
     keyboard = null;
   }
+  document.activeElement?.blur?.();
   if (container) {
     act(() => render(null, container));
     container.remove();
@@ -148,32 +160,97 @@ afterEach(() => {
     preferences.destroy();
     preferences = null;
   }
+  renderer = null;
 });
 
-describe('App playing-screen tab order (#201)', () => {
+describe('App playing-screen tab order (#211)', () => {
   it('places no focus on mount — the board owns the keys (#189 exception)', () => {
     renderPlaying();
     expect(document.activeElement).toBe(document.body);
   });
 
-  it('tabs off the end of the board onto END TURN, which then answers Enter itself', () => {
-    const { store, controller } = renderPlaying();
+  it('walks settings die → QUIT → RULES → own territories → END TURN', () => {
+    renderPlaying();
+    expect(tabStops()).toEqual([
+      'Settings',
+      'Quit to title',
+      'Rules: how to play',
+      'dw-area-1',
+      'dw-area-3',
+      'END TURN',
+    ]);
+  });
 
-    tab();
-    expect(store.getState().focusedAreaId).toBe(1);
-    tab();
+  // Reachable by the arrows, never by Tab: an enemy territory is a target, not
+  // a place the player steps through on the way to ending the turn.
+  it("leaves the opponent's territory out of the walk", () => {
+    renderPlaying();
+    expect(areaButton(2).getAttribute('tabindex')).toBe('-1');
+    expect(tabStops()).not.toContain('dw-area-2');
+  });
+
+  it('still enters the board from RULES with the settings dropdown open', () => {
+    renderPlaying();
+
+    act(() => settingsBtn().click());
+    // The dropdown really is contributing extra focusables to the walk.
+    expect(container.querySelectorAll('a[href]').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('button').length).toBeGreaterThan(6);
+
+    // All of them sit before QUIT, so RULES is still what precedes the board.
+    const stops = tabStops();
+    expect(stops[stops.indexOf('dw-area-1') - 1]).toBe('Rules: how to play');
+  });
+
+  it('writes the ring when the browser tabs onto a territory', () => {
+    const { store } = renderPlaying();
+
+    // What Tab does: DOM focus moves, and nothing else is involved.
+    act(() => areaButton(3).focus());
+
     expect(store.getState().focusedAreaId).toBe(3);
+    expect(renderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(3);
+  });
 
-    // Past the last own territory the board hands DOM focus on.
-    tab();
-    expect(document.activeElement).toBe(endTurnBtn());
+  it('takes the ring down when a control is clicked into focus', () => {
+    const { store } = renderPlaying();
+
+    act(() => areaButton(1).focus());
+    expect(store.getState().focusedAreaId).toBe(1);
+
+    // What a mouse click on RULES does.
+    act(() => rulesBtn().focus());
+
     expect(store.getState().focusedAreaId).toBeNull();
+    expect(renderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
+  });
+
+  it('leaves Tab off the last own territory to the browser — END TURN is next in document order', () => {
+    renderPlaying();
+
+    act(() => areaButton(3).focus());
+    const event = press('Tab');
+
+    /*
+     * jsdom does not move focus on Tab, so what is asserted is that nothing
+     * claimed the key: the browser's own walk from dw-area-3 lands on END TURN
+     * because that is the next tab stop in the list above.
+     */
+    expect(event.defaultPrevented).toBe(false);
+    const stops = tabStops();
+    expect(stops[stops.indexOf('dw-area-3') + 1]).toBe('END TURN');
+  });
+
+  it('leaves Enter on END TURN to the button itself', () => {
+    const { controller } = renderPlaying();
+
+    endTurnBtn().focus();
 
     /*
      * The point of the whole fix: the board no longer claims the key, so the
-     * browser's own activation can run. Claiming it for the board here is what
-     * left a keyboard player unable to end a turn — and it would have fired an
-     * attack instead, which is why handleTerritoryClick is asserted silent.
+     * browser's own activation can run. Claiming it for the board is what left a
+     * keyboard player unable to end a turn — and it would have fired an attack
+     * instead, which is why handleTerritoryClick is asserted silent.
      */
     const enter = press('Enter');
     expect(enter.defaultPrevented).toBe(false);
@@ -188,64 +265,21 @@ describe('App playing-screen tab order (#201)', () => {
     expect(controller.endHumanTurn).toHaveBeenCalledTimes(1);
   });
 
-  it('Shift+Tab walks back from END TURN through the board to RULES', () => {
-    const { store } = renderPlaying();
+  it('activates a focused territory the same way a board click does', () => {
+    const { controller } = renderPlaying();
 
-    endTurnBtn().focus();
+    act(() => areaButton(1).focus());
+    const enter = press('Enter');
 
-    // Back onto the board at the far end, DOM focus returned to <body>.
-    tab(true);
-    expect(document.activeElement).toBe(document.body);
-    expect(store.getState().focusedAreaId).toBe(3);
-
-    tab(true);
-    expect(store.getState().focusedAreaId).toBe(1);
-
-    // Off the front of the board onto END TURN's neighbor in document order.
-    tab(true);
-    expect(document.activeElement).toBe(rulesBtn());
-    expect(store.getState().focusedAreaId).toBeNull();
-  });
-
-  it('Tab from RULES re-enters the board at the first own territory', () => {
-    const { store } = renderPlaying();
-
-    rulesBtn().focus();
-
-    const event = tab();
-
-    expect(event.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(document.body);
-    expect(store.getState().focusedAreaId).toBe(1);
-    /*
-     * The one place the whole chain is asserted end to end (#211): the real controller writes the
-     * ring, the store carries it, and the announcer speaks it into the live region App renders.
-     * Either half tested alone only proves it agrees with the literal key `focusedAreaId`.
-     */
-    expect(container.querySelector('[aria-live]').textContent).toBe(
-      'Board. Territory 1, yours, 3 dice.'
-    );
-  });
-
-  it('still leaves the board on RULES with the settings dropdown open', () => {
-    const { store } = renderPlaying();
-
-    act(() => settingsBtn().click());
-    // The dropdown really is contributing extra focusables to the search.
-    expect(container.querySelectorAll('a[href]').length).toBeGreaterThan(0);
-    expect(container.querySelectorAll('button').length).toBeGreaterThan(4);
-
-    tab();
-    expect(store.getState().focusedAreaId).toBe(1);
-
-    // All of them sit before QUIT, so the front seam still answers RULES.
-    tab(true);
-    expect(document.activeElement).toBe(rulesBtn());
+    expect(enter.defaultPrevented).toBe(false);
+    act(() => areaButton(1).click());
+    expect(controller.handleTerritoryClick).toHaveBeenCalledWith(1);
   });
 
   it('E ends the turn straight from the board', () => {
     const { controller } = renderPlaying();
 
+    act(() => areaButton(1).focus());
     const event = press('e');
 
     expect(controller.endHumanTurn).toHaveBeenCalledTimes(1);
@@ -264,15 +298,77 @@ describe('App playing-screen tab order (#201)', () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it('takes the ring down when a control is clicked into focus', () => {
+  // Nothing on the board to do and nothing to end, so Tab skips it entirely —
+  // the buttons stay mounted at tabindex -1 rather than vanishing under focus.
+  it('offers no board tab stop and no END TURN on an AI turn', () => {
+    renderPlaying({ gameState: makeGameState({ currentPlayerIndex: 1 }) });
+
+    expect(tabStops()).toEqual(['Settings', 'Quit to title', 'Rules: how to play']);
+    expect(endTurnBtn()).toBeUndefined();
+    expect(areaButton(1)).toBeTruthy();
+  });
+
+  /*
+   * The dialog restores focus to whatever opened it. Opened from the keyboard
+   * with focus on a territory, that is the territory button — which is the
+   * whole point of the board being real DOM: before #211 focus came back to
+   * `<body>` with the ring gone.
+   */
+  it('gives the board its focus and its ring back when the quit dialog closes', () => {
     const { store } = renderPlaying();
 
-    tab();
+    act(() => areaButton(1).focus());
     expect(store.getState().focusedAreaId).toBe(1);
 
-    // What a mouse click on RULES does: focus moves, no seam is crossed.
-    act(() => rulesBtn().focus());
+    act(() => store.setState({ quitConfirmOpen: true }));
+    expect(document.activeElement).toBe(keepPlayingBtn());
+    expect(store.getState().focusedAreaId).toBeNull();
 
+    act(() => store.setState({ quitConfirmOpen: false }));
+    expect(document.activeElement).toBe(areaButton(1));
+    expect(store.getState().focusedAreaId).toBe(1);
+  });
+
+  /*
+   * The same round trip through the other modal, and the one App really mounts:
+   * RulesModal restores focus to whatever opened the card, falling back to the
+   * first control still on screen when that element is gone — a path the quit
+   * dialog above never takes.
+   */
+  it('gives the board its focus and its ring back when the rules card closes', () => {
+    const { store } = renderPlaying();
+
+    act(() => areaButton(1).focus());
+    expect(store.getState().focusedAreaId).toBe(1);
+
+    act(() => store.setState({ rulesOpen: true }));
+    expect(document.activeElement).not.toBe(areaButton(1));
+    expect(store.getState().focusedAreaId).toBeNull();
+
+    act(() => store.setState({ rulesOpen: false }));
+    expect(document.activeElement).toBe(areaButton(1));
+    expect(store.getState().focusedAreaId).toBe(1);
+  });
+
+  /*
+   * Game over unmounts the playing screen and the board buttons with it. That
+   * removal fires no focusout in jsdom (nor in Firefox), so the id is nulled by
+   * the controller's own setState rather than by a listener — and the focus
+   * GameOverScreen then puts on BATTLE must not write it back.
+   */
+  it('drops the board buttons when the game ends', () => {
+    const { store } = renderPlaying();
+
+    act(() => areaButton(1).focus());
+    expect(store.getState().focusedAreaId).toBe(1);
+
+    // What triggerGameOver's setState does at that seam.
+    act(() => store.setState({ screen: 'gameOver', focusedAreaId: null }));
+
+    expect(areaButton(1)).toBeNull();
+    // GameOverScreen has claimed focus for BATTLE by now (#189), and that
+    // focusin went past the controller without resurrecting the dead id.
+    expect(document.activeElement.textContent.trim()).toBe('BATTLE');
     expect(store.getState().focusedAreaId).toBeNull();
   });
 });

@@ -2,15 +2,22 @@
 /**
  * KeyboardController tests
  *
- * Tests keyboard navigation for the hex grid: arrow keys, Enter/Space, Escape,
- * E to end the turn, Tab stepping and the two tab-order seams either side of
- * the board, the focusin rule that keeps the ring honest, and the guards.
+ * What the controller still owns now that the board is real DOM (#211): the
+ * arrow keys, E, Escape, and the two focus listeners that mirror DOM focus into
+ * `store.focusedAreaId` and the renderer's ring. Tab and Enter/Space are the
+ * browser's and are asserted here only to prove the controller keeps its hands
+ * off them.
+ *
+ * The real `BoardFocus` is mounted for every test rather than a hand-built
+ * stand-in, because the contract between the two files — the `dw-area-N` ids,
+ * which territories exist as buttons, the click that reaches
+ * handleTerritoryClick — is the thing under test.
  */
 
-import {
-  createKeyboardController,
-  END_TURN_BUTTON_ID,
-} from '../../src/controller/KeyboardController.js';
+import { h, render } from 'preact';
+import { act } from 'preact/test-utils';
+import { createKeyboardController } from '../../src/controller/KeyboardController.js';
+import { BoardFocus } from '../../src/ui/BoardFocus.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 
 /*
@@ -20,10 +27,10 @@ import { createGameStore } from '../../src/store/GameStore.js';
  */
 
 /**
- * Own territories are [1, 3, 4] — area 2 is the opponent's. Three of them, so
- * "the next one" and "the last one" are different areas and a stepping bug
- * cannot pass by accident. Area 4 is deliberately neighborless, which keeps it
- * out of the arrow-key geometry entirely.
+ * Own territories are [1, 3, 4] — area 2 is the opponent's, which is what makes
+ * an arrow step onto a territory the player cannot Tab to. Area 4 has no
+ * neighbors at all: it is the one arrow branch nothing else reaches, where the
+ * key is claimed and there is nowhere to go.
  */
 function makeGameState(overrides = {}) {
   return {
@@ -82,6 +89,7 @@ function createMockController() {
   };
 }
 
+/** A key as the browser delivers it: from whatever has focus, bubbling to document. */
 function fireKey(key, opts = {}) {
   const event = new KeyboardEvent('keydown', {
     key,
@@ -89,34 +97,23 @@ function fireKey(key, opts = {}) {
     cancelable: true,
     ...opts,
   });
-  document.dispatchEvent(event);
+  (document.activeElement || document).dispatchEvent(event);
   return event;
 }
 
-/**
- * The board's neighbors in the page's tab order, as real DOM. The seams are
- * located through the document (getElementById + document order), not through
- * props, so they need actual buttons to aim at.
- */
+/** The board's territory buttons, by area id. */
+const areaButton = id => document.getElementById(`dw-area-${id}`);
+
+let boardContainer;
 let mountedControls = [];
 
-function mountButton(id, label) {
+/** A real control on the page, for "focus is not on the board" cases. */
+function mountButton(label) {
   const button = document.createElement('button');
-  if (id) button.id = id;
   button.textContent = label;
   document.body.appendChild(button);
   mountedControls.push(button);
   return button;
-}
-
-/** The Pixi canvas, made focusable so a test can put DOM focus on it. */
-function mountCanvas() {
-  const canvas = document.createElement('canvas');
-  canvas.id = 'pixi-canvas';
-  canvas.tabIndex = 0;
-  document.body.appendChild(canvas);
-  mountedControls.push(canvas);
-  return canvas;
 }
 
 /*
@@ -138,8 +135,18 @@ describe('KeyboardController', () => {
       animationPhase: 'idle',
       humanPlayerIndex: 0,
       gameState: makeGameState(),
+      playerNames: ['You', 'Blitz'],
       awaitingInput: 'selectFrom',
       focusedAreaId: null,
+    });
+
+    boardContainer = document.createElement('div');
+    document.body.appendChild(boardContainer);
+    act(() => {
+      render(
+        h(BoardFocus, { store, onSelect: id => mockController.handleTerritoryClick(id) }),
+        boardContainer
+      );
     });
 
     kbc = createKeyboardController(store, mockController, mockRenderer);
@@ -147,7 +154,11 @@ describe('KeyboardController', () => {
 
   afterEach(() => {
     kbc.destroy();
-    // Removing the focused element also drops focus back to <body> for the next test.
+    // Blur first: removing a focused element drops focus with no event at all,
+    // which would leak this test's focus into the next one.
+    document.activeElement?.blur?.();
+    act(() => render(null, boardContainer));
+    boardContainer.remove();
     mountedControls.forEach(element => element.remove());
     mountedControls = [];
   });
@@ -159,43 +170,38 @@ describe('KeyboardController', () => {
    */
 
   describe('guard conditions', () => {
-    /**
-     * Tab is the key that still does something from a focused control, so a
-     * guard that only covered the arrows would let it through: every bail-out
-     * has to leave Tab to the browser and the ring exactly where it was.
-     */
-    function expectTabFullyIgnored() {
+    /** Every bail-out leaves the key uncancelled and the ring where it was. */
+    function expectBoardKeysIgnored() {
       store.setState({ focusedAreaId: 1 });
-      mockRenderer.hexGrid.clearFocusHighlight.mockClear();
+      mockRenderer.hexGrid.setFocusHighlight.mockClear();
 
-      for (const shiftKey of [false, true]) {
-        const event = fireKey('Tab', { shiftKey });
-        expect(event.defaultPrevented).toBe(false);
+      for (const key of ['ArrowRight', 'ArrowDown', 'Escape']) {
+        expect(fireKey(key).defaultPrevented).toBe(false);
       }
 
       expect(store.getState().focusedAreaId).toBe(1);
-      expect(mockRenderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
+      expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
     }
 
     it('ignores keydown when screen is not playing', () => {
       store.setState({ screen: 'title' });
       fireKey('ArrowRight');
       expect(store.getState().focusedAreaId).toBeNull();
-      expectTabFullyIgnored();
+      expectBoardKeysIgnored();
     });
 
     it('ignores keydown when animationPhase is not idle', () => {
       store.setState({ animationPhase: 'battle' });
       fireKey('ArrowRight');
       expect(store.getState().focusedAreaId).toBeNull();
-      expectTabFullyIgnored();
+      expectBoardKeysIgnored();
     });
 
     it('ignores keydown when humanPlayerIndex is null', () => {
       store.setState({ humanPlayerIndex: null });
       fireKey('ArrowRight');
       expect(store.getState().focusedAreaId).toBeNull();
-      expectTabFullyIgnored();
+      expectBoardKeysIgnored();
     });
 
     it('ignores keydown when it is not the human turn', () => {
@@ -204,14 +210,14 @@ describe('KeyboardController', () => {
       });
       fireKey('ArrowRight');
       expect(store.getState().focusedAreaId).toBeNull();
-      expectTabFullyIgnored();
+      expectBoardKeysIgnored();
     });
 
     it('ignores keydown when gameState is null', () => {
       store.setState({ gameState: null });
       fireKey('ArrowRight');
       expect(store.getState().focusedAreaId).toBeNull();
-      expectTabFullyIgnored();
+      expectBoardKeysIgnored();
     });
   });
 
@@ -219,67 +225,251 @@ describe('KeyboardController', () => {
    * -----------------------------------------------------------------------
    * Arrow key navigation
    * -----------------------------------------------------------------------
+   * The arrows move DOM focus; the focusin listener is what writes the store
+   * and paints the ring, so every assertion here is on all three at once.
    */
 
   describe('arrow key navigation', () => {
-    it('focuses first own territory when no focus is set', () => {
-      fireKey('ArrowRight');
-      // First own territory is area 1 (owner 0)
+    it('enters the board at the first own territory when focus is nowhere', () => {
+      expect(document.activeElement).toBe(document.body);
+
+      const event = fireKey('ArrowRight');
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(areaButton(1));
       expect(store.getState().focusedAreaId).toBe(1);
       expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(1);
     });
 
-    it('moves focus right to nearest neighbor', () => {
-      // Start focused on area 1 (center), area 2 is to the right
-      store.setState({ focusedAreaId: 1 });
-      fireKey('ArrowRight');
-      expect(store.getState().focusedAreaId).toBe(2);
-    });
+    /*
+     * The default fixture's area 1 is both the first live area and the human's,
+     * so "the first area with an owner" would pass it. Here the board opens
+     * with the opponent's.
+     */
+    it('enters at the first territory the human owns, not the first on the board', () => {
+      act(() =>
+        store.setState({
+          gameState: makeGameState({
+            areas: {
+              0: null,
+              1: { owner: 1, dice: 2, neighborAreaIds: [3], centerCell: 20 },
+              3: { owner: 0, dice: 1, neighborAreaIds: [1], centerCell: 30 },
+            },
+          }),
+        })
+      );
 
-    it('moves focus down to nearest neighbor', () => {
-      // Start focused on area 1 (center), area 3 is below
-      store.setState({ focusedAreaId: 1 });
-      fireKey('ArrowDown');
+      fireKey('ArrowRight');
+
+      expect(document.activeElement).toBe(areaButton(3));
       expect(store.getState().focusedAreaId).toBe(3);
     });
 
-    it('warns and does nothing when renderer has no cellPos', () => {
+    /*
+     * ...and "live" has to mean what BoardFocus means by it. A dense `Area[]`
+     * carries truthy `size: 0` sentinels in its unused slots; one of those with
+     * an owner on it would be entered at, and there is no button to focus.
+     */
+    it('enters at the first territory that actually has a button', () => {
+      act(() =>
+        store.setState({
+          gameState: makeGameState({
+            areas: [
+              { id: 0, size: 0, owner: -1, dice: 0, neighborAreaIds: [] },
+              { id: 1, size: 0, owner: 0, dice: 0, neighborAreaIds: [] },
+              { id: 2, size: 4, owner: 0, dice: 3, neighborAreaIds: [], centerCell: 10 },
+            ],
+          }),
+        })
+      );
+
+      fireKey('ArrowRight');
+
+      expect(areaButton(1)).toBeNull();
+      expect(document.activeElement).toBe(areaButton(2));
+      expect(store.getState().focusedAreaId).toBe(2);
+    });
+
+    it('moves focus right to the nearest neighbor', () => {
+      // Area 1 is the center of the fixture geometry; area 2 is the opponent's,
+      // to its right — tabindex -1, so arrow-reachable but not a Tab stop.
+      areaButton(1).focus();
+
+      fireKey('ArrowRight');
+
+      expect(document.activeElement).toBe(areaButton(2));
+      expect(store.getState().focusedAreaId).toBe(2);
+    });
+
+    it('moves focus down to the nearest neighbor', () => {
+      areaButton(1).focus();
+
+      fireKey('ArrowDown');
+
+      expect(document.activeElement).toBe(areaButton(3));
+      expect(store.getState().focusedAreaId).toBe(3);
+    });
+
+    /*
+     * On a real control the arrows are the browser's — scrolling, a select, a
+     * radio group. Claiming them from a `document` listener would break every
+     * one of those.
+     */
+    it('leaves the arrows to a focused control', () => {
+      const quit = mountButton('QUIT');
+      quit.focus();
+
+      const event = fireKey('ArrowRight');
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(quit);
+      expect(store.getState().focusedAreaId).toBeNull();
+    });
+
+    it('warns once and does not move when the renderer has no cellPos', () => {
       kbc.destroy();
-      const noRenderer = { hexGrid: { setFocusHighlight: vi.fn(), _cellPos: null } };
-      kbc = createKeyboardController(store, mockController, noRenderer);
+      const noCellPos = {
+        hexGrid: {
+          setFocusHighlight: vi.fn(),
+          clearFocusHighlight: vi.fn(),
+          _cellPos: null,
+        },
+      };
+      kbc = createKeyboardController(store, mockController, noCellPos);
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      store.setState({ focusedAreaId: 1 });
+      areaButton(1).focus();
       fireKey('ArrowRight');
-      // Should stay on 1 since cellPos is null
+      fireKey('ArrowDown');
+
+      expect(document.activeElement).toBe(areaButton(1));
       expect(store.getState().focusedAreaId).toBe(1);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('cellPos'));
       warnSpy.mockRestore();
+    });
+
+    /*
+     * The id contract with BoardFocus, broken: a missing button means the
+     * component is not mounted (or an ErrorBoundary is showing its fallback),
+     * which is never transient — so it is reported once, not per keypress, and
+     * focus is left exactly where it was rather than dropped.
+     */
+    it('warns once and stays put when a neighbor has no button', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      areaButton(1).focus();
+      areaButton(2).remove();
+
+      fireKey('ArrowRight');
+      fireKey('ArrowRight');
+
+      expect(document.activeElement).toBe(areaButton(1));
+      expect(store.getState().focusedAreaId).toBe(1);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('territory 2'));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('BoardFocus'));
+      warnSpy.mockRestore();
+    });
+
+    /*
+     * A territory with nothing next to it. The key is claimed the moment focus
+     * is on the board, so it is swallowed rather than left to scroll the page —
+     * and focus stays where it was instead of being dropped somewhere else.
+     */
+    it('swallows the arrow on a territory with no neighbors', () => {
+      areaButton(4).focus();
+
+      const event = fireKey('ArrowRight');
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(areaButton(4));
+      expect(store.getState().focusedAreaId).toBe(4);
+    });
+
+    /*
+     * What a click on the canvas does to the keyboard: mousedown's focus fixup
+     * blurs the focused button to `<body>`, so the next arrow re-enters the
+     * board from the start rather than resuming at area 3. This is the
+     * documented behaviour, not the desired one — resuming at the clicked
+     * territory is a #211 follow-up.
+     */
+    it('re-enters at the first own territory after a click blurs the board', () => {
+      areaButton(3).focus();
+      areaButton(3).blur();
+
+      fireKey('ArrowRight');
+
+      expect(document.activeElement).toBe(areaButton(1));
+      expect(store.getState().focusedAreaId).toBe(1);
     });
   });
 
   /*
    * -----------------------------------------------------------------------
-   * Confirm (Enter / Space)
+   * Activation is the button's own (#211)
    * -----------------------------------------------------------------------
    */
 
-  describe('confirm action', () => {
-    it('Enter calls handleTerritoryClick with focused area', () => {
-      store.setState({ focusedAreaId: 1 });
-      fireKey('Enter');
-      expect(mockController.handleTerritoryClick).toHaveBeenCalledWith(1);
-    });
+  describe('Enter and Space', () => {
+    it.each([
+      ['Enter', 1],
+      [' ', 3],
+    ])('leaves %s to the focused territory button', (key, areaId) => {
+      areaButton(areaId).focus();
 
-    it('Space calls handleTerritoryClick with focused area', () => {
-      store.setState({ focusedAreaId: 3 });
-      fireKey(' ');
-      expect(mockController.handleTerritoryClick).toHaveBeenCalledWith(3);
-    });
+      const event = fireKey(key);
 
-    it('does nothing when no area is focused', () => {
-      fireKey('Enter');
+      // Claiming it here would swallow the browser's activation and fire the
+      // attack twice over.
+      expect(event.defaultPrevented).toBe(false);
       expect(mockController.handleTerritoryClick).not.toHaveBeenCalled();
+
+      /*
+       * jsdom does not synthesize a click from a keydown, so the activation the
+       * browser would run is spelled out here: it is the button's own onClick
+       * that reaches the controller, the same entry point as a board click —
+       * reporting the territory that was actually activated, which is why the
+       * two rows use different ones.
+       */
+      act(() => areaButton(areaId).click());
+      expect(mockController.handleTerritoryClick).toHaveBeenCalledWith(areaId);
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * Tab belongs to the browser (#211)
+   * -----------------------------------------------------------------------
+   * The territory buttons are real tab stops in document order, so there is
+   * nothing left to intercept. Pinned in both directions from all three places
+   * focus can be, because a `document` keydown listener that claimed Tab would
+   * strand a keyboard player exactly as #201 did.
+   */
+
+  describe('Tab', () => {
+    function expectTabUntouched() {
+      const before = store.getState().focusedAreaId;
+      for (const shiftKey of [false, true]) {
+        expect(fireKey('Tab', { shiftKey }).defaultPrevented).toBe(false);
+      }
+      expect(store.getState().focusedAreaId).toBe(before);
+    }
+
+    it('is untouched from an unfocused page', () => {
+      expectTabUntouched();
+    });
+
+    it('is untouched from a territory button', () => {
+      areaButton(1).focus();
+      expectTabUntouched();
+      expect(document.activeElement).toBe(areaButton(1));
+    });
+
+    it('is untouched from a control', () => {
+      const endTurn = mountButton('END TURN');
+      endTurn.focus();
+      expectTabUntouched();
+      expect(document.activeElement).toBe(endTurn);
     });
   });
 
@@ -287,14 +477,14 @@ describe('KeyboardController', () => {
    * -----------------------------------------------------------------------
    * End turn key (#201)
    * -----------------------------------------------------------------------
-   * Tab reaches END TURN one territory at a time, which is 20-odd presses
-   * mid-game; E is the shortcut. Unlike the rest of the board keys it also
+   * Tab reaches END TURN one territory at a time — one press per territory;
+   * E is the shortcut. Unlike the rest of the board keys it also
    * fires from a focused button or link — END TURN advertises it through
    * aria-keyshortcuts — and only a text-entry control keeps the letter.
    */
 
   describe('end turn key', () => {
-    it('E ends the turn while the board owns focus', () => {
+    it('E ends the turn from the board', () => {
       const event = fireKey('e');
       expect(mockController.endHumanTurn).toHaveBeenCalledTimes(1);
       expect(event.defaultPrevented).toBe(true);
@@ -307,8 +497,17 @@ describe('KeyboardController', () => {
     });
 
     it('E ends the turn from a focused control too — END TURN announces the key itself', () => {
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
+      const endTurn = mountButton('END TURN');
       endTurn.focus();
+
+      const event = fireKey('e');
+
+      expect(mockController.endHumanTurn).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('E ends the turn from a focused territory button', () => {
+      areaButton(1).focus();
 
       const event = fireKey('e');
 
@@ -401,16 +600,20 @@ describe('KeyboardController', () => {
       expect(event.defaultPrevented).toBe(true);
     });
 
-    it('repaints the focus ring that clearHighlights took down with the selection', () => {
-      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1, focusedAreaId: 3 });
+    it('repaints the focus ring from the store id that mirrors DOM focus', () => {
+      areaButton(3).focus();
+      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+      // Past the focusin paint, so this asserts only what the Escape did.
+      mockRenderer.hexGrid.setFocusHighlight.mockClear();
 
       fireKey('Escape');
 
       /*
-       * The selection was cancelled; the keyboard's focus was not, and it is
-       * still on 3. Leaving the ring unpainted would have the next Tab step on
-       * from a position nothing on screen shows.
+       * The selection was cancelled; DOM focus was not, and it is still on the
+       * button for area 3. Leaving the ring unpainted would show nothing where
+       * the keyboard actually is.
        */
+      expect(document.activeElement).toBe(areaButton(3));
       expect(store.getState().focusedAreaId).toBe(3);
       expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(3);
       // After the wipe, and before the hints go back on top of it.
@@ -431,6 +634,18 @@ describe('KeyboardController', () => {
       // Left uncancelled so QuitConfirm's window-level handler can act (#181).
       expect(event.defaultPrevented).toBe(false);
     });
+
+    it('still cancels a half-made attack from a focused control', () => {
+      const endTurn = mountButton('END TURN');
+      endTurn.focus();
+      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+
+      const event = fireKey('Escape');
+
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(store.getState().selectedFrom).toBeNull();
+      expect(event.defaultPrevented).toBe(true);
+    });
   });
 
   /*
@@ -445,15 +660,10 @@ describe('KeyboardController', () => {
     });
 
     it('suspends board navigation while the dialog is open', () => {
-      fireKey('ArrowRight');
+      const event = fireKey('ArrowRight');
+      expect(event.defaultPrevented).toBe(false);
       expect(store.getState().focusedAreaId).toBeNull();
-
-      store.setState({ focusedAreaId: 1 });
-      fireKey('Enter');
-      expect(mockController.handleTerritoryClick).not.toHaveBeenCalled();
-
-      fireKey('Tab');
-      expect(store.getState().focusedAreaId).toBe(1);
+      expect(document.activeElement).toBe(document.body);
     });
 
     it('leaves Escape alone so the dialog can close itself', () => {
@@ -480,15 +690,10 @@ describe('KeyboardController', () => {
     });
 
     it('suspends board navigation while the card is open', () => {
-      fireKey('ArrowRight');
+      const event = fireKey('ArrowRight');
+      expect(event.defaultPrevented).toBe(false);
       expect(store.getState().focusedAreaId).toBeNull();
-
-      store.setState({ focusedAreaId: 1 });
-      fireKey('Enter');
-      expect(mockController.handleTerritoryClick).not.toHaveBeenCalled();
-
-      fireKey('Tab');
-      expect(store.getState().focusedAreaId).toBe(1);
+      expect(document.activeElement).toBe(document.body);
     });
 
     it('leaves Escape alone so the card can close itself', () => {
@@ -503,413 +708,64 @@ describe('KeyboardController', () => {
 
   /*
    * -----------------------------------------------------------------------
-   * Tab stepping
+   * The ring mirrors DOM focus (#211)
    * -----------------------------------------------------------------------
+   * Everything that can move focus ends in one of these two listeners: the
+   * browser's Tab walk, a click, the arrow handler's own focus() call, a dialog
+   * restoring focus on close, a blur. So the ring cannot point at a territory
+   * the keys are not on.
    */
 
-  describe('tab stepping', () => {
-    it('Tab focuses first own territory when none focused', () => {
-      fireKey('Tab');
-      expect(store.getState().focusedAreaId).toBe(1);
-    });
+  describe('focus listeners', () => {
+    it('writes the id and paints the ring when a territory button takes focus', () => {
+      areaButton(3).focus();
 
-    it('Tab steps forward one own territory at a time', () => {
-      store.setState({ focusedAreaId: 1 });
-      // Own territories are [1, 3, 4]: the next one is not the last one.
-      fireKey('Tab');
       expect(store.getState().focusedAreaId).toBe(3);
-      fireKey('Tab');
-      expect(store.getState().focusedAreaId).toBe(4);
+      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(3);
     });
 
-    it('Shift+Tab steps backward one own territory at a time', () => {
-      store.setState({ focusedAreaId: 4 });
-      fireKey('Tab', { shiftKey: true });
-      expect(store.getState().focusedAreaId).toBe(3);
-      fireKey('Tab', { shiftKey: true });
-      expect(store.getState().focusedAreaId).toBe(1);
-    });
+    it('clears the ring when a real control takes focus', () => {
+      const quit = mountButton('QUIT');
+      areaButton(1).focus();
 
-    it('Tab does not wrap at the end — the board hands off instead (#201)', () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      store.setState({ focusedAreaId: 4 });
+      quit.focus();
 
-      const event = fireKey('Tab');
-
-      // After the last own territory the ring comes down rather than cycling
-      // back to 1. Nothing to hand focus to here (no END TURN button in this
-      // bare DOM), so the key is left for the browser's own Tab.
       expect(store.getState().focusedAreaId).toBeNull();
-      expect(event.defaultPrevented).toBe(false);
-
-      // A broken seam is broken for good, so it is reported once, not per press.
-      store.setState({ focusedAreaId: 4 });
-      fireKey('Tab');
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      warnSpy.mockRestore();
-    });
-
-    it('enters at the first own territory when the ring points at an enemy area', () => {
-      // A ring left on an area the player does not own is not a position in the
-      // stepping order, so Tab starts the order over rather than doing nothing.
-      store.setState({ focusedAreaId: 2, selectedFrom: 1, awaitingInput: 'selectTo' });
-
-      const event = fireKey('Tab');
-
-      expect(store.getState().focusedAreaId).toBe(1);
-      expect(event.defaultPrevented).toBe(true);
-      // Selection and focus are separate: a half-made attack survives the step.
-      expect(store.getState().selectedFrom).toBe(1);
-      expect(store.getState().awaitingInput).toBe('selectTo');
-    });
-
-    it('enters at the first own territory when the focused area has been lost', () => {
-      store.setState({
-        focusedAreaId: 3,
-        selectedFrom: 1,
-        awaitingInput: 'selectTo',
-        gameState: makeGameState({
-          areas: {
-            0: null,
-            1: { owner: 0, dice: 3, neighborAreaIds: [2, 3], centerCell: 10 },
-            2: { owner: 1, dice: 2, neighborAreaIds: [1, 3], centerCell: 20 },
-            3: { owner: 1, dice: 4, neighborAreaIds: [1, 2], centerCell: 30 },
-            4: { owner: 0, dice: 2, neighborAreaIds: [], centerCell: 35 },
-          },
-        }),
-      });
-
-      const event = fireKey('Tab');
-
-      expect(store.getState().focusedAreaId).toBe(1);
-      expect(event.defaultPrevented).toBe(true);
-      expect(store.getState().selectedFrom).toBe(1);
-      expect(store.getState().awaitingInput).toBe('selectTo');
-    });
-
-    it('still owns the board keys when DOM focus is on the Pixi canvas', () => {
-      /*
-       * The canvas holds no focus today, but isBoardFocus() accepts it so that
-       * a future tabindex — or Pixi's accessibility layer — cannot silently
-       * kill every board key.
-       */
-      const canvas = mountCanvas();
-      canvas.focus();
-      expect(document.activeElement).toBe(canvas);
-
-      const arrow = fireKey('ArrowRight');
-      expect(arrow.defaultPrevented).toBe(true);
-      expect(store.getState().focusedAreaId).toBe(1);
-
-      const tab = fireKey('Tab');
-      expect(tab.defaultPrevented).toBe(true);
-      expect(store.getState().focusedAreaId).toBe(3);
-    });
-  });
-
-  /*
-   * -----------------------------------------------------------------------
-   * Tab order seams (#201)
-   * -----------------------------------------------------------------------
-   * The board is one virtual tab stop sitting immediately before END TURN, and
-   * it only owns the keys while DOM focus is still on <body>. Without this a
-   * keyboard-only player could attack but never reach END TURN at all.
-   */
-
-  describe('tab order seams (#201)', () => {
-    it('walks the whole order: board → END TURN, and back to RULES', () => {
-      const rules = mountButton(null, 'RULES');
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
-
-      fireKey('Tab');
-      expect(store.getState().focusedAreaId).toBe(1);
-      fireKey('Tab');
-      expect(store.getState().focusedAreaId).toBe(3);
-      fireKey('Tab');
-      expect(store.getState().focusedAreaId).toBe(4);
-      fireKey('Tab');
-      expect(document.activeElement).toBe(endTurn);
-
-      fireKey('Tab', { shiftKey: true });
-      expect(store.getState().focusedAreaId).toBe(4);
-      fireKey('Tab', { shiftKey: true });
-      expect(store.getState().focusedAreaId).toBe(3);
-      fireKey('Tab', { shiftKey: true });
-      expect(store.getState().focusedAreaId).toBe(1);
-      fireKey('Tab', { shiftKey: true });
-      expect(document.activeElement).toBe(rules);
-    });
-
-    it('Tab past the last own territory moves focus to END TURN', () => {
-      mountButton(null, 'RULES');
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      store.setState({ focusedAreaId: 4 });
-
-      const event = fireKey('Tab');
-
-      expect(document.activeElement).toBe(endTurn);
-      // The ring comes down with the hand-off, or two focus indicators show at once.
-      expect(store.getState().focusedAreaId).toBeNull();
-      expect(mockRenderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
-      expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('keeps a half-made attack when the board hands focus on', () => {
-      mountButton(null, 'RULES');
-      mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      store.setState({ focusedAreaId: 4, selectedFrom: 1, awaitingInput: 'selectTo' });
-
-      fireKey('Tab');
-
-      // Leaving the board is a focus move, not a cancel: Escape is what cancels.
-      expect(store.getState().selectedFrom).toBe(1);
-      expect(store.getState().awaitingInput).toBe('selectTo');
-    });
-
-    it('leaves Tab native when there is no END TURN button to reach', () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      store.setState({ focusedAreaId: 4 });
-
-      const event = fireKey('Tab');
-
-      // A dead key would be worse than a plain browser Tab out of <body>.
-      expect(event.defaultPrevented).toBe(false);
-      expect(store.getState().focusedAreaId).toBeNull();
-      expect(mockRenderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
-
-      // Reported once, however many times the player presses Tab.
-      store.setState({ focusedAreaId: 4 });
-      fireKey('Tab');
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(END_TURN_BUTTON_ID));
-      warnSpy.mockRestore();
-    });
-
-    it('leaves Tab native when END TURN is present but cannot take focus', () => {
-      /*
-       * getElementById finds a disabled button; focusablePredecessor's selector
-       * would not. Claiming the key on the strength of the lookup alone would
-       * leave the player with no focus anywhere and no way forward.
-       */
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      mountButton(null, 'RULES');
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      endTurn.disabled = true;
-      store.setState({ focusedAreaId: 4 });
-
-      const event = fireKey('Tab');
-
-      expect(document.activeElement).not.toBe(endTurn);
-      expect(event.defaultPrevented).toBe(false);
-      expect(store.getState().focusedAreaId).toBeNull();
-      expect(mockRenderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      warnSpy.mockRestore();
-    });
-
-    it("Shift+Tab before the first own territory focuses END TURN's predecessor", () => {
-      const rules = mountButton(null, 'RULES');
-      mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      store.setState({ focusedAreaId: 1 });
-
-      const event = fireKey('Tab', { shiftKey: true });
-
-      expect(document.activeElement).toBe(rules);
-      expect(store.getState().focusedAreaId).toBeNull();
-      expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('leaves Shift+Tab native when END TURN has no predecessor', () => {
-      mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      store.setState({ focusedAreaId: 1 });
-
-      const event = fireKey('Tab', { shiftKey: true });
-
-      expect(event.defaultPrevented).toBe(false);
-      expect(store.getState().focusedAreaId).toBeNull();
-      // The ring still comes down: the board is no longer where the keys go.
       expect(mockRenderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
     });
 
-    it('Shift+Tab on END TURN comes back to the last own territory', () => {
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      endTurn.focus();
-
-      const event = fireKey('Tab', { shiftKey: true });
-
-      // Focus back on <body> is what makes the board the owner of the keys again.
-      expect(document.activeElement).toBe(document.body);
-      expect(store.getState().focusedAreaId).toBe(4);
-      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(4);
-      expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('leaves Tab on END TURN to the browser — the board is not a focus trap', () => {
-      mountButton(null, 'RULES');
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      endTurn.focus();
-      /*
-       * Set the ring after focusing, past the focusin rule, so this asserts what
-       * the keydown did and nothing else: END TURN is the end of the order, so
-       * forward Tab has to leave the page — not re-enter the board.
-       */
-      store.setState({ focusedAreaId: 4 });
+    /*
+     * Button → button must not blink through "no ring": the focusout fires
+     * before the focusin, so clearing on it would take the ring down and put it
+     * straight back up.
+     */
+    it('never clears the ring on a step from one territory to the next', () => {
+      areaButton(1).focus();
       mockRenderer.hexGrid.clearFocusHighlight.mockClear();
 
-      const event = fireKey('Tab');
+      areaButton(3).focus();
 
-      expect(event.defaultPrevented).toBe(false);
-      expect(document.activeElement).toBe(endTurn);
-      expect(store.getState().focusedAreaId).toBe(4);
       expect(mockRenderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
+      expect(store.getState().focusedAreaId).toBe(3);
     });
 
-    it("Tab on END TURN's predecessor enters the board at the first own territory", () => {
-      const rules = mountButton(null, 'RULES');
-      mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      rules.focus();
+    /*
+     * The focusout half's own job: a blur, a click on the canvas, or the window
+     * losing focus moves focus to nothing at all, and there is no focusin to
+     * catch. It comes back on focusin when the window returns.
+     */
+    it('clears the ring when a territory button is blurred to nothing', () => {
+      areaButton(1).focus();
 
-      const event = fireKey('Tab');
+      areaButton(1).blur();
 
       expect(document.activeElement).toBe(document.body);
-      expect(store.getState().focusedAreaId).toBe(1);
-      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(1);
-      expect(event.defaultPrevented).toBe(true);
-    });
-
-    it("leaves Shift+Tab on END TURN's predecessor to the browser", () => {
-      const rules = mountButton(null, 'RULES');
-      mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      rules.focus();
-
-      const event = fireKey('Tab', { shiftKey: true });
-
-      // Backwards out of RULES is the DOM's business: QUIT is next, not the board.
-      expect(event.defaultPrevented).toBe(false);
-      expect(document.activeElement).toBe(rules);
-      expect(store.getState().focusedAreaId).toBeNull();
-    });
-
-    it('leaves Tab alone on a control that is not one of the two seams', () => {
-      const quit = mountButton(null, 'QUIT');
-      mountButton(null, 'RULES');
-      mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      store.setState({ focusedAreaId: 1 });
-
-      // A mouse click on QUIT crosses no seam, so the focusin rule is what takes
-      // the ring down — otherwise it would still be painted on area 1 here.
-      quit.focus();
       expect(store.getState().focusedAreaId).toBeNull();
       expect(mockRenderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
-
-      const event = fireKey('Tab');
-
-      expect(event.defaultPrevented).toBe(false);
-      expect(document.activeElement).toBe(quit);
-      expect(store.getState().focusedAreaId).toBeNull();
-    });
-
-    it('Shift+Tab with nothing highlighted enters at the last own territory', () => {
-      // Arriving backwards means arriving at the far end of the group.
-      fireKey('Tab', { shiftKey: true });
-      expect(store.getState().focusedAreaId).toBe(4);
-    });
-
-    it('hands off in both directions when the human has no territories left', () => {
-      const rules = mountButton(null, 'RULES');
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      store.setState({
-        gameState: makeGameState({
-          areas: { 0: null, 1: { owner: 1, dice: 3, neighborAreaIds: [], centerCell: 10 } },
-        }),
-      });
-
-      fireKey('Tab');
-      expect(document.activeElement).toBe(endTurn);
-
-      endTurn.blur();
-      fireKey('Tab', { shiftKey: true });
-      expect(document.activeElement).toBe(rules);
-    });
-
-    it('never re-enters the board from a seam when there is nothing to focus', () => {
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      endTurn.focus();
-      store.setState({
-        gameState: makeGameState({
-          areas: { 0: null, 1: { owner: 1, dice: 3, neighborAreaIds: [], centerCell: 10 } },
-        }),
-      });
-
-      const event = fireKey('Tab', { shiftKey: true });
-
-      expect(event.defaultPrevented).toBe(false);
-      expect(document.activeElement).toBe(endTurn);
-      expect(store.getState().focusedAreaId).toBeNull();
-    });
-
-    it('leaves the board keys alone while a control has focus', () => {
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      endTurn.focus();
-      store.setState({ focusedAreaId: 1 });
-
-      // Enter and Space are the button's own activation; the arrows are the
-      // browser's (scrolling, a select, a radio group).
-      for (const key of ['ArrowRight', 'Enter', ' ']) {
-        const event = fireKey(key);
-        expect(event.defaultPrevented).toBe(false);
-      }
-      expect(store.getState().focusedAreaId).toBe(1);
-      expect(mockController.handleTerritoryClick).not.toHaveBeenCalled();
-      expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
-    });
-
-    it('still cancels a half-made attack on Escape from a focused control', () => {
-      const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
-      endTurn.focus();
-      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
-
-      const event = fireKey('Escape');
-
-      expect(store.getState().awaitingInput).toBe('selectFrom');
-      expect(store.getState().selectedFrom).toBeNull();
-      expect(event.defaultPrevented).toBe(true);
-    });
-  });
-
-  /*
-   * -----------------------------------------------------------------------
-   * The ring never lies (#201)
-   * -----------------------------------------------------------------------
-   * DOM focus leaves the board without crossing a seam in three ways: a mouse
-   * click on a control, a native Tab taken while the handler was bailing, and a
-   * modal restoring focus to its opener on close. A focusin listener catches
-   * all three, so the ring can never point at a territory the keys cannot reach.
-   */
-
-  describe('focusin', () => {
-    it('clears the ring when a real control takes focus', () => {
-      const quit = mountButton(null, 'QUIT');
-      store.setState({ focusedAreaId: 1 });
-
-      quit.focus();
-
-      expect(store.getState().focusedAreaId).toBeNull();
-      expect(mockRenderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
-    });
-
-    it('leaves the ring alone when focus lands on the board itself', () => {
-      const canvas = mountCanvas();
-      store.setState({ focusedAreaId: 1 });
-
-      canvas.focus();
-
-      expect(store.getState().focusedAreaId).toBe(1);
-      expect(mockRenderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
     });
 
     it('does not write to the store when there is no ring to clear', () => {
-      const quit = mountButton(null, 'QUIT');
+      const quit = mountButton('QUIT');
       const subscriber = vi.fn();
       const unsubscribe = store.subscribe(subscriber);
 
@@ -921,12 +777,66 @@ describe('KeyboardController', () => {
       unsubscribe();
     });
 
-    it('stops clearing once the controller is destroyed', () => {
-      const quit = mountButton(null, 'QUIT');
-      store.setState({ focusedAreaId: 1 });
+    it('ignores focus on a territory button off the playing screen', () => {
+      store.setState({ screen: 'gameOver' });
+
+      areaButton(1).focus();
+
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
+    });
+
+    /*
+     * The prefix is not the contract, the suffix is: an id that merely starts
+     * with `dw-area-` is some other element. Read as a territory it would write
+     * NaN (or area 0) into the store, paint the ring on nothing, and hand that
+     * decoy the arrow keys.
+     */
+    it.each(['dw-area-hint', 'dw-area-0', 'dw-area-01'])('does not read #%s as a territory', id => {
+      const decoy = mountButton('decoy');
+      decoy.id = id;
+
+      decoy.focus();
+
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
+      // And the arrows stay the browser's on it, as on any other control.
+      expect(fireKey('ArrowRight').defaultPrevented).toBe(false);
+    });
+
+    /*
+     * The window losing focus takes the ring down through focusout; getting it
+     * back has to put the same ring up again, so nothing may latch on the way
+     * out.
+     */
+    it('paints the ring again when focus comes back to the territory it left', () => {
+      areaButton(1).focus();
+      areaButton(1).blur();
+      mockRenderer.hexGrid.setFocusHighlight.mockClear();
+
+      areaButton(1).focus();
+
+      expect(store.getState().focusedAreaId).toBe(1);
+      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(1);
+    });
+
+    it('stops mirroring once the controller is destroyed', () => {
       kbc.destroy();
 
-      quit.focus();
+      areaButton(1).focus();
+
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
+    });
+
+    // The other half of the same teardown: a controller that let go of focusin
+    // but kept focusout would go on wiping a ring it no longer paints.
+    it('stops taking the ring down once the controller is destroyed', () => {
+      areaButton(1).focus();
+      kbc.destroy();
+      mockRenderer.hexGrid.clearFocusHighlight.mockClear();
+
+      areaButton(1).blur();
 
       expect(store.getState().focusedAreaId).toBe(1);
       expect(mockRenderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
@@ -940,9 +850,12 @@ describe('KeyboardController', () => {
    */
 
   describe('destroy', () => {
-    it('removes event listener so keys have no effect', () => {
+    it('removes the key listener so the board keys have no effect', () => {
       kbc.destroy();
-      fireKey('ArrowRight');
+
+      const event = fireKey('ArrowRight');
+
+      expect(event.defaultPrevented).toBe(false);
       expect(store.getState().focusedAreaId).toBeNull();
       expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
     });

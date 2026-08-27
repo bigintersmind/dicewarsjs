@@ -1092,7 +1092,19 @@ export function createGameController(store, renderer, soundManager, preferencesM
        * touching it) would resurrect a stale dialog.
        */
       quitConfirmOpen: false,
+      /*
+       * The playing screen takes BoardFocus with it, and an element removed
+       * while it holds focus fires no focusout in Firefox or jsdom — so the
+       * mirror is closed here rather than left to a listener that may never
+       * run (#211).
+       */
+      focusedAreaId: null,
     });
+    // The renderer's half of the same seam. Doing it here rather than trusting
+    // whichever caller ran clearHighlights() first keeps the ring off the board
+    // behind the game-over card by construction: the turn-cap draw reached from
+    // a human END TURN never clears them.
+    if (renderer) renderer.hexGrid.clearFocusHighlight();
     if (soundManager) soundManager.play('over');
   }
 
@@ -1150,6 +1162,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
       humanEliminated: false,
       awaitingInput: null,
       error: null,
+      // BoardFocus unmounts with the human seat, and that unmount is as silent
+      // as the game-over one — so the mirror is closed here too (#211).
+      focusedAreaId: null,
     });
     refreshCandidateHighlights(); // nobody to hint to once the seat is an AI's
 

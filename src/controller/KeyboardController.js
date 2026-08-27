@@ -1,52 +1,53 @@
 /**
  * Keyboard Controller
  *
- * Provides keyboard navigation for the hex grid game board. Arrow keys move
- * focus between territories, Enter/Space confirms, Escape cancels a selection,
- * Tab steps through the player's own territories, and E ends the turn.
+ * The board's keyboard behaviour that is not already native: arrow keys move
+ * focus between neighboring territories, Escape cancels a half-made attack, and
+ * E ends the turn.
  *
- * Focus ownership (#201). The board is not a DOM element — its focus is the
- * virtual ring painted by `store.focusedAreaId` — so this listener sits on
- * `document` and would otherwise swallow keys aimed at real controls. It
- * therefore only claims the arrows, Enter/Space and Tab-stepping while DOM
- * focus is still on the board: `<body>`, the document element, or the canvas
- * (isBoardFocus). Once a button or the settings dropdown has focus, the arrows
- * and Enter/Space are left entirely alone so the browser activates the control
- * natively. Tab is still watched from a focused control, because two of its
- * presses are the seams back onto the board (below), and E has its own, looser
- * rule (further below). A `focusin` listener rounds it off: whenever DOM focus
- * lands on a real control the ring comes down, because focus can leave the
- * board without crossing a seam at all.
+ * Everything else is the browser's, because since #211 the board IS real DOM.
+ * `BoardFocus` renders one visually hidden `<button>` per live territory, and
+ * App renders it between GameHUD and GameOverlay, so document order is the tab
+ * order — settings die → QUIT → RULES → own territories ascending → END TURN —
+ * and Tab simply walks it. Enter and Space are the focused button's own
+ * activation, whose click reaches `handleTerritoryClick` the same way a canvas
+ * click does. Neither key is touched here.
  *
- * The board then behaves as one virtual tab stop sitting immediately before the
- * END TURN button, which gives the tab order: settings die → QUIT → RULES →
- * [own territories, ascending] → END TURN → out to the browser. That is the
- * walk when focus enters from the browser's chrome; on a fresh playing screen
- * DOM focus is already on `<body>` — the board — so the very first Tab is a
- * step onto the first own territory, and the die, QUIT and RULES are a
- * Shift+Tab away rather than ahead. Nothing wraps; instead there are two seams
- * into the DOM tab order, and two back:
+ * `store.focusedAreaId` is therefore a mirror of DOM focus rather than a
+ * position of its own: the `focusin` listener writes the id and paints the
+ * renderer's focus ring whenever a territory button takes focus, and `focusout`
+ * (or a `focusin` on any other control) nulls it and takes the ring down. Every
+ * way focus can move — a Tab, an arrow, a mouse click on a control, a dialog
+ * restoring focus to what opened it, the window losing focus — reaches the ring
+ * by that one path, so the ring cannot point somewhere focus is not (it can
+ * still be missing while the id is set: every `clearHighlights()` wipes the ring
+ * layer without touching this field, and repainting it there is #211 item 3).
+ * The arrow handler moves DOM focus and lets the listeners do the bookkeeping.
  *
- *   - Tab past the last own territory clears the ring and focuses END TURN;
- *     Shift+Tab before the first focuses whatever precedes END TURN (RULES).
- *   - Shift+Tab on END TURN blurs it and re-enters the board on the LAST own
- *     territory; Tab on END TURN's predecessor re-enters on the first.
+ * The listener sits on `document` and would otherwise swallow keys aimed at real
+ * controls, so the arrows are claimed in exactly two situations: focus is on a
+ * territory button (move to the neighbor in that direction), or focus is nowhere
+ * — `<body>` or the document element, where a fresh playing screen leaves it,
+ * since that screen deliberately places no focus (the #189 exception) — in which
+ * case the first arrow enters the board at the first own territory. On any other
+ * focused control the arrows are left entirely alone: they are the browser's
+ * there (scrolling, a select, a radio group).
  *
- * When the seam's target is missing (no END TURN in the DOM, or nothing focusable
- * before it) or refuses focus, the ring is still cleared but the key is left
- * uncancelled so the browser's own Tab-from-body runs — better a plain native
- * tab than a dead key.
+ * The group is `role="application"` for this to work under a screen reader at
+ * all: NVDA and JAWS default to browse mode, where the arrows move their own
+ * virtual cursor and single letters are quick-nav commands, and neither
+ * normally reaches a keydown listener. `application` hands both back to the
+ * page — which is also what lets E through, where browse mode would have spent
+ * it on "next form field".
  *
- * E is the shortcut past all of that: Tab reaches END TURN one territory at a
- * time, which is 20-odd presses mid-game for the one thing every turn ends
- * with. It fires from the board and from any focused button or link — none of
- * them consume letters, and END TURN advertises the key through
- * `aria-keyshortcuts`, so it has to work on the very control that announces it
- * — but never from a text-entry control (isTextEntry: input, select, textarea,
- * contenteditable), which owns its own letters, and never with a modifier
- * held, so it never shadows a browser shortcut. Tab remains the route a screen
- * reader can rely on: NVDA and JAWS swallow single letters in browse mode,
- * where E is "next form field".
+ * E is the shortcut past the tab walk: Tab reaches END TURN one territory at a
+ * time — one press per territory — for the one thing every turn ends with. It
+ * fires from the board and from any focused button or link — none of them
+ * consume letters, and END TURN advertises the key through `aria-keyshortcuts`,
+ * so it has to work on the very control that announces it — but never from a
+ * text-entry control (isTextEntry: input, select, textarea, contenteditable),
+ * which owns its own letters, and never with a modifier held, so it never
+ * shadows a browser shortcut.
  *
  * Escape is shared with the quit-to-title confirm (#181). Unlike the rest it is
  * *handled* wherever focus is — a half-made attack has to be cancellable from a
@@ -55,55 +56,82 @@
  * bubble path, listens for to raise "Abandon this game?". While that dialog or
  * the "How to play" card is open the board takes no keys at all.
  *
- * Two behaviours that read as bugs and are not:
+ * Four behaviours that read as bugs and are not:
  *
  *   - After a MOUSE click on QUIT → KEEP PLAYING, QuitConfirm restores focus to
- *     the QUIT button, so the arrows are dead until a click on the board or a
- *     Tab moves focus off it. That is native button semantics; the focusin rule
- *     has already taken the ring down, so nothing is left pointing at a
- *     territory the keys cannot reach.
- *   - Tab during a battle animation goes native — the whole handler bails while
- *     `animationPhase` is not idle. Swallowing it for the animation's duration
- *     would be a brief keyboard trap.
+ *     the QUIT button — that is where focus came from, on browsers that focus a
+ *     button on click — so the arrows are dead until Tab or a click moves focus
+ *     off it. Native button semantics; the focus listeners have already taken
+ *     the ring down, so nothing is left pointing at a territory the keys cannot
+ *     reach. Safari does not focus a clicked button, and there the restore lands
+ *     on `<body>`, from which the next arrow enters the board. Opened from the
+ *     KEYBOARD with focus on a territory, the same restore lands back on that
+ *     territory button, ring and all.
+ *   - Tab during a battle animation is native, and now by construction: this
+ *     handler never sees Tab at all. The arrows, E and Escape do bail while
+ *     `animationPhase` is not idle.
+ *   - A click on the canvas blurs the focused territory button to `<body>` —
+ *     mousedown's own focus fixup, and the canvas is not focusable — so the ring
+ *     goes down and the next arrow re-enters at the first own territory instead
+ *     of resuming where the keyboard was. Resuming at the clicked territory is a
+ *     #211 follow-up, not this change.
+ *   - Safari with "Press Tab to highlight each item" off (the pre-Sonoma
+ *     default) does not visit `<button>`s on Tab at all, so the Tab route to the
+ *     board and on to END TURN is Safari's to withhold. The arrows still enter
+ *     from `<body>`, `focusArea`'s `focus()` is unaffected, and E fires from
+ *     anywhere, so the game stays playable there. (#201's handler-driven Tab was
+ *     immune to that preference; this is the price of the native walk.)
  *
  * @module controller/KeyboardController
  */
 
 /**
- * DOM id of the END TURN button, the board's neighbor in the tab order.
- * Declared here because this module is what depends on finding it; GameOverlay
- * imports the constant rather than spelling the id twice — a ui → controller
- * import, which is safe only because this module is a constant plus a factory
- * with no import-time side effects.
+ * Prefix of the DOM id BoardFocus gives each territory button. Declared here
+ * because this module is what depends on finding those buttons and on reading
+ * an id back off a focus event; BoardFocus imports the builder rather than
+ * spelling the id twice — a ui → controller import, which is safe only because
+ * this module is constants plus a factory with no import-time side effects.
  */
-export const END_TURN_BUTTON_ID = 'dw-end-turn';
+const AREA_ID_PREFIX = 'dw-area-';
 
 /**
- * The usual tab-stop approximation, for locating END TURN's neighbor. Not
- * everything the browser would stop at: it misses <summary>, contenteditable
- * and media with controls, and over-matches hidden inputs — none of which the
- * playing screen has.
- */
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/**
- * Is DOM focus still on the board rather than on a real control?
+ * DOM id of the BoardFocus button for a territory.
  *
- * `<body>` is where focus sits for a player who has not tabbed into anything
- * yet (the playing screen deliberately places none — the #189 exception), and
- * where it is put back when a seam hands the board its focus again. The canvas
- * carries no tabindex and nothing calls focus() on it, so today it never holds
- * focus; it is listed defensively, so that adding a tabindex — or Pixi's
- * accessibility layer, which renders its own div — cannot silently kill every
- * board key. The 'pixi-canvas' literal is duplicated from index.html and
- * main.jsx; there is no shared constant for it.
+ * @param {number} areaId
+ * @returns {string}
+ */
+export function areaElementId(areaId) {
+  return `${AREA_ID_PREFIX}${areaId}`;
+}
+
+/**
+ * The territory id behind an element, or null when it is not one of the board's
+ * buttons — which is how "is focus on the board?" is answered now that the board
+ * has real elements. Strict about the suffix (a positive integer, no leading
+ * zeros) so an unrelated id that merely starts with the prefix cannot be read as
+ * territory NaN.
+ *
+ * @param {EventTarget|Element|null} el
+ * @returns {number|null}
+ */
+function areaIdOf(el) {
+  const id = el?.id;
+  if (typeof id !== 'string' || !id.startsWith(AREA_ID_PREFIX)) return null;
+  const rest = id.slice(AREA_ID_PREFIX.length);
+  if (!/^[1-9][0-9]*$/.test(rest)) return null;
+  return Number(rest);
+}
+
+/**
+ * Focus is nowhere in particular: the state a fresh playing screen starts in,
+ * and the state a `blur()` or a removed element leaves behind. The arrows enter
+ * the board from here.
  *
  * @param {Element|null} el - Typically document.activeElement
  * @returns {boolean}
  */
-function isBoardFocus(el) {
-  return !el || el === document.body || el === document.documentElement || el.id === 'pixi-canvas';
+function isUnfocused(el) {
+  return !el || el === document.body || el === document.documentElement;
 }
 
 /**
@@ -127,22 +155,23 @@ function isTextEntry(el) {
  */
 export function createKeyboardController(store, controller, renderer) {
   let warnedNoCellPos = false;
-  let warnedNoSeamTarget = false;
+  let warnedNoButton = false;
 
   /**
-   * One-shot: the seams are broken, and broken for good.
+   * One-shot: the board's DOM focus targets are missing, and missing for good.
    *
-   * A null lookup while the store says playing + human turn is never transient
-   * — GameStore notifies synchronously and Preact flushes on a microtask, well
-   * before the next input event — so it means the id contract broke or an
-   * ErrorBoundary is showing its fallback where the overlay should be. Warn
-   * once rather than on every Tab.
+   * A lookup that fails while the store says playing + human turn is never
+   * transient — GameStore notifies synchronously and Preact flushes on a
+   * microtask, well before the next input event — so it means BoardFocus is not
+   * mounted, an ErrorBoundary is showing its fallback in its place, the id
+   * contract between the two files broke, or the two files disagree on which
+   * areas are live. Warn once rather than on every arrow.
    */
-  function warnNoSeamTarget() {
-    if (warnedNoSeamTarget) return;
-    warnedNoSeamTarget = true;
+  function warnNoBoardButton(areaId) {
+    if (warnedNoButton) return;
+    warnedNoButton = true;
     console.warn(
-      '[KeyboardController] END TURN button (#dw-end-turn) not found or not focusable — that Tab was left to the browser'
+      `[KeyboardController] no board button for territory ${areaId} — is BoardFocus mounted?`
     );
   }
 
@@ -166,27 +195,18 @@ export function createKeyboardController(store, controller, renderer) {
     const currentPlayerId = gameState.turnOrder[gameState.currentPlayerIndex];
     if (currentPlayerId !== humanIdx) return;
 
-    const boardHasFocus = isBoardFocus(document.activeElement);
-
     switch (e.key) {
       case 'ArrowUp':
       case 'ArrowDown':
       case 'ArrowLeft':
-      case 'ArrowRight':
-        if (!boardHasFocus) return;
+      case 'ArrowRight': {
+        const fromId = areaIdOf(document.activeElement);
+        // On a real control the arrows are the browser's — see the header.
+        if (fromId == null && !isUnfocused(document.activeElement)) return;
         e.preventDefault();
-        moveFocus(e.key, gameState, state);
+        moveFocus(e.key, gameState, fromId, humanIdx);
         break;
-      case 'Enter':
-      case ' ':
-        /*
-         * A focused button gets its own Enter/Space: claiming them here would
-         * both swallow the activation and fire an attack behind the dialog.
-         */
-        if (!boardHasFocus) return;
-        e.preventDefault();
-        confirmFocus(state);
-        break;
+      }
       case 'e':
       case 'E':
         /*
@@ -211,47 +231,69 @@ export function createKeyboardController(store, controller, renderer) {
          */
         if (cancelSelection()) e.preventDefault();
         break;
-      case 'Tab':
-        handleTab(e, boardHasFocus, gameState, humanIdx, state);
-        break;
     }
   }
 
   /**
-   * Keep the ring honest when focus leaves the board without a seam.
+   * A territory button took focus, or something else did — mirror it into the
+   * store and the renderer's ring.
    *
-   * Three ways that happens, none of them going through handleTab: a mouse
-   * click on QUIT / RULES / the settings die; a native Tab taken while this
-   * handler was bailing (a battle animation, an AI turn); and QuitConfirm or
-   * RulesModal restoring focus to whatever opened them on close. Left alone,
-   * the ring stays painted on a territory the keys no longer reach — and Enter
-   * would then act on the focused button instead.
-   *
-   * Idempotent with leaveBoard, which has already cleared the ring by the time
-   * its focus() fires this, and never triggered by enterBoard, which blurs to
-   * `<body>` rather than focusing a control.
+   * Every focus move ends here, whatever caused it: the browser's own Tab walk,
+   * a click, `focusArea` below, or a dialog restoring focus on close. That is
+   * why the arrow handler writes no state of its own.
    */
   function handleFocusIn(e) {
-    const state = store.getState();
-    if (state.screen !== 'playing') return;
-    if (isBoardFocus(e.target)) return;
-    if (state.focusedAreaId == null) return;
+    if (store.getState().screen !== 'playing') return;
+    const id = areaIdOf(e.target);
+    if (id != null) {
+      setFocus(id);
+      return;
+    }
+    // Focus moved to a real control: the ring would otherwise stay painted on a
+    // territory the keys no longer reach.
+    if (store.getState().focusedAreaId != null) clearBoardFocus();
+  }
+
+  /**
+   * Focus left a territory button for something that is not a focusable element
+   * at all — a click on the canvas, a `blur()`, the window losing focus. There
+   * is no matching `focusin` in any of those cases, so this is what takes the
+   * ring down; when the window comes back, `focusin` puts it up again.
+   *
+   * Button → button is left alone: the incoming `focusin` repaints the ring on
+   * the new territory, and clearing it in between is a visible flicker.
+   *
+   * Deliberately not guarded on `screen === 'playing'` the way handleFocusIn
+   * is: Chromium fires a focusout (with a null `relatedTarget`) for an element
+   * removed while it holds focus, and that event arrives after the screen has
+   * already changed — game over unmounts the buttons — where it still has to
+   * take the ring down. Firefox and jsdom fire nothing at all, which is why
+   * GameController nulls `focusedAreaId` at that same seam.
+   */
+  function handleFocusOut(e) {
+    if (areaIdOf(e.target) == null) return;
+    if (areaIdOf(e.relatedTarget) != null) return;
+    if (store.getState().focusedAreaId == null) return;
     clearBoardFocus();
   }
 
   /**
-   * Move focus to the neighbor closest to the given direction.
+   * Move DOM focus to the neighbor closest to the given direction, or onto the
+   * first own territory when focus is not on the board yet.
+   *
+   * @param {string} key - The arrow key
+   * @param {Object} gameState
+   * @param {number|null} fromId - Territory that has DOM focus, or null
+   * @param {number} humanIdx
    */
-  function moveFocus(key, gameState, storeState) {
-    const focused = storeState.focusedAreaId;
-    if (!focused) {
-      // No focus yet — focus on first own territory
-      const firstOwn = findFirstOwnTerritory(gameState, storeState.humanPlayerIndex);
-      if (firstOwn) setFocus(firstOwn);
+  function moveFocus(key, gameState, fromId, humanIdx) {
+    if (fromId == null) {
+      const firstOwn = findFirstOwnTerritory(gameState, humanIdx);
+      if (firstOwn) focusArea(firstOwn);
       return;
     }
 
-    const area = gameState.areas[focused];
+    const area = gameState.areas[fromId];
     if (!area || !area.neighborAreaIds) return;
 
     // Map arrow key to angle (degrees, screen-space: 0=right, 90=down)
@@ -289,16 +331,28 @@ export function createKeyboardController(store, controller, renderer) {
       }
     }
 
-    if (bestNeighbor !== null) setFocus(bestNeighbor);
+    if (bestNeighbor !== null) focusArea(bestNeighbor);
   }
 
   /**
-   * Confirm the focused territory (acts like a click).
+   * Put DOM focus on a territory's button. Deliberately writes nothing: the
+   * `focusin` it raises is what updates the store and the ring, so this path is
+   * identical to a Tab or a dialog's focus restore.
+   *
+   * `preventScroll` because the buttons are clipped to a pixel in a corner —
+   * scrolling them into view would jump the page away from the board.
    */
-  function confirmFocus(storeState) {
-    const focused = storeState.focusedAreaId;
-    if (!focused) return;
-    controller.handleTerritoryClick(focused);
+  function focusArea(areaId) {
+    const el = document.getElementById(areaElementId(areaId));
+    if (!el) {
+      warnNoBoardButton(areaId);
+      return;
+    }
+    el.focus({ preventScroll: true });
+    // A present element that refuses focus (disabled, detached) leaves the ring
+    // and DOM focus where they were, which is the honest outcome — but it is
+    // still a wiring bug worth one line in the console.
+    if (document.activeElement !== el) warnNoBoardButton(areaId);
   }
 
   /**
@@ -317,8 +371,8 @@ export function createKeyboardController(store, controller, renderer) {
     /*
      * The selection and the keyboard's focus are different things, and
      * clearHighlights() wipes both layers — but only the selection was
-     * cancelled, so repaint the ring where it still is. Without this the next
-     * Tab steps on from an invisible position.
+     * cancelled, so repaint the ring where DOM focus still is (the store
+     * mirrors it). Without this the focused territory has nothing on screen.
      */
     if (renderer && storeState.focusedAreaId != null) {
       renderer.hexGrid.setFocusHighlight(storeState.focusedAreaId);
@@ -332,130 +386,6 @@ export function createKeyboardController(store, controller, renderer) {
     return true;
   }
 
-  /**
-   * Tab: step through own territories, or cross one of the seams (#201).
-   *
-   * @param {KeyboardEvent} e
-   * @param {boolean} boardHasFocus - Whether the board still owns DOM focus
-   */
-  function handleTab(e, boardHasFocus, gameState, humanIdx, storeState) {
-    const ownAreas = collectOwnAreas(gameState, humanIdx);
-    if (!boardHasFocus) {
-      enterBoard(e, ownAreas);
-      return;
-    }
-
-    const currentIdx = ownAreas.indexOf(storeState.focusedAreaId);
-    if (currentIdx < 0) {
-      /*
-       * Nothing highlighted: Tab enters at the first own territory, Shift+Tab
-       * at the last — arriving backwards means arriving at the far end, the
-       * same as a browser stepping back into a group of controls.
-       */
-      if (ownAreas.length === 0) {
-        leaveBoard(e, e.shiftKey);
-        return;
-      }
-      e.preventDefault();
-      setFocus(e.shiftKey ? ownAreas[ownAreas.length - 1] : ownAreas[0]);
-      return;
-    }
-
-    const nextIdx = e.shiftKey ? currentIdx - 1 : currentIdx + 1;
-    // Past either end the board is done: hand off to the DOM rather than wrap.
-    if (nextIdx < 0 || nextIdx >= ownAreas.length) {
-      leaveBoard(e, e.shiftKey);
-      return;
-    }
-    e.preventDefault();
-    setFocus(ownAreas[nextIdx]);
-  }
-
-  /**
-   * Hand DOM focus on: forward to END TURN, backward to whatever precedes it.
-   *
-   * The ring is cleared either way; the key is only claimed once focus has
-   * actually landed on the target. Checking after the fact rather than trusting
-   * focus() is what keeps a disabled END TURN from becoming a dead key — the
-   * predecessor lookup filters `disabled` out, but getElementById does not — and
-   * a native Tab out of `<body>` is a far better failure than nowhere to go.
-   */
-  function leaveBoard(e, reverse) {
-    const endTurn = document.getElementById(END_TURN_BUTTON_ID);
-    if (!endTurn && !reverse) warnNoSeamTarget();
-    const target = reverse ? focusablePredecessor(endTurn) : endTurn;
-    clearBoardFocus();
-    // A missing predecessor is legitimate: END TURN can be the first focusable.
-    if (!target) return;
-    target.focus();
-    if (document.activeElement === target) {
-      e.preventDefault();
-    } else {
-      warnNoSeamTarget();
-    }
-  }
-
-  /**
-   * The two seams back onto the board: Shift+Tab from END TURN re-enters at the
-   * last own territory, Tab from END TURN's predecessor at the first. Every
-   * other control tabs natively.
-   */
-  function enterBoard(e, ownAreas) {
-    if (ownAreas.length === 0) return;
-    const endTurn = document.getElementById(END_TURN_BUTTON_ID);
-    if (!endTurn) {
-      warnNoSeamTarget();
-      return;
-    }
-    // Never null here: isBoardFocus() treats a null activeElement as the board,
-    // so a null one would have been handled as a step, not as an entry.
-    const active = document.activeElement;
-    const target = e.shiftKey
-      ? active === endTurn && ownAreas[ownAreas.length - 1]
-      : active === focusablePredecessor(endTurn) && ownAreas[0];
-    if (!target) return;
-    e.preventDefault();
-    // Focus goes back to <body>, which is what makes the board the owner again.
-    active.blur();
-    setFocus(target);
-  }
-
-  /**
-   * The focusable element immediately before END TURN in document order.
-   *
-   * No visibility filtering: jsdom has no layout, and nothing on the playing
-   * screen is a hidden focusable anyway — SettingsPanel renders its option
-   * buttons only while the dropdown is open, so a closed dropdown contributes
-   * just the die, and the HUD's centering twins are non-focusable <span>s.
-   *
-   * Computed live on every press rather than cached, because an open dropdown
-   * genuinely adds focusables (its option buttons and the "Source on GitHub"
-   * link). They all sit before QUIT in document order, so the answer stays
-   * RULES either way — but only because it is recomputed, not assumed.
-   *
-   * @param {Element|null} endTurn
-   * @returns {Element|null}
-   */
-  function focusablePredecessor(endTurn) {
-    if (!endTurn) return null;
-    const scope = document.getElementById('app') || document.body;
-    const items = Array.from(scope.querySelectorAll(FOCUSABLE));
-    const idx = items.indexOf(endTurn);
-    return idx > 0 ? items[idx - 1] : null;
-  }
-
-  /** Collect the human's territories in ascending area id. */
-  function collectOwnAreas(gameState, humanIdx) {
-    const ownAreas = [];
-    const areas = gameState.areas;
-    for (let a = 1; a < (areas.length || Object.keys(areas).length + 1); a++) {
-      if (areas[a] && areas[a].owner === humanIdx) {
-        ownAreas.push(a);
-      }
-    }
-    return ownAreas;
-  }
-
   function setFocus(areaId) {
     store.setState({ focusedAreaId: areaId });
     if (renderer && renderer.hexGrid.setFocusHighlight) {
@@ -463,16 +393,25 @@ export function createKeyboardController(store, controller, renderer) {
     }
   }
 
-  /** Take the ring down — the board no longer holds the keyboard's focus. */
+  /** Take the ring down — the board no longer holds DOM focus. */
   function clearBoardFocus() {
     store.setState({ focusedAreaId: null });
     if (renderer) renderer.hexGrid.clearFocusHighlight();
   }
 
+  /**
+   * Where the arrows enter the board. "Live" has to mean here exactly what it
+   * means in BoardFocus — an area that is missing or has `size === 0` gets no
+   * button — or this hands back an id nothing on the page can focus. The engine
+   * happens never to give a size-0 sentinel an owner, but that is the engine's
+   * invariant to keep, not this file's.
+   */
   function findFirstOwnTerritory(gameState, humanIdx) {
     const areas = gameState.areas;
     for (let a = 1; a < (areas.length || Object.keys(areas).length + 1); a++) {
-      if (areas[a] && areas[a].owner === humanIdx) return a;
+      const area = areas[a];
+      if (!area || area.size === 0) continue;
+      if (area.owner === humanIdx) return a;
     }
     return null;
   }
@@ -492,11 +431,13 @@ export function createKeyboardController(store, controller, renderer) {
 
   document.addEventListener('keydown', handleKeyDown);
   document.addEventListener('focusin', handleFocusIn);
+  document.addEventListener('focusout', handleFocusOut);
 
   return {
     destroy() {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('focusout', handleFocusOut);
     },
   };
 }

@@ -36,6 +36,13 @@ function makeGameState(extra = {}) {
   return {
     turnOrder: [0, 1],
     currentPlayerIndex: 0,
+    /* The playing screen renders BoardFocus, which walks the board (#211), so
+       a bare two-seat fixture needs territories to walk. */
+    areas: {
+      0: null,
+      1: { owner: 0, dice: 3, neighborAreaIds: [2] },
+      2: { owner: 1, dice: 2, neighborAreaIds: [1] },
+    },
     players: [
       { id: 0, territoryCount: 5, stock: 1, eliminated: false },
       { id: 1, territoryCount: 4, stock: 0, eliminated: false },

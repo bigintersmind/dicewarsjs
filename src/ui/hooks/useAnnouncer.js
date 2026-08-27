@@ -53,10 +53,12 @@ export function useAnnouncer(store) {
   // Only `focusedAreaId` is a dep, because this speaks when the ring MOVES. Everything else it
   // needs — `screen`, `gameState`, the human seat, the lineup — is read from the closure of the
   // render that saw the id change, which carries all of them. Depending on those instead would
-  // re-speak a standing ring on writes that are not focus moves at all: GameController.startNewGame
-  // writes a fresh `playerNames: []` while the finished game's ring is still set (BATTLE re-spoke
-  // its territory as "owned by Player 2"), and startSpectate writes `humanPlayerIndex: null` and
-  // leaves the ring where it was (SPECTATE spoke "owned by You").
+  // re-speak a standing ring on writes that are not focus moves: `gameState` is replaced by every
+  // attack, so a ring left standing through a battle would be re-read over the result the player
+  // is waiting for. The seat and the lineup change only on the far side of a screen change
+  // (startSpectate's gameOver → playing, goToTitle and startNewGame off the playing screen), where
+  // the per-screen remount described below runs this effect fresh regardless — #211 item 9 removes
+  // that remount, so the tests pin the narrow deps against those writes too.
   //
   // The only writer of a NON-NULL id is KeyboardController.setFocus, which writes nothing else in
   // the same commit; every other write of this field is null.
@@ -66,14 +68,18 @@ export function useAnnouncer(store) {
   // becomes a second voice over the same move: delete it then.
   const prevFocusRef = useRef(null);
   useEffect(() => {
+    // Recorded before any early return: goToTitle nulls the ring and leaves the playing screen in
+    // the same write, and the next game's first Tab has to find a null here to earn its "Board."
+    // prefix. Inert while the per-screen remount below rebuilds the ref anyway; load-bearing once
+    // #211 item 9 stops that remount.
+    const entering = prevFocusRef.current == null;
+    prevFocusRef.current = focusedAreaId;
+
     // The announcer remounts per screen (App.jsx renders it inside the `playing` and `gameOver`
     // branches, under `<ErrorBoundary key={screen}>`), so at game over this runs afresh over a ring
     // that nothing cleared — `triggerGameOver` leaves `focusedAreaId` set. The closing line belongs
     // to the game-over branch of the effect below: say nothing here, and clear nothing either.
     if (screen !== 'playing') return;
-
-    const entering = prevFocusRef.current == null;
-    prevFocusRef.current = focusedAreaId;
 
     // A spectator has no board focus — KeyboardController bails on this same condition before it can
     // move the ring. But it can INHERIT one: startSpectate hands the seat to a bot without clearing

@@ -475,9 +475,13 @@ describe('ScreenReaderAnnouncer', () => {
   // reset first among them. Effects flush in declaration order and the focus effect is declared
   // first on purpose, so the turn is what the player hears.
   it('announces the turn, not the ring, when one commit changes both', () => {
+    // At mount, with both already set …
     const { getText } = startPlaying({ focusedAreaId: 1 });
-
     expect(getText()).toMatch(/^Your turn/);
+
+    // … and in a genuine update: the ring moves and the phase changes in the same write.
+    act(() => store.setState({ focusedAreaId: 3, awaitingInput: 'selectTo' }));
+    expect(getText()).toBe('Select a neighboring territory to attack.');
   });
 
   // The mirror of that: a turn change while the ring is standing must still be announced. Merging
@@ -520,15 +524,18 @@ describe('ScreenReaderAnnouncer', () => {
     act(() => store.setState({ focusedAreaId: 1 }));
     expect(getText()).toBe('Board. Territory 1, yours, 3 dice.');
 
-    // startSpectate's payload, minus the screen it also sets (already 'playing' here).
+    // startSpectate's payload minus the screen it also sets. Through App that screen change
+    // (gameOver → playing) remounts the announcer, so this write never reaches a mounted one today;
+    // it pins the effect's own contract for when #211 item 9 stops the remount.
     act(() => store.setState({ humanPlayerIndex: null, awaitingInput: null }));
     expect(getText()).toBe('Board. Territory 1, yours, 3 dice.');
     expect(getText()).not.toContain('owned by You');
   });
 
-  // startNewGame's first write is a fresh `playerNames: []`, an await before it clears the ring of
-  // the game that just ended. A name reset is not a focus move — with `playerNames` in the focus
-  // effect's deps this re-spoke the finished game's territory as "owned by Player 2".
+  // A name reset is not a focus move. With `playerNames` in the focus effect's deps, this re-spoke
+  // the standing territory as "owned by Player 2" under the announcer rendered standalone; through
+  // App the lineup is only rewritten off the playing screen (goToTitle, startNewGame), where the
+  // per-screen remount hides it today — this pins the contract for when #211 item 9 stops that.
   it('does not re-speak the ring when the lineup is reset under it', () => {
     // Mid-animation on the human's own turn, so the turn effect writes nothing of its own.
     const { getText } = startPlaying({ awaitingInput: null });
@@ -538,5 +545,40 @@ describe('ScreenReaderAnnouncer', () => {
 
     act(() => store.setState({ playerNames: [] }));
     expect(getText()).toBe('Board. Territory 2, owned by Blitz, 2 dice.');
+  });
+
+  // goToTitle nulls the ring and leaves the playing screen in one write. Today that write also
+  // unmounts the announcer (App keys it per screen); once #211 item 9 hoists it, the ref behind
+  // the "Board." prefix has to see the null even though the effect says nothing off-screen, or
+  // the next game's first Tab would arrive as a bare territory.
+  it('re-arms the entry prefix when the ring is nulled on the way to the title', () => {
+    const { getText } = startPlaying();
+    act(() => store.setState({ focusedAreaId: 3 }));
+    expect(getText()).toBe('Board. Territory 3, yours, 1 die.');
+
+    // goToTitle's payload, reduced to the fields this hook reads.
+    act(() =>
+      store.setState({
+        screen: 'title',
+        gameState: null,
+        awaitingInput: null,
+        focusedAreaId: null,
+        playerNames: [],
+      })
+    );
+    // Off the playing screen it says nothing and clears nothing.
+    expect(getText()).toBe('Board. Territory 3, yours, 1 die.');
+
+    // The next game on the same mount, mid-animation so the turn effect stays quiet.
+    act(() =>
+      store.setState({
+        screen: 'playing',
+        gameState: makeGameState(),
+        awaitingInput: null,
+        playerNames: ['You', 'Blitz'],
+      })
+    );
+    act(() => store.setState({ focusedAreaId: 1 }));
+    expect(getText()).toBe('Board. Territory 1, yours, 3 dice.');
   });
 });

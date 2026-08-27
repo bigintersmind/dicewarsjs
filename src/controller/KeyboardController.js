@@ -8,19 +8,24 @@
  * Focus ownership (#201). The board is not a DOM element — its focus is the
  * virtual ring painted by `store.focusedAreaId` — so this listener sits on
  * `document` and would otherwise swallow keys aimed at real controls. It
- * therefore only claims the arrows, Enter/Space, E and Tab-stepping while DOM
+ * therefore only claims the arrows, Enter/Space and Tab-stepping while DOM
  * focus is still on the board: `<body>`, the document element, or the canvas
  * (isBoardFocus). Once a button or the settings dropdown has focus, the arrows
  * and Enter/Space are left entirely alone so the browser activates the control
- * natively. Tab is the one key still watched from a focused control, because
- * two of its presses are the seams back onto the board (below). A `focusin`
- * listener rounds it off: whenever DOM focus lands on a real control the ring
- * comes down, because focus can leave the board without crossing a seam at all.
+ * natively. Tab is still watched from a focused control, because two of its
+ * presses are the seams back onto the board (below), and E has its own, looser
+ * rule (further below). A `focusin` listener rounds it off: whenever DOM focus
+ * lands on a real control the ring comes down, because focus can leave the
+ * board without crossing a seam at all.
  *
  * The board then behaves as one virtual tab stop sitting immediately before the
  * END TURN button, which gives the tab order: settings die → QUIT → RULES →
- * [own territories, ascending] → END TURN → out to the browser. Nothing wraps;
- * instead there are two seams into the DOM tab order, and two back:
+ * [own territories, ascending] → END TURN → out to the browser. That is the
+ * walk when focus enters from the browser's chrome; on a fresh playing screen
+ * DOM focus is already on `<body>` — the board — so the very first Tab is a
+ * step onto the first own territory, and the die, QUIT and RULES are a
+ * Shift+Tab away rather than ahead. Nothing wraps; instead there are two seams
+ * into the DOM tab order, and two back:
  *
  *   - Tab past the last own territory clears the ring and focuses END TURN;
  *     Shift+Tab before the first focuses whatever precedes END TURN (RULES).
@@ -34,10 +39,14 @@
  *
  * E is the shortcut past all of that: Tab reaches END TURN one territory at a
  * time, which is 20-odd presses mid-game for the one thing every turn ends
- * with. It only fires while the board owns focus (a focused control owns its
- * own letters) and with no modifier held, so it never shadows a browser
- * shortcut. Tab remains the route a screen reader can rely on: NVDA and JAWS
- * swallow single letters in browse mode, where E is "next form field".
+ * with. It fires from the board and from any focused button or link — none of
+ * them consume letters, and END TURN advertises the key through
+ * `aria-keyshortcuts`, so it has to work on the very control that announces it
+ * — but never from a text-entry control (isTextEntry: input, select, textarea,
+ * contenteditable), which owns its own letters, and never with a modifier
+ * held, so it never shadows a browser shortcut. Tab remains the route a screen
+ * reader can rely on: NVDA and JAWS swallow single letters in browse mode,
+ * where E is "next form field".
  *
  * Escape is shared with the quit-to-title confirm (#181). Unlike the rest it is
  * *handled* wherever focus is — a half-made attack has to be cancellable from a
@@ -98,6 +107,17 @@ function isBoardFocus(el) {
 }
 
 /**
+ * Controls that consume typed letters themselves — the only places E must stay
+ * theirs. Buttons and links do not, so E works from them; see the header.
+ * (jsdom leaves `isContentEditable` undefined, hence the strict comparison.)
+ */
+function isTextEntry(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+}
+
+/**
  * Create a keyboard controller for hex grid navigation.
  *
  * @param {Object} store - GameStore instance
@@ -122,7 +142,7 @@ export function createKeyboardController(store, controller, renderer) {
     if (warnedNoSeamTarget) return;
     warnedNoSeamTarget = true;
     console.warn(
-      '[KeyboardController] END TURN button (#dw-end-turn) not found or not focusable — keyboard tab-order seams are disabled'
+      '[KeyboardController] END TURN button (#dw-end-turn) not found or not focusable — that Tab was left to the browser'
     );
   }
 
@@ -171,12 +191,14 @@ export function createKeyboardController(store, controller, renderer) {
       case 'E':
         /*
          * The one-key way out of a turn, so ending it does not cost a Tab per
-         * territory. Same ownership rule as the arrows — a focused control owns
-         * its letters — and no modifier, so Ctrl/Cmd/Alt+E stay the browser's.
-         * endHumanTurn() no-ops when awaitingInput is null, which is the guard
-         * against ending a turn the player is not actually taking.
+         * territory. Looser than the arrows' ownership rule: a focused button
+         * or link does nothing with a letter, and END TURN itself advertises E
+         * via aria-keyshortcuts, so only a text-entry control keeps the key.
+         * No modifier, so Ctrl/Cmd/Alt+E stay the browser's. endHumanTurn()
+         * no-ops when awaitingInput is null, which is the guard against ending
+         * a turn the player is not actually taking.
          */
-        if (!boardHasFocus) return;
+        if (isTextEntry(document.activeElement)) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         e.preventDefault();
         controller.endHumanTurn();

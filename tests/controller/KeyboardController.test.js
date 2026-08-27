@@ -288,8 +288,9 @@ describe('KeyboardController', () => {
    * End turn key (#201)
    * -----------------------------------------------------------------------
    * Tab reaches END TURN one territory at a time, which is 20-odd presses
-   * mid-game; E is the shortcut, and it obeys the same focus ownership rule as
-   * the rest of the board keys.
+   * mid-game; E is the shortcut. Unlike the rest of the board keys it also
+   * fires from a focused button or link — END TURN advertises it through
+   * aria-keyshortcuts — and only a text-entry control keeps the letter.
    */
 
   describe('end turn key', () => {
@@ -305,14 +306,28 @@ describe('KeyboardController', () => {
       expect(event.defaultPrevented).toBe(true);
     });
 
-    it('leaves E to a focused control', () => {
+    it('E ends the turn from a focused control too — END TURN announces the key itself', () => {
       const endTurn = mountButton(END_TURN_BUTTON_ID, 'END TURN');
       endTurn.focus();
 
       const event = fireKey('e');
 
+      expect(mockController.endHumanTurn).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('leaves E to a text-entry control', () => {
+      for (const tag of ['input', 'select', 'textarea']) {
+        const field = document.createElement(tag);
+        document.body.appendChild(field);
+        mountedControls.push(field);
+        field.focus();
+        expect(document.activeElement).toBe(field);
+
+        const event = fireKey('e');
+        expect(event.defaultPrevented).toBe(false);
+      }
       expect(mockController.endHumanTurn).not.toHaveBeenCalled();
-      expect(event.defaultPrevented).toBe(false);
     });
 
     it('leaves the browser its own modifier combinations', () => {

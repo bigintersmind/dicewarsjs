@@ -244,6 +244,18 @@ describe('App playing-screen tab order (#201)', () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it('E ends the turn from END TURN itself — the key its aria-keyshortcuts announces', () => {
+    const { controller } = renderPlaying();
+
+    endTurnBtn().focus();
+    expect(document.activeElement).toBe(endTurnBtn());
+
+    const event = press('e');
+
+    expect(controller.endHumanTurn).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it('takes the ring down when a control is clicked into focus', () => {
     const { store } = renderPlaying();
 

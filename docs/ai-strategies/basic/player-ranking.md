@@ -24,47 +24,74 @@ for (let i = 0; i < 8 - 1; i++) {
 
 ## Example from ai_default.js
 
+`ai_default` ranks the players and detects a dominant one in closures inside the bot function (`pmax` is the player count, read once at the top); the last slice below sits in its `isValidAttack` helper, where `attackerArea` and `defenderArea` are the helper's parameters and `currentPlayer` and `defenderPlayer` its first two locals:
+
 ```javascript
-// Count total dice and territories for each player
-let sum = 0;
-for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
-    const arm = game.adat[i].arm;
-    game.player[arm].area_c++;
-    game.player[arm].dice_c += game.adat[i].dice;
-    sum += game.adat[i].dice;
-}
+// Count resources and get total dice count
+const totalDiceCount = countPlayerResources();
 
-// Calculate dice ranking for each player (0 = highest rank)
-for (let i = 0; i < 8; i++) game.player[i].dice_jun = i;
-for (let i = 0; i < 8 - 1; i++) {
-    for (let j = i + 1; j < 8; j++) {
-        if (game.player[i].dice_c < game.player[j].dice_c) {
-            const tmp = game.player[i].dice_jun;
-            game.player[i].dice_jun = game.player[j].dice_jun;
-            game.player[j].dice_jun = tmp;
-        }
-    }
-}
+/**
+ * Helper function to rank players by dice count
+ * Uses array operations instead of bubble sort
+ */
+const rankPlayersByDiceCount = () => {
+  // Create array of player indices with their dice counts
+  const playerRankings = Array.from({ length: pmax }, (_, i) => ({
+    playerIndex: i,
+    diceCount: game.player[i].dice_c,
+  }));
 
-// Identify if there's a dominant player (>40% of total dice)
-let top = -1;
-for (let i = 0; i < 8; i++) {
-    if (game.player[i].dice_c > sum * 2 / 5) top = i;
-}
+  // Sort by dice count (descending)
+  playerRankings.sort((a, b) => b.diceCount - a.diceCount);
 
-// Handle equal dice situations based on player ranking
-if (game.adat[j].dice == game.adat[i].dice) {
-    const en = game.adat[j].arm;
-    let f = 0;
-    if (game.player[pn].dice_jun == 0) f = 1;  // Attack if we're top ranked
-    if (game.player[en].dice_jun == 0) f = 1;  // Attack if opponent is top ranked
-    // ...
-}
+  // Assign ranks
+  playerRankings.forEach((player, rank) => {
+    game.player[player.playerIndex].dice_jun = rank;
+  });
+};
 
-// If there's a dominant player, only consider attacks involving them
-if (top >= 0) {
-    if (game.adat[i].arm != top && game.adat[j].arm != top) continue;
+// Rank players by dice count
+rankPlayersByDiceCount();
+
+/**
+ * Identify if there's a dominant player
+ * A player is considered dominant if they have more than 40% of total dice
+ */
+const findDominantPlayer = () => {
+  const dominanceThreshold = totalDiceCount * 0.4;
+
+  // Find first player with dice count above the threshold
+  return game.player.findIndex(player => player.dice_c > dominanceThreshold);
+};
+
+// Determine if there's a dominant player
+const dominantPlayer = findDominantPlayer();
+
+// ...
+
+// Handle equal dice situations
+if (defenderArea.dice === attackerArea.dice) {
+  // Default to not attacking
+  let shouldAttack = false;
+
+  // Attack if we're top ranked
+  if (game.player[currentPlayer].dice_jun === 0) {
+    shouldAttack = true;
+  }
+
+  // Attack if opponent is top ranked
+  if (game.player[defenderPlayer].dice_jun === 0) {
+    shouldAttack = true;
+  }
+
+  // 90% chance to attack in equal dice situations
+  if (game.random() > 0.1) {
+    shouldAttack = true;
+  }
+
+  if (!shouldAttack) {
+    return false;
+  }
 }
 ```
 
@@ -89,18 +116,30 @@ Once you have rankings:
 
 ## Dominant player strategy
 
-A special case is detecting a "dominant" player who controls a large portion of the board's resources:
+A special case is detecting a "dominant" player who controls a large portion of the board's resources. `ai_default` runs the check once per call, then applies the result inside its `isValidAttack` helper:
 
 ```javascript
-// Identify if there's a dominant player (>40% of total dice)
-let top = -1;
-for (let i = 0; i < 8; i++) {
-    if (game.player[i].dice_c > sum * 2 / 5) top = i;
-}
+/**
+ * Identify if there's a dominant player
+ * A player is considered dominant if they have more than 40% of total dice
+ */
+const findDominantPlayer = () => {
+  const dominanceThreshold = totalDiceCount * 0.4;
 
-// If there's a dominant player, only consider attacks involving them
-if (top >= 0) {
-    if (game.adat[i].arm != top && game.adat[j].arm != top) continue;
+  // Find first player with dice count above the threshold
+  return game.player.findIndex(player => player.dice_c > dominanceThreshold);
+};
+
+// Determine if there's a dominant player
+const dominantPlayer = findDominantPlayer();
+
+// ...
+
+// Check if either attacker or defender involves dominant player (if any)
+if (dominantPlayer >= 0) {
+  if (attackerArea.arm !== dominantPlayer && defenderArea.arm !== dominantPlayer) {
+    return false;
+  }
 }
 ```
 

@@ -378,7 +378,9 @@ def build_parser() -> argparse.ArgumentParser:
     src.add_argument(
         "--repack-js",
         dest="repack_js",
-        help="Existing JS weights module to re-emit in a new format (no checkpoint needed)",
+        help="Existing JS weights module to re-emit in a new format (no checkpoint needed). "
+        "Must be as the exporter wrote it: the payload is read as strict JSON, so a module "
+        "a formatter has reflowed into a JS literal is rejected",
     )
     p.add_argument("--out", default="../src/ai/bcPolicyWeights.js", help="Output .js path")
     p.add_argument(

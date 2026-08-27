@@ -19,7 +19,7 @@ Border security begins with identifying which territories are on the border:
 function isBorderTerritory(game, territory_id) {
   // A territory is on the border if it has at least one enemy neighbor
   for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
+    if (game.adat[i].size === 0) continue;
     if (!game.adat[territory_id].join[i]) continue;
 
     // If this neighbor belongs to a different player, this is a border territory
@@ -126,7 +126,7 @@ What you do control is where dice leave from. A successful attack moves all but 
 // A high score means don't attack from here, even when the odds look fine.
 function stripCost(territory_id, area_info) {
   // Nothing can reach it, so emptying it is free
-  if (area_info[territory_id].unfriendly_neighbors == 0) return 0;
+  if (area_info[territory_id].unfriendly_neighbors === 0) return 0;
 
   // The strongest enemy neighbor is the one that walks in next turn
   let cost = area_info[territory_id].highest_unfriendly_neighbor_dice;
@@ -157,13 +157,13 @@ function findBorderImprovingAttacks(game, area_info) {
 
   // Check all possible attacks
   for (let i = 1; i < game.AREA_MAX; i++) {
-    if (game.adat[i].size == 0) continue;
-    if (game.adat[i].arm != player) continue;
+    if (game.adat[i].size === 0) continue;
+    if (game.adat[i].arm !== player) continue;
     if (game.adat[i].dice <= 1) continue;
 
     for (let j = 1; j < game.AREA_MAX; j++) {
-      if (game.adat[j].size == 0) continue;
-      if (game.adat[j].arm == player) continue;
+      if (game.adat[j].size === 0) continue;
+      if (game.adat[j].arm === player) continue;
       if (!game.adat[i].join[j]) continue;
       if (game.adat[j].dice >= game.adat[i].dice) continue;
 
@@ -173,8 +173,8 @@ function findBorderImprovingAttacks(game, area_info) {
 
       // Count current border territories
       for (let k = 1; k < game.AREA_MAX; k++) {
-        if (game.adat[k].size == 0) continue;
-        if (game.adat[k].arm != player) continue;
+        if (game.adat[k].size === 0) continue;
+        if (game.adat[k].arm !== player) continue;
 
         if (isBorderTerritory(game, k)) {
           currentBorderCount++;
@@ -187,8 +187,8 @@ function findBorderImprovingAttacks(game, area_info) {
 
       // Count new border territories
       for (let k = 1; k < game.AREA_MAX; k++) {
-        if (game.adat[k].size == 0) continue;
-        if (game.adat[k].arm != player) continue;
+        if (game.adat[k].size === 0) continue;
+        if (game.adat[k].arm !== player) continue;
 
         if (isBorderTerritory(game, k)) {
           newBorderCount++;

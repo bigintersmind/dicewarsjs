@@ -19,17 +19,22 @@
  * (or a `focusin` on any other control) nulls it and takes the ring down. Every
  * way focus can move — a Tab, an arrow, a mouse click on a control, a dialog
  * restoring focus to what opened it, the window losing focus — reaches the ring
- * by that one path, so the ring cannot point somewhere focus is not. Nor can it
- * be missing while the id is set (#211 item 3): the focus layer is written only
- * by `setFocus`/`clearBoardFocus` here and by GameController's unmount seams
- * (game over, spectate, quit to title), and every mid-game clear goes through
- * `clearSelectionHighlights()`, which leaves that layer alone — so the ring is
- * visible exactly when `focusedAreaId` is set. Which means a focus parked on a
- * territory through an AI turn — E pressed, or END TURN clicked on macOS Safari
- * or Firefox, where a click does not move focus — keeps its ring for the whole
- * turn, whoever ends up owning that territory, because that is where the next
- * arrow steps from. It is a cursor, not a selection.
- * The arrow handler moves DOM focus and lets the listeners do the bookkeeping.
+ * by that one path, so the ring cannot point somewhere focus is not. The arrow
+ * handler moves DOM focus and lets the listeners do the bookkeeping.
+ *
+ * Nor can the ring be missing while the id is set (#211 item 3): the focus layer
+ * is written only by `setFocus`/`clearBoardFocus` here and by GameController's
+ * seams — game over, spectate, quit to title, the end-turn error bounce, and
+ * game start defensively — each of which nulls the id and takes the ring down in
+ * the same function, while every mid-game clear goes through
+ * `clearSelectionHighlights()`, which leaves that layer alone. So the ring is
+ * visible exactly when `focusedAreaId` is set (the one theoretical exception is
+ * item 4's silent no-op when a territory has no traced border, unreachable while
+ * BoardFocus and drawMap agree on what a live territory is). Which means a focus
+ * parked on a territory through an AI turn — E pressed, or END TURN clicked on
+ * macOS Safari or Firefox, where a click does not move focus — keeps its ring
+ * for the whole turn, whoever ends up owning that territory, because that is
+ * where the next arrow steps from. It is a cursor, not a selection.
  *
  * The listener sits on `document` and would otherwise swallow keys aimed at real
  * controls, so the arrows are claimed in exactly two situations: focus is on a
@@ -70,10 +75,10 @@
  *     button on click — so the arrows are dead until Tab or a click moves focus
  *     off it. Native button semantics; the focus listeners have already taken
  *     the ring down, so nothing is left pointing at a territory the keys cannot
- *     reach. Safari does not focus a clicked button, and there the restore lands
- *     on `<body>`, from which the next arrow enters the board. Opened from the
- *     KEYBOARD with focus on a territory, the same restore lands back on that
- *     territory button, ring and all.
+ *     reach. Safari (and Firefox on macOS) does not focus a clicked button, and
+ *     there the restore lands on `<body>`, from which the next arrow enters the
+ *     board. Opened from the KEYBOARD with focus on a territory, the same
+ *     restore lands back on that territory button, ring and all.
  *   - Tab during a battle animation is native, and now by construction: this
  *     handler never sees Tab at all. The arrows, E and Escape do bail while
  *     `animationPhase` is not idle.

@@ -138,8 +138,10 @@ vi.mock('../../src/utils/config.js', async importOriginal => ({
  * swapping the two at any of them leaves the live board blank while every "was
  * it called" assertion still passes. And since #211 item 3 the mid-game seams
  * must clear the selection WITHOUT touching the focus ring, which only a model
- * that distinguishes the two layers can catch. Mirrors the real renderer:
- * `clearHighlights` wipes both, `clearSelectionHighlights` leaves focus alone.
+ * that distinguishes the two layers can catch. It models the real renderer's
+ * outcomes, not its shape: `clearHighlights` wipes both layers (the real one by
+ * delegating to clearSelectionHighlights, this one by setting both flags), and
+ * `clearSelectionHighlights` leaves focus alone.
  */
 function createMockHexGrid() {
   const hexGrid = {
@@ -215,6 +217,21 @@ function createMockSoundManager() {
 describe('GameController', () => {
   let store, renderer, soundManager, controller;
 
+  /*
+   * The engine mocks are module-level and shared by every test in this file, and
+   * the beforeEach's vi.clearAllMocks() drops recorded calls, not
+   * implementations — so an implementation swapped in by one test leaks into
+   * every test after it, closure state and all. (The invalidCount test's
+   * END_TURN counter is the sharp edge: left in place it ends every later turn
+   * in game over.) Swap through override() and it is put back afterwards.
+   */
+  let restoreMocks = [];
+  function override(mockFn, implementation) {
+    const original = mockFn.getMockImplementation();
+    restoreMocks.push(() => mockFn.mockImplementation(original));
+    mockFn.mockImplementation(implementation);
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -226,6 +243,8 @@ describe('GameController', () => {
   });
 
   afterEach(() => {
+    for (const restore of restoreMocks) restore();
+    restoreMocks = [];
     vi.useRealTimers();
   });
 
@@ -909,21 +928,6 @@ describe('GameController', () => {
    */
 
   describe('quit to title', () => {
-    /*
-     * The engine mocks are module-level and shared with every later test in
-     * this file, so any implementation swapped in here is put back afterwards.
-     */
-    let restoreMocks = [];
-    function override(mockFn, implementation) {
-      const original = mockFn.getMockImplementation();
-      restoreMocks.push(() => mockFn.mockImplementation(original));
-      mockFn.mockImplementation(implementation);
-    }
-    afterEach(() => {
-      for (const restore of restoreMocks) restore();
-      restoreMocks = [];
-    });
-
     const ATTACK_RESULT = {
       success: true,
       attackerRoll: { values: [6], total: 6 },
@@ -1499,17 +1503,21 @@ describe('GameController', () => {
 
     it('a new game never inherits an open confirm or a stale focus', async () => {
       /*
-       * Belt and braces: whatever left these set, the new game starts clean.
-       * Store half only — startNewGame is never reached with a ring up (every
-       * route to it passes through goToTitle or triggerGameOver, which each take
-       * the ring down), so it has no renderer half to assert on.
+       * Belt and braces, both halves: whatever left these set, the new game
+       * starts clean. startNewGame nulls the store id and clears the ring in
+       * the same function rather than trusting the route in (#211 item 3) — and
+       * the drawMap that follows retraces every border and rescales, so a ring
+       * that survived would be last game's geometry at this game's scale.
        */
       store.setState({ quitConfirmOpen: true, focusedAreaId: 3 });
+      renderer.hexGrid.setFocusHighlight(3);
 
       await controller.startNewGame({ playerCount: 2, spectator: false });
 
       expect(store.getState().quitConfirmOpen).toBe(false);
       expect(store.getState().focusedAreaId).toBeNull();
+      expect(renderer.hexGrid.clearFocusHighlight).toHaveBeenCalled();
+      expect(renderer.hexGrid.focusUp).toBe(false);
     });
   });
 
@@ -1916,7 +1924,7 @@ describe('GameController', () => {
        * With the fix, count resets after each valid move.
        */
       let moveCount = 0;
-      runAI.mockImplementation(() => {
+      override(runAI, () => {
         moveCount++;
         if (moveCount <= 2) return { from: 99, to: 99 }; // invalid
         if (moveCount === 3) return { from: 1, to: 2 }; // valid — resets counter
@@ -1925,14 +1933,14 @@ describe('GameController', () => {
         return null; // end turn
       });
 
-      getValidMoves.mockImplementation(() => [{ from: 1, to: 2 }]);
+      override(getValidMoves, () => [{ from: 1, to: 2 }]);
 
       /*
        * applyAction: ATTACK succeeds, first END_TURN advances player,
        * second END_TURN (AI's) triggers game over to stop the loop.
        */
       let endTurnCount = 0;
-      applyAction.mockImplementation((state, action) => {
+      override(applyAction, (state, action) => {
         if (action.type === 'ATTACK') {
           return {
             ...state,
@@ -2268,6 +2276,10 @@ describe('GameController', () => {
 
       await controller.startNewGame({ playerCount: 2, spectator: false });
       controller.acceptMap();
+      // E is a route into this catch, so a keyboard player reaches it with the
+      // ring up: set both halves of the mirror as the focusin listener would.
+      store.setState({ focusedAreaId: 1 });
+      renderer.hexGrid.setFocusHighlight(1);
 
       applyAction.mockImplementationOnce(() => {
         throw new Error('State corrupted');
@@ -2287,6 +2299,15 @@ describe('GameController', () => {
        * recompute them into truth.
        */
       expect(state.candidateAreas).toBeNull();
+      /*
+       * The playing screen is gone, so BoardFocus's buttons are gone with it —
+       * an unmount seam like goToTitle, and paired the same way: the store id
+       * nulled and the ring taken down together (#211 item 3). Left set, the
+       * ring would sit on the attract board behind the title screen with
+       * nothing able to move it.
+       */
+      expect(state.focusedAreaId).toBeNull();
+      expect(renderer.hexGrid.focusUp).toBe(false);
     });
   });
 
@@ -2828,8 +2849,7 @@ describe('GameController', () => {
 
     it('clears the offer when the game is abandoned', async () => {
       await startPlaying();
-      // Start-up already called clearHighlights; only the quit's call counts.
-      renderer.hexGrid.clearHighlights.mockClear();
+      renderer.hexGrid.clearHighlights.mockClear(); // count only the quit's call
 
       controller.goToTitle();
 
@@ -2930,74 +2950,36 @@ describe('GameController', () => {
    * finished every attack with focus on the target and nothing on screen.
    */
   describe('keyboard focus ring', () => {
-    let createGame, applyAction, getValidMoves, runAI, previous;
+    let applyAction, getValidMoves, runAI;
 
     /*
-     * The engine mocks are module-level and shared with every earlier test in
-     * the file, and more than one leaves an implementation — and its closure
-     * state — behind (the invalidCount test's END_TURN counter ends every later
-     * turn in game over). So this describe installs the four it drives from
-     * scratch and puts back whatever it found afterwards. `mockImplementationOnce`
-     * is avoided for the same reason: vi.clearAllMocks() does not drain a
-     * once-queue, so a stray one would silently eat a move.
+     * Only getValidMoves needs an implementation of its own: the module
+     * factory's createGame, applyAction and runAI already do exactly what these
+     * tests want (a fresh makeGameState, END_TURN advancing the player, ATTACK
+     * appending a win, an AI that ends its turn), and they still do by the time
+     * the file reaches here — the one earlier swap that carried closure state
+     * (the invalidCount test's END_TURN counter, which would otherwise end
+     * every later turn in game over) goes through the outer describe's
+     * override(); the few direct swaps left in the file only ever set a mock to
+     * its factory default.
+     *
+     * `mockImplementationOnce` is used only where the consuming call is
+     * guaranteed inside the same test ('survives an attack the engine rejects'):
+     * vi.clearAllMocks() does not drain a once-queue, so one left unconsumed
+     * would silently eat a later test's move.
      */
     beforeEach(async () => {
-      ({ createGame, applyAction, getValidMoves } = await import('../../src/engine/index.js'));
+      ({ applyAction, getValidMoves } = await import('../../src/engine/index.js'));
       ({ runAI } = await import('../../src/engine/AIAdapter.js'));
-      previous = {
-        createGame: createGame.getMockImplementation(),
-        applyAction: applyAction.getMockImplementation(),
-        getValidMoves: getValidMoves.getMockImplementation(),
-        runAI: runAI.getMockImplementation(),
-      };
-
-      createGame.mockImplementation(() => makeGameState());
-      applyAction.mockImplementation((state, action) => {
-        if (action.type === 'END_TURN') {
-          return {
-            ...state,
-            currentPlayerIndex: (state.currentPlayerIndex + 1) % state.turnOrder.length,
-            history: [...state.history, { type: 'END_TURN' }],
-          };
-        }
-        if (action.type === 'ATTACK') {
-          return {
-            ...state,
-            history: [
-              ...state.history,
-              {
-                type: 'ATTACK',
-                from: action.from,
-                to: action.to,
-                result: {
-                  success: true,
-                  attackerRoll: { values: [6], total: 6 },
-                  defenderRoll: { values: [1], total: 1 },
-                },
-              },
-            ],
-          };
-        }
-        return state;
-      });
-      getValidMoves.mockImplementation(() => [
-        { from: 1, to: 2, attackerDice: 3, defenderDice: 2 },
-        { from: 1, to: 3, attackerDice: 3, defenderDice: 1 },
-      ]);
-      runAI.mockImplementation(() => null); // ends its turn unless a test says otherwise
-    });
-
-    afterEach(() => {
-      createGame.mockImplementation(previous.createGame);
-      applyAction.mockImplementation(previous.applyAction);
-      getValidMoves.mockImplementation(previous.getValidMoves);
-      runAI.mockImplementation(previous.runAI);
+      // The human's only legal attack. Deliberately the whole list, so FOCUSED
+      // below is neither a hint source nor a hint target.
+      override(getValidMoves, () => [{ from: 1, to: 2, attackerDice: 3, defenderDice: 2 }]);
     });
 
     /** One AI attack, then end of turn. */
     function aiPlaysOneAttack() {
       let played = false;
-      runAI.mockImplementation(() => {
+      override(runAI, () => {
         if (played) return null;
         played = true;
         return { from: 1, to: 2 };
@@ -3057,7 +3039,7 @@ describe('GameController', () => {
       expectRingSurvived();
     });
 
-    it('survives picking a source and re-picking another one', async () => {
+    it('survives picking a source and picking it again', async () => {
       await playingWithFocus();
 
       controller.handleTerritoryClick(1); // selectFrom
@@ -3070,7 +3052,7 @@ describe('GameController', () => {
       expectRingSurvived();
     });
 
-    it('survives a whole AI turn — E parks the focus, the AI attacks under it', async () => {
+    it('a parked focus survives a whole AI turn — the AI attacks under it', async () => {
       await playingWithFocus();
       aiPlaysOneAttack();
 
@@ -3082,7 +3064,7 @@ describe('GameController', () => {
       expectRingSurvived();
     });
 
-    it('survives the AI-aborted cleanup of a half-played attack', async () => {
+    it('the AI-aborted cleanup leaves the focus layer to the seam that aborted it', async () => {
       await playingWithFocus();
       aiPlaysOneAttack();
       let finishBattle = () => {};
@@ -3097,16 +3079,26 @@ describe('GameController', () => {
       renderer.hexGrid.clearSelectionHighlights.mockClear();
 
       /*
-       * A new game started mid-animation aborts the loop without going through
-       * goToTitle, so this seam's own clear is the only thing tidying the board
-       * — and it must still leave the focus layer to the seam that owns it
-       * (startNewGame nulls the store id itself).
+       * A new game started mid-animation aborts the AI loop without going
+       * through goToTitle, so two clears run: startNewGame's own — which nulls
+       * the store id AND takes the ring down, paired in the one function — and
+       * the loop's aborted-cleanup at the top of the next iteration, which
+       * clears only the selection. So the ring ends down because the seam that
+       * owns it put it down, not because the cleanup wiped it.
+       *
+       * Reverting the cleanup to clearHighlights() would still leave the same
+       * end state, and that is fine: its clearSelectionHighlights() is
+       * uniformity across every aiAborted route, not a behaviour this test can
+       * observe. `clearHighlights not called` is what pins that shape.
        */
       await controller.startNewGame({ playerCount: 2, spectator: false });
       finishBattle();
       await vi.runAllTimersAsync();
       await flushPromises();
 
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(renderer.hexGrid.focusUp).toBe(false);
+      expect(renderer.hexGrid.clearFocusHighlight).toHaveBeenCalledTimes(1); // startNewGame's
       expect(renderer.hexGrid.clearHighlights).not.toHaveBeenCalled();
       expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
     });

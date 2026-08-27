@@ -47,9 +47,11 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   exactly when this is non-null (#211 item 3): the mid-game seams clear the
  *   board with clearSelectionHighlights(), which leaves the focus layer alone,
  *   so the ring neither points somewhere focus is not nor goes missing while
- *   this is set. GameController nulls it at game start, game over, spectate and
- *   quit-to-title — the places the buttons unmount under focus, which fires no
- *   event that can be relied on.
+ *   this is set. GameController nulls it at game over, spectate, quit to title
+ *   and the end-turn error bounce — the places the playing screen unmounts the
+ *   buttons under focus, which fires no event that can be relied on — and at
+ *   game start; each of those paired with the renderer's clearFocusHighlight()
+ *   or clearHighlights() in the same function.
  * @property {boolean} humanEliminated
  * @property {'turnLimit' | null} gameOverReason - Why a game ended without a conqueror.
  *   'turnLimit' when the browser turn cap (GameController MAX_GAME_TURNS) drew a stalled

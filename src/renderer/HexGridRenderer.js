@@ -542,9 +542,10 @@ export class HexGridRenderer {
   }
 
   /**
-   * Clear every overlay, keyboard focus included. Reserved for the seams where
-   * the store's `focusedAreaId` is nulled in the same breath (quit to title);
-   * anywhere else use clearSelectionHighlights() (#211).
+   * Clear every overlay, keyboard focus included. Reserved for the seams that
+   * leave the playing screen and null the store's `focusedAreaId` in the same
+   * breath (quit to title, the end-turn error bounce); anywhere else use
+   * clearSelectionHighlights() (#211).
    */
   clearHighlights() {
     this.clearFocusHighlight();

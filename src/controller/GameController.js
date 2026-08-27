@@ -375,6 +375,16 @@ export function createGameController(store, renderer, soundManager, preferencesM
         aiLoadWarnings: warnings,
         playerNames: names,
       });
+      /*
+       * The ring, paired with the `focusedAreaId: null` above — by construction,
+       * like every other seam that nulls the id (#211). The only production
+       * route that reaches here with a ring up was the end-turn error bounce,
+       * now closed at its own seam, but the invariant must not rest on a
+       * whole-app reachability argument. drawMap() below retraces every border
+       * and rescales, so a ring that survived would be old geometry at a new
+       * scale. (`hexGrid` is null until init() succeeds — goToTitle's guard.)
+       */
+      if (renderer && renderer.hexGrid) renderer.hexGrid.clearFocusHighlight();
 
       // Draw the map in the renderer
       if (renderer) {
@@ -702,6 +712,13 @@ export function createGameController(store, renderer, soundManager, preferencesM
           selectedFrom: null,
           selectedTo: null,
         });
+        /*
+         * clearSelectionHighlights() here is uniformity, not a behavioural
+         * requirement: every route that sets aiAborted — goToTitle, startNewGame,
+         * startSpectate, the end-turn error bounce — takes the ring down itself,
+         * paired with its own store write, so there is never a ring left for this
+         * cleanup to deal with (#211).
+         */
         if (renderer) renderer.hexGrid.clearSelectionHighlights();
         aiRunning = false;
         return;
@@ -1100,11 +1117,15 @@ export function createGameController(store, renderer, soundManager, preferencesM
        */
       focusedAreaId: null,
     });
-    // The renderer's half of the same seam — and since #211 item 3 it is the
-    // ONLY half: the post-attack seam that precedes it runs
-    // clearSelectionHighlights(), which deliberately leaves the focus layer
-    // alone. The ring comes off the board behind the game-over card here,
-    // paired with the `focusedAreaId: null` above, or not at all.
+    /*
+     * The renderer's half of the same seam — and since #211 item 3 it is the
+     * ONLY half, on every route in. The two attack seams (the human's and the
+     * AI loop's) run clearSelectionHighlights() on the way here, which
+     * deliberately leaves the focus layer alone; the endTurn game-over branch
+     * and the turn-cap draw clear nothing at all. So the ring comes off the
+     * board behind the game-over card here, paired with the `focusedAreaId:
+     * null` above, or not at all.
+     */
     if (renderer) renderer.hexGrid.clearFocusHighlight();
     if (soundManager) soundManager.play('over');
   }
@@ -1167,10 +1188,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
       // as the game-over one — so the mirror is closed here too (#211).
       focusedAreaId: null,
     });
-    // The two unmount seams (game over, spectate) are paired by construction —
-    // store id and ring in the same function — not by what happened to run
-    // before them (#211).
-    if (renderer) renderer.hexGrid.clearFocusHighlight();
+    // Paired by construction — store id and ring in the same function — like
+    // every other seam that nulls the id, not by what happened to run before
+    // this one (#211). Guarded like the refreshCandidateHighlights() below:
+    // `hexGrid` is null when init() failed.
+    if (renderer && renderer.hexGrid) renderer.hexGrid.clearFocusHighlight();
     refreshCandidateHighlights(); // nobody to hint to once the seat is an AI's
 
     startTurn();
@@ -1245,7 +1267,22 @@ export function createGameController(store, renderer, soundManager, preferencesM
         quitConfirmOpen: false,
         rulesOpen: false,
         error: 'An error occurred. Returning to title screen.',
+        /*
+         * An unmount seam like goToTitle: the playing screen takes BoardFocus's
+         * territory buttons with it, and a button removed while it holds focus
+         * fires no event that can be relied on — so the mirror is closed here,
+         * paired with the ring below (#211). E reaches this catch from a focused
+         * territory, so it is a seam a keyboard player can actually hit.
+         */
+        focusedAreaId: null,
       });
+      /*
+       * The full wipe, which is what leaving the playing screen while nulling
+       * the id in the same breath is for: it also takes down the from/to rings
+       * and the hints this path left behind. `hexGrid` is null until init()
+       * succeeds, hence goToTitle's guard shape.
+       */
+      if (renderer && renderer.hexGrid) renderer.hexGrid.clearHighlights();
       return;
     }
 

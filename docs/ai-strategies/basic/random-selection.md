@@ -22,7 +22,7 @@ game.area_to = move['defender'];
 
 ## Example from ai_default.js
 
-`ai_default` collects every legal attack in a helper, then picks one at the end of the function:
+`ai_default` collects the attacks that pass its `isValidAttack` filters (dice advantage, the dominant-player rule, the equal-dice rule) in a helper, then picks one at the end of the function:
 
 ```javascript
 // Get all valid attacks

@@ -24,7 +24,7 @@ for (let i = 0; i < 8 - 1; i++) {
 
 ## Example from ai_default.js
 
-`ai_default` ranks the players and detects a dominant one in closures inside the bot function (`pmax` is the player count, read once at the top); the last slice below sits in its `isValidAttack` helper, where `attackerArea`, `defenderArea`, `currentPlayer`, and `defenderPlayer` come from the enclosing scope:
+`ai_default` ranks the players and detects a dominant one in closures inside the bot function (`pmax` is the player count, read once at the top); the last slice below sits in its `isValidAttack` helper, where `attackerArea` and `defenderArea` are the helper's parameters and `currentPlayer` and `defenderPlayer` its first two locals:
 
 ```javascript
 // Count resources and get total dice count
@@ -53,6 +53,10 @@ const rankPlayersByDiceCount = () => {
 // Rank players by dice count
 rankPlayersByDiceCount();
 
+/**
+ * Identify if there's a dominant player
+ * A player is considered dominant if they have more than 40% of total dice
+ */
 const findDominantPlayer = () => {
   const dominanceThreshold = totalDiceCount * 0.4;
 

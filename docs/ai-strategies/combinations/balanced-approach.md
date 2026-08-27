@@ -402,7 +402,7 @@ if (isLateGame(game)) {
 
 ## Handling equal dice
 
-From the default AI's `isValidAttack` helper, logic for equal-dice situations (`attackerArea`, `defenderArea`, `currentPlayer`, and `defenderPlayer` come from the enclosing scope):
+From the default AI's `isValidAttack` helper, logic for equal-dice situations (`attackerArea` and `defenderArea` are the helper's parameters, `currentPlayer` and `defenderPlayer` its first two locals):
 
 ```javascript
 // Handle equal dice situations

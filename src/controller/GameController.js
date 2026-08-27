@@ -257,15 +257,26 @@ export function createGameController(store, renderer, soundManager, preferencesM
     clearNextTurnTimer();
     /*
      * The banner and the load warnings belong to the start that is beginning
-     * now, so they go here. The lineup does NOT: names change with the game they
-     * name, and never ahead of it (#211 item-3 addendum). BATTLE on the game-over
-     * card lands here with the finished game still on screen for as long as the
-     * AI load below takes, and GameOverScreen goes on reading playerNames for
-     * "<name> wins!" — emptying it here degraded that to "Player 2 wins!" and had
-     * useAnnouncer, which has playerNames in its deps, re-speak the line that
-     * way. The success path replaces the whole lineup in the same setState as the
-     * new gameState and screen; the failure path empties it on the way back to
-     * the title, where no game is named at all.
+     * now, so they go here. The lineup does NOT, and the rule it follows instead
+     * is: the names belong to the game they name (#211 item-3 addendum). They
+     * are replaced wholesale by the game that replaces it — the success setState
+     * below, in the same breath as the new gameState and screen — and emptied on
+     * every route back to the title, where no game is named at all: goToTitle,
+     * this function's own two failure exits, and rejectMap's two. Never ahead of
+     * the game.
+     *
+     * Nothing today reaches startNewGame with names still set, so this is the
+     * invariant stated structurally rather than a flash anyone has seen. Its one
+     * caller is START on the title screen, where the lineup is already empty,
+     * and BATTLE on the game-over card goes through goToTitle(), which empties
+     * the names in the very setState that swaps the screen — the card unmounts
+     * with them, leaving no window to read a stale lineup in. What the rule buys
+     * is a future caller that does land here over a finished game: the card
+     * would stay up for as long as the AI load below takes, and GameOverScreen
+     * reads playerNames for "<name> wins!" while useAnnouncer has them in the
+     * deps of its game-over effect — so emptying the lineup on the way in would
+     * both degrade that subtitle to "Player 2 wins!" and have the live region
+     * re-speak it that way. A test pins the seam.
      */
     store.setState({ error: null, aiLoadWarnings: [] });
 
@@ -315,8 +326,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * `error: null` reset above would already have wiped any visible banner).
      * Bailing here also keeps the bad rung out of store.config — the setState
      * that persists it is below. The lineup is emptied for the same reason the
-     * catch below empties it: this exit leaves no game for the previous game's
-     * names to belong to.
+     * catch below empties it: this is a route to the title, and the title names
+     * no game. Today it empties nothing — see the note at the top of the
+     * function — so it is the rule kept structural, not a stale lineup fixed.
      */
     let handicap;
     try {
@@ -411,10 +423,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
        * This is a trip back to the title, so it has to leave the same state
        * goToTitle() would (#181) — a confirm dialog raised over the previous
        * game must not still be flagged open on the title screen, and the lineup
-       * goes with the game it named (goToTitle empties it too) — the setState
-       * that would have replaced it wholesale is the one that just threw.
-       * (aiAborted and the next-turn timer were already dealt with on the way
-       * in.)
+       * goes with the game it named (goToTitle empties it too), the setState
+       * that would have replaced it wholesale being the one that just threw. As
+       * at the luck bail, there is in practice nothing here to empty: only the
+       * title screen starts games. (aiAborted and the next-turn timer were
+       * already dealt with on the way in.)
        */
       store.setState({
         screen: 'title',
@@ -459,6 +472,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
         screen: 'title',
         gameState: null,
         candidateAreas: null,
+        // Unlike startNewGame's exits this one really does have a lineup to
+        // empty — NEW MAP is pressed over a named game — but it is the same
+        // rule: no route to the title leaves a game named behind it.
+        playerNames: [],
         error: "That luck setting isn't available. Pick another and try again.",
       });
       return;
@@ -477,6 +494,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
         screen: 'title',
         gameState: null,
         candidateAreas: null,
+        // The other half of the same rule as the luck bail above.
+        playerNames: [],
         error: 'Map generation failed. Please try again.',
       });
       return;

@@ -130,8 +130,17 @@ async function main() {
          * territory focused: focus drops to `<body>` and the ring comes down,
          * because a click on nothing is as good a way as any to say "done with
          * the keyboard position".
+         *
+         * The primary button only (`button === 0`, which is also what touch and
+         * pen report): the cursor follows a click because a click is the player
+         * pointing, and a right- or middle-click is not that. (A preventDefault()
+         * on a secondary pointerdown would not have stopped the context menu
+         * anyway — that is the `contextmenu` event's to cancel — it would only
+         * have suppressed a default nobody asked about.) Note the CLICK below has
+         * never been filtered by button — a right-click plays the move — but that
+         * is its own question and this line does not settle it.
          */
-        if (keyboard.focusFromPointer(areaId)) e.preventDefault();
+        if (e.button === 0 && keyboard.focusFromPointer(areaId)) e.preventDefault();
         controller.handleTerritoryClick(areaId);
       }
     });

@@ -83,10 +83,15 @@ function renderApp(overrides = {}) {
   return { store, controller };
 }
 
-/* Scoped to the role, not to [aria-live]: TitleScreen carries live regions of
-   its own (the difficulty hint, the luck blurb), so [aria-live] alone would be
-   ambiguous on the very screen one of these tests looks at. */
-const regions = () => Array.from(container.querySelectorAll('[role="status"]'));
+/* Not [aria-live] alone: TitleScreen carries live regions of its own (the
+   difficulty hint, the luck blurb) on the very screen one of these tests looks
+   at. Not [role="status"] either, though — these three tests are about WHERE the
+   region is mounted and how long the node lives, so keying them to the role
+   would fail all three, with a count assertion for a message, the day someone
+   revised the role. `.sr-only` is what actually separates the announcer from
+   TitleScreen's two: those carry .dw-mode-hint and .dw-luck-hint and are meant
+   to be read. The role is asserted, once, in useAnnouncer.test.js. */
+const regions = () => Array.from(container.querySelectorAll('.sr-only[aria-live]'));
 
 describe('App screen-reader live region placement', () => {
   it('mounts exactly one live region on the playing screen', () => {

@@ -274,15 +274,27 @@ export function MenuScreen({ title, children, focusTitleOnMount = false }) {
    * tab — a #188 regression. Leave it off for anything with a rail.
    *
    * tabIndex={-1} is unconditional: it makes the h1 focusable programmatically
-   * without putting it in the tab order. What keeps it ring-free is that no
-   * focus rule reaches it at all: every :focus-visible rule in the shared
+   * without putting it in the tab order.
+   *
+   * What a focus here would LOOK like is only half-settled (#211 item 6). No
+   * author rule reaches the headline: every :focus-visible rule in the shared
    * chrome styles is scoped to a chrome class (.dw-btn, .dw-opt, .dw-tab,
-   * .dw-footlink) and the headline carries none of them — so no stray ring,
-   * and no `outline: none` needed. NOT because the focus is programmatic
-   * (#211 item 6): :focus-visible matches a programmatic focus whenever the
-   * last user interaction was a keypress, in all three engines, which is
-   * exactly the case a mount-time focus after a keyboard-activated route
-   * change lands in. Give the headline a chrome class and it would ring.
+   * .dw-footlink), and .dw-screen-title / .dw-anim-rise, the two the h1 does
+   * carry, have no focus rule of their own. But that is not the same as no ring:
+   * every engine's UA stylesheet carries a universal `:focus-visible { outline:
+   * auto }`, and nothing in index.html or src/ resets outlines, so if the
+   * headline matches the pseudo-class it rings from there. And whether a
+   * mount-time scripted focus() matches is an engine heuristic, not a rule to
+   * rely on: the spec has a scripted focus inherit the previously focused
+   * element's state (at mount that element is gone — `<body>`), while Chromium
+   * and Firefox match when the last user interaction was a keypress, which is
+   * exactly what a keyboard-activated route change is.
+   *
+   * Untested in any browser, because nothing in production passes the flag —
+   * only a TopNav unit test does. A screen that opts in should look at it for
+   * real and then either accept the ring (a focus landing on a headline is
+   * allowed to show) or add `outline: none` to a `.dw-screen-title:focus-visible`
+   * rule in CHROME_CSS.
    *
    * Its one side effect is silent: Chrome and Safari focus a tabindex="-1"
    * element on mousedown, so a click on the headline moves focus there (still

@@ -435,9 +435,19 @@ function withOwner(state, areaId, owner) {
  * nothing on screen — exactly the desync #211 item 3 closed everywhere else.
  */
 describe('missing borders on the single-territory overlays', () => {
+  // Every test here provokes a warn, so the spy is the fixture rather than six
+  // copies of the same three lines — and afterEach restores it even for a test
+  // that throws before its inline restore would have run.
+  let warn;
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
   it('setFocusHighlight warns, and still leaves the layer down', () => {
     const { renderer } = makeRenderer();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     renderer.setFocusHighlight(9999);
 
@@ -448,13 +458,10 @@ describe('missing borders on the single-territory overlays', () => {
     // a focus listener, where an exception would take the keyboard down.
     expect(renderer._highlightFocus.visible).toBe(false);
     expect(renderer._highlightFocus.shapes).toHaveLength(0);
-
-    warn.mockRestore();
   });
 
   it('says it once per renderer, not once per keypress', () => {
     const { renderer } = makeRenderer();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     // An arrow burst across a mismatched map is one fault, not twelve. The
     // sibling can afford a line per call because each of its calls is a whole
@@ -464,13 +471,10 @@ describe('missing borders on the single-territory overlays', () => {
     renderer.setFocusHighlight(9999);
 
     expect(warn).toHaveBeenCalledTimes(1);
-
-    warn.mockRestore();
   });
 
   it('keeps painting real territories after a warned miss', () => {
     const { renderer, drawn } = makeRenderer();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     renderer.setFocusHighlight(9999);
     renderer.setFocusHighlight(drawn[0]);
@@ -478,33 +482,37 @@ describe('missing borders on the single-territory overlays', () => {
     expect(renderer._highlightFocus.visible).toBe(true);
     expect(renderer._highlightFocus.shapes).toHaveLength(1);
     expect(warn).toHaveBeenCalledTimes(1);
-
-    warn.mockRestore();
   });
 
   it('setHighlight warns on its own budget, independently of the focus ring', () => {
     const { renderer } = makeRenderer();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     renderer.setFocusHighlight(9999);
     renderer.setHighlight('from', 9999);
-    // The record is per METHOD, so the second selection ring is covered by the
-    // first: one mismatched map is one report per entry point, and 'from' and
-    // 'to' are the same entry point.
+    // The record is keyed by the label the caller passes, and setHighlight puts
+    // `which` in its own: the message says which ring went missing, and the two
+    // get separate budgets as a consequence.
     renderer.setHighlight('to', 9998);
 
-    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(3);
     expect(warn.mock.calls[0][0]).toContain('setFocusHighlight');
-    expect(warn.mock.calls[1][0]).toContain('setHighlight');
+    expect(warn.mock.calls[1][0]).toContain("setHighlight('from')");
+    expect(warn.mock.calls[2][0]).toContain("setHighlight('to')");
     expect(renderer._highlightFrom.visible).toBe(false);
     expect(renderer._highlightTo.visible).toBe(false);
+  });
 
-    warn.mockRestore();
+  it('still spends one budget per ring, not one per call', () => {
+    const { renderer } = makeRenderer();
+
+    renderer.setHighlight('from', 9999);
+    renderer.setHighlight('from', 9998);
+
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('gets a fresh budget when drawMap retraces the borders', () => {
     const { renderer } = makeRenderer();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     renderer.setFocusHighlight(9999);
     renderer.drawMap(makeBoard());
@@ -514,8 +522,6 @@ describe('missing borders on the single-territory overlays', () => {
     // flags are reset where `_borders` is rebuilt so the report isn't spent on
     // the previous map.
     expect(warn).toHaveBeenCalledTimes(2);
-
-    warn.mockRestore();
   });
 });
 

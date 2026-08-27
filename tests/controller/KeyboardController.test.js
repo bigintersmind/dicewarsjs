@@ -772,9 +772,11 @@ describe('KeyboardController', () => {
     });
 
     /*
-     * The focusout half's own job: a blur, a click on the canvas, or the window
+     * The focusout half's own job: a blur, a click on WATER, or the window
      * losing focus moves focus to nothing at all, and there is no focusin to
-     * catch. It comes back on focusin when the window returns.
+     * catch. (A click on a TERRITORY no longer lands here — focusFromPointer
+     * moves focus button → button, which the handler leaves alone.) It comes
+     * back on focusin when the window returns.
      */
     it('clears the ring when a territory button is blurred to nothing', () => {
       areaButton(1).focus();
@@ -921,22 +923,59 @@ describe('KeyboardController', () => {
     });
 
     /*
+     * The cursor is not gated on the game's state, and that is the decision, not
+     * an oversight: E parks focus on a territory for the whole AI turn, the
+     * arrows bail while an animation runs or it is not the human's turn, and a
+     * click is then the only way left to move the cursor. Gating it would not
+     * leave the ring alone either — the mousedown fixup main.jsx suppresses on
+     * the strength of the `true` would drop focus to `<body>` and take the ring
+     * down with it. Nothing else moves: handleTerritoryClick ignores the click
+     * on these turns, so store and DOM stay agreed.
+     *
+     * A pin of behaviour that already held (no source change went with it), so
+     * there is no red run to show for it.
+     */
+    it('moves the cursor during an animation on the AI turn, when the arrows will not', () => {
+      areaButton(1).focus();
+      store.setState({
+        animationPhase: 'battle',
+        gameState: makeGameState({ currentPlayerIndex: 1 }),
+      });
+
+      // The arrows are frozen here...
+      fireKey('ArrowRight');
+      expect(store.getState().focusedAreaId).toBe(1);
+
+      // ...and the pointer is not.
+      expect(kbc.focusFromPointer(2)).toBe(true);
+
+      expect(document.activeElement).toBe(areaButton(2));
+      expect(store.getState().focusedAreaId).toBe(2);
+      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(2);
+    });
+
+    /*
      * The same broken id contract the arrows report, reached from the mouse: no
      * button to move to, so focus stays where the keyboard left it and the
      * caller is told not to suppress the browser's default.
      */
     it('reports the miss and stays put when the clicked territory has no button', () => {
+      // try/finally, not a trailing restore: a failed assertion here would
+      // otherwise leave console.warn stubbed for every test after it.
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      areaButton(1).focus();
+      try {
+        areaButton(1).focus();
 
-      expect(kbc.focusFromPointer(99)).toBe(false);
+        expect(kbc.focusFromPointer(99)).toBe(false);
 
-      expect(document.activeElement).toBe(areaButton(1));
-      expect(store.getState().focusedAreaId).toBe(1);
-      expect(mockRenderer.hexGrid.focusUp).toBe(true); // and the ring with it
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('territory 99'));
-      warnSpy.mockRestore();
+        expect(document.activeElement).toBe(areaButton(1));
+        expect(store.getState().focusedAreaId).toBe(1);
+        expect(mockRenderer.hexGrid.focusUp).toBe(true); // and the ring with it
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('territory 99'));
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 

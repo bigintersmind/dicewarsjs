@@ -219,8 +219,9 @@ export class HexGridRenderer {
     this._colorBlindMode = false;
 
     /**
-     * @type {Set<string>} Methods that have already reported a missing border
-     * for the current map — see `_warnMissingBorder`. Cleared by `drawMap`.
+     * @type {Set<string>} Call-site labels that have already reported a missing
+     * border for the current map — see `_warnMissingBorder`, which is also where
+     * a label finer than a method name is explained. Cleared by `drawMap`.
      */
     this._missingBorderWarned = new Set();
 
@@ -394,21 +395,28 @@ export class HexGridRenderer {
    * runs from a focus listener and from click handling, where throwing over a
    * cosmetic overlay would be far worse than a missing ring.
    *
-   * Once per method per map, not once per call, because these overlays are
-   * called once per *hop*: an arrow burst across a mismatched board would
-   * otherwise print a line per keypress and bury the first report. (The sibling
-   * can afford a line per call — each of its calls is one whole hint set.)
-   * `drawMap` clears the record along with `_borders`, since a freshly traced
-   * map is a fresh chance to be wired against the wrong game.
+   * Once per LABEL per map, not once per call. `setFocusHighlight` is the
+   * reason: it is called once per *hop*, so an arrow burst across a mismatched
+   * board would otherwise print a line per keypress and bury the first report.
+   * `setHighlight` is called once per selection click, which is far less, but it
+   * shares the budget because one mismatched map is one report per entry point
+   * either way. (The sibling `setCandidateHighlights` can afford a line per
+   * call — each of its calls is one whole hint set.) `drawMap` clears the record
+   * along with `_borders`, since a freshly traced map is a fresh chance to be
+   * wired against the wrong game.
    *
-   * @param {string} method - Name of the calling method, for the message
+   * The label is the caller's to choose, not `method.name`: `setHighlight` puts
+   * `which` in its own so the console line says which ring went missing, and the
+   * from and to rings get separate budgets as a consequence.
+   *
+   * @param {string} label - Identifies the calling site, for the message
    * @param {number} areaId - The id with no border
    */
-  _warnMissingBorder(method, areaId) {
-    if (this._missingBorderWarned.has(method)) return;
-    this._missingBorderWarned.add(method);
+  _warnMissingBorder(label, areaId) {
+    if (this._missingBorderWarned.has(label)) return;
+    this._missingBorderWarned.add(label);
     console.warn(
-      `[HexGridRenderer] ${method}: no border for area`,
+      `[HexGridRenderer] ${label}: no border for area`,
       areaId,
       '— renderer map may not match the store game'
     );
@@ -424,7 +432,7 @@ export class HexGridRenderer {
     const gfx = which === 'from' ? this._highlightFrom : this._highlightTo;
     const border = this._borders[areaId];
     if (!border) {
-      this._warnMissingBorder('setHighlight', areaId);
+      this._warnMissingBorder(`setHighlight('${which}')`, areaId);
       return;
     }
 

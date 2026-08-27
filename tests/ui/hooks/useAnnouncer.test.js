@@ -328,9 +328,55 @@ describe('ScreenReaderAnnouncer', () => {
     expect(getText()).toBe('');
   });
 
+  /*
+   * SPECTATE from the game-over card leaves the screen on 'playing' and nulls
+   * the human seat, and none of the branches below the guards match without one
+   * — so whatever the last line was would sit in the region for the whole
+   * spectated game. The region used to be remounted by App's screen switch,
+   * which cleared it as a side effect; since #211 item 9 it is one node for the
+   * session and the hook has to do it itself.
+   */
+  it('clears the line when the seat goes away (spectate)', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Blitz is thinking');
+
+    act(() => store.setState({ humanPlayerIndex: null }));
+    expect(getText()).toBe('');
+  });
+
+  /*
+   * ...but the seatless guard sits BELOW the game-over branch, so a spectated
+   * game still ends out loud. That line names a bot rather than a seat, so it is
+   * as true for a watcher as for a player — and it was announced before the
+   * guard existed, which is what makes this a pin rather than a new feature.
+   */
+  it('still announces the winner of a spectated game', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: null,
+      playerNames: ['Conqueror', 'Blitz'],
+      gameState: makeGameState({ winner: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Game over. Blitz wins!');
+  });
+
   it('does not speak a leftover battle result on the title screen', () => {
-    /* A quit mid-attack leaves battleResult in the store. The battle line is
-       about a board that is no longer on screen. */
+    /* A battle result still in the store while the screen is not a game screen.
+       No path arranges that today — goToTitle nulls battleResult in the same
+       setState that changes the screen — so this is the guard held to rather
+       than a leftover anyone can produce. The line would be about a board that
+       is no longer on screen. */
     store.setState({
       screen: 'title',
       awaitingInput: null,
@@ -345,6 +391,49 @@ describe('ScreenReaderAnnouncer', () => {
 
     const { getText } = renderAnnouncer(store);
     expect(getText()).toBe('');
+  });
+
+  /*
+   * The other half of that guard, and the reason the battle effect's deps are
+   * `[battleResult]` alone: the attack that WINS the game. The result is written
+   * first and the screen flips after it, both effects being live over the same
+   * store, and the battle effect is the later of the two — so with `screen` in
+   * its deps it would re-run on the flip and overwrite "Game over. You win!"
+   * with the attack line that produced it. Deps of `[battleResult]` mean the
+   * closure runs only on the render where the result itself changed.
+   *
+   * The source comment says the same thing; this is what makes an
+   * exhaustive-deps "fix" fail rather than ship.
+   */
+  it('does not let the last battle line overwrite the game-over line', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: 'selectFrom',
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState(),
+    });
+    const { getText } = renderAnnouncer(store);
+    act(() =>
+      store.setState({
+        battleResult: {
+          success: true,
+          attackerRoll: { values: [3, 4], total: 7 },
+          defenderRoll: { values: [2, 1], total: 3 },
+        },
+      })
+    );
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success.');
+
+    // The attack that won the game: battleResult is unchanged, only the screen flips.
+    act(() =>
+      store.setState({
+        screen: 'gameOver',
+        awaitingInput: null,
+        gameState: makeGameState({ winner: 0 }),
+      })
+    );
+    expect(getText()).toBe('Game over. You win!');
   });
 
   it('clears the line when a game screen is left', () => {

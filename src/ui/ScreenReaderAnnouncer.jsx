@@ -24,8 +24,10 @@ export function ScreenReaderAnnouncer({ store }) {
   /*
    * role="status", not "log": the region carries one current line, replaced in
    * place, which is advisory status rather than an append-only history of lines
-   * (#211 item 11). The explicit aria-live / aria-atomic override both roles'
-   * implicit values, so nothing about the announcing changes — the role is just
+   * (#211 item 11). Nothing about the announcing changes with the swap, because
+   * the explicit aria-live / aria-atomic PIN the behaviour either way — polite
+   * and atomic happen to be `status`'s own implicit values, and were what
+   * overrode `log`'s implicit `aria-atomic="false"` before. The role is just
    * what the region honestly is, for anything that reads the role alone.
    */
   return (

@@ -517,18 +517,25 @@ describe('GameController', () => {
       });
 
       /*
-       * ...but not one moment before that next game exists. BATTLE on the
-       * game-over card starts an AI load that takes as long as it takes, and the
-       * finished game's screen stays up for the whole of it — GameOverScreen
-       * reads playerNames for "<name> wins!", and useAnnouncer has playerNames
-       * in the deps of its game-over effect. Emptying the lineup on the way in
-       * degraded that subtitle to "Player 2 wins!" and made the live region
-       * re-speak it that way, for the length of the load (#211 item-3 addendum).
+       * ...but not one moment before that next game exists. A SEAM PIN, not a
+       * regression test: the store state it drives is one the UI cannot reach
+       * today. BATTLE on the game-over card is the only control that starts a
+       * game over a finished one, and it goes through goToTitle(), which empties
+       * the lineup in the same setState that swaps the screen — so the card is
+       * gone before startNewGame is called, and `screen: 'gameOver'` with a
+       * lineup set is set up here by hand.
+       *
+       * What it pins is the rule for a future caller that does reach
+       * startNewGame with a game still on screen: GameOverScreen reads
+       * playerNames for "<name> wins!" and useAnnouncer has them in the deps of
+       * its game-over effect, so emptying the lineup on the way in would degrade
+       * that subtitle to "Player 2 wins!" and have the live region re-speak it
+       * that way for the length of the AI load (#211 item-3 addendum).
        *
        * The finished game is modelled by the screen alone: nothing else
        * triggerGameOver writes is on this path.
        */
-      it('still names the finished game while the next one is loading', async () => {
+      it('leaves the lineup to the game that replaces it — a start never empties it ahead of time', async () => {
         await controller.startNewGame({
           playerCount: 2,
           spectator: false,
@@ -877,6 +884,15 @@ describe('GameController', () => {
 
       it('startNewGame resolves, shows an error, and starts nothing', async () => {
         const { createGame } = await import('../../src/engine/index.js');
+        /*
+         * Seeded with a real game first so there is a lineup for the bail to
+         * empty. The UI cannot arrange this — START is only on the title screen,
+         * where the names are already gone — so, like the seam pin above, this
+         * is the "no route to the title leaves a game named behind it" rule
+         * being held to rather than a state a player can reach.
+         */
+        await controller.startNewGame({ playerCount: 2, spectator: false });
+        expect(store.getState().playerNames).not.toEqual([]);
         createGame.mockClear();
 
         await expect(
@@ -894,6 +910,8 @@ describe('GameController', () => {
         expect(createGame).not.toHaveBeenCalled();
         // ...and the bad rung is never persisted.
         expect(state.config.luck).toBe(0);
+        // ...and the seeded game's names go with it.
+        expect(state.playerNames).toEqual([]);
         expect(errorSpy).toHaveBeenCalledWith(
           expect.stringContaining('[GameController]'),
           expect.any(Error)
@@ -918,6 +936,9 @@ describe('GameController', () => {
         expect(state.screen).toBe('title');
         expect(createGame).not.toHaveBeenCalled();
         expect(state.config.luck).toBe(9);
+        // A bounce to the title is a bounce to the title: the lineup names a
+        // game that no longer exists, so it goes with it.
+        expect(state.playerNames).toEqual([]);
         expect(errorSpy).toHaveBeenCalledWith(
           expect.stringContaining('[GameController]'),
           expect.any(Error)
@@ -2372,6 +2393,53 @@ describe('GameController', () => {
       expect(state.screen).toBe('title');
       expect(state.error).toContain('graphics');
     });
+
+    /*
+     * The other shape of a renderer that didn't come up: `hexGrid` is null until
+     * init() succeeds, so a renderer object can exist without one. That is why
+     * the four unmount seams spell `renderer && renderer.hexGrid` where the
+     * mid-game call sites settle for a bare `renderer` — the mid-game ones run
+     * inside a game, which means a board that came up, while quitting and
+     * starting are reachable from the menu screens with no board at all.
+     *
+     * Reaching this state needs init() to have failed and a game to have been
+     * started anyway, which nothing today does — so, like the lineup seam pins,
+     * this holds the guard to its shape rather than covering a live path. Only
+     * the game-over seam is driven here: it is the one whose clear lands after
+     * its own setState, so `screen` alone cannot tell a survived call from a
+     * throw. Hence the sound and the silent console.
+     */
+    it('reaches the game-over seam on a renderer whose init never built a hex grid', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      override(applyAction, (state, action) =>
+        action.type === 'END_TURN' ? { ...state, phase: 'gameOver', winner: 0 } : state
+      );
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      try {
+        const gridlessStore = createGameStore();
+        const gridlessController = createGameController(
+          gridlessStore,
+          { ...createMockRenderer(), hexGrid: null },
+          soundManager
+        );
+
+        await gridlessController.startNewGame({ playerCount: 2, spectator: false });
+        gridlessController.acceptMap();
+        gridlessController.endHumanTurn();
+        await vi.runAllTimersAsync();
+        await flushPromises();
+
+        expect(gridlessStore.getState().screen).toBe('gameOver');
+        // The line right after the guarded clear: proof the seam ran past it.
+        expect(soundManager.play).toHaveBeenCalledWith('over');
+        // endHumanTurn swallows a rejection into console.error, so a throw out
+        // of the seam would otherwise be invisible here.
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
   });
 
   /*
@@ -2405,6 +2473,9 @@ describe('GameController', () => {
 
       expect(store.getState().error).toBeTruthy();
       expect(store.getState().screen).toBe('title');
+      // ...and the lineup goes back with it — see goToTitle and startNewGame's
+      // own two exits: no route to the title leaves a game named behind it.
+      expect(store.getState().playerNames).toEqual([]);
     });
 
     it('clears error on successful game start', async () => {
@@ -3001,7 +3072,9 @@ describe('GameController', () => {
      * sharp edge was the invalidCount test's END_TURN counter, which left in
      * place ends every later turn in game over). The direct `mockImplementation`
      * calls left are on the renderer mock, which beforeEach builds fresh per
-     * test, and on console spies, which restore themselves.
+     * test, and on console spies, each restored at its own site (a finally, an
+     * afterEach, or an inline call — there is no `restoreMocks` in the vitest
+     * config to do it for them).
      *
      * `mockImplementationOnce` is used only where the consuming call is
      * guaranteed inside the same test ('survives an attack the engine rejects'):

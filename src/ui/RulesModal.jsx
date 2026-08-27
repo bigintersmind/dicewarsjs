@@ -87,6 +87,7 @@ export const RULES_SECTIONS = [
       "Don't leave a 1-die territory on a border facing an enemy: it can't attack, and it falls to anything.",
       'Bigger stacks win more often. 8 against 8 is barely better than a coin flip; 8 against 3 almost never loses.',
       'Under Custom difficulty, "Your luck" tilts the dice your way: you roll extra dice and drop as many of the lowest, attacking and defending.',
+      'Keyboard: Tab steps through your territories, the arrow keys move to a neighbor, Enter picks the one in focus, and E ends your turn (Tab past your last territory reaches END TURN too).',
     ],
   },
 ];

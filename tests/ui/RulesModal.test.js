@@ -115,6 +115,29 @@ describe('RulesModal', () => {
     expect(container.textContent).toMatch(new RegExp(BOARD_HINTS_LABEL));
   });
 
+  /*
+   * The keyboard route is only discoverable if the card says it exists: before
+   * #201 there was no key that ended a turn at all. It rides in Tips, next to
+   * the other non-strategy note ("Your luck"), rather than in the Attack
+   * paragraph — which the card's own promise keeps to two lines of copy.
+   */
+  it('tells a keyboard player how to reach END TURN (#201)', () => {
+    renderModal({ rulesOpen: true });
+
+    const tips = RULES_SECTIONS.find(section => section.id === 'tips');
+    const keyboardTip = tips.bullets.find(bullet => /Keyboard/.test(bullet));
+    expect(keyboardTip).toBeTruthy();
+    expect(keyboardTip).toMatch(/Tab/);
+    expect(keyboardTip).toMatch(/END TURN/);
+    // The one-key shortcut, as its own word rather than any letter E in the line.
+    expect(keyboardTip).toMatch(/\bE\b/);
+    expect(container.textContent).toContain('END TURN');
+
+    // Attack stays the two-click explanation it was; the keys live in Tips.
+    const attack = RULES_SECTIONS.find(section => section.id === 'attack');
+    expect(attack.body).not.toMatch(/Tab|keyboard/i);
+  });
+
   it('closes from the close button', () => {
     const { onClose } = renderModal({ rulesOpen: true });
 

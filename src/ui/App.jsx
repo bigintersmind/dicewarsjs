@@ -2,12 +2,18 @@
  * Root Application Component
  *
  * Routes between screens based on GameStore state. Renders two layers: a
- * persistent chrome layer (settings die, plus the TopNav mode rail on the
- * hub screens other than the title) and the current screen. The chrome sits
- * outside the screen switch so it survives navigation — moving between the
- * rail screens (Arena / Tournament / Leaderboard) must not remount the rail
- * and replay its entrance. It does mount fresh on each trip out of the title,
- * which carries FooterNav instead of the rail (#182).
+ * persistent layer that outlives every screen change — the settings die, the
+ * "How to play" card, the screen-reader live region, and the TopNav mode rail
+ * on the hub screens other than the title — and the current screen itself,
+ * inside a boundary keyed by screen.
+ *
+ * Each piece of the persistent layer sits outside the screen switch for its own
+ * reason. The rail must not remount and replay its entrance when the player
+ * moves between the rail screens (Arena / Tournament / Leaderboard); it does
+ * mount fresh on each trip out of the title, which carries FooterNav instead of
+ * the rail (#182). The rules card must survive a screen change happening behind
+ * it — a game ending while it is being read. And the live region must be one
+ * stable node for the whole session (#211 item 9; see its render site below).
  *
  * @module ui/App
  */
@@ -101,8 +107,6 @@ export function App({ store, controller, preferencesManager }) {
     <SettingsPanel store={store} preferencesManager={preferencesManager} />
   ) : null;
 
-  const announcer = <ScreenReaderAnnouncer store={store} />;
-
   /** Every screen's HOW TO PLAY / RULES control opens the same card. */
   const openRules = () => controller.openRules();
 
@@ -171,7 +175,6 @@ export function App({ store, controller, preferencesManager }) {
     if (screen === 'gameOver') {
       return (
         <div style={{ height: '100%', position: 'relative' }}>
-          {announcer}
           {/* No onRules here: GameOverScreen's overlay covers the whole HUD, so
               a control in the bar would be unreachable. The screen carries its
               own HOW TO PLAY instead. */}
@@ -190,7 +193,6 @@ export function App({ store, controller, preferencesManager }) {
     // screen === 'playing'
     return (
       <div style={{ height: '100%', position: 'relative' }}>
-        {announcer}
         <GameHUD store={store} onQuit={() => controller.openQuitConfirm()} onRules={openRules} />
         {/* Its position here IS the tab order: settings die → QUIT → RULES → own
             territories → END TURN (#201, #211). */}
@@ -224,6 +226,20 @@ export function App({ store, controller, preferencesManager }) {
        */}
       <ErrorBoundary>
         <RulesModal store={store} onClose={() => controller.closeRules()} />
+      </ErrorBoundary>
+      {/*
+       * One live region, mounted once for the session. It used to be rendered
+       * inside the `playing` and `gameOver` branches below, so the keyed
+       * boundary tore it down and built a new one on the playing → gameOver
+       * transition — and a live region inserted into the page already carrying
+       * its text is frequently not announced at all, which is why "Game over…"
+       * has been so unreliable (#211 item 9). A single stable node that already
+       * exists, empty, when the text arrives is the standard requirement.
+       * useAnnouncer knows it now runs on every screen: it speaks only for the
+       * playing / gameOver screens and empties itself on the way out.
+       */}
+      <ErrorBoundary>
+        <ScreenReaderAnnouncer store={store} />
       </ErrorBoundary>
       {showRail && (
         <ErrorBoundary>

@@ -218,6 +218,12 @@ export class HexGridRenderer {
     /** @type {boolean} Color-blind mode */
     this._colorBlindMode = false;
 
+    /**
+     * @type {Set<string>} Methods that have already reported a missing border
+     * for the current map — see `_warnMissingBorder`. Cleared by `drawMap`.
+     */
+    this._missingBorderWarned = new Set();
+
     /** @type {number[]} Territories currently marked by the board-hint layer */
     this._candidateIds = [];
     /** @type {'attacker' | 'target'} Treatment the board-hint layer is painting */
@@ -301,6 +307,9 @@ export class HexGridRenderer {
     }
     this._territoryGfx = new Array(areas.length).fill(null);
     this._borders = new Array(areas.length).fill(null);
+    // ...and a new set of borders is a new chance to be pointed at the wrong
+    // game, so each overlay gets its missing-border report back (#211 item 4).
+    this._missingBorderWarned.clear();
 
     // Borders are being retraced from scratch: anything the board-hint layer
     // drew against the previous map's outlines is now stale geometry.
@@ -378,6 +387,34 @@ export class HexGridRenderer {
   }
 
   /**
+   * Report an overlay asked to paint a territory this renderer has no traced
+   * border for — the caller is drawing against a board we aren't showing, the
+   * same store/renderer map mismatch `setCandidateHighlights` has warned about
+   * all along (#211 item 4). Both callers still return without painting: this
+   * runs from a focus listener and from click handling, where throwing over a
+   * cosmetic overlay would be far worse than a missing ring.
+   *
+   * Once per method per map, not once per call, because these overlays are
+   * called once per *hop*: an arrow burst across a mismatched board would
+   * otherwise print a line per keypress and bury the first report. (The sibling
+   * can afford a line per call — each of its calls is one whole hint set.)
+   * `drawMap` clears the record along with `_borders`, since a freshly traced
+   * map is a fresh chance to be wired against the wrong game.
+   *
+   * @param {string} method - Name of the calling method, for the message
+   * @param {number} areaId - The id with no border
+   */
+  _warnMissingBorder(method, areaId) {
+    if (this._missingBorderWarned.has(method)) return;
+    this._missingBorderWarned.add(method);
+    console.warn(
+      `[HexGridRenderer] ${method}: no border for area`,
+      areaId,
+      '— renderer map may not match the store game'
+    );
+  }
+
+  /**
    * Show a selection highlight on a territory.
    *
    * @param {'from' | 'to'} which
@@ -386,7 +423,10 @@ export class HexGridRenderer {
   setHighlight(which, areaId) {
     const gfx = which === 'from' ? this._highlightFrom : this._highlightTo;
     const border = this._borders[areaId];
-    if (!border) return;
+    if (!border) {
+      this._warnMissingBorder('setHighlight', areaId);
+      return;
+    }
 
     gfx.visible = true;
     drawTerritoryPath(
@@ -413,7 +453,10 @@ export class HexGridRenderer {
    */
   setFocusHighlight(areaId) {
     const border = this._borders[areaId];
-    if (!border) return;
+    if (!border) {
+      this._warnMissingBorder('setFocusHighlight', areaId);
+      return;
+    }
     this._highlightFocus.visible = true;
     drawTerritoryPath(this._highlightFocus, border, this._cellPos, 0x000000, 0xffffff, 3);
     this._highlightFocus.alpha = 0.7;

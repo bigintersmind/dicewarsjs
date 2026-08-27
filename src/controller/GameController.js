@@ -255,7 +255,19 @@ export function createGameController(store, renderer, soundManager, preferencesM
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
     clearNextTurnTimer();
-    store.setState({ error: null, aiLoadWarnings: [], playerNames: [] });
+    /*
+     * The banner and the load warnings belong to the start that is beginning
+     * now, so they go here. The lineup does NOT: names change with the game they
+     * name, and never ahead of it (#211 item-3 addendum). BATTLE on the game-over
+     * card lands here with the finished game still on screen for as long as the
+     * AI load below takes, and GameOverScreen goes on reading playerNames for
+     * "<name> wins!" — emptying it here degraded that to "Player 2 wins!" and had
+     * useAnnouncer, which has playerNames in its deps, re-speak the line that
+     * way. The success path replaces the whole lineup in the same setState as the
+     * new gameState and screen; the failure path empties it on the way back to
+     * the title, where no game is named at all.
+     */
+    store.setState({ error: null, aiLoadWarnings: [] });
 
     if (!renderer) {
       store.setState({ error: 'Cannot start game: graphics engine not available.' });
@@ -302,7 +314,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * this promise, so an escaping rejection would read as a dead button (and the
      * `error: null` reset above would already have wiped any visible banner).
      * Bailing here also keeps the bad rung out of store.config — the setState
-     * that persists it is below.
+     * that persists it is below. The lineup is emptied for the same reason the
+     * catch below empties it: this exit leaves no game for the previous game's
+     * names to belong to.
      */
     let handicap;
     try {
@@ -317,6 +331,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
+        playerNames: [],
         error: "That luck setting isn't available. Pick another and try again.",
       });
       return;
@@ -395,8 +410,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
       /*
        * This is a trip back to the title, so it has to leave the same state
        * goToTitle() would (#181) — a confirm dialog raised over the previous
-       * game must not still be flagged open on the title screen. (aiAborted
-       * and the next-turn timer were already dealt with on the way in.)
+       * game must not still be flagged open on the title screen, and the lineup
+       * goes with the game it named (goToTitle empties it too) — the setState
+       * that would have replaced it wholesale is the one that just threw.
+       * (aiAborted and the next-turn timer were already dealt with on the way
+       * in.)
        */
       store.setState({
         screen: 'title',
@@ -406,6 +424,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
+        playerNames: [],
         error: 'Failed to start game. Please try again.',
       });
     }
@@ -1125,8 +1144,14 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * and the turn-cap draw clear nothing at all. So the ring comes off the
      * board behind the game-over card here, paired with the `focusedAreaId:
      * null` above, or not at all.
+     *
+     * Guarded like the other three unmount seams — startNewGame, startSpectate,
+     * the endTurn error bounce — rather than on a bare `renderer` (#211 item 6):
+     * `hexGrid` is null until init() succeeds, and which seams a board that
+     * never came up can still reach is not something these four should each be
+     * reasoned about separately.
      */
-    if (renderer) renderer.hexGrid.clearFocusHighlight();
+    if (renderer && renderer.hexGrid) renderer.hexGrid.clearFocusHighlight();
     if (soundManager) soundManager.play('over');
   }
 

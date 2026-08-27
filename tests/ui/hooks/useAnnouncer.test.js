@@ -84,7 +84,10 @@ describe('ScreenReaderAnnouncer', () => {
     expect(el).toBeTruthy();
     expect(el.getAttribute('aria-live')).toBe('polite');
     expect(el.getAttribute('aria-atomic')).toBe('true');
-    expect(el.getAttribute('role')).toBe('log');
+    // Not "log": one line replaced in place is advisory status, not an
+    // append-only history of lines (#211 item 11). The explicit aria-live /
+    // aria-atomic above pin the behaviour either way.
+    expect(el.getAttribute('role')).toBe('status');
   });
 
   it('shows no announcement when game state is null', () => {
@@ -291,5 +294,136 @@ describe('ScreenReaderAnnouncer', () => {
     });
 
     expect(getText()).toContain('Game over');
+  });
+
+  /*
+   * -------------------------------------------------------------------------
+   * The region is mounted on every screen (#211 item 9)
+   *
+   * App used to render the announcer inside the `playing` and `gameOver`
+   * branches of its screen switch, so the hook only ever ran over a live game
+   * and could read the store without asking which screen was up. It now lives
+   * outside the switch — one node, mounted for the whole session, because a
+   * live region that appears already populated is frequently not announced at
+   * all. That hands the hook two new jobs: say nothing on the screens that are
+   * not a game, and clear itself on the way out so the next game's identical
+   * line is a change the assistive tech can see.
+   * -------------------------------------------------------------------------
+   */
+
+  it('says nothing over the map preview, where the first seat may be a bot', () => {
+    /* The exact shape the controller leaves behind at mapPreview: a complete
+       fresh gameState, awaitingInput null, and a turn order that can open on a
+       bot — which is the "is thinking" branch's own precondition. Nobody is
+       playing yet, so nobody is thinking out loud. */
+    store.setState({
+      screen: 'mapPreview',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('');
+  });
+
+  it('does not speak a leftover battle result on the title screen', () => {
+    /* A quit mid-attack leaves battleResult in the store. The battle line is
+       about a board that is no longer on screen. */
+    store.setState({
+      screen: 'title',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      gameState: makeGameState(),
+      battleResult: {
+        success: true,
+        attackerRoll: { values: [3, 4], total: 7 },
+        defenderRoll: { values: [2, 1], total: 3 },
+      },
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('');
+  });
+
+  it('clears the line when a game screen is left', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ winner: 0 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Game over. You win!');
+
+    act(() => store.setState({ screen: 'title', gameState: null }));
+    expect(getText()).toBe('');
+  });
+
+  /*
+   * Why the clear matters, in the one case that motivates it: setAnnouncement
+   * with the string already in state is a no-op — no re-render, no DOM
+   * mutation, nothing for a screen reader to notice — so on a persistent region
+   * two games ending the same way would announce the first and stay silent for
+   * the second. The intermediate '' asserted below IS the contract, not an
+   * incidental step: it is what makes the second line a change.
+   */
+  it('makes an identical game-over line a fresh announcement in the next game', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ winner: 0 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Game over. You win!');
+
+    act(() => store.setState({ screen: 'title', gameState: null }));
+    expect(getText()).toBe('');
+
+    act(() =>
+      store.setState({
+        screen: 'gameOver',
+        gameState: makeGameState({ winner: 0 }),
+      })
+    );
+    expect(getText()).toBe('Game over. You win!');
+  });
+
+  /*
+   * The hoist's contract at the hook level: playing → gameOver is the
+   * transition that used to remount the region (App keyed the screen boundary),
+   * and it is the one the guard above must not silence. Same store, same node,
+   * text replaced.
+   */
+  it('replaces the turn line with the game-over line on the same region', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: 'selectFrom',
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState(),
+    });
+
+    const { getText, getEl } = renderAnnouncer(store);
+    const region = getEl();
+    expect(getText()).toContain('Your turn');
+
+    act(() =>
+      store.setState({
+        screen: 'gameOver',
+        awaitingInput: null,
+        gameState: makeGameState({ winner: 0 }),
+      })
+    );
+
+    expect(getEl()).toBe(region);
+    expect(region.isConnected).toBe(true);
+    expect(getText()).toBe('Game over. You win!');
   });
 });

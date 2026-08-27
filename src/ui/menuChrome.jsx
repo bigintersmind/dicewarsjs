@@ -274,13 +274,20 @@ export function MenuScreen({ title, children, focusTitleOnMount = false }) {
    * tab — a #188 regression. Leave it off for anything with a rail.
    *
    * tabIndex={-1} is unconditional: it makes the h1 focusable programmatically
-   * without putting it in the tab order. The headline has no focus rule of its
-   * own and the shared chrome styles only ever use :focus-visible (CHROME_CSS),
-   * which programmatic focus does not trigger — so no stray ring, and no
-   * `outline: none` needed. Its one side effect is silent: Chrome and Safari
-   * focus a tabindex="-1" element on mousedown, so a click on the headline
-   * moves focus there (still no ring) and the next Tab picks up from the
-   * screen's first control instead of wherever focus was.
+   * without putting it in the tab order. What keeps it ring-free is that no
+   * focus rule reaches it at all: every :focus-visible rule in the shared
+   * chrome styles is scoped to a chrome class (.dw-btn, .dw-opt, .dw-tab,
+   * .dw-footlink) and the headline carries none of them — so no stray ring,
+   * and no `outline: none` needed. NOT because the focus is programmatic
+   * (#211 item 6): :focus-visible matches a programmatic focus whenever the
+   * last user interaction was a keypress, in all three engines, which is
+   * exactly the case a mount-time focus after a keyboard-activated route
+   * change lands in. Give the headline a chrome class and it would ring.
+   *
+   * Its one side effect is silent: Chrome and Safari focus a tabindex="-1"
+   * element on mousedown, so a click on the headline moves focus there (still
+   * no ring) and the next Tab picks up from the screen's first control instead
+   * of wherever focus was.
    */
   useEffect(() => {
     if (focusTitleOnMount) titleRef.current?.focus({ preventScroll: true });

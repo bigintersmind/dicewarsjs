@@ -29,12 +29,14 @@
  * the same function, while every mid-game clear goes through
  * `clearSelectionHighlights()`, which leaves that layer alone. So the ring is
  * visible exactly when `focusedAreaId` is set (the one theoretical exception is
- * item 4's silent no-op when a territory has no traced border, unreachable while
- * BoardFocus and drawMap agree on what a live territory is). Which means a focus
- * parked on a territory through an AI turn — E pressed, or END TURN clicked on
- * macOS Safari or Firefox, where a click does not move focus — keeps its ring
- * for the whole turn, whoever ends up owning that territory, because that is
- * where the next arrow steps from. It is a cursor, not a selection.
+ * a territory with no traced border, where `setFocusHighlight` paints nothing —
+ * a no-op that warns since item 4, so it can no longer pass for a ring that was
+ * simply not asked for — and which is unreachable anyway while BoardFocus and
+ * drawMap agree on what a live territory is). Which means a focus parked on a
+ * territory through an AI turn — E pressed, or END TURN clicked on macOS Safari
+ * or Firefox, where a click does not move focus — keeps its ring for the whole
+ * turn, whoever ends up owning that territory, because that is where the next
+ * arrow steps from. It is a cursor, not a selection.
  *
  * The listener sits on `document` and would otherwise swallow keys aimed at real
  * controls, so the arrows are claimed in exactly two situations: focus is on a
@@ -82,11 +84,17 @@
  *   - Tab during a battle animation is native, and now by construction: this
  *     handler never sees Tab at all. The arrows, E and Escape do bail while
  *     `animationPhase` is not idle.
- *   - A click on the canvas blurs the focused territory button to `<body>` —
- *     mousedown's own focus fixup, and the canvas is not focusable — so the ring
- *     goes down and the next arrow re-enters at the first own territory instead
- *     of resuming where the keyboard was. Resuming at the clicked territory is a
- *     #211 follow-up, not this change.
+ *   - A click on a territory moves the keyboard with it: main.jsx hands the
+ *     canvas `pointerdown` to `focusFromPointer` below, which — only when the
+ *     board already holds focus — focuses that territory's button and lets the
+ *     caller suppress mousedown's focus fixup, the thing that would otherwise
+ *     have blurred the board to `<body>` and sent the next arrow back to the
+ *     first own territory. That is what makes mixed use work: select the source
+ *     with Enter, click the target with the mouse, and the ring is on the target
+ *     — which after a win is yours. A click on WATER is deliberately still the
+ *     browser's: focus drops to `<body>` and the ring comes down, because a
+ *     click on nothing is as good a way as any to say "done with the keyboard
+ *     position". A mouse-only player never acquires a ring from any of this.
  *   - Safari with "Press Tab to highlight each item" off (the pre-Sonoma
  *     default) does not visit `<button>`s on Tab at all, so the Tab route to the
  *     board and on to END TURN is Safari's to withhold. The arrows still enter
@@ -163,7 +171,7 @@ function isTextEntry(el) {
  * @param {Object} store - GameStore instance
  * @param {Object} controller - GameController instance
  * @param {import('../renderer/GameRenderer.js').GameRenderer | null} renderer
- * @returns {{ destroy: () => void }}
+ * @returns {{ focusFromPointer: (areaId: number) => boolean, destroy: () => void }}
  */
 export function createKeyboardController(store, controller, renderer) {
   let warnedNoCellPos = false;
@@ -368,6 +376,29 @@ export function createKeyboardController(store, controller, renderer) {
   }
 
   /**
+   * A pointer went down on a territory: keep the keyboard's position on it,
+   * rather than letting the click blur the board to `<body>`.
+   *
+   * Only when the board already holds DOM focus. A mouse-only player has no
+   * territory focused and never gets a ring out of this — clicking is not asking
+   * for a keyboard cursor — and focus that belongs to a real control is left
+   * where it is. Moving focus goes through `focusArea`, so the `focusin` mirror
+   * does the store and ring bookkeeping down the one path everything else uses.
+   *
+   * @param {number} areaId - The territory under the pointer
+   * @returns {boolean} True when DOM focus is now on that territory's button —
+   *   which is main.jsx's cue to preventDefault() the pointerdown and with it
+   *   the browser's focus fixup. False means nothing moved and the default is
+   *   the browser's to keep.
+   */
+  function focusFromPointer(areaId) {
+    if (areaIdOf(document.activeElement) == null) return false;
+    focusArea(areaId);
+    const el = document.getElementById(areaElementId(areaId));
+    return el != null && document.activeElement === el;
+  }
+
+  /**
    * Cancel current selection and return to selectFrom.
    *
    * @returns {boolean} True when a half-made attack was actually cancelled.
@@ -398,9 +429,7 @@ export function createKeyboardController(store, controller, renderer) {
 
   function setFocus(areaId) {
     store.setState({ focusedAreaId: areaId });
-    if (renderer && renderer.hexGrid.setFocusHighlight) {
-      renderer.hexGrid.setFocusHighlight(areaId);
-    }
+    if (renderer) renderer.hexGrid.setFocusHighlight(areaId);
   }
 
   /** Take the ring down — the board no longer holds DOM focus. */
@@ -444,6 +473,7 @@ export function createKeyboardController(store, controller, renderer) {
   document.addEventListener('focusout', handleFocusOut);
 
   return {
+    focusFromPointer,
     destroy() {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('focusin', handleFocusIn);

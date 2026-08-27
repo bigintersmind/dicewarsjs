@@ -232,6 +232,18 @@ describe('GameController', () => {
     mockFn.mockImplementation(implementation);
   }
 
+  /**
+   * Undo them newest-first. A mock overridden twice in one test — a describe's
+   * beforeEach and then the test itself narrowing it further, which several here
+   * do — pushes two restores, and running them in registration order would end
+   * on the FIRST override's implementation and leak exactly what this helper
+   * exists to prevent.
+   */
+  function restoreOverrides() {
+    for (let i = restoreMocks.length - 1; i >= 0; i--) restoreMocks[i]();
+    restoreMocks = [];
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -243,8 +255,7 @@ describe('GameController', () => {
   });
 
   afterEach(() => {
-    for (const restore of restoreMocks) restore();
-    restoreMocks = [];
+    restoreOverrides();
     vi.useRealTimers();
   });
 
@@ -503,6 +514,44 @@ describe('GameController', () => {
         });
 
         expect(store.getState().playerNames).toEqual(['You', 'Lookahead AI']);
+      });
+
+      /*
+       * ...but not one moment before that next game exists. BATTLE on the
+       * game-over card starts an AI load that takes as long as it takes, and the
+       * finished game's screen stays up for the whole of it — GameOverScreen
+       * reads playerNames for "<name> wins!", and useAnnouncer has playerNames
+       * in the deps of its game-over effect. Emptying the lineup on the way in
+       * degraded that subtitle to "Player 2 wins!" and made the live region
+       * re-speak it that way, for the length of the load (#211 item-3 addendum).
+       *
+       * The finished game is modelled by the screen alone: nothing else
+       * triggerGameOver writes is on this path.
+       */
+      it('still names the finished game while the next one is loading', async () => {
+        await controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          aiAssignments: [null, 'ai_lookahead'],
+        });
+        store.setState({ screen: 'gameOver' });
+
+        // Deliberately not awaited: this is the window the game-over card is
+        // still on screen for.
+        const starting = controller.startNewGame({
+          playerCount: 2,
+          spectator: false,
+          aiAssignments: [null, 'ai_conqueror'],
+        });
+
+        expect(store.getState().screen).toBe('gameOver');
+        expect(store.getState().playerNames).toEqual(['You', 'Lookahead AI']);
+
+        await starting;
+
+        // ...and they change with the screen, in the one setState.
+        expect(store.getState().screen).toBe('mapPreview');
+        expect(store.getState().playerNames).toEqual(['You', 'Conqueror']);
       });
     });
 
@@ -1433,7 +1482,7 @@ describe('GameController', () => {
       await flushPromises();
 
       // A second game: its loop can only start if the first one let go of aiRunning.
-      runAI.mockImplementation(() => null); // end the turn immediately this time
+      override(runAI, () => null); // end the turn immediately this time
       renderer.battle.play.mockImplementation(async () => {});
       renderer.battle.cancel.mockImplementation(() => {});
       runAI.mockClear();
@@ -1867,15 +1916,10 @@ describe('GameController', () => {
      */
     beforeEach(async () => {
       const { getValidMoves } = await import('../../src/engine/index.js');
-      getValidMoves.mockImplementation(() => [
+      override(getValidMoves, () => [
         { from: 1, to: 2 },
         { from: 1, to: 3 },
       ]);
-    });
-
-    afterEach(async () => {
-      const { getValidMoves } = await import('../../src/engine/index.js');
-      getValidMoves.mockImplementation(() => []);
     });
 
     it('resets selection on applyAction failure', async () => {
@@ -2722,15 +2766,11 @@ describe('GameController', () => {
     beforeEach(async () => {
       ({ getValidMoves } = await import('../../src/engine/index.js'));
       // Two attackers, one of them with two reachable targets.
-      getValidMoves.mockImplementation(() => [
+      override(getValidMoves, () => [
         { from: 1, to: 2, attackerDice: 3, defenderDice: 2 },
         { from: 1, to: 3, attackerDice: 3, defenderDice: 1 },
         { from: 5, to: 2, attackerDice: 2, defenderDice: 2 },
       ]);
-    });
-
-    afterEach(() => {
-      getValidMoves.mockImplementation(() => []);
     });
 
     async function startPlaying(overrides = {}) {
@@ -2764,9 +2804,7 @@ describe('GameController', () => {
     it('repaints for a re-picked source rather than leaving the old targets up', async () => {
       await startPlaying();
       controller.handleTerritoryClick(1);
-      getValidMoves.mockImplementation(() => [
-        { from: 5, to: 2, attackerDice: 2, defenderDice: 2 },
-      ]);
+      override(getValidMoves, () => [{ from: 5, to: 2, attackerDice: 2, defenderDice: 2 }]);
 
       // Area 5 isn't on the fixture board; re-pick area 1 and let the move list
       // stand in for a different source's reach.
@@ -2809,7 +2847,7 @@ describe('GameController', () => {
        * attacks" (which an observer could word as such), `null` says "no hint
        * applies at all". Collapsing them would lose that.
        */
-      getValidMoves.mockImplementation(() => []);
+      override(getValidMoves, () => []);
       await startPlaying();
 
       expect(store.getState().awaitingInput).toBe('selectFrom');
@@ -2957,11 +2995,13 @@ describe('GameController', () => {
      * factory's createGame, applyAction and runAI already do exactly what these
      * tests want (a fresh makeGameState, END_TURN advancing the player, ATTACK
      * appending a win, an AI that ends its turn), and they still do by the time
-     * the file reaches here — the one earlier swap that carried closure state
-     * (the invalidCount test's END_TURN counter, which would otherwise end
-     * every later turn in game over) goes through the outer describe's
-     * override(); the few direct swaps left in the file only ever set a mock to
-     * its factory default.
+     * the file reaches here — every lasting swap of an engine mock in this file
+     * now goes through the outer describe's override(), so each is put back
+     * before the next test (#211 item 3's follow-up finished the conversion; the
+     * sharp edge was the invalidCount test's END_TURN counter, which left in
+     * place ends every later turn in game over). The direct `mockImplementation`
+     * calls left are on the renderer mock, which beforeEach builds fresh per
+     * test, and on console spies, which restore themselves.
      *
      * `mockImplementationOnce` is used only where the consuming call is
      * guaranteed inside the same test ('survives an attack the engine rejects'):
@@ -2976,13 +3016,17 @@ describe('GameController', () => {
       override(getValidMoves, () => [{ from: 1, to: 2, attackerDice: 3, defenderDice: 2 }]);
     });
 
-    /** One AI attack, then end of turn. */
-    function aiPlaysOneAttack() {
+    /**
+     * One AI attack, then end of turn. The move has to appear in whatever
+     * getValidMoves returns — the AI loop validates against it — so a caller
+     * passing its own move overrides that list too.
+     */
+    function aiPlaysOneAttack(move = { from: 1, to: 2 }) {
       let played = false;
       override(runAI, () => {
         if (played) return null;
         played = true;
-        return { from: 1, to: 2 };
+        return move;
       });
     }
 
@@ -3061,6 +3105,52 @@ describe('GameController', () => {
       await flushPromises();
 
       expect(renderer.battle.play).toHaveBeenCalled(); // the AI attack really animated
+      expectRingSurvived();
+    });
+
+    /*
+     * "Whoever ends up owning it" — the clause of the item-3 decision that #214
+     * left argued (from redrawTerritory repainting in place) rather than pinned,
+     * because the browser run never saw the AI take the focused territory. Here
+     * it does: the AI attacks FOCUSED itself and wins it. The ring is a cursor,
+     * not a claim of ownership — it marks where DOM focus is and where the next
+     * arrow steps from — so it stays on the territory that just changed hands.
+     */
+    it('survives the AI conquering the focused territory itself', async () => {
+      await playingWithFocus();
+      // The AI (player 1, area 2) attacks the human's FOCUSED neighbour...
+      override(getValidMoves, () => [{ from: 2, to: FOCUSED }]);
+      aiPlaysOneAttack({ from: 2, to: FOCUSED });
+      // ...and wins it. The module mock's ATTACK only records history, so the
+      // ownership flip a won attack ends in is layered on top of it here.
+      const applyBase = applyAction.getMockImplementation();
+      override(applyAction, (state, action) => {
+        const next = applyBase(state, action);
+        if (action.type !== 'ATTACK') return next;
+        return {
+          ...next,
+          areas: {
+            ...next.areas,
+            [action.to]: { ...next.areas[action.to], owner: 1, dice: 2 },
+          },
+        };
+      });
+
+      controller.endHumanTurn();
+      await vi.runAllTimersAsync();
+      await flushPromises();
+
+      /*
+       * Non-vacuous: the attack has to have been aimed at FOCUSED and to have
+       * taken it, or "the ring survived" would just be the previous test again
+       * with the AI hitting something else.
+       */
+      const gameState = store.getState().gameState;
+      expect(gameState.history.find(entry => entry.type === 'ATTACK')).toMatchObject({
+        from: 2,
+        to: FOCUSED,
+      });
+      expect(gameState.areas[FOCUSED].owner).toBe(1);
       expectRingSurvived();
     });
 

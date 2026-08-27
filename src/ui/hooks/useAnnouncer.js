@@ -32,7 +32,35 @@ export function useAnnouncer(store) {
   const humanPlayerIndex = useGameStore(store, s => s.humanPlayerIndex);
   const playerNames = useGameStore(store, s => s.playerNames);
 
+  /*
+   * The two screens that have a game to talk about. Everything else — title,
+   * map preview, arena, tournament, leaderboard, replay — is silent, and the
+   * hook has to say so itself: since #211 item 9 the region is mounted for the
+   * whole session rather than by the playing / gameOver branches of App's
+   * screen switch, so "am I on a game screen?" stopped being implied by being
+   * mounted at all.
+   */
+  const onGameScreen = screen === 'playing' || screen === 'gameOver';
+
   useEffect(() => {
+    /*
+     * Off the game screens, empty the line. Two things ride on this:
+     *
+     * - Silence where there is no game. The store keeps a whole gameState
+     *   through the map preview — a fresh board with `awaitingInput: null` and a
+     *   turn order that may open on a bot, which is exactly the "is thinking"
+     *   branch's precondition below. It would narrate a board nobody is playing.
+     * - Making the next game's lines audible. `setAnnouncement(sameString)` is a
+     *   no-op: no re-render, no DOM mutation, nothing for assistive tech to
+     *   notice. On one persistent region, two games ending "Game over. You win!"
+     *   would announce the first and leave the second silent. Clearing on the
+     *   way out makes each game's identical line a change again.
+     */
+    if (!onGameScreen) {
+      setAnnouncement('');
+      return;
+    }
+
     if (!gameState) return;
 
     const currentPlayerId = gameState.turnOrder[gameState.currentPlayerIndex];
@@ -83,6 +111,17 @@ export function useAnnouncer(store) {
 
   useEffect(() => {
     if (!battleResult) return;
+    /*
+     * `screen` is read here but deliberately kept OUT of this effect's deps. The
+     * battle line must be spoken when a battle lands and only then; with `screen`
+     * in the deps, any screen change while the last result still sat in the store
+     * would re-speak a stale attack — and at the playing → gameOver seam it would
+     * run after the effect above and overwrite "Game over…" with it. Deps of
+     * [battleResult] mean this closure is invoked only on the render where the
+     * result changed, so the screen it reads is that render's screen: the guard
+     * is evaluated at the moment the battle actually arrives.
+     */
+    if (!onGameScreen) return;
     const atkTotal = battleResult.attackerRoll?.total ?? 0;
     const defTotal = battleResult.defenderRoll?.total ?? 0;
     const outcome = battleResult.success ? 'Success' : 'Failed';

@@ -104,12 +104,34 @@ async function main() {
    */
   createTitleAttractMode({ store, renderer: gameRenderer, preferencesManager }).attach();
 
+  /*
+   * Enable keyboard navigation (the returned destroy() is for cleanup, not
+   * needed in an SPA). Created before the canvas listener below, which asks it
+   * to keep the keyboard's position on a clicked territory.
+   */
+  const keyboard = createKeyboardController(store, controller, gameRenderer);
+
   // Wire canvas clicks to the controller
   if (canvas) {
     canvas.addEventListener('pointerdown', e => {
       if (!gameRenderer) return;
       const areaId = gameRenderer.hitTest(e.clientX, e.clientY);
       if (areaId > 0) {
+        /*
+         * Carry the keyboard's position to the clicked territory (#211). Taken
+         * only when the board already held DOM focus — focusFromPointer says so
+         * by returning true — so a mouse-only player never acquires a focus ring
+         * by clicking. preventDefault() on the pointerdown suppresses the
+         * compatibility mousedown, and with it the browser's focus fixup, which
+         * would otherwise have blurred the button we just focused to `<body>`;
+         * the `click` still fires and nothing on the canvas listens for it.
+         *
+         * A click on WATER (areaId === 0) is left to the default even with a
+         * territory focused: focus drops to `<body>` and the ring comes down,
+         * because a click on nothing is as good a way as any to say "done with
+         * the keyboard position".
+         */
+        if (keyboard.focusFromPointer(areaId)) e.preventDefault();
         controller.handleTerritoryClick(areaId);
       }
     });
@@ -132,9 +154,6 @@ async function main() {
       }
     });
   }
-
-  // Enable keyboard navigation (return value has destroy() for cleanup, not needed in SPA)
-  createKeyboardController(store, controller, gameRenderer);
 
   // Mount Preact UI
   const appRoot = document.getElementById('app');

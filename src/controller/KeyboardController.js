@@ -48,11 +48,12 @@
  * surfaced it by throwing — and startNewGame now refuses to start on a renderer
  * that never initialized (#211 follow-up 14), which is where the fix belongs: a
  * guard here would only have moved the failure. It is GameController's four
- * unmount SEAMS that spell `renderer && renderer.hexGrid`, and they have to:
- * starting is reachable from the menu screens with a renderer that never got as
- * far as a hex grid, and its three siblings (game over, spectate, the end-turn
- * bounce) are guarded alike rather than reasoned about one by one. goToTitle
- * spells the same guard nested, for the same reason.
+ * unmount SEAMS that spell `renderer && renderer.hexGrid` — belt and braces
+ * since follow-up 14 closed the one route that could reach them gridless, kept
+ * because four seams guarded alike are cheaper to reason about than four seams
+ * each argued from whole-app reachability. goToTitle spells the same guard
+ * nested and still needs it: it is reachable from the menu screens, where a
+ * failed init leaves no grid.
  *
  * The listener sits on `document` and would otherwise swallow keys aimed at real
  * controls, so the arrows are claimed in exactly two situations: focus is on a
@@ -118,8 +119,8 @@
  *     click on a TERRITORY is the one that does not drop the ring, because it
  *     moves the keyboard with it: the canvas pointer handler
  *     (`controller/canvasPointer.js`) hands the `pointerdown` — the primary
- *     button only — to `focusFromPointer`
- *     below, which — only when the board already holds focus — focuses that
+ *     button only — to `focusFromPointer` below, which — only when the board
+ *     already holds focus — focuses that
  *     territory's button and lets the caller suppress mousedown's focus fixup,
  *     the thing that would otherwise have blurred the board to `<body>` and sent
  *     the next arrow back to the first own territory. That is what makes mixed
@@ -306,8 +307,8 @@ export function createKeyboardController(store, controller, renderer) {
          * Handled wherever focus is, but only claimed when there was actually a
          * selection to cancel; an uncancelled Escape is what QuitConfirm
          * listens for (#181). The cancel is the controller's — a click on water
-         * asks for the same three steps, so there is one owner and no second
-         * copy to drift (#211 follow-up 16).
+         * asks for the same three steps, so the two inputs share one owner
+         * rather than each keeping a copy of the order (#211 follow-up 16).
          */
         if (controller.cancelSelection()) e.preventDefault();
         break;
@@ -460,8 +461,8 @@ export function createKeyboardController(store, controller, renderer) {
    *
    * That is this function's only condition; the canvas pointer handler adds two
    * more before calling it: the primary button (`e.button === 0`) and a real
-   * territory — water is never offered to it at all. Within that,
-   * the cursor follows the pointer whenever the board holds focus, including
+   * territory — water is never offered to it at all. Within that, the cursor
+   * follows the pointer whenever the board holds focus, including
    * during an AI turn or a battle animation, when the arrows bail in
    * `handleKeyDown` and this is the only way left to move it.
    * The click itself is ignored on those turns (`handleTerritoryClick` bails),

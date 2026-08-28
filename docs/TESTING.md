@@ -44,7 +44,7 @@ tests/
 ├── ai/            # Built-in AI strategies
 ├── arena/         # Bot SDK: validation, execution, ELO, tournaments, replays
 ├── audio/         # SoundManager
-├── controller/    # GameController, KeyboardController
+├── controller/    # GameController, KeyboardController, TitleAttractMode, canvasPointer
 ├── engine/        # Pure engine: state, map gen, battles, turns, RNG
 ├── renderer/      # PixiJS rendering (hex grid, dice, themes, layout)
 ├── store/         # GameStore, PreferencesManager
@@ -66,7 +66,7 @@ implemented" errors, and a `window.matchMedia` answering `matches: false`, which
 this jsdom does not implement at all and which `PreferencesManager` reads for the
 system reduced-motion preference (that read is inside a try/catch and answers
 `false` without the stub too, so what the stub settles is the noise and the
-answer, not whether the tests run). Both guard on the global they patch, so the
+answer). Both guard on the global they patch, so the
 file is a no-op under the default `node` environment.
 
 ## Test types

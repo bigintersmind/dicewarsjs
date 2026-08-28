@@ -958,11 +958,16 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * Put the board back on offering sources: nothing selected, nothing
    * half-made, the attack candidates up again.
    *
-   * The single owner of those three steps and of their ORDER, because two
-   * different reasons run them — the player dropping a half-made attack
-   * (`cancelSelection` below) and the engine refusing a move
-   * (`executeAttack`'s catch) — and a second copy is a second chance for the
-   * order to drift. The order is the point: the store goes back to selectFrom
+   * The owner of those three steps for the two paths that DROP a selection —
+   * the player changing their mind (`cancelSelection` below) and the engine
+   * refusing a move (`executeAttack`'s catch) — because a second copy is a
+   * second chance for the order to drift. (The post-attack seam runs the same
+   * order for a third reason and cannot share this: its store write has to
+   * carry `battleResult`/`animationPhase` in the same setState, and
+   * `awaitingInput` is null when the game just ended.) The store write names
+   * `selectedTo` too, though every path that reaches here already has it null
+   * (the post-attack seam clears it): the catch's own write did, and one body
+   * keeps one shape. The order is the point: the store goes back to selectFrom
    * BEFORE the refresh, or the hints would be recomputed against a stale
    * 'selectTo' and repaint the old source's reachable enemies; and the clear
    * comes before the refresh, or it would wipe the hints the refresh just

@@ -61,17 +61,17 @@ function mountBoth(overrides = {}) {
     },
   };
   /*
-   * The controller surface this file leans on. KeyboardController itself calls
-   * only `cancelSelection` (Escape) and `endHumanTurn` (E, which nothing here
+   * The controller surface KeyboardController is handed. It calls only
+   * `cancelSelection` (Escape) and `endHumanTurn` (E, which nothing here
    * presses); `handleTerritoryClick` is BoardFocus's, and BoardFocus is not
    * mounted in this suite. Cancelling a half-made attack is the controller's
    * since #211 follow-up 16 — a click on water asks for the same steps — so
-   * from here it is one call and one answer. The stand-in moves the store the
-   * way the real cancelSelection does, because these tests are about which owner
-   * claims the key and for that the store has to move for real — but it is
-   * deliberately only that much of it: the board clear, the hint repaint and
-   * their order are GameController.test.js's to pin, and nothing here would
-   * notice them drift.
+   * from here it is one call and one answer. The stand-in moves the two store
+   * fields these tests read, because they are about which owner claims the key
+   * and for that the store has to move for real — but it is deliberately only
+   * that much of it: `selectedTo`, the board clear, the hint repaint and their
+   * order are GameController.test.js's to pin, and nothing here would notice
+   * them drift.
    */
   const controller = {
     handleTerritoryClick: vi.fn(),
@@ -128,7 +128,7 @@ describe('Escape layering between the board and the quit confirm', () => {
     const event = pressEscape();
 
     // KeyboardController took the key — it asked the controller, and the
-    // stand-in moved the store the way the real one would.
+    // stand-in moved the two fields these assertions read.
     expect(controller.cancelSelection).toHaveBeenCalledTimes(1);
     expect(store.getState().awaitingInput).toBe('selectFrom');
     expect(store.getState().selectedFrom).toBeNull();

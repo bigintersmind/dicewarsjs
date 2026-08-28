@@ -207,7 +207,7 @@ describe('App playing-screen tab order (#211)', () => {
    * left standing for the next one.
    */
   it('closes the dropdown on Escape and leaves a half-made attack alone', () => {
-    const { store } = renderPlaying({ awaitingInput: 'selectTo', selectedFrom: 1 });
+    const { store, controller } = renderPlaying({ awaitingInput: 'selectTo', selectedFrom: 1 });
 
     act(() => settingsBtn().click());
     expect(store.getState().settingsOpen).toBe(true);
@@ -218,6 +218,9 @@ describe('App playing-screen tab order (#211)', () => {
     expect(settingsBtn().getAttribute('aria-expanded')).toBe('false');
     expect(store.getState().awaitingInput).toBe('selectTo');
     expect(store.getState().selectedFrom).toBe(1);
+    // The stand-in never moves the store, so what proves it was left standing is
+    // that the controller was never asked (the panel's key, not the board's).
+    expect(controller.cancelSelection).not.toHaveBeenCalled();
     // And it stopped there: the panel claims and stops the key, so QuitConfirm's
     // window listener never raises "Abandon this game?" on the same press.
     expect(store.getState().quitConfirmOpen).toBe(false);

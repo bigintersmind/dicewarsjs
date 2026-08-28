@@ -444,7 +444,7 @@ describe('KeyboardController', () => {
          * refuses on — but jsdom's isFocusableAreaElement answers "focusable"
          * for anything carrying a parseable tabindex before it ever looks at
          * disabled, and BoardFocus gives every button one, so the attribute has
-         * to come off here or the stand-in would take focus and pin nothing.
+         * to come off here or the button would take focus and pin nothing.
          */
         areaButton(2).removeAttribute('tabindex');
         areaButton(2).disabled = true;
@@ -835,8 +835,8 @@ describe('KeyboardController', () => {
      * The order matters here: this controller's document listener runs before
      * the panel's — the panel registers its own only while it is open, so after
      * the controller exists whatever order main.jsx creates them in. An Escape
-     * claimed here
-     * would reach the panel already defaultPrevented, and the panel yields to a
+     * claimed here would reach the panel already defaultPrevented, and the
+     * panel yields to a
      * claimed key — the dropdown would stay up and the selection would be gone.
      * Passing it through untouched, the panel closes; the selection is the next
      * Escape's.

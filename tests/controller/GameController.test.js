@@ -1726,8 +1726,12 @@ describe('GameController', () => {
      */
     it('cancels a half-made attack on a click in the water', () => {
       controller.handleTerritoryClick(1); // pick a source
+      // A keyboard cursor parked on a territory, ring up.
+      store.setState({ focusedAreaId: 3 });
+      renderer.hexGrid.setFocusHighlight(3);
       renderer.hexGrid.clearSelectionHighlights.mockClear();
       renderer.hexGrid.setCandidateHighlights.mockClear();
+      renderer.hexGrid.clearFocusHighlight.mockClear();
 
       controller.handleTerritoryClick(0);
 
@@ -1736,6 +1740,16 @@ describe('GameController', () => {
       expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
       // Sources on offer again, not the abandoned source's targets.
       expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenCalledWith([1], 'attacker');
+      /*
+       * ...and the keyboard's cursor is untouched. The ring does come down on a
+       * real water click, but the browser takes it down by blurring the board to
+       * <body> — this layer must not, or a keyboard player who clicks off the
+       * board loses their place twice over (KeyboardController's header, and
+       * canvasPointer's).
+       */
+      expect(store.getState().focusedAreaId).toBe(3);
+      expect(renderer.hexGrid.focusUp).toBe(true);
+      expect(renderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
     });
 
     it('does nothing on a water click with no attack half-made', () => {
@@ -1788,8 +1802,8 @@ describe('GameController', () => {
      * ...and under a modal, for the same reason. The dialog's scrim eats the
      * press in the browser, so this holds the branch to its shape rather than
      * covering a live path — but the shape is what the comment on it claims,
-     * and the AI turn and the animation were the only two of the four gates a
-     * water click actually exercised.
+     * and all four gates are worth a line rather than only the two a water
+     * click can reach in a running game.
      */
     it('ignores a water click while the quit confirm is open', () => {
       controller.handleTerritoryClick(1);
@@ -1805,9 +1819,11 @@ describe('GameController', () => {
 
     /*
      * The screen gate, and this one is live rather than shape-holding: the
-     * canvas listener is attached for the life of the page, and the attract
-     * board plays on under the title/arena/tournament/leaderboard menus — so a
-     * press on that board really does arrive here with the screen moved on.
+     * canvas listener is attached for the life of the page and the board stays
+     * drawn under the map preview, so a press on it really does arrive here with
+     * the screen moved on and a gameState still in the store. (Under the
+     * attract-mode menus it stops a line earlier — goToTitle nulls the
+     * gameState.)
      */
     it('ignores a water click once the screen has moved on', () => {
       controller.handleTerritoryClick(1);
@@ -2036,7 +2052,8 @@ describe('GameController', () => {
    *
    * The one owner of "drop the half-made attack": Escape asks for it from
    * KeyboardController and a water click asks for it above, so the three steps
-   * and their order live here once. The order pins moved down from
+   * and their order are pinned in one place for both. The order pins moved down
+   * from
    * KeyboardController.test.js with the code.
    */
   describe('cancelSelection', () => {
@@ -2050,11 +2067,15 @@ describe('GameController', () => {
       expect(store.getState().awaitingInput).toBe('selectTo'); // a real selection to cancel
       renderer.hexGrid.clearSelectionHighlights.mockClear();
       renderer.hexGrid.setCandidateHighlights.mockClear();
+      // Seeded: no reachable path leaves a target behind (the post-attack seam
+      // clears it), so the pin is that the shared body clears it regardless.
+      store.setState({ selectedTo: 2 });
 
       expect(controller.cancelSelection()).toBe(true);
 
       expect(store.getState().awaitingInput).toBe('selectFrom');
       expect(store.getState().selectedFrom).toBeNull();
+      expect(store.getState().selectedTo).toBeNull();
       expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
       /*
        * The store is back on selectFrom BEFORE the hints are recomputed:
@@ -2826,9 +2847,9 @@ describe('GameController', () => {
      * The gridless renderer, at a SEAM rather than a start. That is why the four
      * unmount seams spell `renderer && renderer.hexGrid` where the mid-game call
      * sites settle for a bare `renderer` — the mid-game ones assume the board a
-     * game is played on, while starting is reachable from the menu screens with
-     * no board at all and its three sibling seams are guarded alike rather than
-     * reasoned about one by one.
+     * game is played on, while the seams are guarded alike — belt and braces
+     * since the test above closed the one route that could reach them gridless
+     * — rather than each argued from whole-app reachability.
      *
      * Reaching this state needs init() to have failed and a game to have been
      * started anyway, which the test above now rules out — so, like the lineup

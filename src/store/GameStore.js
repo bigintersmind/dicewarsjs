@@ -75,6 +75,19 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   game while a player is reading). Like quitConfirmOpen the controller layer
  *   reads it — KeyboardController suspends board navigation and
  *   handleTerritoryClick ignores clicks — and QuitConfirm defers Escape to it.
+ * @property {boolean} settingsOpen - True while the settings dropdown (the die
+ *   at the top right) is open. SettingsPanel is its only writer: this is the
+ *   panel's own open state, kept here rather than in component state because
+ *   KeyboardController reads it — the board's keys stand down while the
+ *   dropdown is up, as behind the two flags above, so E cannot end the turn
+ *   behind it (#211 item 8). Keys only: the dropdown has no scrim, and a
+ *   pointerdown on the board both lands and closes it (the canvas handler runs
+ *   before the panel's document-level click-outside), so handleTerritoryClick
+ *   deliberately does not read this flag. No navigation seam resets it either:
+ *   the panel is mounted outside the screen switch and stays as the player
+ *   left it across a screen change, and since it gates no click, a flag stuck
+ *   true would cost the arrow/E/Escape shortcuts, not the game — Tab and Enter
+ *   still reach every territory and END TURN.
  * @property {number} aiSpeed
  * @property {boolean} soundEnabled
  * @property {string | null} error
@@ -111,6 +124,7 @@ const DEFAULT_STATE = {
   gameOverReason: null,
   quitConfirmOpen: false,
   rulesOpen: false,
+  settingsOpen: false,
   aiSpeed: 1,
   soundEnabled: true,
   error: null,

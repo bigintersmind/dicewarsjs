@@ -132,6 +132,57 @@ describe('SettingsPanel', () => {
 
   /*
    * -----------------------------------------------------------------------
+   * The store flag (#211 item 8)
+   * -----------------------------------------------------------------------
+   * `settingsOpen` IS the open state, not a mirror of one, and this panel is its
+   * only writer in production. KeyboardController reads it to stand the board's
+   * keys down while the dropdown is up; that side is pinned in its own tests.
+   */
+
+  it('keeps its open state in the store, on every way in and out', () => {
+    const { store } = renderPanel();
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    expect(store.getState().settingsOpen).toBe(false);
+
+    act(() => dieBtn.click());
+    expect(store.getState().settingsOpen).toBe(true);
+
+    act(() => dieBtn.click());
+    expect(store.getState().settingsOpen).toBe(false);
+
+    act(() => dieBtn.click());
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(store.getState().settingsOpen).toBe(false);
+
+    act(() => dieBtn.click());
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+    try {
+      act(() => {
+        outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      });
+    } finally {
+      document.body.removeChild(outside);
+    }
+    expect(store.getState().settingsOpen).toBe(false);
+  });
+
+  // The direction of ownership: the store drives the panel, so a component-local
+  // state with an effect mirroring it outward would render this one closed.
+  it('renders open when the flag is written from outside', () => {
+    const { store } = renderPanel();
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+
+    act(() => store.setState({ settingsOpen: true }));
+
+    expect(dieBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('SETTINGS');
+  });
+
+  /*
+   * -----------------------------------------------------------------------
    * Theme
    * -----------------------------------------------------------------------
    */

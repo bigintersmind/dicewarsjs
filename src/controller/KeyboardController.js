@@ -82,8 +82,10 @@
  * *handled* wherever focus is — a half-made attack has to be cancellable from a
  * focused button too — but it is only *claimed* when it actually cancelled one;
  * an uncancelled Escape is what QuitConfirm's window-level handler, later in the
- * bubble path, listens for to raise "Abandon this game?". While that dialog or
- * the "How to play" card is open the board takes no keys at all.
+ * bubble path, listens for to raise "Abandon this game?". While that dialog,
+ * the "How to play" card or the settings dropdown is open the board takes no
+ * keys at all — E would otherwise end the turn behind the open dropdown, from
+ * the die button it fires from like any other (#211 item 8).
  *
  * Four behaviours that read as bugs and are not:
  *
@@ -220,11 +222,14 @@ export function createKeyboardController(store, controller, renderer) {
     const state = store.getState();
     if (state.screen !== 'playing') return;
     /*
-     * The quit confirm and the "How to play" card are modal: board navigation
-     * is suspended, and Escape passes through untouched so the open dialog's
-     * own handler can close it.
+     * The quit confirm, the "How to play" card and the settings dropdown own
+     * the keyboard while they are up: board navigation is suspended, and Escape
+     * passes through untouched so the open one's own handler can close it. The
+     * dropdown is the odd one out for the pointer — it has no scrim, and a
+     * click on the board both lands and closes it — which is why
+     * handleTerritoryClick reads only the first two flags (#211 item 8).
      */
-    if (state.quitConfirmOpen || state.rulesOpen) return;
+    if (state.quitConfirmOpen || state.rulesOpen || state.settingsOpen) return;
     if (state.animationPhase !== 'idle') return;
 
     const humanIdx = state.humanPlayerIndex;

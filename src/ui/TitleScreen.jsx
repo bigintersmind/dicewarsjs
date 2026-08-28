@@ -405,7 +405,7 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
    * here unmounts the control the player just activated, so focus would
    * otherwise drop to <body> and the next Tab would restart from the top of
    * the document — this one effect covers every route in: map preview's
-   * ← BACK (and its Escape twin), game over's BATTLE, quit-to-title
+   * ← BACK (and its Escape twin), game over's HOME, quit-to-title
    * (QuitConfirm's own restore runs first, during the board's teardown, and
    * aims at a HUD QUIT button that is on its way out with it; this effect runs
    * after, on the deferred effect pass, so START wins), the rail's Battle tab

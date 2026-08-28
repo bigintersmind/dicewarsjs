@@ -387,7 +387,7 @@ describe('App playing-screen tab order (#211)', () => {
    * Game over unmounts the playing screen and the board buttons with it. That
    * removal fires no focusout in jsdom (nor in Firefox), so the id is nulled by
    * the controller's own setState rather than by a listener — and the focus
-   * GameOverScreen then puts on BATTLE must not write it back.
+   * GameOverScreen then puts on HOME must not write it back.
    */
   it('drops the board buttons when the game ends', () => {
     const { store } = renderPlaying();
@@ -399,9 +399,13 @@ describe('App playing-screen tab order (#211)', () => {
     act(() => store.setState({ screen: 'gameOver', focusedAreaId: null }));
 
     expect(areaButton(1)).toBeNull();
-    // GameOverScreen has claimed focus for BATTLE by now (#189), and that
+    // GameOverScreen has claimed focus for HOME by now (#189), and that
     // focusin went past the controller without resurrecting the dead id.
-    expect(document.activeElement.textContent.trim()).toBe('BATTLE');
+    const home = [...container.querySelectorAll('button')].find(
+      b => b.textContent.trim() === 'HOME'
+    );
+    expect(home).toBeTruthy();
+    expect(document.activeElement).toBe(home);
     expect(store.getState().focusedAreaId).toBeNull();
   });
 });

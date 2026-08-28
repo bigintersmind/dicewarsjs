@@ -539,7 +539,7 @@ describe('GameController', () => {
       /*
        * ...but not one moment before that next game exists. A SEAM PIN, not a
        * regression test: the store state it drives is one the UI cannot reach
-       * today. BATTLE on the game-over card is the only control that starts a
+       * today. HOME on the game-over card is the only control that starts a
        * game over a finished one, and it goes through goToTitle(), which empties
        * the lineup in the same setState that swaps the screen — so the card is
        * gone before startNewGame is called, and `screen: 'gameOver'` with a

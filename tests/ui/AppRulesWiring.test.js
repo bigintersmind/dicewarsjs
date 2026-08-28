@@ -20,7 +20,7 @@ let container;
 /*
  * Mounts the real settings die — App's first button. The focus test below
  * needs the DOM the card's fallback restore actually walks in production,
- * where that die, not BATTLE, is the first control it finds.
+ * where that die, not HOME, is the first control it finds.
  */
 const preferencesManager = { set: vi.fn(), get: vi.fn(), getAll: vi.fn(() => ({})) };
 
@@ -148,14 +148,14 @@ describe('App "How to play" wiring', () => {
   });
 
   /*
-   * #189: GameOverScreen takes focus onto BATTLE when it mounts — but not out
+   * #189: GameOverScreen takes focus onto HOME when it mounts — but not out
    * from under the card, which traps Tab; the claim waits for the card to
    * close. That close is a race the screen has to win: the card's own restore
    * runs first and, its HUD opener gone with the board, lands on the first
    * button still on screen — the settings die App mounts ahead of everything.
    * Driven through App so both effects run in their real order.
    */
-  it('hands focus to BATTLE when the card closes over a game that ended behind it', () => {
+  it('hands focus to HOME when the card closes over a game that ended behind it', () => {
     const { store } = renderApp({ screen: 'playing' });
 
     // Opened from the HUD by keyboard, so the card has a real opener to lose.
@@ -178,10 +178,10 @@ describe('App "How to play" wiring', () => {
     act(() => container.querySelector('button[aria-label="Close how to play"]').click());
     expect(dialog()).toBeNull();
 
-    // The die is on screen to lose to; without it the fallback alone would reach BATTLE.
+    // The die is on screen to lose to; without it the fallback alone would reach HOME.
     expect(byLabel('Settings')).toBeTruthy();
-    const battle = [...container.querySelectorAll('button')].find(b => b.textContent === 'BATTLE');
-    expect(document.activeElement).toBe(battle);
+    const home = [...container.querySelectorAll('button')].find(b => b.textContent === 'HOME');
+    expect(document.activeElement).toBe(home);
   });
 
   it('closes the card through the controller', () => {

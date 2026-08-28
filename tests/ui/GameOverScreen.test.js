@@ -40,11 +40,11 @@ function renderGameOver(overrides = {}) {
   });
 
   const onTitle = overrides.onTitle ?? vi.fn();
-  const onRules = overrides.onRules;
+  const { onHistory, onSpectate, onRules } = overrides;
   container = document.createElement('div');
   document.body.appendChild(container);
   act(() => {
-    render(h(GameOverScreen, { store, onTitle, onRules }), container);
+    render(h(GameOverScreen, { store, onTitle, onHistory, onSpectate, onRules }), container);
   });
   return { store, container };
 }
@@ -98,14 +98,21 @@ describe('GameOverScreen', () => {
     expect(container.textContent).not.toContain('turn limit reached');
   });
 
-  // The exit button says BATTLE (the mode rail's name for the landing screen,
-  // since the top-rail redesign) and routes through onTitle.
-  it('labels the exit button BATTLE and routes it through onTitle', () => {
+  // The exit button says HOME — it names the destination, and routes through
+  // onTitle. The rail's name for that screen is the Battle tab (NAV_TABS in
+  // menuChrome.jsx), a label a player who only plays never sees: since #182 the
+  // rail is hidden on the landing page, and the title's FooterNav filters that tab out.
+  it('labels the exit button HOME, first in its row and named by its own text, and routes it through onTitle', () => {
     const onTitle = vi.fn();
-    renderGameOver({ gameState: { winner: 2 }, onTitle });
-    const battle = [...container.querySelectorAll('button')].find(b => b.textContent === 'BATTLE');
-    expect(battle).toBeTruthy();
-    act(() => battle.click());
+    // With HISTORY and the reference button up too — the row a real game over
+    // shows — so "first" has neighbours to be first of.
+    renderGameOver({ gameState: { winner: 2 }, onTitle, onHistory: vi.fn(), onRules: vi.fn() });
+    const home = [...container.querySelectorAll('button')].find(b => b.textContent === 'HOME');
+    expect(home).toBeTruthy();
+    expect(home.getAttribute('aria-label')).toBeNull(); // spoken name is the visible name
+    // Primary, and first in this screen's own row (App's settings die still precedes it).
+    expect([...container.querySelectorAll('button')][0]).toBe(home);
+    act(() => home.click());
     expect(onTitle).toHaveBeenCalledTimes(1);
   });
 
@@ -122,7 +129,7 @@ describe('GameOverScreen', () => {
   /*
    * The rules reference, reachable from the end of a game — where a rule you
    * only half-understood is worth looking up. Quieter than its neighbours:
-   * BATTLE is what you came here to press.
+   * HOME is what you came here to press.
    */
   describe('how to play button', () => {
     const rulesBtn = () =>
@@ -148,11 +155,11 @@ describe('GameOverScreen', () => {
   });
 
   // #189: the game ends on its own, so focus is on the canvas or nowhere —
-  // this screen has to take it, and BATTLE is its primary action.
-  it('moves focus onto BATTLE when it mounts', () => {
+  // this screen has to take it, and HOME is its primary action.
+  it('moves focus onto HOME when it mounts', () => {
     renderGameOver({ gameState: { winner: 2 } });
-    const battle = [...container.querySelectorAll('button')].find(b => b.textContent === 'BATTLE');
-    expect(document.activeElement).toBe(battle);
+    const home = [...container.querySelectorAll('button')].find(b => b.textContent === 'HOME');
+    expect(document.activeElement).toBe(home);
   });
 
   // The "How to play" card survives the game ending behind it and owns focus
@@ -164,20 +171,20 @@ describe('GameOverScreen', () => {
     expect(document.activeElement).toBe(parked);
   });
 
-  // ...and takes BATTLE the moment that card closes: the one claim, deferred.
-  it('claims BATTLE once the rules card closes', () => {
+  // ...and takes HOME the moment that card closes: the one claim, deferred.
+  it('claims HOME once the rules card closes', () => {
     parkFocusOutside();
     const { store } = renderGameOver({ gameState: { winner: 2 }, rulesOpen: true });
 
     act(() => store.setState({ rulesOpen: false }));
-    const battle = [...container.querySelectorAll('button')].find(b => b.textContent === 'BATTLE');
-    expect(document.activeElement).toBe(battle);
+    const home = [...container.querySelectorAll('button')].find(b => b.textContent === 'HOME');
+    expect(document.activeElement).toBe(home);
   });
 
   // Exactly once: a card opened afterwards from this screen hands focus back
   // to whatever opened it (RulesModal's job), and this effect must not
-  // second-guess that by grabbing BATTLE again.
-  it('does not take BATTLE a second time when a later card closes', () => {
+  // second-guess that by grabbing HOME again.
+  it('does not take HOME a second time when a later card closes', () => {
     const { store } = renderGameOver({ gameState: { winner: 2 } });
     const parked = parkFocusOutside();
 

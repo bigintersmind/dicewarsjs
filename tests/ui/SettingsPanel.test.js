@@ -7,6 +7,7 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { SettingsPanel } from '../../src/ui/SettingsPanel.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { ErrorBoundary } from '../../src/ui/ErrorBoundary.jsx';
 import { REPO_URL } from '../../src/ui/menuChrome.jsx';
 
 /*
@@ -128,6 +129,113 @@ describe('SettingsPanel', () => {
 
     expect(btn.getAttribute('aria-expanded')).toBe('false');
     expect(container.textContent).not.toContain('SETTINGS');
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * The store flag (#211 item 8)
+   * -----------------------------------------------------------------------
+   * `settingsOpen` IS the open state, not a mirror of one, and this panel is its
+   * only writer in production. KeyboardController reads it to stand the board's
+   * keys down while the dropdown is up; that side is pinned in its own tests.
+   */
+
+  it('keeps its open state in the store, on every way in and out', () => {
+    const { store } = renderPanel();
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    expect(store.getState().settingsOpen).toBe(false);
+
+    act(() => dieBtn.click());
+    expect(store.getState().settingsOpen).toBe(true);
+
+    act(() => dieBtn.click());
+    expect(store.getState().settingsOpen).toBe(false);
+
+    act(() => dieBtn.click());
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      );
+    });
+    expect(store.getState().settingsOpen).toBe(false);
+
+    act(() => dieBtn.click());
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+    try {
+      act(() => {
+        outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      });
+    } finally {
+      document.body.removeChild(outside);
+    }
+    expect(store.getState().settingsOpen).toBe(false);
+  });
+
+  // The direction of ownership: the store drives the panel, so a component-local
+  // state with an effect mirroring it outward would render this one closed.
+  it('renders open when the flag is written from outside', () => {
+    const { store } = renderPanel();
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+
+    act(() => store.setState({ settingsOpen: true }));
+
+    expect(dieBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('SETTINGS');
+  });
+
+  /*
+   * The flag cannot outlive the panel. Its own Escape and click-outside always
+   * clear it while the panel is alive; this is the other case — the panel gone
+   * with the flag still true, which is what the ErrorBoundary App wraps it in
+   * does to a panel whose render threw. With nothing left to write the flag,
+   * the board's arrows, E and Escape would stay suspended for the session, and
+   * since enemy territories are reachable only by the arrows, that is a game
+   * nobody can win by keyboard — not a lost shortcut.
+   */
+  it('drops the flag when it unmounts while open', () => {
+    const { store } = renderPanel();
+    act(() => container.querySelector('button[aria-label="Settings"]').click());
+    expect(store.getState().settingsOpen).toBe(true);
+
+    act(() => render(null, container));
+
+    expect(store.getState().settingsOpen).toBe(false);
+  });
+
+  it('takes the flag down with it when its render throws inside the ErrorBoundary', () => {
+    const store = createGameStore({ preferences: { theme: 'dark', boardHints: 'on' } });
+    const pm = createMockPreferencesManager();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => {
+      render(
+        h(ErrorBoundary, null, h(SettingsPanel, { store, preferencesManager: pm })),
+        container
+      );
+    });
+    act(() => container.querySelector('button[aria-label="Settings"]').click());
+    expect(store.getState().settingsOpen).toBe(true);
+
+    // A preferences object the panel cannot read: its next render throws, the
+    // boundary swaps in its fallback, and the panel — flag and all — is gone.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      act(() => {
+        store.setState({
+          preferences: {
+            get theme() {
+              throw new Error('preferences unreadable');
+            },
+          },
+        });
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(container.querySelector('button[aria-label="Settings"]')).toBeNull();
+    expect(store.getState().settingsOpen).toBe(false);
   });
 
   /*
@@ -318,10 +426,34 @@ describe('SettingsPanel', () => {
     expect(container.textContent).toContain('SETTINGS');
 
     act(() => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      );
     });
 
     expect(dieBtn.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  // The rules card layers over the dropdown and claims Escape from a capture-phase
+  // window listener (RulesModal.jsx); one press must not close both. The same
+  // yield is what lets KeyboardController pass Escape through to this panel.
+  it('ignores an Escape another handler already claimed', () => {
+    const { store } = renderPanel();
+    const dieBtn = container.querySelector('button[aria-label="Settings"]');
+    act(() => dieBtn.click());
+
+    act(() => {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      event.preventDefault();
+      document.dispatchEvent(event);
+    });
+
+    expect(dieBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(store.getState().settingsOpen).toBe(true);
   });
 
   it('consumes Escape while open so a screen-level handler does not also fire (#180)', () => {

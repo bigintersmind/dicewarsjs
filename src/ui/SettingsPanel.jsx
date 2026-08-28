@@ -23,7 +23,7 @@
  * @module ui/SettingsPanel
  */
 
-import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
+import { useCallback, useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 import { DEFAULTS as PREF_DEFAULTS } from '../store/PreferencesManager.js';
 import { CHROME_CSS, REPO_URL } from './menuChrome.jsx';
@@ -294,7 +294,23 @@ function OptionGroup({ label, options, value, onSelect }) {
  * @param {Object} props.preferencesManager - PreferencesManager instance
  */
 export function SettingsPanel({ store, preferencesManager }) {
-  const [open, setOpen] = useState(false);
+  /*
+   * The dropdown's open state is the store's `settingsOpen` (#211 item 8), and
+   * this component is its only writer. It lives there rather than in component
+   * state because KeyboardController reads it: the board's keys stand down
+   * while the dropdown is up, the way they do behind the quit confirm and the
+   * "How to play" card, so E cannot end the turn behind an open dropdown.
+   */
+  const open = useGameStore(store, s => s.settingsOpen);
+  const setOpen = useCallback(value => store.setState({ settingsOpen: value }), [store]);
+  /*
+   * The flag must not outlive the panel. Nothing else writes it, so a panel that
+   * unmounts while open — the ErrorBoundary around it swapping in its fallback
+   * after a render threw — would otherwise leave the board's arrows, E and
+   * Escape suspended for the rest of the session, with no dropdown left to
+   * close; and the arrows are the only way to reach an enemy territory.
+   */
+  useEffect(() => () => store.setState({ settingsOpen: false }), [store]);
   const wrapperRef = useRef(null);
   const rawPrefs = useGameStore(store, s => s.preferences);
   const prefs = rawPrefs || PREF_DEFAULTS;

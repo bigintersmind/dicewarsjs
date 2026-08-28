@@ -950,6 +950,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
     if (storeState.animationPhase !== 'idle') return;
     // A modal over the board owns input while it is up (its scrim already eats
     // the click; this keeps the contract true whatever the pointer layer does).
+    // The settings dropdown is deliberately not in this list: it has no scrim,
+    // and the canvas's pointerdown runs before its click-outside closes it, so
+    // a click both lands and closes it — only the keys stand down (#211 item 8).
     if (storeState.quitConfirmOpen || storeState.rulesOpen) return;
 
     const currentPlayerId = state.turnOrder[state.currentPlayerIndex];

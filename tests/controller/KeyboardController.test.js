@@ -730,6 +730,59 @@ describe('KeyboardController', () => {
 
   /*
    * -----------------------------------------------------------------------
+   * Settings dropdown (#211 item 8)
+   * -----------------------------------------------------------------------
+   * The third overlay the keys respect. It has no scrim, so the pointer still
+   * reaches the board (GameController's tests pin that a click lands), but the
+   * keyboard is the dropdown's while it is up: the die it opens from is a button
+   * like any other, and E fires from any button by design — so without the flag
+   * E ended the turn behind the open dropdown on every browser, not only the
+   * ones that leave a clicked button unfocused.
+   */
+
+  describe('settings dropdown', () => {
+    beforeEach(() => {
+      store.setState({ settingsOpen: true });
+    });
+
+    it('does not end the turn behind the open dropdown', () => {
+      const event = fireKey('e');
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(mockController.endHumanTurn).not.toHaveBeenCalled();
+    });
+
+    it('suspends board navigation while the dropdown is open', () => {
+      const event = fireKey('ArrowRight');
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    /*
+     * The order matters here: this controller's document listener runs before
+     * the panel's — the panel registers its own only while it is open, so after
+     * the controller exists whatever order main.jsx creates them in. An Escape
+     * claimed here
+     * would reach the panel already defaultPrevented, and the panel yields to a
+     * claimed key — the dropdown would stay up and the selection would be gone.
+     * Passing it through untouched, the panel closes; the selection is the next
+     * Escape's.
+     */
+    it('leaves Escape alone so the dropdown can close itself', () => {
+      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+
+      const event = fireKey('Escape');
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      expect(store.getState().selectedFrom).toBe(1);
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
    * The ring mirrors DOM focus (#211)
    * -----------------------------------------------------------------------
    * Everything that can move focus ends in one of these two listeners: the

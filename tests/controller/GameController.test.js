@@ -1736,6 +1736,23 @@ describe('GameController', () => {
       expect(store.getState().selectedFrom).toBeNull();
     });
 
+    /*
+     * The settings dropdown is the one overlay the keys respect that the pointer
+     * does not (#211 item 8). It has no scrim, and the canvas's own pointerdown
+     * handler runs before the panel's document-level click-outside closes it, so
+     * a guard here would swallow the very click that dismisses the dropdown —
+     * the player would click once to close it and again to select. The click
+     * lands; KeyboardController's tests pin the keys standing down.
+     */
+    it('lets a click land while the settings dropdown is open', () => {
+      store.setState({ settingsOpen: true });
+
+      controller.handleTerritoryClick(1);
+
+      expect(store.getState().selectedFrom).toBe(1);
+      expect(store.getState().awaitingInput).toBe('selectTo');
+    });
+
     it('selects a valid attack source territory', () => {
       controller.handleTerritoryClick(1); // area 1: owned by player 0, 3 dice
 

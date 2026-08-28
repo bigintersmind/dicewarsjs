@@ -916,7 +916,7 @@ describe('TitleScreen', () => {
 
   /*
    * #189: every route back to the title unmounts the control the player just
-   * activated (map preview's BACK, game over's BATTLE, quit-to-title, the
+   * activated (map preview's BACK, game over's HOME, quit-to-title, the
    * rail's Battle tab), so this screen has to pick focus back up or it drops
    * to <body>.
    */

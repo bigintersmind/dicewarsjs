@@ -213,7 +213,7 @@ describe('RulesModal', () => {
     // The game-over screen replaced the HUD while the card was up, so the
     // button that opened it no longer exists to hand focus back to.
     anchor = document.createElement('button');
-    anchor.textContent = 'BATTLE';
+    anchor.textContent = 'HOME';
     document.body.appendChild(anchor);
 
     opener = document.createElement('button');

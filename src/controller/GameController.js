@@ -268,7 +268,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * Nothing today reaches startNewGame with names still set, so this is the
      * invariant stated structurally rather than a flash anyone has seen. Its one
      * caller is START on the title screen, where the lineup is already empty,
-     * and BATTLE on the game-over card goes through goToTitle(), which empties
+     * and HOME on the game-over card goes through goToTitle(), which empties
      * the names in the very setState that swaps the screen — the card unmounts
      * with them, leaving no window to read a stale lineup in. What the rule buys
      * is a future caller that does land here over a finished game: the card

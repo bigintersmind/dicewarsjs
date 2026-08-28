@@ -1,7 +1,7 @@
 /**
  * Game Over Screen
  *
- * Overlay showing the winner with a BATTLE button (back to the landing
+ * Overlay showing the winner with a HOME button (back to the landing
  * screen) plus, when available, HISTORY, SPECTATE and HOW TO PLAY.
  *
  * @module ui/GameOverScreen
@@ -86,13 +86,13 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
   const gameOverReason = useGameStore(store, s => s.gameOverReason);
   const playerNames = useGameStore(store, s => s.playerNames);
 
-  const battleRef = useRef(null);
+  const homeRef = useRef(null);
   const rulesOpen = useGameStore(store, s => s.rulesOpen);
   const focusClaimed = useRef(false);
 
   /*
-   * Move focus to BATTLE when this screen mounts: the game ends on its own, so
-   * focus is sitting on the canvas or nowhere at all, and BATTLE is the primary
+   * Move focus to HOME when this screen mounts: the game ends on its own, so
+   * focus is sitting on the canvas or nowhere at all, and HOME is the primary
    * action here — the way on to the next game. It fires again on the way back
    * from the HISTORY replay viewer (goBackFromReplay remounts this screen),
    * which is what you want: the viewer's ← BACK just unmounted underneath the
@@ -101,7 +101,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
    *
    * Waits out the "How to play" card: the card outlives the game ending behind
    * it (triggerGameOver deliberately leaves `rulesOpen` alone), it layers above
-   * this screen and traps Tab inside itself, so pulling focus to BATTLE under
+   * this screen and traps Tab inside itself, so pulling focus to HOME under
    * the scrim would strand the keyboard outside the trap. So the claim is made
    * exactly once — at mount if the card is down, otherwise the moment it
    * closes — and never again: a card opened later from this screen's own
@@ -109,7 +109,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
    * deferred close, RulesModal's own restore runs first (it is the earlier
    * sibling in App, so its cleanup precedes this effect in the same flush) and,
    * with the HUD's RULES opener gone, aims at the first button still on
-   * screen — the settings die; this effect then carries focus on to BATTLE.
+   * screen — the settings die; this effect then carries focus on to HOME.
    *
    * Above the `!gameState` early return, so the hook order stays fixed whether
    * or not there is a terminal state to show.
@@ -117,7 +117,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
   useEffect(() => {
     if (rulesOpen || focusClaimed.current) return;
     focusClaimed.current = true;
-    battleRef.current?.focus({ preventScroll: true });
+    homeRef.current?.focus({ preventScroll: true });
   }, [rulesOpen]);
 
   if (!gameState) return null;
@@ -155,8 +155,8 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
         </p>
       )}
       <div style={STYLE.buttonRow}>
-        <button style={STYLE.btn} onClick={onTitle} ref={battleRef}>
-          BATTLE
+        <button style={STYLE.btn} onClick={onTitle} ref={homeRef}>
+          HOME
         </button>
         {onHistory && (
           <button style={STYLE.btn} onClick={onHistory}>
@@ -168,7 +168,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
             SPECTATE
           </button>
         )}
-        {/* Muted, unlike its neighbours: BATTLE is what you came here to press,
+        {/* Muted, unlike its neighbours: HOME is what you came here to press,
             and this is a reference rather than a way on. */}
         {onRules && (
           <button

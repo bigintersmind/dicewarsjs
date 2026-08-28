@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 /**
- * HexGridRenderer — board-hint layer
+ * HexGridRenderer — the overlay layers
+ *
+ * Mostly the board-hint layer this file was written for, plus the guards the
+ * single-territory overlays share with it: the missing-border report (#211
+ * item 4) and the keyboard focus ring's survival of a territory repaint (#211
+ * item 3). They live here because they need the same PixiJS mock and the same
+ * real-board `makeRenderer`, and because half the invariants below are already
+ * about how the hint layer and the focus ring stay out of each other's way.
  *
  * A fourth overlay that outlines every territory the human can act on right
  * now. It has to paint a *set* into one Graphics (the selection overlays only
@@ -406,5 +413,186 @@ describe('color-blind mode', () => {
     expect(core.stroke.color).toBe(THEMES.dark.candidateAttacker);
     expect(core.stroke.width).toBeGreaterThan(0);
     expect(halo.stroke.width).toBeGreaterThan(core.stroke.width);
+  });
+});
+
+/**
+ * Return a copy of `state` with one territory handed to a different owner.
+ * Cheap enough to keep the engine out of it: the renderer only reads
+ * `areas[id].owner`, and nothing here depends on the move that would have
+ * caused the flip being legal.
+ */
+function withOwner(state, areaId, owner) {
+  return { ...state, areas: state.areas.map((a, i) => (i === areaId && a ? { ...a, owner } : a)) };
+}
+
+/*
+ * #211 item 4. `setFocusHighlight` and `setHighlight` both used to return
+ * silently when the id had no traced border — the same store/renderer map
+ * mismatch `setCandidateHighlights` has warned about all along. Silence there is
+ * worse than on the hint layer: since #213 the focus ring is painted from the
+ * focusin mirror, so a swallowed miss leaves the store saying "focused" with
+ * nothing on screen — exactly the desync #211 item 3 closed everywhere else.
+ */
+describe('missing borders on the single-territory overlays', () => {
+  // Every test here provokes a warn, so the spy is the fixture rather than six
+  // copies of the same three lines — and afterEach restores it even for a test
+  // that throws before its inline restore would have run.
+  let warn;
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it('setFocusHighlight warns, and still leaves the layer down', () => {
+    const { renderer } = makeRenderer();
+
+    renderer.setFocusHighlight(9999);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('setFocusHighlight');
+    expect(warn.mock.calls[0]).toContain(9999);
+    // Warning is all it does: no ring, and above all no throw — this runs from
+    // a focus listener, where an exception would take the keyboard down.
+    expect(renderer._highlightFocus.visible).toBe(false);
+    expect(renderer._highlightFocus.shapes).toHaveLength(0);
+  });
+
+  it('says it once per map, not once per keypress', () => {
+    const { renderer } = makeRenderer();
+
+    // An arrow burst across a mismatched map is one fault, not twelve. The
+    // sibling can afford a line per call because each of its calls is a whole
+    // set; this one is called once per hop.
+    renderer.setFocusHighlight(9999);
+    renderer.setFocusHighlight(9998);
+    renderer.setFocusHighlight(9999);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps painting real territories after a warned miss', () => {
+    const { renderer, drawn } = makeRenderer();
+
+    renderer.setFocusHighlight(9999);
+    renderer.setFocusHighlight(drawn[0]);
+
+    expect(renderer._highlightFocus.visible).toBe(true);
+    expect(renderer._highlightFocus.shapes).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('setHighlight warns on its own budget, independently of the focus ring', () => {
+    const { renderer } = makeRenderer();
+
+    renderer.setFocusHighlight(9999);
+    renderer.setHighlight('from', 9999);
+    // The record is keyed by the label the caller passes, and setHighlight puts
+    // `which` in its own: the message says which ring went missing, and the two
+    // get separate budgets as a consequence.
+    renderer.setHighlight('to', 9998);
+
+    expect(warn).toHaveBeenCalledTimes(3);
+    expect(warn.mock.calls[0][0]).toContain('setFocusHighlight');
+    expect(warn.mock.calls[1][0]).toContain("setHighlight('from')");
+    expect(warn.mock.calls[2][0]).toContain("setHighlight('to')");
+    expect(renderer._highlightFrom.visible).toBe(false);
+    expect(renderer._highlightTo.visible).toBe(false);
+  });
+
+  it('still spends one budget per ring, not one per call', () => {
+    const { renderer } = makeRenderer();
+
+    renderer.setHighlight('from', 9999);
+    renderer.setHighlight('from', 9998);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('gets a fresh budget when drawMap retraces the borders', () => {
+    const { renderer } = makeRenderer();
+
+    renderer.setFocusHighlight(9999);
+    renderer.drawMap(makeBoard());
+    renderer.setFocusHighlight(9999);
+
+    // A new board is a new chance to be wired against the wrong game, and the
+    // flags are reset where `_borders` is rebuilt so the report isn't spent on
+    // the previous map.
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts a border that traced to nothing as missing', () => {
+    const { renderer, drawn } = makeRenderer();
+    // traceBorder returns [] when it finds no perimeter — truthy, so a bare
+    // `!border` check would let it through to a layer flagged visible over no
+    // geometry (appendTerritoryPath draws nothing under two segments), with no
+    // warning to say so. setCandidateHighlights guards the same case.
+    renderer._borders[drawn[0]] = [];
+
+    renderer.setFocusHighlight(drawn[0]);
+    renderer.setHighlight('from', drawn[0]);
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(renderer._highlightFocus.visible).toBe(false);
+    expect(renderer._highlightFrom.visible).toBe(false);
+  });
+
+  it('takes the previous ring down on a miss rather than leaving it on the last territory', () => {
+    const { renderer, drawn } = makeRenderer();
+    renderer.setFocusHighlight(drawn[0]);
+    renderer.setHighlight('from', drawn[0]);
+    expect(renderer._highlightFocus.visible).toBe(true);
+    expect(renderer._highlightFrom.visible).toBe(true);
+
+    // The store now points at the missing territory; a ring still up on the
+    // old one is the one desync the focus mirror promises cannot happen.
+    renderer.setFocusHighlight(9999);
+    renderer.setHighlight('from', 9999);
+
+    expect(renderer._highlightFocus.visible).toBe(false);
+    expect(renderer._highlightFocus.shapes).toHaveLength(0);
+    expect(renderer._highlightFrom.visible).toBe(false);
+    expect(renderer._highlightFrom.shapes).toHaveLength(0);
+  });
+});
+
+/*
+ * The ring is a cursor: it marks where the keyboard is, so it has to outlive the
+ * territory under it changing hands (#211 item 3's behaviour decision — a player
+ * who presses E leaves focus parked on a territory the AI may then conquer).
+ *
+ * Nothing enforces this explicitly — it holds because territory repaints draw
+ * into `_territoryGfx[id]` and never reach into the overlay layers — so these
+ * tests were green the day they were written. They are here as a pin: they fail
+ * the moment a repaint path decides to take the ring down (verified by
+ * temporarily adding `clearFocusHighlight()` to `redrawTerritory`), which is
+ * precisely the regression the item-3 argument was resting on inspection for.
+ */
+describe('the focus ring across a change of ownership', () => {
+  it('survives redrawTerritory on the focused territory', () => {
+    const { renderer, state, drawn } = makeRenderer();
+    const focused = drawn[0];
+    renderer.setFocusHighlight(focused);
+
+    const next = withOwner(state, focused, state.areas[focused].owner === 0 ? 1 : 0);
+    renderer.redrawTerritory(focused, next);
+
+    expect(renderer._highlightFocus.visible).toBe(true);
+    expect(renderer._highlightFocus.shapes).toHaveLength(1);
+  });
+
+  it('survives the updateFromState sweep that follows an AI attack', () => {
+    const { renderer, state, drawn } = makeRenderer();
+    const focused = drawn[0];
+    renderer.setFocusHighlight(focused);
+
+    const next = withOwner(state, focused, state.areas[focused].owner === 0 ? 1 : 0);
+    renderer.updateFromState(state, next);
+
+    expect(renderer._highlightFocus.visible).toBe(true);
+    expect(renderer._highlightFocus.shapes).toHaveLength(1);
   });
 });

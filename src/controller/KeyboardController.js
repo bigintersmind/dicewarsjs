@@ -29,12 +29,29 @@
  * the same function, while every mid-game clear goes through
  * `clearSelectionHighlights()`, which leaves that layer alone. So the ring is
  * visible exactly when `focusedAreaId` is set (the one theoretical exception is
- * item 4's silent no-op when a territory has no traced border, unreachable while
- * BoardFocus and drawMap agree on what a live territory is). Which means a focus
- * parked on a territory through an AI turn — E pressed, or END TURN clicked on
- * macOS Safari or Firefox, where a click does not move focus — keeps its ring
- * for the whole turn, whoever ends up owning that territory, because that is
- * where the next arrow steps from. It is a cursor, not a selection.
+ * a territory with no traced border, where `setFocusHighlight` paints nothing —
+ * since item 4 it warns and takes any previous ring down, so the miss can pass
+ * neither for a ring that was simply not asked for nor for one on the last
+ * territory — and which is unreachable anyway while BoardFocus and drawMap
+ * agree on what a live territory is). Which means a focus parked on a
+ * territory through an AI turn — E pressed, or END TURN clicked on macOS Safari
+ * or Firefox, where a click does not move focus — keeps its ring for the whole
+ * turn, whoever ends up owning that territory, because that is where the next
+ * arrow steps from. It is a cursor, not a selection.
+ *
+ * This file's own ring calls — `setFocus`, `clearBoardFocus`, `cancelSelection`
+ * — guard `renderer` but not `renderer.hexGrid`, because everything here runs
+ * mid-game and assumes the board a game is played on: the same model
+ * goToTitle's note states for GameController's mid-game call sites. That
+ * assumption has one known hole — START stays live over a renderer whose
+ * init() failed (#211 follow-up 14) — and it is these mid-game calls, `setFocus`
+ * first among them on the first Tab, that surface it by throwing; a guard here
+ * would only move the failure. It is GameController's four unmount SEAMS that
+ * spell `renderer && renderer.hexGrid`, and they have to: starting is reachable
+ * from the menu screens with a renderer that never got as far as a hex grid,
+ * and its three siblings (game over, spectate, the end-turn bounce) are guarded
+ * alike rather than reasoned about one by one. goToTitle spells the same guard
+ * nested, for the same reason.
  *
  * The listener sits on `document` and would otherwise swallow keys aimed at real
  * controls, so the arrows are claimed in exactly two situations: focus is on a
@@ -82,11 +99,23 @@
  *   - Tab during a battle animation is native, and now by construction: this
  *     handler never sees Tab at all. The arrows, E and Escape do bail while
  *     `animationPhase` is not idle.
- *   - A click on the canvas blurs the focused territory button to `<body>` —
- *     mousedown's own focus fixup, and the canvas is not focusable — so the ring
- *     goes down and the next arrow re-enters at the first own territory instead
- *     of resuming where the keyboard was. Resuming at the clicked territory is a
- *     #211 follow-up, not this change.
+ *   - A click on WATER drops focus to `<body>` and takes the ring down, and is
+ *     meant to: it is left entirely to the browser, because a click on nothing
+ *     is as good a way as any to say "done with the keyboard position". A
+ *     primary-button click on a TERRITORY is the one that does not, because it
+ *     moves the keyboard with it: main.jsx hands the canvas `pointerdown` — the
+ *     primary button only — to `focusFromPointer`
+ *     below, which — only when the board already holds focus — focuses that
+ *     territory's button and lets the caller suppress mousedown's focus fixup,
+ *     the thing that would otherwise have blurred the board to `<body>` and sent
+ *     the next arrow back to the first own territory. That is what makes mixed
+ *     use work: select the source with Enter, click the target with the mouse,
+ *     and the ring is on the target — which after a win is yours. It moves
+ *     whenever the board holds focus and the button is the primary one,
+ *     including during an AI turn or a battle
+ *     animation, when the arrows are frozen and a click is the only way left to
+ *     move the cursor — the click itself is ignored then, so the cursor is all
+ *     that moves. A mouse-only player never acquires a ring from any of this.
  *   - Safari with "Press Tab to highlight each item" off (the pre-Sonoma
  *     default) does not visit `<button>`s on Tab at all, so the Tab route to the
  *     board and on to END TURN is Safari's to withhold. The arrows still enter
@@ -163,7 +192,7 @@ function isTextEntry(el) {
  * @param {Object} store - GameStore instance
  * @param {Object} controller - GameController instance
  * @param {import('../renderer/GameRenderer.js').GameRenderer | null} renderer
- * @returns {{ destroy: () => void }}
+ * @returns {{ focusFromPointer: (areaId: number) => boolean, destroy: () => void }}
  */
 export function createKeyboardController(store, controller, renderer) {
   let warnedNoCellPos = false;
@@ -268,9 +297,14 @@ export function createKeyboardController(store, controller, renderer) {
 
   /**
    * Focus left a territory button for something that is not a focusable element
-   * at all — a click on the canvas, a `blur()`, the window losing focus. There
-   * is no matching `focusin` in any of those cases, so this is what takes the
-   * ring down; when the window comes back, `focusin` puts it up again.
+   * at all — a click on WATER, a `blur()`, the window losing focus. There is no
+   * matching `focusin` in any of those cases, so this is what takes the ring
+   * down; when the window comes back, `focusin` puts it up again. (A
+   * primary-button click on a TERRITORY is not one of them: `focusFromPointer`
+   * moves focus button → button, which the branch below leaves alone. A
+   * secondary-button click is left to the browser's default — main.jsx
+   * intercepts only the primary one — and lands here wherever that default
+   * moves focus off the button.)
    *
    * Button → button is left alone: the incoming `focusin` repaints the ring on
    * the new territory, and clearing it in between is a visible flicker.
@@ -368,6 +402,40 @@ export function createKeyboardController(store, controller, renderer) {
   }
 
   /**
+   * A pointer went down on a territory: keep the keyboard's position on it,
+   * rather than letting the click blur the board to `<body>`.
+   *
+   * Only when the board already holds DOM focus. A mouse-only player has no
+   * territory focused and never gets a ring out of this — clicking is not asking
+   * for a keyboard cursor — and focus that belongs to a real control is left
+   * where it is. Moving focus goes through `focusArea`, so the `focusin` mirror
+   * does the store and ring bookkeeping down the one path everything else uses.
+   *
+   * That is this function's only condition; main.jsx adds one more before
+   * calling it, the primary button (`e.button === 0`). Within that, the cursor
+   * follows the pointer whenever the board holds focus, including during an AI
+   * turn or a battle animation, when
+   * the arrows bail in `handleKeyDown` and this is the only way left to move it.
+   * The click itself is ignored on those turns (`handleTerritoryClick` bails),
+   * so the cursor moves and nothing else does, and store and DOM stay agreed.
+   * Gating this on the turn or the animation would not park the ring where it
+   * was either — the mousedown fixup we are suppressing would drop focus to
+   * `<body>` and take the ring down, which is the behaviour this replaced.
+   *
+   * @param {number} areaId - The territory under the pointer
+   * @returns {boolean} True when DOM focus is now on that territory's button —
+   *   which is main.jsx's cue to preventDefault() the pointerdown and with it
+   *   the browser's focus fixup. False means nothing moved and the default is
+   *   the browser's to keep.
+   */
+  function focusFromPointer(areaId) {
+    if (areaIdOf(document.activeElement) == null) return false;
+    focusArea(areaId);
+    const el = document.getElementById(areaElementId(areaId));
+    return el != null && document.activeElement === el;
+  }
+
+  /**
    * Cancel current selection and return to selectFrom.
    *
    * @returns {boolean} True when a half-made attack was actually cancelled.
@@ -398,9 +466,7 @@ export function createKeyboardController(store, controller, renderer) {
 
   function setFocus(areaId) {
     store.setState({ focusedAreaId: areaId });
-    if (renderer && renderer.hexGrid.setFocusHighlight) {
-      renderer.hexGrid.setFocusHighlight(areaId);
-    }
+    if (renderer) renderer.hexGrid.setFocusHighlight(areaId);
   }
 
   /** Take the ring down — the board no longer holds DOM focus. */
@@ -444,6 +510,7 @@ export function createKeyboardController(store, controller, renderer) {
   document.addEventListener('focusout', handleFocusOut);
 
   return {
+    focusFromPointer,
     destroy() {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('focusin', handleFocusIn);

@@ -255,7 +255,30 @@ export function createGameController(store, renderer, soundManager, preferencesM
   async function startNewGame(config) {
     aiAborted = true; // abort any running AI turn
     clearNextTurnTimer();
-    store.setState({ error: null, aiLoadWarnings: [], playerNames: [] });
+    /*
+     * The banner and the load warnings belong to the start that is beginning
+     * now, so they go here. The lineup does NOT, and the rule it follows instead
+     * is: the names belong to the game they name (#211 item-3 addendum). They
+     * are replaced wholesale by the game that replaces it — the success setState
+     * below, in the same breath as the new gameState and screen — and emptied on
+     * every route back to the title, where no game is named at all: goToTitle,
+     * this function's own two title-bound failure exits, rejectMap's two
+     * bounces, and endTurn's engine-error bounce. Never ahead of the game.
+     *
+     * Nothing today reaches startNewGame with names still set, so this is the
+     * invariant stated structurally rather than a flash anyone has seen. Its one
+     * caller is START on the title screen, where the lineup is already empty,
+     * and BATTLE on the game-over card goes through goToTitle(), which empties
+     * the names in the very setState that swaps the screen — the card unmounts
+     * with them, leaving no window to read a stale lineup in. What the rule buys
+     * is a future caller that does land here over a finished game: the card
+     * would stay up for as long as the AI load below takes, and GameOverScreen
+     * reads playerNames for "<name> wins!" while useAnnouncer has them in the
+     * deps of its game-over effect — so emptying the lineup on the way in would
+     * both degrade that subtitle to "Player 2 wins!" and have the live region
+     * re-speak it that way. A test pins the seam.
+     */
+    store.setState({ error: null, aiLoadWarnings: [] });
 
     if (!renderer) {
       store.setState({ error: 'Cannot start game: graphics engine not available.' });
@@ -302,7 +325,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * this promise, so an escaping rejection would read as a dead button (and the
      * `error: null` reset above would already have wiped any visible banner).
      * Bailing here also keeps the bad rung out of store.config — the setState
-     * that persists it is below.
+     * that persists it is below. The lineup is emptied for the same reason the
+     * catch below empties it: this is a route to the title, and the title names
+     * no game. Today it empties nothing — see the note at the top of the
+     * function — so it is the rule kept structural, not a stale lineup fixed.
      */
     let handicap;
     try {
@@ -317,6 +343,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
+        playerNames: [],
         error: "That luck setting isn't available. Pick another and try again.",
       });
       return;
@@ -395,8 +422,12 @@ export function createGameController(store, renderer, soundManager, preferencesM
       /*
        * This is a trip back to the title, so it has to leave the same state
        * goToTitle() would (#181) — a confirm dialog raised over the previous
-       * game must not still be flagged open on the title screen. (aiAborted
-       * and the next-turn timer were already dealt with on the way in.)
+       * game must not still be flagged open on the title screen, and the lineup
+       * goes with the game it named (goToTitle empties it too), the setState
+       * that would have replaced it wholesale being the one that just threw. As
+       * at the luck bail, there is in practice nothing here to empty: only the
+       * title screen starts games. (aiAborted and the next-turn timer were
+       * already dealt with on the way in.)
        */
       store.setState({
         screen: 'title',
@@ -406,6 +437,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         candidateAreas: null,
         quitConfirmOpen: false,
         rulesOpen: false,
+        playerNames: [],
         error: 'Failed to start game. Please try again.',
       });
     }
@@ -440,6 +472,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
         screen: 'title',
         gameState: null,
         candidateAreas: null,
+        // Unlike startNewGame's exits this one really does have a lineup to
+        // empty — NEW MAP is pressed over a named game — but it is the same
+        // rule: no route to the title leaves a game named behind it.
+        playerNames: [],
         error: "That luck setting isn't available. Pick another and try again.",
       });
       return;
@@ -458,6 +494,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
         screen: 'title',
         gameState: null,
         candidateAreas: null,
+        // The other half of the same rule as the luck bail above.
+        playerNames: [],
         error: 'Map generation failed. Please try again.',
       });
       return;
@@ -1125,8 +1163,14 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * and the turn-cap draw clear nothing at all. So the ring comes off the
      * board behind the game-over card here, paired with the `focusedAreaId:
      * null` above, or not at all.
+     *
+     * Guarded like the other three unmount seams — startNewGame, startSpectate,
+     * the endTurn error bounce — rather than on a bare `renderer` (#211 item 6):
+     * `hexGrid` is null until init() succeeds, and which seams a board that
+     * never came up can still reach is not something these four should each be
+     * reasoned about separately.
      */
-    if (renderer) renderer.hexGrid.clearFocusHighlight();
+    if (renderer && renderer.hexGrid) renderer.hexGrid.clearFocusHighlight();
     if (soundManager) soundManager.play('over');
   }
 
@@ -1267,6 +1311,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
         quitConfirmOpen: false,
         rulesOpen: false,
         error: 'An error occurred. Returning to title screen.',
+        // The lineup goes with the game, as on every other route to the title
+        // (#211 item-3 addendum): no game is named behind a screen that has none.
+        playerNames: [],
         /*
          * An unmount seam like goToTitle: the playing screen takes BoardFocus's
          * territory buttons with it, and a button removed while it holds focus

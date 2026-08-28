@@ -218,6 +218,13 @@ export class HexGridRenderer {
     /** @type {boolean} Color-blind mode */
     this._colorBlindMode = false;
 
+    /**
+     * @type {Set<string>} Call-site labels that have already reported a missing
+     * border for the current map — see `_warnMissingBorder`, which is also where
+     * a label finer than a method name is explained. Cleared by `drawMap`.
+     */
+    this._missingBorderWarned = new Set();
+
     /** @type {number[]} Territories currently marked by the board-hint layer */
     this._candidateIds = [];
     /** @type {'attacker' | 'target'} Treatment the board-hint layer is painting */
@@ -301,6 +308,9 @@ export class HexGridRenderer {
     }
     this._territoryGfx = new Array(areas.length).fill(null);
     this._borders = new Array(areas.length).fill(null);
+    // ...and a new set of borders is a new chance to be pointed at the wrong
+    // game, so each overlay gets its missing-border report back (#211 item 4).
+    this._missingBorderWarned.clear();
 
     // Borders are being retraced from scratch: anything the board-hint layer
     // drew against the previous map's outlines is now stale geometry.
@@ -378,6 +388,45 @@ export class HexGridRenderer {
   }
 
   /**
+   * Report an overlay asked to paint a territory this renderer has no traced
+   * border for — the caller is drawing against a board we aren't showing, the
+   * same store/renderer map mismatch `setCandidateHighlights` has warned about
+   * all along (#211 item 4). Both callers still return without painting: this
+   * runs from a focus listener and from click handling, where throwing over a
+   * cosmetic overlay would be far worse than a missing ring. A border that
+   * traced to nothing counts as missing too — `traceBorder` returns `[]` when it
+   * finds no perimeter, which is truthy, and `appendTerritoryPath` draws nothing
+   * under two segments, so a bare `!border` check would flag a layer visible
+   * over no geometry (the case `setCandidateHighlights` guards the same way).
+   *
+   * Once per LABEL per map, not once per call. `setFocusHighlight` is the
+   * reason: it is called once per *hop*, so an arrow burst across a mismatched
+   * board would otherwise print a line per keypress and bury the first report.
+   * `setHighlight` is called once per selection click, which is far less, but it
+   * is capped the same way, because one mismatched map is one report per label
+   * either way. (The sibling `setCandidateHighlights` can afford a line per
+   * call — each of its calls is one whole hint set.) `drawMap` clears the record
+   * along with `_borders`, since a freshly traced map is a fresh chance to be
+   * wired against the wrong game.
+   *
+   * The label is the caller's to choose, not `method.name`: `setHighlight` puts
+   * `which` in its own so the console line says which ring went missing, and the
+   * from and to rings get separate budgets as a consequence.
+   *
+   * @param {string} label - Identifies the calling site, for the message
+   * @param {number} areaId - The id with no border
+   */
+  _warnMissingBorder(label, areaId) {
+    if (this._missingBorderWarned.has(label)) return;
+    this._missingBorderWarned.add(label);
+    console.warn(
+      `[HexGridRenderer] ${label}: no border for area`,
+      areaId,
+      '— renderer map may not match the store game'
+    );
+  }
+
+  /**
    * Show a selection highlight on a territory.
    *
    * @param {'from' | 'to'} which
@@ -386,7 +435,14 @@ export class HexGridRenderer {
   setHighlight(which, areaId) {
     const gfx = which === 'from' ? this._highlightFrom : this._highlightTo;
     const border = this._borders[areaId];
-    if (!border) return;
+    if (!border || border.length < 2) {
+      this._warnMissingBorder(`setHighlight('${which}')`, areaId);
+      // Down, not left as it was: a ring still up from the last call would
+      // mark a territory this call was asked to leave.
+      gfx.visible = false;
+      gfx.clear();
+      return;
+    }
 
     gfx.visible = true;
     drawTerritoryPath(
@@ -413,7 +469,13 @@ export class HexGridRenderer {
    */
   setFocusHighlight(areaId) {
     const border = this._borders[areaId];
-    if (!border) return;
+    if (!border || border.length < 2) {
+      this._warnMissingBorder('setFocusHighlight', areaId);
+      // The ring is a cursor: an honest absence beats one left on the last
+      // territory while the store already points at this one.
+      this.clearFocusHighlight();
+      return;
+    }
     this._highlightFocus.visible = true;
     drawTerritoryPath(this._highlightFocus, border, this._cellPos, 0x000000, 0xffffff, 3);
     this._highlightFocus.alpha = 0.7;

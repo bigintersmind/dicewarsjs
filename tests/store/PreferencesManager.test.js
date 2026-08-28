@@ -255,6 +255,43 @@ describe('PreferencesManager', () => {
       expect(pm.effectiveReducedMotion()).toBe(false);
       pm.destroy();
     });
+
+    /*
+     * tests/setup.js stubs `window.matchMedia` because this jsdom has none, and
+     * says a test that wants the catch branch back can delete it locally — this
+     * is that test, and the only coverage the branch has since the stub landed
+     * (#211 item 5). A browser without the API is the real case behind it: the
+     * manager has to come up, warn, and fall back to "no system preference",
+     * because a thrown constructor would take the whole app with it.
+     */
+    it('comes up without window.matchMedia at all, deferring to the stored setting', () => {
+      const realMatchMedia = window.matchMedia;
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        delete window.matchMedia;
+        const pm = createPreferencesManager();
+
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Cannot detect system motion preference'),
+          expect.any(Error)
+        );
+
+        // 'system' with no system to ask: the documented fallback, not a throw.
+        expect(pm.effectiveReducedMotion()).toBe(false);
+        // ...and an explicit setting is still honoured in both directions.
+        pm.set('reducedMotion', 'on');
+        expect(pm.effectiveReducedMotion()).toBe(true);
+        pm.set('reducedMotion', 'off');
+        expect(pm.effectiveReducedMotion()).toBe(false);
+
+        // destroy() has no query to unsubscribe from, and must not mind.
+        expect(() => pm.destroy()).not.toThrow();
+      } finally {
+        window.matchMedia = realMatchMedia;
+        warnSpy.mockRestore();
+      }
+    });
   });
 
   describe('destroy', () => {

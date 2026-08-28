@@ -138,12 +138,6 @@ const areaButton = id => container.querySelector(`#dw-area-${id}`);
 
 beforeEach(() => {
   localStorage.clear();
-  /*
-   * This jsdom has no matchMedia, and PreferencesManager logs (harmlessly) when
-   * it cannot read the system motion preference. Stub it so a real manager can
-   * be used here without a stack trace per test.
-   */
-  window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 });
 
 afterEach(() => {

@@ -70,16 +70,32 @@ function createMockRenderer() {
   x[30] = 37;
   y[30] = 141; // center = (37+13, 141+9) = (50, 150)
 
-  return {
-    hexGrid: {
-      setFocusHighlight: vi.fn(),
-      clearFocusHighlight: vi.fn(),
-      clearHighlights: vi.fn(),
-      clearSelectionHighlights: vi.fn(),
-      _cellPos: { x, y },
-      _getPlayerColor: vi.fn(() => 0xffffff),
-    },
+  /*
+   * `focusUp` models the one overlay layer this file cares about: whether the
+   * keyboard focus ring is painted. Modelled after GameController.test.js's
+   * createMockHexGrid, and for the same reason — "the ring is still up" is one
+   * state assertion, where bare vi.fn()s can only spell it out as a negative per
+   * writer (and a writer added later would slip past all of them). It models the
+   * real renderer's outcomes: clearHighlights() wipes every layer, focus ring
+   * included, while clearSelectionHighlights() deliberately leaves it alone
+   * (#211 item 3).
+   */
+  const hexGrid = {
+    focusUp: false,
+    setFocusHighlight: vi.fn(() => {
+      hexGrid.focusUp = true;
+    }),
+    clearFocusHighlight: vi.fn(() => {
+      hexGrid.focusUp = false;
+    }),
+    clearHighlights: vi.fn(() => {
+      hexGrid.focusUp = false;
+    }),
+    clearSelectionHighlights: vi.fn(),
+    _cellPos: { x, y },
+    _getPlayerColor: vi.fn(() => 0xffffff),
   };
+  return { hexGrid };
 }
 
 function createMockController() {
@@ -389,13 +405,14 @@ describe('KeyboardController', () => {
     });
 
     /*
-     * What a click on the canvas does to the keyboard: mousedown's focus fixup
-     * blurs the focused button to `<body>`, so the next arrow re-enters the
-     * board from the start rather than resuming at area 3. This is the
-     * documented behaviour, not the desired one — resuming at the clicked
-     * territory is a #211 follow-up.
+     * What a click on WATER does to the keyboard. A click on a territory now
+     * carries the ring with it (focusFromPointer below), but a click on nothing
+     * is left entirely to the browser: mousedown's focus fixup blurs the focused
+     * button to `<body>`, so the next arrow re-enters the board at the first own
+     * territory rather than resuming at area 3. Deliberate — clicking off the
+     * board is as good a way as any to say "done with the keyboard position".
      */
-    it('re-enters at the first own territory after a click blurs the board', () => {
+    it('re-enters at the first own territory after a water click blurs the board', () => {
       areaButton(3).focus();
       areaButton(3).blur();
 
@@ -619,9 +636,13 @@ describe('KeyboardController', () => {
        */
       expect(document.activeElement).toBe(areaButton(3));
       expect(store.getState().focusedAreaId).toBe(3);
+      // The path really ran...
       expect(mockRenderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
-      expect(mockRenderer.hexGrid.clearHighlights).not.toHaveBeenCalled();
-      expect(mockRenderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
+      // ...and the ring is still painted — whichever writer might have taken it
+      // down (clearHighlights, clearFocusHighlight, one added later).
+      expect(mockRenderer.hexGrid.focusUp).toBe(true);
+      // Up because it never came down, not because it was put back: a repaint
+      // would leave the same state, and this is the difference between the two.
       expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
     });
 
@@ -751,9 +772,11 @@ describe('KeyboardController', () => {
     });
 
     /*
-     * The focusout half's own job: a blur, a click on the canvas, or the window
+     * The focusout half's own job: a blur, a click on WATER, or the window
      * losing focus moves focus to nothing at all, and there is no focusin to
-     * catch. It comes back on focusin when the window returns.
+     * catch. (A click on a TERRITORY no longer lands here — focusFromPointer
+     * moves focus button → button, which the handler leaves alone.) It comes
+     * back on focusin when the window returns.
      */
     it('clears the ring when a territory button is blurred to nothing', () => {
       areaButton(1).focus();
@@ -841,6 +864,118 @@ describe('KeyboardController', () => {
 
       expect(store.getState().focusedAreaId).toBe(1);
       expect(mockRenderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * A canvas click keeps the keyboard's position (#211)
+   * -----------------------------------------------------------------------
+   * main.jsx calls this from the canvas `pointerdown`, before handing the click
+   * on to the controller. Without it, mousedown's own focus fixup blurs the
+   * focused territory button to `<body>` (the canvas is not focusable), so the
+   * ring goes down and the next arrow re-enters the board at the first own
+   * territory instead of stepping from the territory just clicked. The return
+   * value is what tells main.jsx whether to preventDefault() — and it is false
+   * for a mouse-only player, who never has a territory focused and must never
+   * acquire a ring by clicking.
+   */
+
+  describe('focusFromPointer', () => {
+    /*
+     * The mixed-use case: pick the source with Enter, click the target with the
+     * mouse. The ring follows to the target, which after a win is yours.
+     */
+    it('moves DOM focus and the ring to the clicked territory', () => {
+      areaButton(1).focus();
+
+      expect(kbc.focusFromPointer(2)).toBe(true);
+
+      expect(document.activeElement).toBe(areaButton(2));
+      expect(store.getState().focusedAreaId).toBe(2);
+      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(2);
+    });
+
+    it('leaves a mouse-only player without a ring', () => {
+      expect(document.activeElement).toBe(document.body);
+
+      expect(kbc.focusFromPointer(2)).toBe(false);
+
+      expect(document.activeElement).toBe(document.body);
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(mockRenderer.hexGrid.focusUp).toBe(false);
+    });
+
+    /*
+     * Focus on a real control is somebody else's — a click on the board must not
+     * pull it onto the board behind the player's back (and END TURN, say, would
+     * lose the focus it is about to be activated with).
+     */
+    it('does not take focus off a real control', () => {
+      const quit = mountButton('QUIT');
+      quit.focus();
+
+      expect(kbc.focusFromPointer(2)).toBe(false);
+
+      expect(document.activeElement).toBe(quit);
+      expect(store.getState().focusedAreaId).toBeNull();
+      expect(mockRenderer.hexGrid.focusUp).toBe(false);
+    });
+
+    /*
+     * The cursor is not gated on the game's state, and that is the decision, not
+     * an oversight: E parks focus on a territory for the whole AI turn, the
+     * arrows bail while an animation runs or it is not the human's turn, and a
+     * click is then the only way left to move the cursor. Gating it would not
+     * leave the ring alone either — the mousedown fixup main.jsx suppresses on
+     * the strength of the `true` would drop focus to `<body>` and take the ring
+     * down with it. Nothing else moves: handleTerritoryClick ignores the click
+     * on these turns, so store and DOM stay agreed.
+     *
+     * A pin of behaviour that already held (no source change went with it), so
+     * there is no red run to show for it.
+     */
+    it('moves the cursor during an animation on the AI turn, when the arrows will not', () => {
+      areaButton(1).focus();
+      store.setState({
+        animationPhase: 'battle',
+        gameState: makeGameState({ currentPlayerIndex: 1 }),
+      });
+
+      // The arrows are frozen here...
+      fireKey('ArrowRight');
+      expect(store.getState().focusedAreaId).toBe(1);
+
+      // ...and the pointer is not.
+      expect(kbc.focusFromPointer(2)).toBe(true);
+
+      expect(document.activeElement).toBe(areaButton(2));
+      expect(store.getState().focusedAreaId).toBe(2);
+      expect(mockRenderer.hexGrid.setFocusHighlight).toHaveBeenCalledWith(2);
+    });
+
+    /*
+     * The same broken id contract the arrows report, reached from the mouse: no
+     * button to move to, so focus stays where the keyboard left it and the
+     * caller is told not to suppress the browser's default.
+     */
+    it('reports the miss and stays put when the clicked territory has no button', () => {
+      // try/finally, not a trailing restore: a failed assertion here would
+      // otherwise leave console.warn stubbed for every test after it.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        areaButton(1).focus();
+
+        expect(kbc.focusFromPointer(99)).toBe(false);
+
+        expect(document.activeElement).toBe(areaButton(1));
+        expect(store.getState().focusedAreaId).toBe(1);
+        expect(mockRenderer.hexGrid.focusUp).toBe(true); // and the ring with it
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('territory 99'));
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 

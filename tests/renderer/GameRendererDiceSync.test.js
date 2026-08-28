@@ -125,6 +125,19 @@ describe('GameRenderer init() dice-display sync', () => {
   });
 });
 
+describe('GameRenderer init() completion flag', () => {
+  // The start guard reads this flag — GameController.startNewGame refuses to
+  // start on `!renderer.initialized` (#211 item 14), so it is a contract now.
+  it('reports itself initialized once init() has succeeded', async () => {
+    const renderer = new GameRenderer();
+    expect(renderer.initialized).toBe(false);
+
+    await renderer.init(document.createElement('canvas'));
+
+    expect(renderer.initialized).toBe(true);
+  });
+});
+
 describe('GameRenderer _resize()', () => {
   it('forces app.resize() before reading screen dims (regression: stale title→game scale)', async () => {
     const renderer = new GameRenderer();

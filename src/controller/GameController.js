@@ -1038,10 +1038,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * than leaving it half-made until the next Escape (#211 follow-up 16).
      * Deliberately below the gates rather than above them: cancelling is the
      * player acting on their own turn, so it answers to the same four
-     * conditions a territory click does — not on an AI's turn, not mid-animation,
-     * not from under a modal. (The keyboard's own position is a separate layer
-     * and this does not touch it: the ring comes down because the browser blurs
-     * the board to `<body>`, which is the canvas handler's note to explain.)
+     * conditions a territory click does — not from a screen the game has left,
+     * not mid-animation, not from under a modal, not on an AI's turn. (The
+     * keyboard's own position is a separate layer and this does not touch it:
+     * the ring comes down because the browser blurs the board to `<body>`,
+     * which is the canvas handler's note to explain.)
      */
     if (areaId === 0) {
       cancelSelection();

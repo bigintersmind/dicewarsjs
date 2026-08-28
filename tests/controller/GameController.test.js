@@ -1827,7 +1827,7 @@ describe('GameController', () => {
      */
     it('ignores a water click once the screen has moved on', () => {
       controller.handleTerritoryClick(1);
-      store.setState({ screen: 'title' });
+      store.setState({ screen: 'mapPreview' });
       renderer.hexGrid.clearSelectionHighlights.mockClear();
 
       controller.handleTerritoryClick(0);
@@ -2855,9 +2855,13 @@ describe('GameController', () => {
      * started anyway, which the test above now rules out — so, like the lineup
      * seam pins, this holds the guard to its shape rather than covering a live
      * path. It is driven through a controller of its own, past the start guard
-     * by construction. Only the game-over seam is driven here: it is the one whose
-     * clear lands after its own setState, so `screen` alone cannot tell a
-     * survived call from a throw. Hence the sound and the silent console.
+     * by construction. The game-over seam is the one driven here, and reaching
+     * it runs through endHumanTurn, which swallows a rejection into
+     * console.error — so a throw out of the seam would be invisible. `screen`
+     * cannot catch it either: at this seam, as at all four, it is written by a
+     * setState that lands before the guarded clear, so it reads the same
+     * whether the call survived or threw. Hence the sound and the silent
+     * console.
      */
     it('reaches the game-over seam on a renderer whose init never built a hex grid', async () => {
       const { applyAction } = await import('../../src/engine/index.js');

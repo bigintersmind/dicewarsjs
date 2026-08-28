@@ -39,19 +39,20 @@
  * turn, whoever ends up owning that territory, because that is where the next
  * arrow steps from. It is a cursor, not a selection.
  *
- * This file's own ring calls — `setFocus`, `clearBoardFocus`, `cancelSelection`
- * — guard `renderer` but not `renderer.hexGrid`, because everything here runs
- * mid-game and assumes the board a game is played on: the same model
- * goToTitle's note states for GameController's mid-game call sites. That
- * assumption has one known hole — START stays live over a renderer whose
- * init() failed (#211 follow-up 14) — and it is these mid-game calls, `setFocus`
- * first among them on the first Tab, that surface it by throwing; a guard here
- * would only move the failure. It is GameController's four unmount SEAMS that
- * spell `renderer && renderer.hexGrid`, and they have to: starting is reachable
- * from the menu screens with a renderer that never got as far as a hex grid,
- * and its three siblings (game over, spectate, the end-turn bounce) are guarded
- * alike rather than reasoned about one by one. goToTitle spells the same guard
- * nested, for the same reason.
+ * This file's own ring calls — `setFocus` and `clearBoardFocus` — guard
+ * `renderer` but not `renderer.hexGrid`, because everything here runs mid-game
+ * and assumes the board a game is played on: the same model goToTitle's note
+ * states for GameController's mid-game call sites. That assumption used to have
+ * a hole — START stayed live over a renderer whose init() failed, and these
+ * mid-game calls, `setFocus` first among them on the first Tab, were what
+ * surfaced it by throwing — and startNewGame now refuses to start on a renderer
+ * that never initialized (#211 follow-up 14), which is where the fix belongs: a
+ * guard here would only have moved the failure. It is GameController's four
+ * unmount SEAMS that spell `renderer && renderer.hexGrid`, and they have to:
+ * starting is reachable from the menu screens with a renderer that never got as
+ * far as a hex grid, and its three siblings (game over, spectate, the end-turn
+ * bounce) are guarded alike rather than reasoned about one by one. goToTitle
+ * spells the same guard nested, for the same reason.
  *
  * The listener sits on `document` and would otherwise swallow keys aimed at real
  * controls, so the arrows are claimed in exactly two situations: focus is on a
@@ -82,10 +83,15 @@
  * *handled* wherever focus is — a half-made attack has to be cancellable from a
  * focused button too — but it is only *claimed* when it actually cancelled one;
  * an uncancelled Escape is what QuitConfirm's window-level handler, later in the
- * bubble path, listens for to raise "Abandon this game?". While that dialog,
- * the "How to play" card or the settings dropdown is open this controller
- * takes no keys at all — E would otherwise end the turn behind the open
- * dropdown, from the die button it fires from like any other (#211 item 8).
+ * bubble path, listens for to raise "Abandon this game?". The cancel itself is
+ * GameController's (`controller.cancelSelection()`), because a click on water
+ * runs the same three steps and one owner is how the two stay in step (#211
+ * follow-up 16); this file decides only that Escape is what asks for it.
+ *
+ * While that dialog, the "How to play" card or the settings dropdown is open
+ * this controller takes no keys at all — E would otherwise end the turn behind
+ * the open dropdown, from the die button it fires from like any other (#211
+ * item 8).
  * The two dialogs trap focus as well; the dropdown does not, so Enter on a
  * territory button still plays there — that is the button's own click.
  *
@@ -104,11 +110,14 @@
  *     handler never sees Tab at all. The arrows, E and Escape do bail while
  *     `animationPhase` is not idle.
  *   - A click on WATER drops focus to `<body>` and takes the ring down, and is
- *     meant to: it is left entirely to the browser, because a click on nothing
- *     is as good a way as any to say "done with the keyboard position". A
- *     primary-button click on a TERRITORY is the one that does not, because it
- *     moves the keyboard with it: main.jsx hands the canvas `pointerdown` — the
- *     primary button only — to `focusFromPointer`
+ *     meant to: the FOCUS half is left entirely to the browser, because a click
+ *     on nothing is as good a way as any to say "done with the keyboard
+ *     position". (The click is not nothing to the game — it cancels a half-made
+ *     attack, #211 follow-up 16 — but that is the selection layer, reached
+ *     through the controller, and it leaves this one alone.) A primary-button
+ *     click on a TERRITORY is the one that does not drop the ring, because it
+ *     moves the keyboard with it: the canvas pointer handler hands the
+ *     `pointerdown` — the primary button only — to `focusFromPointer`
  *     below, which — only when the board already holds focus — focuses that
  *     territory's button and lets the caller suppress mousedown's focus fixup,
  *     the thing that would otherwise have blurred the board to `<body>` and sent
@@ -200,10 +209,11 @@ function isTextEntry(el) {
  */
 export function createKeyboardController(store, controller, renderer) {
   let warnedNoCellPos = false;
-  let warnedNoButton = false;
+  const warnedNoButton = new Set();
 
   /**
-   * One-shot: the board's DOM focus targets are missing, and missing for good.
+   * One-shot per cause: the board's DOM focus targets are missing, and missing
+   * for good.
    *
    * A lookup that fails while the store says playing + human turn is never
    * transient — GameStore notifies synchronously and Preact flushes on a
@@ -211,12 +221,27 @@ export function createKeyboardController(store, controller, renderer) {
    * mounted, an ErrorBoundary is showing its fallback in its place, the id
    * contract between the two files broke, or the two files disagree on which
    * areas are live. Warn once rather than on every arrow.
+   *
+   * Per CAUSE, though, not once for the whole session (#211 follow-up 20). The
+   * arrow entering the board, the arrow stepping to a neighbor, a pointer
+   * carrying the cursor to a clicked territory, and an element that is present
+   * but refuses focus are four separate wiring failures that happen to share a
+   * console line; one boolean let whichever fired first silence the other three
+   * for the life of the page, which is the opposite of what a diagnostic is for.
+   * The set is never reset. BoardFocus remounts every game, so a strictly
+   * per-game budget would mean subscribing this file to the store purely to
+   * expire a warning — out of proportion to what it buys, when the failures it
+   * reports are configuration-shaped rather than per-game. `warnedNoCellPos`
+   * stays a plain boolean: it has exactly one call site.
+   *
+   * @param {number} areaId - The territory with no usable button
+   * @param {string} cause - Which path hit it, named in the warning
    */
-  function warnNoBoardButton(areaId) {
-    if (warnedNoButton) return;
-    warnedNoButton = true;
+  function warnNoBoardButton(areaId, cause) {
+    if (warnedNoButton.has(cause)) return;
+    warnedNoButton.add(cause);
     console.warn(
-      `[KeyboardController] no board button for territory ${areaId} — is BoardFocus mounted?`
+      `[KeyboardController] no board button for territory ${areaId} (${cause}) — is BoardFocus mounted?`
     );
   }
 
@@ -277,9 +302,11 @@ export function createKeyboardController(store, controller, renderer) {
         /*
          * Handled wherever focus is, but only claimed when there was actually a
          * selection to cancel; an uncancelled Escape is what QuitConfirm
-         * listens for (#181).
+         * listens for (#181). The cancel is the controller's — a click on water
+         * asks for the same three steps, so there is one owner and no second
+         * copy to drift (#211 follow-up 16).
          */
-        if (cancelSelection()) e.preventDefault();
+        if (controller.cancelSelection()) e.preventDefault();
         break;
     }
   }
@@ -311,9 +338,9 @@ export function createKeyboardController(store, controller, renderer) {
    * down; when the window comes back, `focusin` puts it up again. (A
    * primary-button click on a TERRITORY is not one of them: `focusFromPointer`
    * moves focus button → button, which the branch below leaves alone. A
-   * secondary-button click is left to the browser's default — main.jsx
-   * intercepts only the primary one — and lands here wherever that default
-   * moves focus off the button.)
+   * secondary-button click is left to the browser's default — the canvas
+   * pointer handler intercepts only the primary one — and lands here wherever
+   * that default moves focus off the button.)
    *
    * Button → button is left alone: the incoming `focusin` repaints the ring on
    * the new territory, and clearing it in between is a visible flicker.
@@ -344,7 +371,7 @@ export function createKeyboardController(store, controller, renderer) {
   function moveFocus(key, gameState, fromId, humanIdx) {
     if (fromId == null) {
       const firstOwn = findFirstOwnTerritory(gameState, humanIdx);
-      if (firstOwn) focusArea(firstOwn);
+      if (firstOwn) focusArea(firstOwn, 'arrow-enter');
       return;
     }
 
@@ -386,7 +413,7 @@ export function createKeyboardController(store, controller, renderer) {
       }
     }
 
-    if (bestNeighbor !== null) focusArea(bestNeighbor);
+    if (bestNeighbor !== null) focusArea(bestNeighbor, 'arrow-step');
   }
 
   /**
@@ -396,18 +423,24 @@ export function createKeyboardController(store, controller, renderer) {
    *
    * `preventScroll` because the buttons are clipped to a pixel in a corner —
    * scrolling them into view would jump the page away from the board.
+   *
+   * @param {number} areaId - The territory to focus
+   * @param {'arrow-enter'|'arrow-step'|'pointer'} cause - What asked for the
+   *   move, so a failure is reported (once) per cause rather than once per page
    */
-  function focusArea(areaId) {
+  function focusArea(areaId, cause) {
     const el = document.getElementById(areaElementId(areaId));
     if (!el) {
-      warnNoBoardButton(areaId);
+      warnNoBoardButton(areaId, cause);
       return;
     }
     el.focus({ preventScroll: true });
     // A present element that refuses focus (disabled, detached) leaves the ring
     // and DOM focus where they were, which is the honest outcome — but it is
-    // still a wiring bug worth one line in the console.
-    if (document.activeElement !== el) warnNoBoardButton(areaId);
+    // still a wiring bug worth one line in the console. Its own budget: a button
+    // that is missing and one that refuses focus are different failures, and the
+    // one that happened first must not silence the other.
+    if (document.activeElement !== el) warnNoBoardButton(areaId, `${cause}:refused`);
   }
 
   /**
@@ -420,11 +453,11 @@ export function createKeyboardController(store, controller, renderer) {
    * where it is. Moving focus goes through `focusArea`, so the `focusin` mirror
    * does the store and ring bookkeeping down the one path everything else uses.
    *
-   * That is this function's only condition; main.jsx adds one more before
-   * calling it, the primary button (`e.button === 0`). Within that, the cursor
-   * follows the pointer whenever the board holds focus, including during an AI
-   * turn or a battle animation, when
-   * the arrows bail in `handleKeyDown` and this is the only way left to move it.
+   * That is this function's only condition; the canvas pointer handler adds one
+   * more before calling it, the primary button (`e.button === 0`). Within that,
+   * the cursor follows the pointer whenever the board holds focus, including
+   * during an AI turn or a battle animation, when the arrows bail in
+   * `handleKeyDown` and this is the only way left to move it.
    * The click itself is ignored on those turns (`handleTerritoryClick` bails),
    * so the cursor moves and nothing else does, and store and DOM stay agreed.
    * Gating this on the turn or the animation would not park the ring where it
@@ -433,44 +466,15 @@ export function createKeyboardController(store, controller, renderer) {
    *
    * @param {number} areaId - The territory under the pointer
    * @returns {boolean} True when DOM focus is now on that territory's button —
-   *   which is main.jsx's cue to preventDefault() the pointerdown and with it
+   *   which is the caller's cue to preventDefault() the pointerdown and with it
    *   the browser's focus fixup. False means nothing moved and the default is
    *   the browser's to keep.
    */
   function focusFromPointer(areaId) {
     if (areaIdOf(document.activeElement) == null) return false;
-    focusArea(areaId);
+    focusArea(areaId, 'pointer');
     const el = document.getElementById(areaElementId(areaId));
     return el != null && document.activeElement === el;
-  }
-
-  /**
-   * Cancel current selection and return to selectFrom.
-   *
-   * @returns {boolean} True when a half-made attack was actually cancelled.
-   */
-  function cancelSelection() {
-    const storeState = store.getState();
-    if (storeState.awaitingInput !== 'selectTo') return false;
-    store.setState({
-      selectedFrom: null,
-      awaitingInput: 'selectFrom',
-    });
-    /*
-     * The selection and the keyboard's focus are different things, and only the
-     * selection was cancelled — so this is clearSelectionHighlights(), which
-     * leaves the focus ring where DOM focus still is (#211 item 3). It used to
-     * be clearHighlights() plus a repaint of the ring; now the ring never comes
-     * down.
-     */
-    if (renderer) renderer.hexGrid.clearSelectionHighlights();
-    /*
-     * clearSelectionHighlights() takes the board hints down with the selection,
-     * and this is a return to selectFrom — so hand back to the controller, which
-     * owns that mapping, to repaint the attack candidates.
-     */
-    controller.refreshCandidateHighlights();
-    return true;
   }
 
   function setFocus(areaId) {

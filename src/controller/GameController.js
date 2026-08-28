@@ -280,7 +280,21 @@ export function createGameController(store, renderer, soundManager, preferencesM
      */
     store.setState({ error: null, aiLoadWarnings: [] });
 
-    if (!renderer) {
+    /*
+     * No renderer at all, or one whose init() failed — two shapes of the same
+     * "there is no board" (#211 follow-up 14). main.jsx assigns gameRenderer
+     * before awaiting init(), and GameRenderer.init destroys and rethrows on
+     * failure, so the failed object stays wired up with `initialized === false`
+     * and a null hexGrid. Checking only `!renderer` let START carry that object
+     * all the way to the playing screen: drawMap() no-ops with a warn, the board
+     * is blank, and the first Tab throws in KeyboardController's
+     * `renderer.hexGrid.setFocusHighlight` — after the `error: null` above had
+     * already wiped the WebGL banner main.jsx put up. TitleAttractMode tests the
+     * same pair before it starts its decorative game; this is the seam that
+     * closes the hole for the real one, which is where it belongs — a guard at
+     * each mid-game hexGrid call would only have moved the failure.
+     */
+    if (!renderer || !renderer.initialized) {
       store.setState({ error: 'Cannot start game: graphics engine not available.' });
       return;
     }
@@ -938,12 +952,46 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   /**
-   * Handle a territory click during human turn.
-   * @param {number} areaId
+   * Drop a half-made attack: back to picking a source, the selection off the
+   * board, the attack candidates back up.
+   *
+   * The single owner of that three-step sequence, because two inputs run it —
+   * Escape (KeyboardController hands it straight here) and a click on water
+   * below (#211 follow-up 16) — and a second copy is a second chance for the
+   * order to drift. The order is the point: the store goes back to selectFrom
+   * BEFORE the refresh, or the hints would be recomputed against a stale
+   * 'selectTo' and repaint the old source's reachable enemies; and the clear
+   * comes before the refresh, or it would wipe the hints the refresh just
+   * painted.
+   *
+   * @returns {boolean} True when there was actually a selection to cancel —
+   *   which is KeyboardController's cue to claim the Escape (#181).
+   */
+  function cancelSelection() {
+    const storeState = store.getState();
+    if (storeState.awaitingInput !== 'selectTo') return false;
+
+    store.setState({ selectedFrom: null, awaitingInput: 'selectFrom' });
+    /*
+     * The selection and the keyboard's focus are different things, and only the
+     * selection was cancelled — so this is clearSelectionHighlights(), which
+     * leaves the ring where DOM focus still is (#211 item 3).
+     */
+    if (renderer) renderer.hexGrid.clearSelectionHighlights();
+    // ...which takes the board hints down with it, and this is a return to
+    // selectFrom, so the attack candidates have to be painted again.
+    refreshCandidateHighlights();
+    return true;
+  }
+
+  /**
+   * Handle a click on the board during a human turn.
+   *
+   * @param {number} areaId - The clicked territory, or 0 for WATER: the hit test
+   *   found no territory under the pointer. Water cancels a half-made attack and
+   *   is otherwise a no-op.
    */
   function handleTerritoryClick(areaId) {
-    if (areaId === 0) return;
-
     const storeState = store.getState();
     const state = storeState.gameState;
     if (!state || storeState.screen !== 'playing') return;
@@ -957,6 +1005,22 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     const currentPlayerId = state.turnOrder[state.currentPlayerIndex];
     if (currentPlayerId !== storeState.humanPlayerIndex) return;
+
+    /*
+     * Water, and the player is mid-attack: clicking off the board is a plain
+     * way to say "not that one after all", so it drops the selection rather
+     * than leaving it half-made until the next Escape (#211 follow-up 16).
+     * Deliberately below the gates rather than above them: cancelling is the
+     * player acting on their own turn, so it answers to the same four
+     * conditions a territory click does — not on an AI's turn, not mid-animation,
+     * not from under a modal. (The keyboard's own position is a separate layer
+     * and this does not touch it: the ring comes down because the browser blurs
+     * the board to `<body>`, which is the canvas handler's note to explain.)
+     */
+    if (areaId === 0) {
+      cancelSelection();
+      return;
+    }
 
     const area = state.areas[areaId];
     if (!area) return;
@@ -1468,6 +1532,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     goToOnlineLeaderboard,
     goToReplay,
     handleTerritoryClick,
+    cancelSelection,
     endHumanTurn,
     refreshCandidateHighlights,
     viewGameReplay,

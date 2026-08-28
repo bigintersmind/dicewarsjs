@@ -152,7 +152,24 @@ export function QuitConfirm({ store, onOpen, onCancel, onConfirm }) {
     };
   }, [open]);
 
-  /** Keep Tab inside the dialog: two buttons, so it just alternates. */
+  /**
+   * Keep Tab inside the dialog: two buttons, so it just alternates.
+   *
+   * The handler hangs off the card, so it only ever sees a Tab pressed with
+   * focus inside it — which is why the card is a `tabindex="-1"` focus target
+   * below. Press the card's own chrome (the title, the body copy, the gap
+   * between the buttons) and there is nothing focusable under the pointer; the
+   * browser's mousedown fixup then focuses the nearest focusable ancestor,
+   * which without that tabindex is nothing at all, so focus lands on `<body>`,
+   * out of this handler's reach, and the next Tab walks the page under the
+   * scrim. RulesModal.handleTab documents the same trap for the same reason —
+   * this is that fix, not a second mechanism. Nothing resets the card's
+   * outline, there as here: focus arriving by that fixup is not
+   * `:focus-visible`, so a mouse-focused card shows no ring.
+   *
+   * Focus on the card itself indexes as -1, which the arithmetic below already
+   * turns into the first button on Tab and the last on Shift+Tab.
+   */
   const handleTab = useCallback(event => {
     if (event.key !== 'Tab') return;
     event.preventDefault();
@@ -190,6 +207,7 @@ export function QuitConfirm({ store, onOpen, onCancel, onConfirm }) {
         aria-labelledby="dw-quit-title"
         className={animate ? 'dw-quit-card-anim' : undefined}
         style={STYLE.card}
+        tabIndex={-1}
         onKeyDown={handleTab}
       >
         <h2 id="dw-quit-title" style={STYLE.title}>

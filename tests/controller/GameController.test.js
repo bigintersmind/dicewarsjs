@@ -1718,9 +1718,70 @@ describe('GameController', () => {
       // Now: screen='playing', awaitingInput='selectFrom', humanPlayerIndex=0
     });
 
-    it('ignores areaId 0', () => {
+    /*
+     * areaId 0 is WATER: the hit test found no territory under the pointer, and
+     * the canvas handler forwards it like any other click. It cancels a
+     * half-made attack — clicking off the board is a plain way to say "not that
+     * one after all" — and does nothing at all otherwise (#211 follow-up 16).
+     */
+    it('cancels a half-made attack on a click in the water', () => {
+      controller.handleTerritoryClick(1); // pick a source
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+      renderer.hexGrid.setCandidateHighlights.mockClear();
+
       controller.handleTerritoryClick(0);
+
+      expect(store.getState().awaitingInput).toBe('selectFrom');
       expect(store.getState().selectedFrom).toBeNull();
+      expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
+      // Sources on offer again, not the abandoned source's targets.
+      expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenCalledWith([1], 'attacker');
+    });
+
+    it('does nothing on a water click with no attack half-made', () => {
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+      renderer.hexGrid.setCandidateHighlights.mockClear();
+      renderer.hexGrid.clearCandidateHighlights.mockClear();
+
+      controller.handleTerritoryClick(0);
+
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(store.getState().selectedFrom).toBeNull();
+      // Not even a repaint: nothing was cancelled, so nothing was recomputed.
+      expect(renderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
+      expect(renderer.hexGrid.setCandidateHighlights).not.toHaveBeenCalled();
+      expect(renderer.hexGrid.clearCandidateHighlights).not.toHaveBeenCalled();
+    });
+
+    /*
+     * Water answers to the same gates as a territory, which is why the branch
+     * sits below them: cancelling is the player acting on their own turn, so an
+     * AI's turn and a running animation own the board just as completely for a
+     * click on nothing as for a click on something.
+     */
+    it('ignores a water click on the AI turn', () => {
+      controller.handleTerritoryClick(1);
+      const gs = store.getState().gameState;
+      store.setState({ gameState: { ...gs, currentPlayerIndex: 1 } });
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+
+      controller.handleTerritoryClick(0);
+
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      expect(store.getState().selectedFrom).toBe(1);
+      expect(renderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
+    });
+
+    it('ignores a water click while an animation owns the board', () => {
+      controller.handleTerritoryClick(1);
+      store.setState({ animationPhase: 'battle' });
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+
+      controller.handleTerritoryClick(0);
+
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      expect(store.getState().selectedFrom).toBe(1);
+      expect(renderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
     });
 
     it('ignores clicks when not on playing screen', () => {
@@ -1928,6 +1989,86 @@ describe('GameController', () => {
       expect(renderer.hexGrid.setHighlight).not.toHaveBeenCalled();
       expect(renderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
       expect(soundManager.play).not.toHaveBeenCalledWith('click');
+    });
+  });
+
+  /*
+   * -----------------------------------------------------------------------
+   * cancelSelection (#211 follow-up 16)
+   * -----------------------------------------------------------------------
+   *
+   * The one owner of "drop the half-made attack": Escape asks for it from
+   * KeyboardController and a water click asks for it above, so the three steps
+   * and their order live here once. The order pins moved down from
+   * KeyboardController.test.js with the code.
+   */
+  describe('cancelSelection', () => {
+    beforeEach(async () => {
+      await controller.startNewGame({ playerCount: 2, spectator: false });
+      controller.acceptMap();
+    });
+
+    it('returns to selectFrom with the board back on offering sources', () => {
+      controller.handleTerritoryClick(1);
+      expect(store.getState().awaitingInput).toBe('selectTo'); // a real selection to cancel
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+      renderer.hexGrid.setCandidateHighlights.mockClear();
+
+      expect(controller.cancelSelection()).toBe(true);
+
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(store.getState().selectedFrom).toBeNull();
+      expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
+      /*
+       * The store is back on selectFrom BEFORE the hints are recomputed:
+       * against a stale 'selectTo' this would have repainted the old source's
+       * reachable enemies ([2], 'target') as if they were the attack
+       * candidates, and no "was it called" assertion could tell the two apart.
+       */
+      expect(renderer.hexGrid.setCandidateHighlights).toHaveBeenCalledWith([1], 'attacker');
+      expect(store.getState().candidateAreas).toEqual([1]);
+      /*
+       * ...and the clear came first. Refreshing first and clearing second wipes
+       * the hints it just painted, which the call log alone cannot see — the
+       * one-field model can.
+       */
+      expect(renderer.hexGrid.candidatesUp).toBe(true);
+    });
+
+    it('reports that there was nothing to cancel from selectFrom', () => {
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+      renderer.hexGrid.setCandidateHighlights.mockClear();
+
+      expect(controller.cancelSelection()).toBe(false);
+
+      // False is what leaves Escape unclaimed for QuitConfirm (#181), and the
+      // board is untouched: no clear, no repaint.
+      expect(store.getState().awaitingInput).toBe('selectFrom');
+      expect(renderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
+      expect(renderer.hexGrid.setCandidateHighlights).not.toHaveBeenCalled();
+    });
+
+    /*
+     * The focus ring is the keyboard's cursor and cancelling a selection is not
+     * a focus event, so the mid-game clear has to be the one that leaves that
+     * layer alone (#211 item 3).
+     */
+    it('leaves the keyboard focus ring alone', () => {
+      controller.handleTerritoryClick(1);
+      store.setState({ focusedAreaId: 3 });
+      renderer.hexGrid.setFocusHighlight(3);
+      renderer.hexGrid.setFocusHighlight.mockClear();
+      renderer.hexGrid.clearFocusHighlight.mockClear();
+      renderer.hexGrid.clearHighlights.mockClear();
+
+      controller.cancelSelection();
+
+      expect(store.getState().focusedAreaId).toBe(3);
+      expect(renderer.hexGrid.focusUp).toBe(true);
+      expect(renderer.hexGrid.clearHighlights).not.toHaveBeenCalled();
+      expect(renderer.hexGrid.clearFocusHighlight).not.toHaveBeenCalled();
+      // Up because it never came down, not because it was put back.
+      expect(renderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
     });
   });
 
@@ -2618,23 +2759,46 @@ describe('GameController', () => {
     });
 
     /*
-     * The other shape of a renderer that didn't come up: `hexGrid` is null until
-     * init() succeeds, so a renderer object can exist without one. That is why
-     * the four unmount seams spell `renderer && renderer.hexGrid` where the
-     * mid-game call sites settle for a bare `renderer` — the mid-game ones
-     * assume the board a game is played on (an assumption with a known hole,
-     * #211 follow-up 14, which they surface by throwing), while starting is
-     * reachable from the menu screens with no board at all and its three
-     * sibling seams are guarded alike rather than reasoned about one by one.
+     * The other shape of a renderer that didn't come up: main.jsx assigns
+     * gameRenderer before awaiting init(), and GameRenderer.init destroys and
+     * rethrows on failure, so a renderer object survives with `initialized ===
+     * false` and a null hexGrid. START used to carry it all the way to the
+     * playing screen — a blank board, and the first Tab throwing inside
+     * KeyboardController — with the `error: null` on the way in having wiped the
+     * WebGL banner that said why. Now the start seam refuses it, the way
+     * TitleAttractMode already refuses to run its decorative game on one.
+     */
+    it('refuses to start on a renderer whose init() failed', async () => {
+      const failedStore = createGameStore();
+      const failedRenderer = { ...createMockRenderer(), initialized: false };
+      const failedController = createGameController(failedStore, failedRenderer, soundManager);
+
+      await failedController.startNewGame({ playerCount: 2, spectator: false });
+
+      const state = failedStore.getState();
+      // Nothing started behind the banner: no screen change, no game, and no
+      // drawMap left to no-op its way through one.
+      expect(state.screen).toBe('title');
+      expect(state.gameState).toBeNull();
+      expect(state.error).toContain('graphics');
+      expect(failedRenderer.drawMap).not.toHaveBeenCalled();
+    });
+
+    /*
+     * The gridless renderer, at a SEAM rather than a start. That is why the four
+     * unmount seams spell `renderer && renderer.hexGrid` where the mid-game call
+     * sites settle for a bare `renderer` — the mid-game ones assume the board a
+     * game is played on, while starting is reachable from the menu screens with
+     * no board at all and its three sibling seams are guarded alike rather than
+     * reasoned about one by one.
      *
      * Reaching this state needs init() to have failed and a game to have been
-     * started anyway. The second half is not prevented — START stays live over
-     * a failed init() (follow-up 14) — but the mid-game `hexGrid` calls throw
-     * long before this seam, so nothing gets here today; like the lineup seam
-     * pins, this holds the guard to its shape rather than covering a live path.
-     * Only the game-over seam is driven here: it is the one whose clear lands after
-     * its own setState, so `screen` alone cannot tell a survived call from a
-     * throw. Hence the sound and the silent console.
+     * started anyway, which the test above now rules out — so, like the lineup
+     * seam pins, this holds the guard to its shape rather than covering a live
+     * path. It is driven through a controller of its own, past the start guard
+     * by construction. Only the game-over seam is driven here: it is the one whose
+     * clear lands after its own setState, so `screen` alone cannot tell a
+     * survived call from a throw. Hence the sound and the silent console.
      */
     it('reaches the game-over seam on a renderer whose init never built a hex grid', async () => {
       const { applyAction } = await import('../../src/engine/index.js');
@@ -2647,7 +2811,9 @@ describe('GameController', () => {
         const gridlessStore = createGameStore();
         const gridlessController = createGameController(
           gridlessStore,
-          { ...createMockRenderer(), hexGrid: null },
+          // initialized, but with no hex grid — the start guard reads the flag,
+          // and this test is about what the seams do once a game is running.
+          { ...createMockRenderer(), initialized: true, hexGrid: null },
           soundManager
         );
 
@@ -2907,19 +3073,26 @@ describe('GameController', () => {
       renderer.playParticleEffect.mockImplementation(() => {
         throw new Error('Particle effect broken');
       });
+      // try/finally, not a trailing restore: a failed assertion here would
+      // otherwise leave console.error stubbed for every test after it.
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        controller.handleTerritoryClick(1);
+        controller.handleTerritoryClick(2);
 
-      controller.handleTerritoryClick(1);
-      controller.handleTerritoryClick(2);
+        for (let i = 0; i < 3; i++) {
+          await vi.runAllTimersAsync();
+          await flushPromises();
+        }
 
-      for (let i = 0; i < 3; i++) {
-        await vi.runAllTimersAsync();
-        await flushPromises();
+        expect(renderer.screenShake).toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Particle'),
+          expect.any(Error)
+        );
+      } finally {
+        errorSpy.mockRestore();
       }
-
-      expect(renderer.screenShake).toHaveBeenCalled();
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Particle'), expect.any(Error));
-      errorSpy.mockRestore();
     });
 
     it('still calls particle effect when screenShake throws', async () => {
@@ -2944,21 +3117,23 @@ describe('GameController', () => {
         throw new Error('Screen shake broken');
       });
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        controller.handleTerritoryClick(1);
+        controller.handleTerritoryClick(2);
 
-      controller.handleTerritoryClick(1);
-      controller.handleTerritoryClick(2);
+        for (let i = 0; i < 3; i++) {
+          await vi.runAllTimersAsync();
+          await flushPromises();
+        }
 
-      for (let i = 0; i < 3; i++) {
-        await vi.runAllTimersAsync();
-        await flushPromises();
+        expect(renderer.playParticleEffect).toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Screen shake'),
+          expect.any(Error)
+        );
+      } finally {
+        errorSpy.mockRestore();
       }
-
-      expect(renderer.playParticleEffect).toHaveBeenCalled();
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Screen shake'),
-        expect.any(Error)
-      );
-      errorSpy.mockRestore();
     });
 
     it('calls animateReinforcements when reinforcements happen', async () => {

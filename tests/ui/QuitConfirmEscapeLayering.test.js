@@ -61,9 +61,23 @@ function mountBoth(overrides = {}) {
       setFocusHighlight: vi.fn(),
     },
   };
-  // The two controller methods KeyboardController calls; both are required —
-  // the Escape path repaints the board hints through refreshCandidateHighlights.
-  const controller = { handleTerritoryClick: vi.fn(), refreshCandidateHighlights: vi.fn() };
+  /*
+   * The controller methods KeyboardController calls. Cancelling a half-made
+   * attack is the controller's since #211 follow-up 16 — a click on water asks
+   * for the same three steps — so this stand-in does what
+   * GameController.cancelSelection does: these tests are about which owner
+   * claims the key, and for that the store has to move for real. What the real
+   * one does to the board is GameController.test.js's to pin.
+   */
+  const controller = {
+    handleTerritoryClick: vi.fn(),
+    cancelSelection: vi.fn(() => {
+      if (store.getState().awaitingInput !== 'selectTo') return false;
+      store.setState({ selectedFrom: null, awaitingInput: 'selectFrom' });
+      renderer.hexGrid.clearSelectionHighlights();
+      return true;
+    }),
+  };
   kbc = createKeyboardController(store, controller, renderer);
 
   const onOpen = vi.fn(() => store.setState({ quitConfirmOpen: true }));

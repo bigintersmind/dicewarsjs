@@ -136,9 +136,6 @@ module.exports = {
     'bots/',
     'community-bots/',
 
-    // Test setup (mock globals, not linted)
-    'tests/setup.js',
-
     // GitHub Actions (managed by Prettier)
     '.github/workflows/*.yml',
   ],

@@ -47,7 +47,7 @@ npm install
 
 **No `max-len`, on purpose.** Prettier owns line width through `printWidth`. An ESLint `max-len` would only fire on the lines Prettier cannot break, is not auto-fixable, and would block commits over a rare long expression. Prettier does not reflow comments or string contents, so a long comment passes both tools. Do not hand-wrap comments to hit 100 columns, because nothing enforces it.
 
-**Not linted.** `ignorePatterns` in `.eslintrc.cjs` covers `dist/`, `node_modules/`, `coverage/`, `.prettierrc.cjs`, `tests/setup.js`, `.github/workflows/*.yml`, the generated weight modules `src/ai/*PolicyWeights.js`, and `bots/` plus `community-bots/`, whose files are bare function bodies with a top-level `return` rather than ES modules. A negation, `!src/ai/unpackPolicyWeights.js`, keeps the hand-written decoder linted, since the glob would otherwise swallow it. There is no `.eslintignore`.
+**Not linted.** `ignorePatterns` in `.eslintrc.cjs` covers `dist/`, `node_modules/`, `coverage/`, `.prettierrc.cjs`, `.github/workflows/*.yml`, the generated weight modules `src/ai/*PolicyWeights.js`, and `bots/` plus `community-bots/`, whose files are bare function bodies with a top-level `return` rather than ES modules. A negation, `!src/ai/unpackPolicyWeights.js`, keeps the hand-written decoder linted, since the glob would otherwise swallow it. There is no `.eslintignore`.
 
 ## Prettier configuration
 

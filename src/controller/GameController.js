@@ -712,9 +712,21 @@ export function createGameController(store, renderer, soundManager, preferencesM
       const lastAction = state.history[state.history.length - 1];
       const battleResult = lastAction ? lastAction.result : null;
 
+      /*
+       * The two seats, from the board the attack was rolled on — prevState,
+       * because a won attack has already flipped the target's owner in the
+       * state being published. The live region asks whether the territory an AI
+       * just attacked was the human's (#211 item 10), and the dice animation
+       * asks for the same pair to color the two hands.
+       */
+      const atkOwner = prevState.areas[move.from].owner;
+      const defOwner = prevState.areas[move.to].owner;
+
       store.setState({
         gameState: state,
-        battleResult,
+        battleResult: battleResult
+          ? { ...battleResult, attacker: atkOwner, defender: defOwner }
+          : null,
         animationPhase: 'battle',
         selectedFrom: move.from,
         selectedTo: move.to,
@@ -728,8 +740,6 @@ export function createGameController(store, renderer, soundManager, preferencesM
       // Play battle animation or brief delay
       const speed = getEffectiveSpeed();
       if (renderer && renderer.battle && battleResult) {
-        const atkOwner = prevState.areas[move.from].owner;
-        const defOwner = prevState.areas[move.to].owner;
         await renderer.battle.play(battleResult, atkOwner, defOwner, { speed });
       } else {
         await delay(300 / speed);
@@ -836,6 +846,25 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   /**
+   * Can this territory start an attack at all — 2+ dice AND a live enemy next
+   * door?
+   *
+   * Asked of the engine's own getValidMoves rather than re-derived here, so the
+   * click, the board hints and the territory buttons' spoken names are three
+   * readings of one rule and cannot drift from each other or from what
+   * applyAction will accept (#204). The hint set (`store.candidateAreas`) is the
+   * wrong source for it: that is null whenever the boardHints preference is off,
+   * and the rule holds whether or not the player can see it.
+   *
+   * @param {Object} state - Engine game state
+   * @param {number} areaId
+   * @returns {boolean}
+   */
+  function canAttackFrom(state, areaId) {
+    return getValidMoves(state).some(m => m.from === areaId);
+  }
+
+  /**
    * Territories the board hints should be outlining for the human right now, or
    * null when no hint applies.
    *
@@ -932,7 +961,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     if (storeState.awaitingInput === 'selectFrom') {
       // Select attack source
       if (area.owner !== currentPlayerId) return;
-      if (area.dice <= 1) return;
+      if (!canAttackFrom(state, areaId)) return;
 
       store.setState({ selectedFrom: areaId, awaitingInput: 'selectTo' });
       if (renderer) {
@@ -944,7 +973,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     } else if (storeState.awaitingInput === 'selectTo') {
       // If clicking own territory again, reselect
       if (area.owner === currentPlayerId) {
-        if (area.dice <= 1) return;
+        if (!canAttackFrom(state, areaId)) return;
         store.setState({ selectedFrom: areaId, awaitingInput: 'selectTo' });
         if (renderer) {
           renderer.hexGrid.clearSelectionHighlights();
@@ -955,13 +984,16 @@ export function createGameController(store, renderer, soundManager, preferencesM
         return;
       }
 
-      // Validate attack target
+      /*
+       * Validate attack target: the same rule as the source, one step on — the
+       * chosen source must have a move to this exact territory in the engine's
+       * list (#204). Adjacency alone would also admit a neighbouring slot that
+       * is no longer on the board, which applyAction bounces into the catch in
+       * executeAttack.
+       */
       const fromId = storeState.selectedFrom;
-      const fromArea = state.areas[fromId];
-      if (!fromArea) return;
-
-      const isAdjacent = fromArea.neighborAreaIds.includes(areaId);
-      if (!isAdjacent) return;
+      const isValidTarget = getValidMoves(state).some(m => m.from === fromId && m.to === areaId);
+      if (!isValidTarget) return;
 
       if (soundManager) soundManager.play('click');
 
@@ -1005,9 +1037,23 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const lastAction = nextState.history[nextState.history.length - 1];
     const battleResult = lastAction ? lastAction.result : null;
 
+    /*
+     * Both seats, read from the board the attack was ROLLED on. The engine's
+     * BattleResult is rolls and an outcome — no seats — and prevState is the
+     * only place they still stand: a won attack has already handed the target
+     * to the attacker in nextState, which is what the store publishes. The live
+     * region needs them to say whose attack this was and whose territory was
+     * under it (#211 item 10); the dice animation has always needed them for
+     * the two players' colors, and reads the same pair.
+     */
+    const atkOwner = prevState.areas[fromId]?.owner ?? null;
+    const defOwner = prevState.areas[toId]?.owner ?? null;
+
     store.setState({
       gameState: nextState,
-      battleResult,
+      battleResult: battleResult
+        ? { ...battleResult, attacker: atkOwner, defender: defOwner }
+        : null,
       animationPhase: 'battle',
       selectedTo: toId,
     });
@@ -1019,8 +1065,6 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     // Play battle animation or brief delay
     if (renderer && renderer.battle && battleResult) {
-      const atkOwner = prevState.areas[fromId].owner;
-      const defOwner = prevState.areas[toId].owner;
       await renderer.battle.play(battleResult, atkOwner, defOwner);
     } else {
       await delay(400);

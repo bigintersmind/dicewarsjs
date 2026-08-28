@@ -21,7 +21,14 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  * @property {Screen} screen
  * @property {number | null} selectedFrom
  * @property {number | null} selectedTo
- * @property {Object | null} battleResult
+ * @property {Object | null} battleResult - The engine's BattleResult for the
+ *   attack currently on screen — { attackerRoll, defenderRoll, success } —
+ *   plus `attacker` and `defender`, the seat indices the controller reads off
+ *   the board the attack was ROLLED on. The result itself carries no seats, and
+ *   they cannot be recovered from the state published beside it: a won attack
+ *   has already handed the target to the attacker there. The live region uses
+ *   them to say whose attack it was and whose territory was under it. Null
+ *   between attacks — every attack path nulls it once the animation is done.
  * @property {AnimationPhase} animationPhase
  * @property {AwaitingInput} awaitingInput
  * @property {number | null} humanPlayerIndex

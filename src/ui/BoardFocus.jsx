@@ -31,6 +31,15 @@
  * move inside it, which is the one place instructions can live without being
  * read out on every step.
  *
+ * Each button's NAME carries the board's state as well as its identity — `can
+ * attack`, `selected`, `no enemy neighbor`, `valid target`, `not a valid
+ * target` — read off the engine's own getValidMoves (#211 item 10, #204). It is
+ * the same list handleTerritoryClick gates on and the same list the board hints
+ * outline, so what a player is told, what a click accepts and what the board
+ * shows are three readings of one rule. A sighted player has the outlines for
+ * this; without the clause the only way to find out that Enter does nothing
+ * here is to press it.
+ *
  * DOM order IS the tab order: App renders this component between GameHUD and
  * GameOverlay, giving settings die → QUIT → RULES → own territories ascending →
  * END TURN (#201, #211). The browser walks it natively — nothing in the
@@ -65,6 +74,61 @@
 import { useGameStore } from './hooks/useGameStore.js';
 import { spokenName } from './spokenName.js';
 import { areaElementId } from '../controller/KeyboardController.js';
+/*
+ * Straight from StateManager rather than through the engine barrel: the
+ * controller's tests mock the whole barrel, and a component that reached for the
+ * same name through it would be answering to a stub of the rule instead of the
+ * rule. ReplayViewer already imports the engine directly the same way — this is
+ * a pure query over a state object, no different from reading `area.dice`.
+ */
+import { getValidMoves } from '../engine/StateManager.js';
+
+/**
+ * What the board's own rules say about this territory right now, as the last
+ * clause of its name — or null when there is nothing to say (#211 item 10).
+ *
+ * The state goes in the TEXT rather than in an ARIA attribute because there is
+ * no attribute that means it: `aria-selected` is invalid on a button,
+ * `aria-pressed` is a toggle and this source cannot be un-pressed with Enter,
+ * and `aria-disabled` would read as "unavailable" without saying why. The text
+ * content is the accessible name, so there is nothing for it to drift from.
+ *
+ * `no enemy neighbor` is the one negative worth its words: it is the only
+ * reason a territory with two dice is not a source, it is the rules card's
+ * second condition, and it is #204 — the click accepts exactly what this
+ * clause claims, because both ask getValidMoves.
+ *
+ * @param {number} id - Area id
+ * @param {import('../engine/types.js').Area} area
+ * @param {boolean} isMine - The territory belongs to the human seat
+ * @param {{ selectedFrom: number | null, sources: Set<number>, targets: Set<number> } | null} board
+ *   This turn's move list, folded into two sets — or null on an AI's turn, when
+ *   none of it is the player's to act on.
+ * @returns {string | null}
+ */
+function boardStateClause(id, area, isMine, board) {
+  if (!board) return null;
+
+  /*
+   * Target mode is keyed on the selection, not on `awaitingInput`: picking a
+   * source is what changed what every other territory MEANS, and awaitingInput
+   * is null for the length of the battle animation with the selection still
+   * standing. Keying on it would rewrite every name twice more per attack,
+   * under a focus the player has parked.
+   */
+  const targetMode = board.selectedFrom != null;
+
+  if (isMine) {
+    if (id === board.selectedFrom) return 'selected';
+    // Still 'can attack' in target mode: Enter on another source re-picks it.
+    if (board.sources.has(id)) return 'can attack';
+    // A single die says it already; anything more is the dead end (#204).
+    return area.dice > 1 ? 'no enemy neighbor' : null;
+  }
+
+  if (!targetMode) return null;
+  return board.targets.has(id) ? 'valid target' : 'not a valid target';
+}
 
 /**
  * What a screen reader reads out when the territory takes focus — the button's
@@ -74,28 +138,36 @@ import { areaElementId } from '../controller/KeyboardController.js';
  *
  * The owner is spoken before the dice because spokenName brings its own
  * trailing comma on a repeated name ("Balanced AI, player 3,"), which flows
- * straight into the dice clause where a possessive could not.
+ * straight into the dice clause where a possessive could not. The board's state
+ * comes last, after the two facts that identify the territory.
  *
  * @param {number} id - Area id
  * @param {import('../engine/types.js').Area} area
  * @param {number} humanPlayerIndex
  * @param {string[] | undefined} playerNames
+ * @param {{ selectedFrom: number | null, sources: Set<number>, targets: Set<number> } | null} board
  * @returns {string}
  */
-function areaLabel(id, area, humanPlayerIndex, playerNames) {
+function areaLabel(id, area, humanPlayerIndex, playerNames, board) {
   const dice = area.dice === 1 ? '1 die' : `${area.dice} dice`;
 
   // Defensive: MapGenerator gives every live area an owner, so this is a torn-state guard rather
   // than a state the player can reach — it honours the `Area` typedef's "-1 = unowned" contract.
+  // A territory nobody owns is named and nothing more; there is no state of the board to report
+  // about a square that is not in play.
   if (typeof area.owner !== 'number' || area.owner < 0) {
     return `Territory ${id}, unowned, ${dice}`;
   }
 
-  if (area.owner === humanPlayerIndex) return `Territory ${id}, yours, ${dice}`;
+  const isMine = area.owner === humanPlayerIndex;
+  const state = boardStateClause(id, area, isMine, board);
+  const stateClause = state ? `, ${state}` : '';
+
+  if (isMine) return `Territory ${id}, yours, ${dice}${stateClause}`;
 
   const spoken = spokenName(playerNames, area.owner);
   const ownerClause = spoken.endsWith(',') ? spoken : `${spoken},`;
-  return `Territory ${id}, owned by ${ownerClause} ${dice}`;
+  return `Territory ${id}, owned by ${ownerClause} ${dice}${stateClause}`;
 }
 
 /**
@@ -107,6 +179,7 @@ export function BoardFocus({ store, onSelect }) {
   const gameState = useGameStore(store, s => s.gameState);
   const humanPlayerIndex = useGameStore(store, s => s.humanPlayerIndex);
   const playerNames = useGameStore(store, s => s.playerNames);
+  const selectedFrom = useGameStore(store, s => s.selectedFrom);
 
   // A spectator has no keyboard board — the same seat check KeyboardController bails on (`=== null`
   // there; `== null` here also covers an unset seat) — and without a game there is nothing to
@@ -115,6 +188,26 @@ export function BoardFocus({ store, onSelect }) {
 
   const isHumanTurn = gameState.turnOrder[gameState.currentPlayerIndex] === humanPlayerIndex;
   const areas = gameState.areas;
+
+  /*
+   * The move list, once per render rather than once per button — every name is
+   * cut from the same list, and asking the engine per territory would walk the
+   * whole board once per territory.
+   *
+   * Null on an AI's turn, and that is the guard rather than the selection: the
+   * AI loop writes its own `selectedFrom` for the attack it is animating, so a
+   * check for a selection alone would sort the board into targets of a move
+   * that is not the player's to make. getValidMoves is asked for the CURRENT
+   * player, which is the human exactly when this is non-null.
+   */
+  const moves = isHumanTurn ? getValidMoves(gameState) : [];
+  const board = isHumanTurn
+    ? {
+        selectedFrom,
+        sources: new Set(moves.map(m => m.from)),
+        targets: new Set(moves.filter(m => m.from === selectedFrom).map(m => m.to)),
+      }
+    : null;
 
   /*
    * Ids run from 1, so slot 0 is never visited. Both halves of the guard are still load-bearing,
@@ -136,7 +229,7 @@ export function BoardFocus({ store, onSelect }) {
         tabIndex={isHumanTurn && area.owner === humanPlayerIndex ? 0 : -1}
         onClick={() => onSelect(a)}
       >
-        {areaLabel(a, area, humanPlayerIndex, playerNames)}
+        {areaLabel(a, area, humanPlayerIndex, playerNames, board)}
       </button>
     );
   }

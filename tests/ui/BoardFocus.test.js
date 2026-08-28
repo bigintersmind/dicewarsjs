@@ -16,18 +16,28 @@ import { createGameStore } from '../../src/store/GameStore.js';
 
 let container;
 
-/** Own territories are [1, 3] — area 2 belongs to the opponent. */
+/**
+ * Own territories are [1, 3] — area 2 belongs to the opponent.
+ *
+ * A dense array with a live `size` on every territory, which is the shape the
+ * engine really produces and the shape the real getValidMoves walks: it runs to
+ * `areas.length` and skips anything with `size === 0`, and since #211 item 10
+ * the names are derived from its move list. Slot 0 is the engine's unused
+ * sentinel. Individual tests below still hand in object fixtures where the
+ * board state is beside the point — getValidMoves returns [] for those without
+ * throwing, so the names come out bare.
+ */
 function makeGameState(overrides = {}) {
   return {
     phase: 'playing',
     turnOrder: [0, 1],
     currentPlayerIndex: 0,
-    areas: {
-      0: null,
-      1: { owner: 0, dice: 3, neighborAreaIds: [2, 3], centerCell: 10 },
-      2: { owner: 1, dice: 2, neighborAreaIds: [1, 3], centerCell: 20 },
-      3: { owner: 0, dice: 1, neighborAreaIds: [1, 2], centerCell: 30 },
-    },
+    areas: [
+      { size: 0, owner: -1, dice: 0, neighborAreaIds: [] },
+      { size: 5, owner: 0, dice: 3, neighborAreaIds: [2, 3], centerCell: 10 },
+      { size: 5, owner: 1, dice: 2, neighborAreaIds: [1, 3], centerCell: 20 },
+      { size: 5, owner: 0, dice: 1, neighborAreaIds: [1, 2], centerCell: 30 },
+    ],
     players: [
       { id: 0, territoryCount: 2 },
       { id: 1, territoryCount: 1 },
@@ -127,9 +137,12 @@ describe('BoardFocus — the group', () => {
 });
 
 describe('BoardFocus — territory names', () => {
+  // The state clause is part of the name on every territory that has one — the
+  // fixture's area 1 has three dice and an enemy next door, so it can attack.
+  // The describe below is where each clause is pinned on its own.
   it('names the human seat as theirs', () => {
     renderBoard();
-    expect(button(1).textContent).toBe('Territory 1, yours, 3 dice');
+    expect(button(1).textContent).toBe('Territory 1, yours, 3 dice, can attack');
   });
 
   it('names a bot seat by its bot name', () => {
@@ -177,6 +190,120 @@ describe('BoardFocus — territory names', () => {
       }),
     });
     expect(button(2).textContent).toBe('Territory 2, unowned, 1 die');
+  });
+});
+
+/*
+ * ---------------------------------------------------------------------------
+ * The board's state, in the name (#211 item 10, #204)
+ * ---------------------------------------------------------------------------
+ *
+ * The clause after the dice is the engine's own getValidMoves read out loud:
+ * the same rule that gates handleTerritoryClick and paints the hints, so a
+ * player who cannot see the board is told what a sighted player is shown.
+ * `no enemy neighbor` is the one negative worth its words — it is #204's exact
+ * case, the only reason a territory with two dice is not a source.
+ */
+describe('BoardFocus — the board state in the name', () => {
+  /**
+   * A board with every row of the table on it, for player 0:
+   *   1 — 3 dice, enemy 2 next door         → a source, and the one picked below
+   *   2 — the opponent's, adjacent to 1      → reachable from 1
+   *   3 — a single die                       → never a source, whatever is next door
+   *   4 — the opponent's, nowhere near 1     → not reachable from 1
+   *   5 — 2 dice, enemy 4 next door          → a second source
+   *   6 — 2 dice, hemmed in by 3             → the dead end
+   */
+  function makeBoard(overrides = {}) {
+    return makeGameState({
+      areas: [
+        { size: 0, owner: -1, dice: 0, neighborAreaIds: [] },
+        { size: 5, owner: 0, dice: 3, neighborAreaIds: [2, 3, 5] },
+        { size: 5, owner: 1, dice: 2, neighborAreaIds: [1, 3] },
+        { size: 5, owner: 0, dice: 1, neighborAreaIds: [1, 2] },
+        { size: 5, owner: 1, dice: 2, neighborAreaIds: [5] },
+        { size: 5, owner: 0, dice: 2, neighborAreaIds: [1, 4] },
+        { size: 5, owner: 0, dice: 2, neighborAreaIds: [3] },
+      ],
+      ...overrides,
+    });
+  }
+
+  it('marks the territories that can attack, and says why the others cannot', () => {
+    renderBoard({ gameState: makeBoard() });
+
+    expect(button(1).textContent).toBe('Territory 1, yours, 3 dice, can attack');
+    expect(button(5).textContent).toBe('Territory 5, yours, 2 dice, can attack');
+    expect(button(6).textContent).toBe('Territory 6, yours, 2 dice, no enemy neighbor');
+    // A single die says it already — nothing to add.
+    expect(button(3).textContent).toBe('Territory 3, yours, 1 die');
+    // Nothing is aimed at anything yet, so an opponent's territory is just theirs.
+    expect(button(2).textContent).toBe('Territory 2, owned by Blitz, 2 dice');
+    expect(button(4).textContent).toBe('Territory 4, owned by Blitz, 2 dice');
+  });
+
+  it('names the selection and sorts the enemies into targets once a source is picked', () => {
+    renderBoard({ gameState: makeBoard(), selectedFrom: 1 });
+
+    expect(button(1).textContent).toBe('Territory 1, yours, 3 dice, selected');
+    expect(button(2).textContent).toBe('Territory 2, owned by Blitz, 2 dice, valid target');
+    expect(button(4).textContent).toBe('Territory 4, owned by Blitz, 2 dice, not a valid target');
+    // The other source keeps its clause: Enter there re-picks rather than attacks.
+    expect(button(5).textContent).toBe('Territory 5, yours, 2 dice, can attack');
+    expect(button(3).textContent).toBe('Territory 3, yours, 1 die');
+  });
+
+  /*
+   * Keyed on the selection, not on `awaitingInput`: the selection is what
+   * changed the board's meaning. awaitingInput is nulled for the whole battle
+   * animation while selectedFrom stands, and a name that flipped back to source
+   * mode there — then to target mode again on the next click — would be two
+   * extra changes under a parked focus for every attack.
+   */
+  it('still reads as a target board while the dice are rolling', () => {
+    renderBoard({
+      gameState: makeBoard(),
+      selectedFrom: 1,
+      awaitingInput: null,
+      animationPhase: 'battle',
+    });
+
+    expect(button(1).textContent).toBe('Territory 1, yours, 3 dice, selected');
+    expect(button(2).textContent).toBe('Territory 2, owned by Blitz, 2 dice, valid target');
+  });
+
+  /*
+   * The AI loop sets selectedFrom for its own attack, so the guard has to be the
+   * turn and not just the selection: on someone else's turn there is no move of
+   * yours to describe, and every clause would be a lie about a board you cannot
+   * play.
+   */
+  it('says nothing about the board on an AI turn', () => {
+    renderBoard({
+      gameState: makeBoard({ currentPlayerIndex: 1 }),
+      selectedFrom: 2,
+    });
+
+    expect(button(1).textContent).toBe('Territory 1, yours, 3 dice');
+    expect(button(2).textContent).toBe('Territory 2, owned by Blitz, 2 dice');
+    expect(button(6).textContent).toBe('Territory 6, yours, 2 dice');
+  });
+
+  /*
+   * The rule is getValidMoves, not the hint set: `boardHints` is a visual
+   * preference, and turning the outlines off must not take the board's state
+   * away from the player who never sees them.
+   */
+  it('keeps the state in the names with the board hints turned off', () => {
+    renderBoard({
+      gameState: makeBoard(),
+      selectedFrom: 1,
+      preferences: { boardHints: 'off' },
+    });
+
+    expect(button(1).textContent).toBe('Territory 1, yours, 3 dice, selected');
+    expect(button(2).textContent).toBe('Territory 2, owned by Blitz, 2 dice, valid target');
+    expect(button(5).textContent).toBe('Territory 5, yours, 2 dice, can attack');
   });
 });
 

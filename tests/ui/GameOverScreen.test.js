@@ -98,14 +98,18 @@ describe('GameOverScreen', () => {
     expect(container.textContent).not.toContain('turn limit reached');
   });
 
-  // The exit button says HOME — it names the destination rather than the rail's
-  // mode name for it, which a player who only plays never sees (since #182 the
-  // rail is hidden on the landing page itself) — and routes through onTitle.
-  it('labels the exit button HOME and routes it through onTitle', () => {
+  // The exit button says HOME — it names the destination, and routes through
+  // onTitle. The rail's name for that screen is the Battle tab (NAV_TABS in
+  // menuChrome.jsx), a label a player who only plays never sees: since #182 the
+  // rail is hidden on the landing page, and the title's FooterNav filters that tab out.
+  it('labels the exit button HOME, first and unlabelled, and routes it through onTitle', () => {
     const onTitle = vi.fn();
-    renderGameOver({ gameState: { winner: 2 }, onTitle });
+    // With the reference button up too, so "first" has a neighbour to be first of.
+    renderGameOver({ gameState: { winner: 2 }, onTitle, onRules: vi.fn() });
     const home = [...container.querySelectorAll('button')].find(b => b.textContent === 'HOME');
     expect(home).toBeTruthy();
+    expect(home.getAttribute('aria-label')).toBeNull(); // spoken name is the visible name
+    expect([...container.querySelectorAll('button')][0]).toBe(home); // primary, and first in the tab walk
     act(() => home.click());
     expect(onTitle).toHaveBeenCalledTimes(1);
   });

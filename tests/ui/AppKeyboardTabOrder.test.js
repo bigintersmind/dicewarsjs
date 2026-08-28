@@ -401,7 +401,11 @@ describe('App playing-screen tab order (#211)', () => {
     expect(areaButton(1)).toBeNull();
     // GameOverScreen has claimed focus for HOME by now (#189), and that
     // focusin went past the controller without resurrecting the dead id.
-    expect(document.activeElement.textContent.trim()).toBe('HOME');
+    const home = [...container.querySelectorAll('button')].find(
+      b => b.textContent.trim() === 'HOME'
+    );
+    expect(home).toBeTruthy();
+    expect(document.activeElement).toBe(home);
     expect(store.getState().focusedAreaId).toBeNull();
   });
 });

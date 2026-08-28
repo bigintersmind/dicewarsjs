@@ -93,11 +93,11 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
   /*
    * Move focus to HOME when this screen mounts: the game ends on its own, so
    * focus is sitting on the canvas or nowhere at all, and HOME is the primary
-   * action here — the way on to the next game. It fires again on the way back
-   * from the HISTORY replay viewer (goBackFromReplay remounts this screen),
-   * which is what you want: the viewer's ← BACK just unmounted underneath the
-   * player. Mouse users see no ring — :focus-visible only lights up after
-   * keyboard input.
+   * action here — the way back to setup, and on to the next game. It fires
+   * again on the way back from the HISTORY replay viewer (goBackFromReplay
+   * remounts this screen), which is what you want: the viewer's ← BACK just
+   * unmounted underneath the player. Mouse users see no ring — :focus-visible
+   * only lights up after keyboard input.
    *
    * Waits out the "How to play" card: the card outlives the game ending behind
    * it (triggerGameOver deliberately leaves `rulesOpen` alone), it layers above

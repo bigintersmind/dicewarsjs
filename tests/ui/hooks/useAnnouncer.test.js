@@ -175,7 +175,8 @@ describe('ScreenReaderAnnouncer', () => {
    * Changing your mind about the source is the one thing a player can do in
    * this phase that the region would otherwise not report at all: the screen is
    * on the same phase, the same turn, the same board — only the selection moved.
-   * That is what puts `selectedFrom` in the turn effect's deps; re-picking the
+   * That is what puts the selection in the turn effect's deps — as
+   * `promptSource`, the selection gated on the prompt being up; re-picking the
    * SAME source produces the same string, which is a no-op, which is right.
    */
   it('re-speaks the prompt when the source is re-picked', () => {
@@ -567,11 +568,15 @@ describe('ScreenReaderAnnouncer', () => {
    * every attack to find out what happened to it. The line says which territory
    * changed and what it is worth now, from the post-attack board the controller
    * publishes in the same write as the result — and the two seats on the result
-   * are what tell the three cases apart, because a won territory has already
-   * changed hands by the time the store is read.
+   * are what tell the three cases apart, because the defender's is gone from the
+   * board by the time the store is read: a won territory has already changed
+   * hands.
    */
 
-  /** The store write both attack paths make, with the seats the controller records. */
+  /**
+   * The store state both attack paths leave standing while the dice roll, with
+   * the seats the controller records.
+   */
   function attackState({ attacker, defender, success = true, atk = 7, def = 3, ...rest }) {
     return {
       screen: 'playing',
@@ -953,6 +958,29 @@ describe('ScreenReaderAnnouncer', () => {
 
     const { getText } = renderAnnouncer(store);
     expect(getText()).toBe('Game over. Draw: turn limit reached.');
+  });
+
+  /*
+   * The last resort under `winner === null`: an end with neither of the two
+   * reasons above on it is still an end, and has to be said to be one. Nothing
+   * reaches it today — every live area has an owner, so a game always ends with
+   * someone standing — but the engine's TurnManager does admit
+   * `{ over: true, winner: null }`, and without this the branches below narrate
+   * a finished game as "<bot> is thinking."
+   */
+  it('says at least that the game is over when nothing names the end', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      humanEliminated: false,
+      gameOverReason: null,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Game over.');
   });
 
   /*

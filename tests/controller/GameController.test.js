@@ -1863,9 +1863,10 @@ describe('GameController', () => {
      * also needs a live enemy next door, which is what getValidMoves has always
      * meant by a move and what the board hints have outlined since #196. A
      * click that asked only for the dice would accept a territory that can never
-     * reach anything, and every neighbour of it would then be rejected — the
-     * board offering a stricter set than the click accepts. Area 3 with a second
-     * die and only area 1 (their own) beside it is exactly that dead end.
+     * reach anything: nothing beside it is an enemy, so no click from it can ever
+     * become an attack and the only way out is to pick another source — the board
+     * outlining a stricter set than the click accepts. Area 3 with a second die
+     * and only area 1 (their own) beside it is exactly that dead end.
      */
     function makeDeadEnd() {
       const gs = store.getState().gameState;
@@ -1920,10 +1921,10 @@ describe('GameController', () => {
    *
    * The engine's BattleResult is { attackerRoll, defenderRoll, success } — no
    * seats. The live region needs them to say whose attack it was and whose
-   * territory was under it, and it cannot recover them from the board it is
-   * handed: a won attack has already flipped the target's owner to the
-   * attacker by the time the store write lands. So the controller records the
-   * two seats from the board the attack was ROLLED on, at both attack sites.
+   * territory was under it, and it cannot recover the defender's from the board
+   * it is handed: a won attack has already flipped the target's owner to the
+   * attacker by the time the store write lands. So the controller records both
+   * seats from the board the attack was ROLLED on, at both attack sites.
    */
   describe('battle result seats', () => {
     /** The store's battleResult as it stands while the dice are rolling. */
@@ -1936,11 +1937,11 @@ describe('GameController', () => {
     }
 
     /*
-     * Both tests attack across a pair the OTHER one cannot produce, and neither
-     * pair is the fixture's default (0, 1): a hard-coded pair at either write
-     * would then pass one test while failing the other, instead of sailing
-     * through both. The mock's ATTACK hands the target to the attacker, so a
-     * read of the post-attack board comes out wrong too.
+     * Both tests attack across a pair the OTHER one cannot produce, and the
+     * fixture's default pair (0, 1) is the answer to neither of them: a literal
+     * `attacker: 0, defender: 1` at either write fails the test that drives it
+     * instead of sailing through. The mock's ATTACK hands the target to the
+     * attacker, so a read of the post-attack board comes out wrong too.
      */
     it('records the attacking and defending seats of a human attack', async () => {
       const { getValidMoves } = await import('../../src/engine/index.js');
@@ -3409,8 +3410,9 @@ describe('GameController', () => {
       // The AI (player 1, area 2) attacks the human's FOCUSED neighbour...
       override(getValidMoves, () => [{ from: 2, to: FOCUSED }]);
       aiPlaysOneAttack({ from: 2, to: FOCUSED });
-      // ...and wins it. The module mock's ATTACK only records history, so the
-      // ownership flip a won attack ends in is layered on top of it here.
+      // ...and wins it. The module mock's ATTACK already hands the target to the
+      // attacker but leaves the dice where they were, so the dice a won attack
+      // moves onto it are all that is layered on top of it here.
       const applyBase = applyAction.getMockImplementation();
       override(applyAction, (state, action) => {
         const next = applyBase(state, action);
@@ -3419,7 +3421,7 @@ describe('GameController', () => {
           ...next,
           areas: {
             ...next.areas,
-            [action.to]: { ...next.areas[action.to], owner: 1, dice: 2 },
+            [action.to]: { ...next.areas[action.to], dice: 2 },
           },
         };
       });

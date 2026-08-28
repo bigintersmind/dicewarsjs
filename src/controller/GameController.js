@@ -1054,7 +1054,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * missing or off the board on either side — so a missing one here is a
      * torn state, and these values feed the dice hands' colors as well as the
      * spoken line. Falling back to null would hand the player a mis-coloured
-     * roll and a bare battle line instead of a stack trace.
+     * roll and a bare battle line instead of a console error.
      */
     const atkOwner = prevState.areas[fromId].owner;
     const defOwner = prevState.areas[toId].owner;

@@ -202,9 +202,18 @@ export function BoardFocus({ store, onSelect }) {
    * check for a selection alone would sort the board into targets of a move
    * that is not the player's to make. getValidMoves is asked for the CURRENT
    * player, which is the human exactly when this is non-null.
+   *
+   * Null as well for an `areas` the engine's own walker cannot read: getValidMoves
+   * runs to `areas.length`, so a shape without one comes back empty meaning
+   * "unknowable" rather than "no moves", and an empty list under a non-null board
+   * would read `no enemy neighbor` on every own territory with two dice and `not a
+   * valid target` on every enemy — false clauses rather than missing ones. This is
+   * the same accommodation the loop below makes for the object fixtures, and the
+   * honest answer where the move list cannot be asked for: say nothing.
    */
-  const moves = isHumanTurn ? getValidMoves(gameState) : [];
-  const board = isHumanTurn
+  const describeBoard = isHumanTurn && Array.isArray(areas);
+  const moves = describeBoard ? getValidMoves(gameState) : [];
+  const board = describeBoard
     ? {
         selectedFrom,
         sources: new Set(moves.map(m => m.from)),

@@ -7,7 +7,7 @@
  * channel has.
  */
 
-import { spokenName } from '../../src/ui/spokenName.js';
+import { spokenName, diceCount } from '../../src/ui/spokenName.js';
 
 describe('spokenName', () => {
   it('speaks a name unique in the lineup bare', () => {
@@ -34,5 +34,15 @@ describe('spokenName', () => {
    */
   it('does not treat two distinct fallback names as a repeat', () => {
     expect(spokenName(['You'], 2)).toBe('Player 3');
+  });
+});
+
+describe('diceCount', () => {
+  // The other half of the shared contract: the buttons, the selection prompt and
+  // the battle lines all count a territory's dice with this, so no two of them
+  // can disagree about "1 die".
+  it('says "1 die" for one and "N dice" for the rest', () => {
+    expect(diceCount(1)).toBe('1 die');
+    expect(diceCount(4)).toBe('4 dice');
   });
 });

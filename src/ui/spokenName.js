@@ -2,8 +2,8 @@
  * Spoken Names
  *
  * The phrases the live-region announcer (useAnnouncer) and the board's focus
- * targets (BoardFocus) both speak — who owns a territory, and how many dice are
- * on it — through two different channels: a live region and a button's
+ * targets (BoardFocus) both speak — a seat's name, and how many dice are on a
+ * territory — through two different channels: a live region and a button's
  * accessible name. The player hears both about the same territory, one after
  * the other, so they have to agree word for word. One rule, one file (#211).
  *
@@ -31,9 +31,11 @@ export function spokenName(playerNames, playerId) {
 
 /**
  * "4 dice" / "1 die" — a territory's dice, as both channels say it. The board's
- * buttons name every territory this way, and the live region's selection prompt
- * names the source the player has just pressed; a prompt that counted them
- * differently would read as a correction of the button.
+ * buttons name every territory this way, the live region's selection prompt names
+ * the source the player has just pressed, and its battle lines say what the
+ * attack left on the board ("Territory 2 is yours, 4 dice", "Territory 1 is down
+ * to 1 die"); a line that counted them differently would read as a correction of
+ * the button.
  *
  * @param {number} dice
  * @returns {string}

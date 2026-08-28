@@ -23,11 +23,11 @@ let container;
  * engine really produces and the shape the real getValidMoves walks: it runs to
  * `areas.length` and skips anything with `size === 0`, and since #211 item 10
  * the names are derived from its move list. Slot 0 is the engine's unused
- * sentinel. Individual tests below still hand in object fixtures where the
- * board state is beside the point — getValidMoves returns [] for those without
- * throwing, so nothing is a source: the enemy names come out bare and the
- * human's own multi-dice territories read `no enemy neighbor`. The tests below
- * assert other buttons.
+ * sentinel. Individual tests below still hand in object fixtures where the board
+ * state is beside the point, and under those every name comes out bare — all of
+ * them, by construction: the walker runs to `areas.length`, so a shape without
+ * one is a shape the move list cannot be asked about, and the component says
+ * nothing rather than something false.
  */
 function makeGameState(overrides = {}) {
   return {
@@ -254,6 +254,25 @@ describe('BoardFocus — the board state in the name', () => {
     // The other source keeps its clause: Enter there re-picks rather than attacks.
     expect(button(5).textContent).toBe('Territory 5, yours, 2 dice, can attack');
     expect(button(3).textContent).toBe('Territory 3, yours, 1 die');
+  });
+
+  /*
+   * The unowned branch returns before any of this, and that is the point: a slot
+   * nobody owns is a torn state rather than a board position, so it is named and
+   * nothing more. The engine would happily call this one a target — an unowned
+   * live neighbour of the source is an enemy as far as getValidMoves is
+   * concerned (`owner !== currentPlayer`) — and the name still says nothing
+   * about it.
+   */
+  it('leaves an unowned territory bare, even where the move list calls it a target', () => {
+    const board = makeBoard();
+    board.areas[1] = { ...board.areas[1], neighborAreaIds: [2, 3, 4, 5] };
+    board.areas[4] = { ...board.areas[4], owner: -1, neighborAreaIds: [1, 5] };
+    renderBoard({ gameState: board, selectedFrom: 1 });
+
+    expect(button(4).textContent).toBe('Territory 4, unowned, 2 dice');
+    // Non-vacuous: the same selection really is sorting the board into targets.
+    expect(button(2).textContent).toBe('Territory 2, owned by Blitz, 2 dice, valid target');
   });
 
   /*

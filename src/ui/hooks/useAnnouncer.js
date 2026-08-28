@@ -4,7 +4,8 @@
  * Generates announcement text for ARIA live regions from game state changes:
  * whose turn it is, what the board is waiting for and which territory is armed,
  * what a battle did to the board (and to whom), and how the game ended — with a
- * winner, with the human eliminated, or in a turn-cap draw.
+ * winner, with the human eliminated, in a turn-cap draw, or, failing all three,
+ * at least that it is over.
  *
  * The board's own keyboard focus is NOT announced here. It used to be (#211
  * item 1), because the focus ring was virtual and no DOM element held it; since
@@ -114,7 +115,16 @@ export function useAnnouncer(store) {
      * nothing: a mid-game elimination reaches triggerGameOver from the AI
      * loop's own elimination check, which passes no drawReason, and the
      * turn-cap draw is only reached with the human's seat still alive — that
-     * same check would have ended the game the moment it was not.
+     * same check would have ended the game the moment it was not — or with no
+     * human seat at all, which is the spectated draw: startSpectate nulls the
+     * seat, and triggerGameOver leaves humanEliminated false without one.
+     *
+     * The block is total, and the last line is the reason: anything else that
+     * ends a game without a winner is at least said to have ended, rather than
+     * narrated as a bot thinking. Nothing reaches it today — every live area has
+     * an owner, so a game always ends with someone standing — but TurnManager
+     * does admit `{ over: true, winner: null }`, and this screen is where that
+     * would arrive.
      */
     if (screen === 'gameOver' && gameState.winner === null) {
       if (humanEliminated) {
@@ -125,6 +135,8 @@ export function useAnnouncer(store) {
         setAnnouncement('Game over. Draw: turn limit reached.');
         return;
       }
+      setAnnouncement('Game over.');
+      return;
     }
 
     /*

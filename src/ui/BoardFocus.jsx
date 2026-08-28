@@ -31,14 +31,14 @@
  * move inside it, which is the one place instructions can live without being
  * read out on every step.
  *
- * Each button's NAME carries the board's state as well as its identity — `can
- * attack`, `selected`, `no enemy neighbor`, `valid target`, `not a valid
- * target` — read off the engine's own getValidMoves (#211 item 10, #204). It is
- * the same list handleTerritoryClick gates on and the same list the board hints
- * outline, so what a player is told, what a click accepts and what the board
- * shows are three readings of one rule. A sighted player has the outlines for
- * this; without the clause the only way to find out that Enter does nothing
- * here is to press it.
+ * Each button's NAME can carry the board's state as well as its identity, on the
+ * human's turn — `can attack`, `selected`, `no enemy neighbor`, `valid target`,
+ * `not a valid target` — read off the engine's own getValidMoves (#211 item 10,
+ * #204). It is the same list handleTerritoryClick gates on and the same list the
+ * board hints outline, so what a player is told, what a click accepts and what
+ * the board shows are three readings of one rule. A sighted player has the
+ * outlines for this when the hints are on; without the clause the only way to
+ * find out that Enter does nothing here is to press it.
  *
  * DOM order IS the tab order: App renders this component between GameHUD and
  * GameOverlay, giving settings die → QUIT → RULES → own territories ascending →
@@ -72,14 +72,15 @@
  */
 
 import { useGameStore } from './hooks/useGameStore.js';
-import { spokenName } from './spokenName.js';
+import { spokenName, diceCount } from './spokenName.js';
 import { areaElementId } from '../controller/KeyboardController.js';
 /*
- * Straight from StateManager rather than through the engine barrel: the
- * controller's tests mock the whole barrel, and a component that reached for the
- * same name through it would be answering to a stub of the rule instead of the
- * rule. ReplayViewer already imports the engine directly the same way — this is
- * a pure query over a state object, no different from reading `area.dice`.
+ * Straight from StateManager rather than through the engine barrel: the barrel
+ * is the surface the controller's tests stub
+ * (`vi.mock('../../src/engine/index.js')`), and this rule should keep answering
+ * to the engine in any test that stubs it for the controller. ReplayViewer
+ * already imports an engine module directly (`../engine/GameRunner.js`) — this
+ * is a pure query over a state object, no different from reading `area.dice`.
  */
 import { getValidMoves } from '../engine/StateManager.js';
 
@@ -113,8 +114,10 @@ function boardStateClause(id, area, isMine, board) {
    * Target mode is keyed on the selection, not on `awaitingInput`: picking a
    * source is what changed what every other territory MEANS, and awaitingInput
    * is null for the length of the battle animation with the selection still
-   * standing. Keying on it would rewrite every name twice more per attack,
-   * under a focus the player has parked.
+   * standing. Keying on it would rewrite every name once more per attack — on
+   * the `setState({ awaitingInput: null })` that opens executeAttack, a render
+   * this component otherwise sits out — and would do it mid-animation, under a
+   * focus the player has parked.
    */
   const targetMode = board.selectedFrom != null;
 
@@ -149,12 +152,12 @@ function boardStateClause(id, area, isMine, board) {
  * @returns {string}
  */
 function areaLabel(id, area, humanPlayerIndex, playerNames, board) {
-  const dice = area.dice === 1 ? '1 die' : `${area.dice} dice`;
+  const dice = diceCount(area.dice);
 
   // Defensive: MapGenerator gives every live area an owner, so this is a torn-state guard rather
   // than a state the player can reach — it honours the `Area` typedef's "-1 = unowned" contract.
-  // A territory nobody owns is named and nothing more; there is no state of the board to report
-  // about a square that is not in play.
+  // A territory nobody owns is named and nothing more: an unowned slot is a torn state, not a
+  // board position worth describing.
   if (typeof area.owner !== 'number' || area.owner < 0) {
     return `Territory ${id}, unowned, ${dice}`;
   }

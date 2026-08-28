@@ -17,19 +17,7 @@
 
 import { useState, useEffect } from 'preact/hooks';
 import { useGameStore } from './useGameStore.js';
-import { spokenName } from '../spokenName.js';
-
-/**
- * "4 dice" / "1 die" — the same count the territory buttons speak (BoardFocus),
- * so the source this hook names and the button the player just pressed agree
- * word for word.
- *
- * @param {number} dice
- * @returns {string}
- */
-function diceCount(dice) {
-  return dice === 1 ? '1 die' : `${dice} dice`;
-}
+import { spokenName, diceCount } from '../spokenName.js';
 
 /**
  * @param {Object} store - GameStore instance
@@ -58,6 +46,18 @@ export function useAnnouncer(store) {
    * mounted at all.
    */
   const onGameScreen = screen === 'playing' || screen === 'gameOver';
+
+  /*
+   * The source the prompt names — the selection, but only while the board is
+   * actually waiting for a target. `awaitingInput === 'selectTo'` is written by
+   * the two own-territory click paths in handleTerritoryClick and nowhere else,
+   * so it implies the human's turn and a live offer: the AI loop's selection is
+   * outside it (nothing arms input on a bot's turn), and so is the human's own
+   * battle animation (executeAttack nulls awaitingInput before it writes the
+   * attack). The turn effect below depends on THIS rather than on the raw
+   * selection, for the reason spelled out at its deps list.
+   */
+  const promptSource = awaitingInput === 'selectTo' ? selectedFrom : null;
 
   useEffect(() => {
     /*
@@ -109,6 +109,12 @@ export function useAnnouncer(store) {
      * conquered. Both reach this screen, and without these the branches below
      * narrate "<bot> is thinking." over a game that is finished. The lines are
      * the game-over screen's own subtitles, spoken.
+     *
+     * The two are exclusive by construction, so the order of the ifs carries
+     * nothing: a mid-game elimination reaches triggerGameOver from the AI
+     * loop's own elimination check, which passes no drawReason, and the
+     * turn-cap draw is only reached with the human's seat still alive — that
+     * same check would have ended the game the moment it was not.
      */
     if (screen === 'gameOver' && gameState.winner === null) {
       if (humanEliminated) {
@@ -131,7 +137,8 @@ export function useAnnouncer(store) {
      *
      * Below the game-over branches, not above them: a spectated game still ends
      * out loud, and neither of those lines is about a seat — the winner is named
-     * as a bot, and the turn-cap draw is mostly how an AI-vs-AI game ends at all.
+     * as a bot, and a turn-cap draw is one of the ways a spectated AI-vs-AI game
+     * ends.
      */
     if (humanPlayerIndex === null) {
       setAnnouncement('');
@@ -148,19 +155,20 @@ export function useAnnouncer(store) {
 
     if (isHumanTurn && awaitingInput === 'selectTo') {
       /*
-       * The source is named the way its own button named it — "Territory 5, 4
-       * dice" — because that is what the player heard when they pressed it, and
-       * the comma is what makes the dice the territory's rather than the
-       * attack's. A selection this hook cannot resolve to an area leaves the
-       * prompt bare rather than half-said.
+       * The source is named with the id and the count the player just heard on
+       * its button — `Territory 5 selected, 4 dice.` against the button's
+       * `Territory 5, yours, 4 dice, selected` — so the dice parse as the
+       * territory's rather than as something about the attack. A selection this
+       * hook cannot resolve to an area leaves the prompt bare rather than
+       * half-said.
        *
        * The arrows are named here because this is the moment a screen-reader
        * player is stuck: every enemy territory is `tabindex="-1"`, so Tab
        * reaches no target at all, and the live region carries to every reader.
        */
-      const source = selectedFrom != null ? gameState.areas?.[selectedFrom] : null;
+      const source = promptSource != null ? gameState.areas?.[promptSource] : null;
       const prefix = source
-        ? `Territory ${selectedFrom} selected, ${diceCount(source.dice)}. `
+        ? `Territory ${promptSource} selected, ${diceCount(source.dice)}. `
         : '';
       setAnnouncement(
         `${prefix}Select a neighboring territory to attack. Use the arrow keys to move.`
@@ -181,14 +189,23 @@ export function useAnnouncer(store) {
     gameState?.winner,
     gameState?.phase,
     /*
-     * Changing your mind about the source moves nothing else: same screen, same
-     * phase, same turn, same board. Without it in the deps the prompt would go
-     * on naming the territory the player has just moved away from. Re-picking
-     * the SAME source recomputes the same string, and setAnnouncement of the
-     * string already in state is a no-op — which is the right answer for a
-     * selection that did not change.
+     * The selection, gated on the prompt being up (`promptSource`, above).
+     * Changing your mind about the source moves nothing else — same screen,
+     * same phase, same turn, same board — so without it here the prompt would
+     * go on naming the territory the player has just moved away from.
+     * Re-picking the SAME source recomputes the same string, and
+     * setAnnouncement of the string already in state is a no-op, which is the
+     * right answer for a selection that did not change.
+     *
+     * The gate is what keeps the AI's attacks out of this effect. The AI loop
+     * writes `selectedFrom` for the battle it is animating and nulls it again
+     * when the dice stop, so the raw value would run this effect twice per AI
+     * attack — and the second of those runs is the clear, a render where the
+     * battle effect has nothing to say and this one would lay "<bot> is
+     * thinking." over the line that had just told the player which of their
+     * territories the bot took.
      */
-    selectedFrom,
+    promptSource,
     /*
      * The two winnerless ends read above. Both are written in the same setState
      * as the `screen` that shows them, so neither is a change this effect would
@@ -234,8 +251,10 @@ export function useAnnouncer(store) {
      *
      * `selectedFrom` / `selectedTo` / `gameState` are read from the closure
      * rather than the deps, which stay `[battleResult]` for the reason argued
-     * above; both attack paths write all four in one setState, so this closure
-     * is the render where they arrived together.
+     * above. The AI loop writes all four in one setState; on the human path
+     * `selectedFrom` has stood since the source click and the other three
+     * arrive together — either way the render that first sees this result is
+     * the render holding the matching selection and the post-attack board.
      */
     const seated = humanPlayerIndex != null;
     const from = selectedFrom != null ? gameState?.areas?.[selectedFrom] : null;

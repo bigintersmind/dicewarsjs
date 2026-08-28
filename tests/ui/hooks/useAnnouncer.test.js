@@ -153,6 +153,25 @@ describe('ScreenReaderAnnouncer', () => {
   });
 
   /*
+   * A selection this hook cannot resolve to an area leaves the prompt bare
+   * rather than half-said. The id comes from the store and the area from the
+   * board published beside it; if the two ever disagree, the arrow keys are the
+   * part of the line the player still needs.
+   */
+  it('leaves the prompt bare when the selection names no area on the board', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: 'selectTo',
+      humanPlayerIndex: 0,
+      selectedFrom: 99,
+      gameState: makeGameState(),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Select a neighboring territory to attack. Use the arrow keys to move.');
+  });
+
+  /*
    * Changing your mind about the source is the one thing a player can do in
    * this phase that the region would otherwise not report at all: the screen is
    * on the same phase, the same turn, the same board — only the selection moved.
@@ -594,12 +613,14 @@ describe('ScreenReaderAnnouncer', () => {
   });
 
   /*
-   * The production sequence, rather than a store already holding the attack:
-   * both attack paths write the result, the two selections and the post-attack
-   * board in ONE setState, and this effect reads three of those four from its
-   * closure. So they have to arrive in the same render — a hook that saw the
-   * new result beside the old selection would name the territory of the
-   * previous attack.
+   * The production sequence, rather than a store already holding the attack.
+   * The write below is the AI loop's shape — the result, both selections and
+   * the post-attack board in ONE setState — and the effect reads three of those
+   * four from its closure, so they have to arrive in the same render: a hook
+   * that saw the new result beside the old selection would name the territory
+   * of the previous attack. The human path lands on the same render from the
+   * other direction, with `selectedFrom` standing since the source click and
+   * the other three written together.
    */
   it('reads the whole attack from the one write the controller makes', () => {
     store.setState({
@@ -712,6 +733,105 @@ describe('ScreenReaderAnnouncer', () => {
   });
 
   /*
+   * The AI loop's own writes must not reach the turn effect. It sets
+   * `selectedFrom` for the attack it animates and nulls it again when the dice
+   * stop, and that second write is a render where the battle effect has nothing
+   * to say (`battleResult` is null): if the turn effect ran on it, "<bot> is
+   * thinking." would land on top of the line that had just said what the bot
+   * did — every AI attack costing two announcements, the useful one wiped the
+   * moment the animation ended. The two tests below drive the AI loop's real
+   * sequence, seated and spectating.
+   */
+  it('keeps the battle line through the AI loop clearing its selection', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Blitz is thinking.');
+
+    // The AI loop's attack write: result, both selections and the post-attack board.
+    act(() =>
+      store.setState(
+        attackState({
+          attacker: 1,
+          defender: 0,
+          playerNames: ['You', 'Blitz'],
+          selectedFrom: 2,
+          selectedTo: 1,
+          gameState: makeGameState({
+            currentPlayerIndex: 1,
+            areas: {
+              0: null,
+              1: { owner: 1, dice: 1, neighborAreaIds: [2, 3] },
+              2: { owner: 1, dice: 1, neighborAreaIds: [1, 3] },
+              3: { owner: 0, dice: 1, neighborAreaIds: [1, 2] },
+            },
+          }),
+        })
+      )
+    );
+    expect(getText()).toBe(
+      'Blitz attacks your territory 1: rolled 7 vs 3. Success. Territory 1 lost.'
+    );
+
+    // ...and the clear it makes once the animation is over, verbatim.
+    act(() =>
+      store.setState({
+        battleResult: null,
+        animationPhase: 'idle',
+        selectedFrom: null,
+        selectedTo: null,
+      })
+    );
+    expect(getText()).toBe(
+      'Blitz attacks your territory 1: rolled 7 vs 3. Success. Territory 1 lost.'
+    );
+  });
+
+  it('keeps the bare line through that clear in a spectated game', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: null,
+      playerNames: ['Conqueror', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('');
+
+    act(() =>
+      store.setState(
+        attackState({
+          attacker: 1,
+          defender: 0,
+          humanPlayerIndex: null,
+          playerNames: ['Conqueror', 'Blitz'],
+          selectedFrom: 2,
+          selectedTo: 1,
+          gameState: makeGameState({ currentPlayerIndex: 1 }),
+        })
+      )
+    );
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success.');
+
+    act(() =>
+      store.setState({
+        battleResult: null,
+        animationPhase: 'idle',
+        selectedFrom: null,
+        selectedTo: null,
+      })
+    );
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success.');
+  });
+
+  /*
    * Two bots trading territories is not the player's business and stays the
    * bare line — the seat check is what decides that, not "an AI attacked": here
    * the attacker is a bot and the defender is another bot.
@@ -818,7 +938,7 @@ describe('ScreenReaderAnnouncer', () => {
 
   /*
    * And the draw sits ABOVE the seatless guard, like the winner line: a turn-cap
-   * draw is overwhelmingly how a spectated AI-vs-AI game ends, so a watcher who
+   * draw is one of the ways a spectated AI-vs-AI game ends, and a watcher who
    * hears nothing is left with a board that simply stopped moving.
    */
   it('announces the draw of a spectated game too', () => {

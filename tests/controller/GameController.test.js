@@ -51,6 +51,18 @@ vi.mock('../../src/engine/index.js', () => ({
     if (action.type === 'ATTACK') {
       return {
         ...state,
+        /*
+         * A won attack hands the target to the attacker, which is the one thing
+         * about this mock the seat tests below cannot do without: the seats the
+         * controller records have to come from the board the attack was ROLLED
+         * on, and a mock that left the owners alone would let a read of the
+         * post-attack board pass too. Every attack here succeeds, so the flip is
+         * unconditional.
+         */
+        areas: {
+          ...state.areas,
+          [action.to]: { ...state.areas[action.to], owner: state.areas[action.from].owner },
+        },
         history: [
           ...state.history,
           {
@@ -1732,7 +1744,11 @@ describe('GameController', () => {
       expect(renderer.hexGrid.setHighlight).toHaveBeenCalledWith('from', 1);
     });
 
-    it('rejects selecting territory with only 1 die', () => {
+    // The click counts no dice of its own since #204: area 3 is rejected because
+    // the move list omits it, which is the same mechanism as the dead-end tests
+    // below. The dice half of the rule lives in the engine's getValidMoves, and
+    // is exercised through the real one in BoardFocus.test.js.
+    it('rejects a source the move list does not offer, however many dice it shows', () => {
       controller.handleTerritoryClick(3); // area 3: owned by player 0, 1 die
 
       expect(store.getState().selectedFrom).toBeNull();
@@ -1805,6 +1821,36 @@ describe('GameController', () => {
       expect(store.getState().awaitingInput).toBe('selectTo');
     });
 
+    /*
+     * The target half of one rule (#204): the source must have a move to THIS
+     * territory in the engine's list, which is strictly more than being next
+     * door to it. Area 4 is adjacent to the armed area 1 and belongs to the
+     * opponent, and the move list still does not offer it — an adjacency check
+     * would let the click through to applyAction and take the rule on trust
+     * from the earlier click.
+     */
+    it('rejects an adjacent enemy the move list does not offer', async () => {
+      const { applyAction } = await import('../../src/engine/index.js');
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          areas: {
+            ...gs.areas,
+            1: { ...gs.areas[1], neighborAreaIds: [2, 3, 4] },
+            4: { owner: 1, dice: 2, neighborAreaIds: [1] },
+          },
+        },
+      });
+
+      controller.handleTerritoryClick(1);
+      applyAction.mockClear();
+      controller.handleTerritoryClick(4); // adjacent, enemy — but not in the move list
+
+      expect(applyAction).not.toHaveBeenCalled();
+      expect(store.getState().awaitingInput).toBe('selectTo');
+    });
+
     it('rejects clicks during animation (C1 fix)', () => {
       store.setState({ animationPhase: 'battle' });
 
@@ -1815,10 +1861,10 @@ describe('GameController', () => {
     /*
      * #204, both halves. Two dice are not enough to attack with — the attacker
      * also needs a live enemy next door, which is what getValidMoves has always
-     * meant by a move and what the board hints have outlined since #196. The
-     * click used to ask only for the dice, so the board offered a stricter set
-     * than it accepted and a player could select a territory that could never
-     * reach anything, then find every neighbour rejected. Area 3 with a second
+     * meant by a move and what the board hints have outlined since #196. A
+     * click that asked only for the dice would accept a territory that can never
+     * reach anything, and every neighbour of it would then be rejected — the
+     * board offering a stricter set than the click accepts. Area 3 with a second
      * die and only area 1 (their own) beside it is exactly that dead end.
      */
     function makeDeadEnd() {
@@ -1889,36 +1935,67 @@ describe('GameController', () => {
       return seen;
     }
 
+    /*
+     * Both tests attack across a pair the OTHER one cannot produce, and neither
+     * pair is the fixture's default (0, 1): a hard-coded pair at either write
+     * would then pass one test while failing the other, instead of sailing
+     * through both. The mock's ATTACK hands the target to the attacker, so a
+     * read of the post-attack board comes out wrong too.
+     */
     it('records the attacking and defending seats of a human attack', async () => {
+      const { getValidMoves } = await import('../../src/engine/index.js');
       const seen = captureRollingResult();
       await controller.startNewGame({ playerCount: 2, spectator: false });
       controller.acceptMap();
 
+      // A third seat, with a territory of its own next door to the human's area 1.
+      const gs = store.getState().gameState;
+      store.setState({
+        gameState: {
+          ...gs,
+          turnOrder: [0, 1, 2],
+          areas: {
+            ...gs.areas,
+            1: { ...gs.areas[1], neighborAreaIds: [2, 3, 4] },
+            4: { owner: 2, dice: 2, neighborAreaIds: [1] },
+          },
+          players: [...gs.players, { id: 2, alive: true, territoryCount: 1 }],
+        },
+      });
+      override(getValidMoves, () => [{ from: 1, to: 4, attackerDice: 3, defenderDice: 2 }]);
+
       controller.handleTerritoryClick(1); // the human's area 1...
-      await controller.handleTerritoryClick(2); // ...onto the opponent's area 2
+      await controller.handleTerritoryClick(4); // ...onto seat 2's area 4
       await vi.runAllTimersAsync();
 
-      expect(seen.value).toMatchObject({ attacker: 0, defender: 1, success: true });
+      expect(seen.value).toMatchObject({ attacker: 0, defender: 2, success: true });
     });
 
     it('records them for an AI attack too', async () => {
       const { runAI } = await import('../../src/engine/AIAdapter.js');
+      const { getValidMoves } = await import('../../src/engine/index.js');
       let played = false;
       override(runAI, () => {
         if (played) return null;
         played = true;
-        return { from: 1, to: 2 };
+        return { from: 2, to: 1 };
       });
+      /*
+       * The bot's own direction: seat 1's area 2 onto the human's area 1. The AI
+       * loop checks every move against this list before applying it, so the list
+       * has to offer that move and not the human's.
+       */
+      override(getValidMoves, () => [{ from: 2, to: 1, attackerDice: 2, defenderDice: 3 }]);
       const seen = captureRollingResult();
 
       await controller.startNewGame({ playerCount: 2, spectator: false });
       controller.acceptMap();
-      controller.endHumanTurn(); // hands over to player 1, which attacks 1 -> 2
+      controller.endHumanTurn(); // hands over to player 1, which attacks 2 -> 1
       await vi.runAllTimersAsync();
       await flushPromises();
 
       expect(renderer.battle.play).toHaveBeenCalled(); // the attack really animated
-      expect(seen.value).toMatchObject({ attacker: 0, defender: 1, success: true });
+      expect(seen.value).toMatchObject({ attacker: 1, defender: 0, success: true });
     });
   });
 

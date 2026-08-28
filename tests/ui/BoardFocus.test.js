@@ -25,7 +25,9 @@ let container;
  * the names are derived from its move list. Slot 0 is the engine's unused
  * sentinel. Individual tests below still hand in object fixtures where the
  * board state is beside the point — getValidMoves returns [] for those without
- * throwing, so the names come out bare.
+ * throwing, so nothing is a source: the enemy names come out bare and the
+ * human's own multi-dice territories read `no enemy neighbor`. The tests below
+ * assert other buttons.
  */
 function makeGameState(overrides = {}) {
   return {
@@ -200,7 +202,8 @@ describe('BoardFocus — territory names', () => {
  *
  * The clause after the dice is the engine's own getValidMoves read out loud:
  * the same rule that gates handleTerritoryClick and paints the hints, so a
- * player who cannot see the board is told what a sighted player is shown.
+ * player who cannot see the board is told what the hints outline, whether or
+ * not the hints are on.
  * `no enemy neighbor` is the one negative worth its words — it is #204's exact
  * case, the only reason a territory with two dice is not a source.
  */
@@ -257,8 +260,9 @@ describe('BoardFocus — the board state in the name', () => {
    * Keyed on the selection, not on `awaitingInput`: the selection is what
    * changed the board's meaning. awaitingInput is nulled for the whole battle
    * animation while selectedFrom stands, and a name that flipped back to source
-   * mode there — then to target mode again on the next click — would be two
-   * extra changes under a parked focus for every attack.
+   * mode there would be one more rewrite per attack — on the write that opens
+   * executeAttack, a render this component otherwise sits out, mid-animation and
+   * under a parked focus.
    */
   it('still reads as a target board while the dice are rolling', () => {
     renderBoard({
@@ -287,6 +291,30 @@ describe('BoardFocus — the board state in the name', () => {
     expect(button(1).textContent).toBe('Territory 1, yours, 3 dice');
     expect(button(2).textContent).toBe('Territory 2, owned by Blitz, 2 dice');
     expect(button(6).textContent).toBe('Territory 6, yours, 2 dice');
+  });
+
+  /*
+   * The longest name the board produces, in one piece: spokenName's appositive
+   * for a repeated bot name runs its trailing comma into the dice, and the state
+   * clause follows the dice. Four commas, and a reader pauses at each — which is
+   * why the owner is spoken before the dice and the state last. The two bot
+   * seats run the same bot, so only the seat number tells them apart.
+   */
+  it('runs the repeated owner name, the dice and the state into one name', () => {
+    const board = makeBoard({ turnOrder: [0, 1, 2] });
+    board.areas[4] = { ...board.areas[4], owner: 2 };
+    renderBoard({
+      gameState: board,
+      playerNames: ['You', 'Balanced AI', 'Balanced AI'],
+      selectedFrom: 1,
+    });
+
+    expect(button(2).textContent).toBe(
+      'Territory 2, owned by Balanced AI, player 2, 2 dice, valid target'
+    );
+    expect(button(4).textContent).toBe(
+      'Territory 4, owned by Balanced AI, player 3, 2 dice, not a valid target'
+    );
   });
 
   /*

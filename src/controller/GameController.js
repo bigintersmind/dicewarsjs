@@ -987,9 +987,12 @@ export function createGameController(store, renderer, soundManager, preferencesM
       /*
        * Validate attack target: the same rule as the source, one step on — the
        * chosen source must have a move to this exact territory in the engine's
-       * list (#204). Adjacency alone would also admit a neighbouring slot that
-       * is no longer on the board, which applyAction bounces into the catch in
-       * executeAttack.
+       * list (#204). Adjacency alone would re-derive half the rule here and take
+       * the source's legality on trust from the earlier click; asking
+       * getValidMoves keeps the click, the hints and the territory buttons'
+       * names three readings of one list, with applyAction — whose throw lands
+       * in the catch in executeAttack — as the backstop rather than the first
+       * check.
        */
       const fromId = storeState.selectedFrom;
       const isValidTarget = getValidMoves(state).some(m => m.from === fromId && m.to === areaId);
@@ -1040,14 +1043,21 @@ export function createGameController(store, renderer, soundManager, preferencesM
     /*
      * Both seats, read from the board the attack was ROLLED on. The engine's
      * BattleResult is rolls and an outcome — no seats — and prevState is the
-     * only place they still stand: a won attack has already handed the target
-     * to the attacker in nextState, which is what the store publishes. The live
-     * region needs them to say whose attack this was and whose territory was
-     * under it (#211 item 10); the dice animation has always needed them for
-     * the two players' colors, and reads the same pair.
+     * only place the DEFENDER's seat still stands: a won attack has already
+     * handed the target to the attacker in nextState, which is what the store
+     * publishes. The live region needs them to say whose attack this was and
+     * whose territory was under it (#211 item 10); the dice animation has
+     * always needed them for the two players' colors, and reads the same pair.
+     *
+     * Unguarded, like the AI loop's pair above: applyAction has just accepted
+     * both ids on this very board, and applyAttack throws on an area that is
+     * missing or off the board on either side — so a missing one here is a
+     * torn state, and these values feed the dice hands' colors as well as the
+     * spoken line. Falling back to null would hand the player a mis-coloured
+     * roll and a bare battle line instead of a stack trace.
      */
-    const atkOwner = prevState.areas[fromId]?.owner ?? null;
-    const defOwner = prevState.areas[toId]?.owner ?? null;
+    const atkOwner = prevState.areas[fromId].owner;
+    const defOwner = prevState.areas[toId].owner;
 
     store.setState({
       gameState: nextState,

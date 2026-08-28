@@ -42,8 +42,8 @@ This document describes how the codebase is organized and how data flows through
 ### Human player makes a move
 
 ```
-Click on territory → GameController.handleClick()
-  → validates selection (own territory with dice > 1, then enemy neighbor)
+Click on territory → GameController.handleTerritoryClick()
+  → validates the selection against the engine's `getValidMoves` (a territory with a legal attack, then one of its targets)
   → engine.applyAction({ type: 'ATTACK', from, to })
   → GameStore.setState(newState)
   → GameController.refreshCandidateHighlights() repaints the board hints

@@ -1,9 +1,11 @@
 /**
- * Spoken Seat Name
+ * Spoken Names
  *
- * Shared by the live-region announcer (useAnnouncer) and the board's focus
- * targets (BoardFocus), which speak the same seats through different channels
- * — a live region and a button's accessible name. One rule, one file (#211).
+ * The phrases the live-region announcer (useAnnouncer) and the board's focus
+ * targets (BoardFocus) both speak — a seat's name, and how many dice are on a
+ * territory — through two different channels: a live region and a button's
+ * accessible name. The player hears both about the same territory, one after
+ * the other, so they have to agree word for word. One rule, one file (#211).
  *
  * @module ui/spokenName
  */
@@ -25,4 +27,19 @@ export function spokenName(playerNames, playerId) {
   const name = playerName(playerNames, playerId);
   const repeated = (playerNames ?? []).filter(n => n === name).length > 1;
   return repeated ? `${name}, player ${playerId + 1},` : name;
+}
+
+/**
+ * "4 dice" / "1 die" — a territory's dice, as both channels say it. The board's
+ * buttons name every territory this way, the live region's selection prompt names
+ * the source the player has just pressed, and its battle lines say what the
+ * attack left on the board ("Territory 2 is yours, 4 dice", "Territory 1 is down
+ * to 1 die"); a line that counted them differently would read as a correction of
+ * the button.
+ *
+ * @param {number} dice
+ * @returns {string}
+ */
+export function diceCount(dice) {
+  return dice === 1 ? '1 die' : `${dice} dice`;
 }

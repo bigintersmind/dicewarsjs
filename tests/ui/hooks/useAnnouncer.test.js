@@ -131,6 +131,79 @@ describe('ScreenReaderAnnouncer', () => {
     expect(getText()).toBe('Select a neighboring territory to attack. Use the arrow keys to move.');
   });
 
+  /*
+   * The prompt names the source and its dice because the player has just heard
+   * exactly that name on the button they pressed — the comma shape is the
+   * button's, so "3 dice" parses as the territory's rather than as something
+   * about the attack.
+   */
+  it('names the selected source and its dice in the selectTo prompt', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: 'selectTo',
+      humanPlayerIndex: 0,
+      selectedFrom: 1,
+      gameState: makeGameState(),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe(
+      'Territory 1 selected, 3 dice. Select a neighboring territory to attack. Use the arrow keys to move.'
+    );
+  });
+
+  /*
+   * A selection this hook cannot resolve to an area leaves the prompt bare
+   * rather than half-said. The id comes from the store and the area from the
+   * board published beside it; if the two ever disagree, the arrow keys are the
+   * part of the line the player still needs.
+   */
+  it('leaves the prompt bare when the selection names no area on the board', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: 'selectTo',
+      humanPlayerIndex: 0,
+      selectedFrom: 99,
+      gameState: makeGameState(),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Select a neighboring territory to attack. Use the arrow keys to move.');
+  });
+
+  /*
+   * Changing your mind about the source is the one thing a player can do in
+   * this phase that the region would otherwise not report at all: the screen is
+   * on the same phase, the same turn, the same board — only the selection moved.
+   * That is what puts the selection in the turn effect's deps — as
+   * `promptSource`, the selection gated on the prompt being up; re-picking the
+   * SAME source produces the same string, which is a no-op, which is right.
+   */
+  it('re-speaks the prompt when the source is re-picked', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: 'selectTo',
+      humanPlayerIndex: 0,
+      selectedFrom: 1,
+      gameState: makeGameState({
+        areas: {
+          0: null,
+          1: { owner: 0, dice: 3, neighborAreaIds: [2, 3] },
+          2: { owner: 1, dice: 2, neighborAreaIds: [1, 3] },
+          3: { owner: 0, dice: 2, neighborAreaIds: [1, 2] },
+        },
+      }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Territory 1 selected, 3 dice.');
+
+    act(() => store.setState({ selectedFrom: 3 }));
+    expect(getText()).toBe(
+      'Territory 3 selected, 2 dice. Select a neighboring territory to attack. Use the arrow keys to move.'
+    );
+  });
+
   it('announces the AI by its bot name on a non-human turn', () => {
     store.setState({
       screen: 'playing',
@@ -484,6 +557,430 @@ describe('ScreenReaderAnnouncer', () => {
       })
     );
     expect(getText()).toBe('Game over. You win!');
+  });
+
+  /*
+   * -------------------------------------------------------------------------
+   * Where the dice went (#211 item 10)
+   * -------------------------------------------------------------------------
+   *
+   * The rolls alone leave a non-sighted player to arrow around the board after
+   * every attack to find out what happened to it. The line says which territory
+   * changed and what it is worth now, from the post-attack board the controller
+   * publishes in the same write as the result — and the two seats on the result
+   * are what tell the three cases apart, because the defender's is gone from the
+   * board by the time the store is read: a won territory has already changed
+   * hands.
+   */
+
+  /**
+   * The store state both attack paths leave standing while the dice roll, with
+   * the seats the controller records.
+   */
+  function attackState({ attacker, defender, success = true, atk = 7, def = 3, ...rest }) {
+    return {
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz', 'Conqueror'],
+      battleResult: {
+        success,
+        attacker,
+        defender,
+        attackerRoll: { values: [atk], total: atk },
+        defenderRoll: { values: [def], total: def },
+      },
+      ...rest,
+    };
+  }
+
+  it('says what your won attack took and what it holds now', () => {
+    store.setState(
+      attackState({
+        attacker: 0,
+        defender: 1,
+        selectedFrom: 1,
+        selectedTo: 2,
+        // The post-attack board: area 2 is the human's now, with the dice moved onto it.
+        gameState: makeGameState({
+          areas: {
+            0: null,
+            1: { owner: 0, dice: 1, neighborAreaIds: [2, 3] },
+            2: { owner: 0, dice: 4, neighborAreaIds: [1, 3] },
+            3: { owner: 0, dice: 1, neighborAreaIds: [1, 2] },
+          },
+        }),
+      })
+    );
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success. Territory 2 is yours, 4 dice.');
+  });
+
+  /*
+   * The production sequence, rather than a store already holding the attack.
+   * The write below is the AI loop's shape — the result, both selections and
+   * the post-attack board in ONE setState — and the effect reads three of those
+   * four from its closure, so they have to arrive in the same render: a hook
+   * that saw the new result beside the old selection would name the territory
+   * of the previous attack. The human path lands on the same render from the
+   * other direction, with `selectedFrom` standing since the source click and
+   * the other three written together.
+   */
+  it('reads the whole attack from the one write the controller makes', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: 'selectFrom',
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState(),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Your turn');
+
+    act(() =>
+      store.setState(
+        attackState({
+          attacker: 0,
+          defender: 1,
+          selectedFrom: 1,
+          selectedTo: 2,
+          gameState: makeGameState({
+            areas: {
+              0: null,
+              1: { owner: 0, dice: 1, neighborAreaIds: [2, 3] },
+              2: { owner: 0, dice: 4, neighborAreaIds: [1, 3] },
+              3: { owner: 0, dice: 1, neighborAreaIds: [1, 2] },
+            },
+          }),
+        })
+      )
+    );
+
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success. Territory 2 is yours, 4 dice.');
+  });
+
+  it('says what your failed attack cost the source', () => {
+    store.setState(
+      attackState({
+        attacker: 0,
+        defender: 1,
+        success: false,
+        atk: 3,
+        def: 7,
+        selectedFrom: 1,
+        selectedTo: 2,
+        // A lost attack leaves the source on one die.
+        gameState: makeGameState({
+          areas: {
+            0: null,
+            1: { owner: 0, dice: 1, neighborAreaIds: [2, 3] },
+            2: { owner: 1, dice: 2, neighborAreaIds: [1, 3] },
+            3: { owner: 0, dice: 1, neighborAreaIds: [1, 2] },
+          },
+        }),
+      })
+    );
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Attack: rolled 3 vs 7. Failed. Territory 1 is down to 1 die.');
+  });
+
+  /*
+   * The mirror of the human's own attack, and the half of the item that no
+   * other channel covers: the board redraws for a sighted player, while a
+   * screen-reader player would learn which of their territories an AI had taken
+   * only by arrowing over it later.
+   */
+  it('names the bot that takes one of your territories', () => {
+    store.setState(
+      attackState({
+        attacker: 1,
+        defender: 0,
+        selectedFrom: 2,
+        selectedTo: 3,
+        gameState: makeGameState({
+          areas: {
+            0: null,
+            1: { owner: 0, dice: 3, neighborAreaIds: [2, 3] },
+            2: { owner: 1, dice: 1, neighborAreaIds: [1, 3] },
+            3: { owner: 1, dice: 1, neighborAreaIds: [1, 2] },
+          },
+        }),
+      })
+    );
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe(
+      'Blitz attacks your territory 3: rolled 7 vs 3. Success. Territory 3 lost.'
+    );
+  });
+
+  it('says a territory of yours held when the bot loses the roll', () => {
+    store.setState(
+      attackState({
+        attacker: 1,
+        defender: 0,
+        success: false,
+        atk: 3,
+        def: 7,
+        selectedFrom: 2,
+        selectedTo: 3,
+        gameState: makeGameState(),
+      })
+    );
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe(
+      'Blitz attacks your territory 3: rolled 3 vs 7. Failed. Territory 3 holds.'
+    );
+  });
+
+  /*
+   * The AI loop's own writes must not reach the turn effect. It sets
+   * `selectedFrom` for the attack it animates and nulls it again when the dice
+   * stop, and that second write is a render where the battle effect has nothing
+   * to say (`battleResult` is null): if the turn effect ran on it, "<bot> is
+   * thinking." would land on top of the line that had just said what the bot
+   * did — every AI attack costing two announcements, the useful one wiped the
+   * moment the animation ended. The two tests below drive the AI loop's real
+   * sequence, seated and spectating.
+   */
+  it('keeps the battle line through the AI loop clearing its selection', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Blitz is thinking.');
+
+    // The AI loop's attack write: result, both selections and the post-attack board.
+    act(() =>
+      store.setState(
+        attackState({
+          attacker: 1,
+          defender: 0,
+          playerNames: ['You', 'Blitz'],
+          selectedFrom: 2,
+          selectedTo: 1,
+          gameState: makeGameState({
+            currentPlayerIndex: 1,
+            areas: {
+              0: null,
+              1: { owner: 1, dice: 1, neighborAreaIds: [2, 3] },
+              2: { owner: 1, dice: 1, neighborAreaIds: [1, 3] },
+              3: { owner: 0, dice: 1, neighborAreaIds: [1, 2] },
+            },
+          }),
+        })
+      )
+    );
+    expect(getText()).toBe(
+      'Blitz attacks your territory 1: rolled 7 vs 3. Success. Territory 1 lost.'
+    );
+
+    // ...and the clear it makes once the animation is over, verbatim.
+    act(() =>
+      store.setState({
+        battleResult: null,
+        animationPhase: 'idle',
+        selectedFrom: null,
+        selectedTo: null,
+      })
+    );
+    expect(getText()).toBe(
+      'Blitz attacks your territory 1: rolled 7 vs 3. Success. Territory 1 lost.'
+    );
+  });
+
+  it('keeps the bare line through that clear in a spectated game', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: null,
+      playerNames: ['Conqueror', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('');
+
+    act(() =>
+      store.setState(
+        attackState({
+          attacker: 1,
+          defender: 0,
+          humanPlayerIndex: null,
+          playerNames: ['Conqueror', 'Blitz'],
+          selectedFrom: 2,
+          selectedTo: 1,
+          gameState: makeGameState({ currentPlayerIndex: 1 }),
+        })
+      )
+    );
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success.');
+
+    act(() =>
+      store.setState({
+        battleResult: null,
+        animationPhase: 'idle',
+        selectedFrom: null,
+        selectedTo: null,
+      })
+    );
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success.');
+  });
+
+  /*
+   * Two bots trading territories is not the player's business and stays the
+   * bare line — the seat check is what decides that, not "an AI attacked": here
+   * the attacker is a bot and the defender is another bot.
+   */
+  it('leaves an attack between two bots as the bare line', () => {
+    store.setState(
+      attackState({
+        attacker: 1,
+        defender: 2,
+        selectedFrom: 2,
+        selectedTo: 3,
+        gameState: makeGameState({
+          areas: {
+            0: null,
+            1: { owner: 0, dice: 3, neighborAreaIds: [2, 3] },
+            2: { owner: 1, dice: 1, neighborAreaIds: [1, 3] },
+            3: { owner: 1, dice: 1, neighborAreaIds: [1, 2] },
+          },
+        }),
+      })
+    );
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success.');
+  });
+
+  /*
+   * The rolls are the part that is always true. A result with no seats on it,
+   * or ids pointing at no area, drops to the bare line rather than throwing —
+   * the region is the last thing that should take a game down with it.
+   */
+  it('falls back to the bare line when the result carries no seats', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      playerNames: ['You', 'Blitz'],
+      selectedFrom: 1,
+      selectedTo: 2,
+      gameState: makeGameState(),
+      battleResult: {
+        success: true,
+        attackerRoll: { values: [3, 4], total: 7 },
+        defenderRoll: { values: [2, 1], total: 3 },
+      },
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success.');
+  });
+
+  it('falls back to the bare line when the attacked territory is not on the board', () => {
+    store.setState(
+      attackState({
+        attacker: 0,
+        defender: 1,
+        selectedFrom: null,
+        selectedTo: 99,
+        gameState: makeGameState(),
+      })
+    );
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Attack: rolled 7 vs 3. Success.');
+  });
+
+  /*
+   * -------------------------------------------------------------------------
+   * The two ends that name no winner (#211 item 13)
+   * -------------------------------------------------------------------------
+   *
+   * Both reach the game-over screen with `winner === null`, where the branches
+   * below would otherwise fall through to "<bot> is thinking." over a finished
+   * game. The lines are the screen's own subtitles, spoken.
+   */
+
+  it('announces a mid-game elimination as the end of your game', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      humanEliminated: true,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Game over. You were eliminated.');
+  });
+
+  it('announces a turn-cap draw', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      gameOverReason: 'turnLimit',
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Game over. Draw: turn limit reached.');
+  });
+
+  /*
+   * And the draw sits ABOVE the seatless guard, like the winner line: a turn-cap
+   * draw is one of the ways a spectated AI-vs-AI game ends, and a watcher who
+   * hears nothing is left with a board that simply stopped moving.
+   */
+  it('announces the draw of a spectated game too', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: null,
+      gameOverReason: 'turnLimit',
+      playerNames: ['Conqueror', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Game over. Draw: turn limit reached.');
+  });
+
+  /*
+   * The last resort under `winner === null`: an end with neither of the two
+   * reasons above on it is still an end, and has to be said to be one. Nothing
+   * reaches it today — every live area has an owner, so a game always ends with
+   * someone standing — but the engine's TurnManager does admit
+   * `{ over: true, winner: null }`, and without this the branches below narrate
+   * a finished game as "<bot> is thinking."
+   */
+  it('says at least that the game is over when nothing names the end', () => {
+    store.setState({
+      screen: 'gameOver',
+      awaitingInput: null,
+      humanPlayerIndex: 0,
+      humanEliminated: false,
+      gameOverReason: null,
+      playerNames: ['You', 'Blitz'],
+      gameState: makeGameState({ currentPlayerIndex: 1 }),
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toBe('Game over.');
   });
 
   /*

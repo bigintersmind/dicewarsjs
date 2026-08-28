@@ -77,8 +77,7 @@ function createMockRenderer() {
    * state assertion, where bare vi.fn()s can only spell it out as a negative per
    * writer (and a writer added later would slip past all of them). It models the
    * real renderer's outcomes: clearHighlights() wipes every layer, focus ring
-   * included, while clearSelectionHighlights() deliberately leaves it alone
-   * (#211 item 3).
+   * included.
    */
   const hexGrid = {
     focusUp: false,
@@ -91,7 +90,6 @@ function createMockRenderer() {
     clearHighlights: vi.fn(() => {
       hexGrid.focusUp = false;
     }),
-    clearSelectionHighlights: vi.fn(),
     _cellPos: { x, y },
     _getPlayerColor: vi.fn(() => 0xffffff),
   };
@@ -101,8 +99,15 @@ function createMockRenderer() {
 function createMockController() {
   return {
     handleTerritoryClick: vi.fn(),
-    refreshCandidateHighlights: vi.fn(),
     endHumanTurn: vi.fn(),
+    /*
+     * Cancelling a half-made attack is GameController's since #211 follow-up 16
+     * — a click on water asks for the same three steps — so from here it is one
+     * call and one answer: true when there was something to cancel, which is
+     * what makes the Escape claimed. What it does to the store and the board is
+     * GameController.test.js's to pin.
+     */
+    cancelSelection: vi.fn(() => false),
   };
 }
 
@@ -198,6 +203,9 @@ describe('KeyboardController', () => {
 
       expect(store.getState().focusedAreaId).toBe(1);
       expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
+      // Escape included: the controller is never asked to cancel anything from
+      // a screen or a turn the board's keys are not live on.
+      expect(mockController.cancelSelection).not.toHaveBeenCalled();
     }
 
     it('ignores keydown when screen is not playing', () => {
@@ -349,22 +357,25 @@ describe('KeyboardController', () => {
         hexGrid: {
           setFocusHighlight: vi.fn(),
           clearFocusHighlight: vi.fn(),
-          clearSelectionHighlights: vi.fn(),
           _cellPos: null,
         },
       };
       kbc = createKeyboardController(store, mockController, noCellPos);
+      // try/finally, not a trailing restore: a failed assertion here would
+      // otherwise leave console.warn stubbed for every test after it.
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        areaButton(1).focus();
+        fireKey('ArrowRight');
+        fireKey('ArrowDown');
 
-      areaButton(1).focus();
-      fireKey('ArrowRight');
-      fireKey('ArrowDown');
-
-      expect(document.activeElement).toBe(areaButton(1));
-      expect(store.getState().focusedAreaId).toBe(1);
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('cellPos'));
-      warnSpy.mockRestore();
+        expect(document.activeElement).toBe(areaButton(1));
+        expect(store.getState().focusedAreaId).toBe(1);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('cellPos'));
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
 
     /*
@@ -375,18 +386,101 @@ describe('KeyboardController', () => {
      */
     it('warns once and stays put when a neighbor has no button', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      areaButton(1).focus();
-      areaButton(2).remove();
+      try {
+        areaButton(1).focus();
+        areaButton(2).remove();
 
-      fireKey('ArrowRight');
-      fireKey('ArrowRight');
+        fireKey('ArrowRight');
+        fireKey('ArrowRight');
 
-      expect(document.activeElement).toBe(areaButton(1));
-      expect(store.getState().focusedAreaId).toBe(1);
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('territory 2'));
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('BoardFocus'));
-      warnSpy.mockRestore();
+        expect(document.activeElement).toBe(areaButton(1));
+        expect(store.getState().focusedAreaId).toBe(1);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('territory 2'));
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('BoardFocus'));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    /*
+     * Once per CAUSE, though, not once per page (#211 follow-up 20). An arrow
+     * that finds no button and a click that finds no button are different wiring
+     * failures reported through one console line, and a single budget let
+     * whichever happened first silence the other for the life of the page.
+     */
+    it('reports a pointer miss even after an arrow miss has spent its own warning', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        areaButton(1).focus();
+        areaButton(2).remove();
+
+        fireKey('ArrowRight'); // the arrow step reports it...
+        kbc.focusFromPointer(2); // ...the pointer reports it too, on its own budget...
+        kbc.focusFromPointer(2); // ...and then it is quiet.
+
+        expect(warnSpy).toHaveBeenCalledTimes(2);
+        // Each names what asked, or two lines a page apart say nothing about
+        // which path is broken.
+        expect(warnSpy.mock.calls[0][0]).toContain('arrow-step');
+        expect(warnSpy.mock.calls[1][0]).toContain('pointer');
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    /*
+     * A button that is missing and one that is present but refuses focus are
+     * different wiring failures reported through the same line, so they get
+     * different budgets too — otherwise whichever the arrows hit first silences
+     * the other for the life of the page (#211 follow-up 20).
+     */
+    it('reports a refused focus and a missing button on separate budgets', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        areaButton(1).focus();
+        /*
+         * Present, and refuses the focus() call. `disabled` is what a browser
+         * refuses on — but jsdom's isFocusableAreaElement answers "focusable"
+         * for anything carrying a parseable tabindex before it ever looks at
+         * disabled, and BoardFocus gives every button one, so the attribute has
+         * to come off here or the button would take focus and pin nothing.
+         */
+        areaButton(2).removeAttribute('tabindex');
+        areaButton(2).disabled = true;
+
+        fireKey('ArrowRight'); // reported once...
+        fireKey('ArrowRight'); // ...and then quiet
+        areaButton(2).remove(); // now it is missing instead
+        fireKey('ArrowRight'); // ...which is its own budget
+
+        expect(warnSpy).toHaveBeenCalledTimes(2);
+        expect(warnSpy.mock.calls[0][0]).toContain('(arrow-step:refused)');
+        expect(warnSpy.mock.calls[1][0]).toContain('(arrow-step)');
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    /*
+     * The third cause: the arrow ENTERING the board, which picks its territory
+     * from the game state rather than from what BoardFocus rendered — so a miss
+     * here is exactly the disagreement between the two the warning exists to
+     * report, and it has to name itself as that path rather than as a step.
+     */
+    it('names the arrow entering the board when its first territory has no button', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // Nothing focused, so the arrow enters the board rather than stepping.
+        areaButton(1).remove();
+
+        fireKey('ArrowRight');
+
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0][0]).toContain('(arrow-enter)');
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
 
     /*
@@ -406,11 +500,14 @@ describe('KeyboardController', () => {
 
     /*
      * What a click on WATER does to the keyboard. A click on a territory now
-     * carries the ring with it (focusFromPointer below), but a click on nothing
-     * is left entirely to the browser: mousedown's focus fixup blurs the focused
-     * button to `<body>`, so the next arrow re-enters the board at the first own
-     * territory rather than resuming at area 3. Deliberate — clicking off the
-     * board is as good a way as any to say "done with the keyboard position".
+     * carries the ring with it (focusFromPointer below), but the FOCUS half of
+     * a click on nothing is left entirely to the browser: mousedown's focus
+     * fixup blurs the focused button to `<body>`, so the next arrow re-enters
+     * the board at the first own territory rather than resuming at area 3.
+     * Deliberate — clicking off the board is as good a way as any to say "done
+     * with the keyboard position". (The click does reach the game, cancelling a
+     * half-made attack since #211 follow-up 16, but that is the controller's
+     * layer and nothing here sees it.)
      */
     it('re-enters at the first own territory after a water click blurs the board', () => {
       areaButton(3).focus();
@@ -575,69 +672,50 @@ describe('KeyboardController', () => {
    * -----------------------------------------------------------------------
    * Escape (cancel selection)
    * -----------------------------------------------------------------------
+   * The cancel itself is GameController's since #211 follow-up 16 — a click on
+   * water asks for the same three steps — so what is left here is the key: who
+   * gets asked, from where, and whether the press is claimed. The store, the
+   * board clear and their order moved to GameController.test.js with the code.
    */
 
-  describe('cancel selection', () => {
-    it('transitions from selectTo back to selectFrom', () => {
-      store.setState({
-        awaitingInput: 'selectTo',
-        selectedFrom: 1,
-      });
-
-      // What the controller would see if it recomputed the hints right now.
-      let awaitingAtRefresh;
-      mockController.refreshCandidateHighlights.mockImplementation(() => {
-        awaitingAtRefresh = store.getState().awaitingInput;
-      });
+  describe('Escape (delegating the cancel)', () => {
+    it('asks the controller to cancel, and claims the key when it did', () => {
+      mockController.cancelSelection.mockReturnValue(true);
 
       const event = fireKey('Escape');
 
-      expect(store.getState().awaitingInput).toBe('selectFrom');
-      expect(store.getState().selectedFrom).toBeNull();
-      expect(mockRenderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
-      /*
-       * clearSelectionHighlights() wipes the board hints along with the
-       * selection, and this lands back on selectFrom — so the controller (which
-       * owns that mapping) has to be asked to repaint the attack candidates, or
-       * the board silently stops offering them for the rest of the turn.
-       */
-      expect(mockController.refreshCandidateHighlights).toHaveBeenCalled();
-      /*
-       * ...and in that order. Refreshing first and clearing second wipes the
-       * hints it just painted, which no assertion on "was it called" can see.
-       */
-      expect(
-        mockRenderer.hexGrid.clearSelectionHighlights.mock.invocationCallOrder[0]
-      ).toBeLessThan(mockController.refreshCandidateHighlights.mock.invocationCallOrder[0]);
-      /*
-       * The store has to be back on selectFrom before the refresh runs, too:
-       * recomputing against a stale 'selectTo' would repaint the old source's
-       * reachable enemies as if they were the attack candidates.
-       */
-      expect(awaitingAtRefresh).toBe('selectFrom');
+      expect(mockController.cancelSelection).toHaveBeenCalledTimes(1);
       // Claimed: the quit confirm must not also open on this keypress (#181).
       expect(event.defaultPrevented).toBe(true);
     });
 
-    it('leaves the focus layer alone — cancelling a selection never took the ring down', () => {
+    it('leaves the key for the quit confirm when there was nothing to cancel', () => {
+      // The delegate's default answer: no half-made attack.
+      const event = fireKey('Escape');
+
+      expect(mockController.cancelSelection).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('leaves the focus layer alone — asking for the cancel never took the ring down', () => {
       areaButton(3).focus();
-      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+      mockController.cancelSelection.mockReturnValue(true);
       // Past the focusin paint, so this asserts only what the Escape did.
       mockRenderer.hexGrid.setFocusHighlight.mockClear();
 
       fireKey('Escape');
 
       /*
-       * The selection was cancelled; DOM focus was not, and it is still on the
-       * button for area 3. Before #211 item 3 this ran clearHighlights() and
-       * then repainted the ring from the store id; now the clear never reaches
-       * that layer, so there is nothing to put back — and "nothing happened to
-       * the ring" is the assertion, not "it was painted again".
+       * The cancel was asked for and reported done; DOM focus was not touched,
+       * and is still on the button for area 3. The selection and the keyboard's
+       * position are different layers and Escape is only the first one's — so
+       * "nothing happened to the ring" is the assertion, not "it was painted
+       * again". What the real cancel does to the board is
+       * GameController.test.js's.
        */
+      expect(mockController.cancelSelection).toHaveBeenCalled(); // the path really ran
       expect(document.activeElement).toBe(areaButton(3));
       expect(store.getState().focusedAreaId).toBe(3);
-      // The path really ran...
-      expect(mockRenderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
       // ...and the ring is still painted — whichever writer might have taken it
       // down (clearHighlights, clearFocusHighlight, one added later).
       expect(mockRenderer.hexGrid.focusUp).toBe(true);
@@ -646,27 +724,18 @@ describe('KeyboardController', () => {
       expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
     });
 
-    it('does nothing when already in selectFrom', () => {
-      store.setState({ awaitingInput: 'selectFrom' });
-      const event = fireKey('Escape');
-      // Should still be selectFrom, and nothing on the board was cleared
-      expect(store.getState().awaitingInput).toBe('selectFrom');
-      expect(mockRenderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
-      expect(mockRenderer.hexGrid.clearHighlights).not.toHaveBeenCalled();
-      // Left uncancelled so QuitConfirm's window-level handler can act (#181).
-      expect(event.defaultPrevented).toBe(false);
-    });
-
-    it('still cancels a half-made attack from a focused control', () => {
+    it('still asks for the cancel from a focused control', () => {
       const endTurn = mountButton('END TURN');
       endTurn.focus();
-      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+      mockController.cancelSelection.mockReturnValue(true);
 
       const event = fireKey('Escape');
 
-      expect(store.getState().awaitingInput).toBe('selectFrom');
-      expect(store.getState().selectedFrom).toBeNull();
+      // Escape is handled wherever focus is — the one key that is — and taking
+      // it does not move focus off the control that was holding it.
+      expect(mockController.cancelSelection).toHaveBeenCalledTimes(1);
       expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(endTurn);
     });
   });
 
@@ -689,12 +758,14 @@ describe('KeyboardController', () => {
     });
 
     it('leaves Escape alone so the dialog can close itself', () => {
-      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+      // A cancel is there for the taking, and must not be taken: the dialog owns
+      // the key while it is up, and the selection is the next Escape's.
+      mockController.cancelSelection.mockReturnValue(true);
 
       const event = fireKey('Escape');
 
+      expect(mockController.cancelSelection).not.toHaveBeenCalled();
       expect(event.defaultPrevented).toBe(false);
-      expect(store.getState().awaitingInput).toBe('selectTo');
     });
   });
 
@@ -719,12 +790,12 @@ describe('KeyboardController', () => {
     });
 
     it('leaves Escape alone so the card can close itself', () => {
-      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+      mockController.cancelSelection.mockReturnValue(true);
 
       const event = fireKey('Escape');
 
+      expect(mockController.cancelSelection).not.toHaveBeenCalled();
       expect(event.defaultPrevented).toBe(false);
-      expect(store.getState().awaitingInput).toBe('selectTo');
     });
   });
 
@@ -764,20 +835,19 @@ describe('KeyboardController', () => {
      * The order matters here: this controller's document listener runs before
      * the panel's — the panel registers its own only while it is open, so after
      * the controller exists whatever order main.jsx creates them in. An Escape
-     * claimed here
-     * would reach the panel already defaultPrevented, and the panel yields to a
+     * claimed here would reach the panel already defaultPrevented, and the
+     * panel yields to a
      * claimed key — the dropdown would stay up and the selection would be gone.
      * Passing it through untouched, the panel closes; the selection is the next
      * Escape's.
      */
     it('leaves Escape alone so the dropdown can close itself', () => {
-      store.setState({ awaitingInput: 'selectTo', selectedFrom: 1 });
+      mockController.cancelSelection.mockReturnValue(true);
 
       const event = fireKey('Escape');
 
+      expect(mockController.cancelSelection).not.toHaveBeenCalled();
       expect(event.defaultPrevented).toBe(false);
-      expect(store.getState().awaitingInput).toBe('selectTo');
-      expect(store.getState().selectedFrom).toBe(1);
     });
   });
 
@@ -924,14 +994,14 @@ describe('KeyboardController', () => {
    * -----------------------------------------------------------------------
    * A canvas click keeps the keyboard's position (#211)
    * -----------------------------------------------------------------------
-   * main.jsx calls this from the canvas `pointerdown`, before handing the click
-   * on to the controller. Without it, mousedown's own focus fixup blurs the
-   * focused territory button to `<body>` (the canvas is not focusable), so the
-   * ring goes down and the next arrow re-enters the board at the first own
-   * territory instead of stepping from the territory just clicked. The return
-   * value is what tells main.jsx whether to preventDefault() — and it is false
-   * for a mouse-only player, who never has a territory focused and must never
-   * acquire a ring by clicking.
+   * The canvas pointer handler calls this from its `pointerdown`, before handing
+   * the click on to the controller. Without it, mousedown's own focus fixup
+   * blurs the focused territory button to `<body>` (the canvas is not
+   * focusable), so the ring goes down and the next arrow re-enters the board at
+   * the first own territory instead of stepping from the territory just
+   * clicked. The return value is what tells that handler whether to
+   * preventDefault() — and it is false for a mouse-only player, who never has a
+   * territory focused and must never acquire a ring by clicking.
    */
 
   describe('focusFromPointer', () => {
@@ -980,9 +1050,9 @@ describe('KeyboardController', () => {
      * an oversight: E parks focus on a territory for the whole AI turn, the
      * arrows bail while an animation runs or it is not the human's turn, and a
      * click is then the only way left to move the cursor. Gating it would not
-     * leave the ring alone either — the mousedown fixup main.jsx suppresses on
-     * the strength of the `true` would drop focus to `<body>` and take the ring
-     * down with it. Nothing else moves: handleTerritoryClick ignores the click
+     * leave the ring alone either — the mousedown fixup the canvas handler
+     * suppresses on the strength of the `true` would drop focus to `<body>` and
+     * take the ring down with it. Nothing else moves: handleTerritoryClick ignores the click
      * on these turns, so store and DOM stay agreed.
      *
      * A pin of behaviour that already held (no source change went with it), so

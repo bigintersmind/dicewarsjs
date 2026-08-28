@@ -86,9 +86,11 @@ describe('RulesModal', () => {
     /*
      * The card is a focus target itself: clicking its unfocusable chrome (the
      * title, a gap, the footer row) must land here rather than on <body>, where
-     * the trap's keydown handler could not see the next Tab.
+     * the trap's keydown handler could not see the next Tab. The attribute, not
+     * `el.tabIndex`: jsdom reports -1 for any div, so reading the property would
+     * pass with no tabindex at all.
      */
-    expect(el.tabIndex).toBe(-1);
+    expect(el.getAttribute('tabindex')).toBe('-1');
     // The scroll region is a named landmark, or its aria-label is exposed to
     // nobody and the tab stop announces as nothing.
     expect(scrollRegion().getAttribute('role')).toBe('region');

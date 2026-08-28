@@ -56,14 +56,32 @@ function mountBoth(overrides = {}) {
 
   const renderer = {
     hexGrid: {
-      clearHighlights: vi.fn(),
-      clearSelectionHighlights: vi.fn(),
       setFocusHighlight: vi.fn(),
+      clearFocusHighlight: vi.fn(),
     },
   };
-  // The two controller methods KeyboardController calls; both are required —
-  // the Escape path repaints the board hints through refreshCandidateHighlights.
-  const controller = { handleTerritoryClick: vi.fn(), refreshCandidateHighlights: vi.fn() };
+  /*
+   * The controller surface KeyboardController is handed. It calls only
+   * `cancelSelection` (Escape) and `endHumanTurn` (E, which nothing here
+   * presses); `handleTerritoryClick` is BoardFocus's, and BoardFocus is not
+   * mounted in this suite. Cancelling a half-made attack is the controller's
+   * since #211 follow-up 16 — a click on water asks for the same steps — so
+   * from here it is one call and one answer. The stand-in moves the two store
+   * fields these tests read, because they are about which owner claims the key
+   * and for that the store has to move for real — but it is deliberately only
+   * that much of it: `selectedTo`, the board clear, the hint repaint and their
+   * order are GameController.test.js's to pin, and nothing here would notice
+   * them drift.
+   */
+  const controller = {
+    handleTerritoryClick: vi.fn(),
+    endHumanTurn: vi.fn(),
+    cancelSelection: vi.fn(() => {
+      if (store.getState().awaitingInput !== 'selectTo') return false;
+      store.setState({ selectedFrom: null, awaitingInput: 'selectFrom' });
+      return true;
+    }),
+  };
   kbc = createKeyboardController(store, controller, renderer);
 
   const onOpen = vi.fn(() => store.setState({ quitConfirmOpen: true }));
@@ -76,7 +94,7 @@ function mountBoth(overrides = {}) {
     render(h(QuitConfirm, { store, onOpen, onCancel, onConfirm }), container);
   });
 
-  return { store, renderer, onOpen, onCancel, onConfirm };
+  return { store, controller, onOpen, onCancel, onConfirm };
 }
 
 /** Escape as the browser delivers it: on document, bubbling and cancelable. */
@@ -102,17 +120,18 @@ afterEach(() => {
 
 describe('Escape layering between the board and the quit confirm', () => {
   it('cancels a half-made attack and leaves the dialog closed', () => {
-    const { store, renderer, onOpen } = mountBoth({
+    const { store, controller, onOpen } = mountBoth({
       awaitingInput: 'selectTo',
       selectedFrom: 1,
     });
 
     const event = pressEscape();
 
-    // KeyboardController took the key...
+    // KeyboardController took the key — it asked the controller, and the
+    // stand-in moved the two fields these assertions read.
+    expect(controller.cancelSelection).toHaveBeenCalledTimes(1);
     expect(store.getState().awaitingInput).toBe('selectFrom');
     expect(store.getState().selectedFrom).toBeNull();
-    expect(renderer.hexGrid.clearSelectionHighlights).toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(true);
     // ...so the same press must not also raise "Abandon this game?".
     expect(onOpen).not.toHaveBeenCalled();

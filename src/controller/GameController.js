@@ -280,7 +280,24 @@ export function createGameController(store, renderer, soundManager, preferencesM
      */
     store.setState({ error: null, aiLoadWarnings: [] });
 
-    if (!renderer) {
+    /*
+     * No renderer at all, or one whose init() failed — two shapes of the same
+     * "there is no board" (#211 follow-up 14). main.jsx assigns gameRenderer
+     * before awaiting init(), and GameRenderer.init destroys and rethrows on
+     * failure, so the failed object stays wired up with `initialized === false`
+     * and no usable hex grid — null, or already destroyed by init()'s own
+     * cleanup, which tears the grid down without nulling the reference.
+     * Checking only `!renderer` let START carry that object all the way to the
+     * playing screen: drawMap() no-ops with a warn, the board is blank, and the
+     * first Tab hands that grid to KeyboardController's
+     * `renderer.hexGrid.setFocusHighlight` — a throw in the common shape, where
+     * it is still the constructor's null — after the `error: null` above had
+     * already wiped the WebGL banner main.jsx put up. TitleAttractMode tests the
+     * same pair before it starts its decorative game; this is the seam that
+     * closes the hole for the real one, which is where it belongs — a guard at
+     * each mid-game hexGrid call would only have moved the failure.
+     */
+    if (!renderer || !renderer.initialized) {
       store.setState({ error: 'Cannot start game: graphics engine not available.' });
       return;
     }
@@ -938,12 +955,69 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   /**
-   * Handle a territory click during human turn.
-   * @param {number} areaId
+   * Put the board back on offering sources: nothing selected, nothing
+   * half-made, the attack candidates up again.
+   *
+   * The owner of those three steps for the two paths that DROP a selection —
+   * the player changing their mind (`cancelSelection` below) and the engine
+   * refusing a move (`executeAttack`'s catch) — because a second copy is a
+   * second chance for the order to drift. (The post-attack seam runs the same
+   * order for a third reason and cannot share this: its store write has to
+   * carry `battleResult`/`animationPhase` in the same setState, and
+   * `awaitingInput` is null when the game just ended.) The store write names
+   * `selectedTo` too, though every path that reaches here already has it null
+   * (the post-attack seam clears it): the catch's own write did, and one body
+   * keeps one shape. The order is the point: the store goes back to selectFrom
+   * BEFORE the refresh, or the hints would be recomputed against a stale
+   * 'selectTo' and repaint the old source's reachable enemies; and the clear
+   * comes before the refresh, or it would wipe the hints the refresh just
+   * painted.
+   */
+  function resetSelection() {
+    store.setState({ selectedFrom: null, selectedTo: null, awaitingInput: 'selectFrom' });
+    /*
+     * The selection and the keyboard's focus are different things, and only the
+     * selection was dropped — so this is clearSelectionHighlights(), which
+     * leaves the ring where DOM focus still is (#211 item 3).
+     */
+    if (renderer) renderer.hexGrid.clearSelectionHighlights();
+    // ...which takes the board hints down with it, and this is a return to
+    // selectFrom, so the attack candidates have to be painted again.
+    refreshCandidateHighlights();
+  }
+
+  /**
+   * Drop a half-made attack: back to picking a source, the selection off the
+   * board, the attack candidates back up.
+   *
+   * The owner of the PLAYER-facing cancel, because two inputs run it — Escape
+   * (KeyboardController hands it straight here) and a click on water below
+   * (#211 follow-up 16). Everything it does to the board is `resetSelection`
+   * above, which `executeAttack`'s rejected-move catch shares rather than
+   * copying; that path cannot come through here, having already set
+   * `awaitingInput: null` — which is exactly what the guard below rejects.
+   *
+   * A mid-game call, both callers gated on the playing screen, so it assumes a
+   * drawn board the way every mid-game call does (see KeyboardController's
+   * header for the model).
+   *
+   * @returns {boolean} True when there was actually a selection to cancel —
+   *   which is KeyboardController's cue to claim the Escape (#181).
+   */
+  function cancelSelection() {
+    if (store.getState().awaitingInput !== 'selectTo') return false;
+    resetSelection();
+    return true;
+  }
+
+  /**
+   * Handle a click on the board during a human turn.
+   *
+   * @param {number} areaId - The clicked territory, or 0 for WATER: the hit test
+   *   found no territory under the pointer. Water cancels a half-made attack and
+   *   is otherwise a no-op.
    */
   function handleTerritoryClick(areaId) {
-    if (areaId === 0) return;
-
     const storeState = store.getState();
     const state = storeState.gameState;
     if (!state || storeState.screen !== 'playing') return;
@@ -957,6 +1031,23 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     const currentPlayerId = state.turnOrder[state.currentPlayerIndex];
     if (currentPlayerId !== storeState.humanPlayerIndex) return;
+
+    /*
+     * Water, and the player is mid-attack: clicking off the board is a plain
+     * way to say "not that one after all", so it drops the selection rather
+     * than leaving it half-made until the next Escape (#211 follow-up 16).
+     * Deliberately below the gates rather than above them: cancelling is the
+     * player acting on their own turn, so it answers to the same four
+     * conditions a territory click does — not from a screen the game has left,
+     * not mid-animation, not from under a modal, not on an AI's turn. (The
+     * keyboard's own position is a separate layer and this does not touch it:
+     * the ring comes down because the browser blurs the board to `<body>`,
+     * which is the canvas handler's note to explain.)
+     */
+    if (areaId === 0) {
+      cancelSelection();
+      return;
+    }
 
     const area = state.areas[areaId];
     if (!area) return;
@@ -1029,14 +1120,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
       });
     } catch (err) {
       console.warn('[GameController] Human attack failed, resetting selection:', err.message);
-      // Invalid move — reset selection
-      store.setState({
-        selectedFrom: null,
-        selectedTo: null,
-        awaitingInput: 'selectFrom',
-      });
-      if (renderer) renderer.hexGrid.clearSelectionHighlights();
-      refreshCandidateHighlights();
+      // The engine refused the move, so the board goes back to offering sources
+      // — the same three steps in the same order the player's own cancel runs,
+      // shared rather than copied (`resetSelection` above). Not `cancelSelection`:
+      // `awaitingInput` is already null here, which its guard rejects.
+      resetSelection();
       return;
     }
 
@@ -1468,6 +1556,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     goToOnlineLeaderboard,
     goToReplay,
     handleTerritoryClick,
+    cancelSelection,
     endHumanTurn,
     refreshCandidateHighlights,
     viewGameReplay,

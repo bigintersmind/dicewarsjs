@@ -51,6 +51,20 @@ function pressEscape({ defaultPrevented = false } = {}) {
   return event;
 }
 
+/** Tab as the browser fires it, from whatever holds focus at the time. */
+function pressTab(shiftKey = false) {
+  const event = new KeyboardEvent('keydown', {
+    key: 'Tab',
+    shiftKey,
+    bubbles: true,
+    cancelable: true,
+  });
+  act(() => {
+    document.activeElement.dispatchEvent(event);
+  });
+  return event;
+}
+
 afterEach(() => {
   if (container) {
     act(() => render(null, container));
@@ -83,6 +97,14 @@ describe('QuitConfirm', () => {
     expect(heading.textContent).toMatch(/abandon this game/i);
     expect(buttonByText('QUIT')).toBeTruthy();
     expect(buttonByText('KEEP PLAYING')).toBeTruthy();
+    /*
+     * The card is a focus target itself, so that pressing its unfocusable
+     * chrome (the title, the body copy, the gap between the buttons) lands
+     * focus here rather than on <body>, where the trap's keydown handler could
+     * not see the next Tab. The attribute, not `el.tabIndex`: jsdom reports -1
+     * for any div, so reading the property would pass with no tabindex at all.
+     */
+    expect(el.getAttribute('tabindex')).toBe('-1');
   });
 
   it('QUIT confirms', () => {
@@ -155,19 +177,6 @@ describe('QuitConfirm', () => {
     const keep = buttonByText('KEEP PLAYING');
     const quit = buttonByText('QUIT');
 
-    const tab = (shiftKey = false) => {
-      const event = new KeyboardEvent('keydown', {
-        key: 'Tab',
-        shiftKey,
-        bubbles: true,
-        cancelable: true,
-      });
-      act(() => {
-        document.activeElement.dispatchEvent(event);
-      });
-      return event;
-    };
-
     /*
      * The focus assertions alone can't see a lost preventDefault() — jsdom
      * never moves focus on Tab, so the handler's own focus() call would still
@@ -175,12 +184,37 @@ describe('QuitConfirm', () => {
      * a second time and hop straight out of the dialog.
      */
     expect(document.activeElement).toBe(keep);
-    expect(tab().defaultPrevented).toBe(true);
+    expect(pressTab().defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(quit);
-    tab();
+    pressTab();
     expect(document.activeElement).toBe(keep);
-    expect(tab(true).defaultPrevented).toBe(true);
+    expect(pressTab(true).defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(quit);
+  });
+
+  it('keeps Tab inside the dialog from the card itself', () => {
+    renderConfirm({ quitConfirmOpen: true });
+
+    /*
+     * The state a press on the card's own chrome leaves behind. The browser
+     * half is a DOM fact taken on trust — jsdom does not model the mousedown
+     * focus fixup, so the focus it would perform is spelled out here: with the
+     * card focusable the fixup walks up to it, and without the tabindex there
+     * is no focusable ancestor and focus falls to <body>, outside the handler
+     * below. What this test can pin is that the trap survives the resulting
+     * state, and that the card takes focus at all.
+     */
+    act(() => dialog().focus());
+    expect(document.activeElement).toBe(dialog());
+
+    // Neither button is the current stop, so Tab starts the cycle at the safe
+    // answer and Shift+Tab enters it from the other end.
+    expect(pressTab().defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttonByText('KEEP PLAYING'));
+
+    act(() => dialog().focus());
+    expect(pressTab(true).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttonByText('QUIT'));
   });
 
   it('drops the entrance animation when reduced motion is on', () => {

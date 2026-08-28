@@ -460,7 +460,7 @@ describe('missing borders on the single-territory overlays', () => {
     expect(renderer._highlightFocus.shapes).toHaveLength(0);
   });
 
-  it('says it once per renderer, not once per keypress', () => {
+  it('says it once per map, not once per keypress', () => {
     const { renderer } = makeRenderer();
 
     // An arrow burst across a mismatched map is one fault, not twelve. The
@@ -522,6 +522,40 @@ describe('missing borders on the single-territory overlays', () => {
     // flags are reset where `_borders` is rebuilt so the report isn't spent on
     // the previous map.
     expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts a border that traced to nothing as missing', () => {
+    const { renderer, drawn } = makeRenderer();
+    // traceBorder returns [] when it finds no perimeter — truthy, so a bare
+    // `!border` check would let it through to a layer flagged visible over no
+    // geometry (appendTerritoryPath draws nothing under two segments), with no
+    // warning to say so. setCandidateHighlights guards the same case.
+    renderer._borders[drawn[0]] = [];
+
+    renderer.setFocusHighlight(drawn[0]);
+    renderer.setHighlight('from', drawn[0]);
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(renderer._highlightFocus.visible).toBe(false);
+    expect(renderer._highlightFrom.visible).toBe(false);
+  });
+
+  it('takes the previous ring down on a miss rather than leaving it on the last territory', () => {
+    const { renderer, drawn } = makeRenderer();
+    renderer.setFocusHighlight(drawn[0]);
+    renderer.setHighlight('from', drawn[0]);
+    expect(renderer._highlightFocus.visible).toBe(true);
+    expect(renderer._highlightFrom.visible).toBe(true);
+
+    // The store now points at the missing territory; a ring still up on the
+    // old one is the one desync the focus mirror promises cannot happen.
+    renderer.setFocusHighlight(9999);
+    renderer.setHighlight('from', 9999);
+
+    expect(renderer._highlightFocus.visible).toBe(false);
+    expect(renderer._highlightFocus.shapes).toHaveLength(0);
+    expect(renderer._highlightFrom.visible).toBe(false);
+    expect(renderer._highlightFrom.shapes).toHaveLength(0);
   });
 });
 

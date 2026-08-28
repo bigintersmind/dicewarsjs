@@ -393,13 +393,17 @@ export class HexGridRenderer {
    * same store/renderer map mismatch `setCandidateHighlights` has warned about
    * all along (#211 item 4). Both callers still return without painting: this
    * runs from a focus listener and from click handling, where throwing over a
-   * cosmetic overlay would be far worse than a missing ring.
+   * cosmetic overlay would be far worse than a missing ring. A border that
+   * traced to nothing counts as missing too — `traceBorder` returns `[]` when it
+   * finds no perimeter, which is truthy, and `appendTerritoryPath` draws nothing
+   * under two segments, so a bare `!border` check would flag a layer visible
+   * over no geometry (the case `setCandidateHighlights` guards the same way).
    *
    * Once per LABEL per map, not once per call. `setFocusHighlight` is the
    * reason: it is called once per *hop*, so an arrow burst across a mismatched
    * board would otherwise print a line per keypress and bury the first report.
    * `setHighlight` is called once per selection click, which is far less, but it
-   * shares the budget because one mismatched map is one report per entry point
+   * is capped the same way, because one mismatched map is one report per label
    * either way. (The sibling `setCandidateHighlights` can afford a line per
    * call — each of its calls is one whole hint set.) `drawMap` clears the record
    * along with `_borders`, since a freshly traced map is a fresh chance to be
@@ -431,8 +435,12 @@ export class HexGridRenderer {
   setHighlight(which, areaId) {
     const gfx = which === 'from' ? this._highlightFrom : this._highlightTo;
     const border = this._borders[areaId];
-    if (!border) {
+    if (!border || border.length < 2) {
       this._warnMissingBorder(`setHighlight('${which}')`, areaId);
+      // Down, not left as it was: a ring still up from the last call would
+      // mark a territory this call was asked to leave.
+      gfx.visible = false;
+      gfx.clear();
       return;
     }
 
@@ -461,8 +469,11 @@ export class HexGridRenderer {
    */
   setFocusHighlight(areaId) {
     const border = this._borders[areaId];
-    if (!border) {
+    if (!border || border.length < 2) {
       this._warnMissingBorder('setFocusHighlight', areaId);
+      // The ring is a cursor: an honest absence beats one left on the last
+      // territory while the store already points at this one.
+      this.clearFocusHighlight();
       return;
     }
     this._highlightFocus.visible = true;

@@ -329,8 +329,8 @@ describe('ScreenReaderAnnouncer', () => {
   });
 
   /*
-   * SPECTATE from the game-over card leaves the screen on 'playing' and nulls
-   * the human seat, and none of the branches below the guards match without one
+   * SPECTATE from the game-over card puts the screen back on 'playing' and
+   * nulls the human seat, and none of the branches below the guards match without one
    * — so whatever the last line was would sit in the region for the whole
    * spectated game. The region used to be remounted by App's screen switch,
    * which cleared it as a side effect; since #211 item 9 it is one node for the
@@ -395,15 +395,17 @@ describe('ScreenReaderAnnouncer', () => {
 
   /*
    * The other half of that guard, and the reason the battle effect's deps are
-   * `[battleResult]` alone: the attack that WINS the game. The result is written
-   * first and the screen flips after it, both effects being live over the same
-   * store, and the battle effect is the later of the two — so with `screen` in
-   * its deps it would re-run on the flip and overwrite "Game over. You win!"
-   * with the attack line that produced it. Deps of `[battleResult]` mean the
-   * closure runs only on the render where the result itself changed.
+   * `[battleResult]` alone: the attack that WINS the game. Were the result still
+   * in the store when the screen flips — both effects live over the same store,
+   * the battle effect the later of the two — then with `screen` in its deps it
+   * would re-run on the flip and overwrite "Game over. You win!" with the attack
+   * line that produced it. Deps of `[battleResult]` mean the closure runs only
+   * on the render where the result itself changed.
    *
-   * The source comment says the same thing; this is what makes an
-   * exhaustive-deps "fix" fail rather than ship.
+   * The controller nulls `battleResult` before `triggerGameOver` on both attack
+   * paths, so that ordering is arranged here by hand: what this pins is the deps
+   * list against an exhaustive-deps "fix", which the source comment also argues.
+   * It is what makes that "fix" fail rather than ship.
    */
   it('does not let the last battle line overwrite the game-over line', () => {
     store.setState({

@@ -267,9 +267,9 @@ describe('PreferencesManager', () => {
     it('comes up without window.matchMedia at all, deferring to the stored setting', () => {
       const realMatchMedia = window.matchMedia;
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      delete window.matchMedia;
 
       try {
+        delete window.matchMedia;
         const pm = createPreferencesManager();
 
         expect(warnSpy).toHaveBeenCalledWith(

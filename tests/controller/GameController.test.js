@@ -2373,6 +2373,10 @@ describe('GameController', () => {
        */
       expect(state.focusedAreaId).toBeNull();
       expect(renderer.hexGrid.focusUp).toBe(false);
+      // The sixth route to the title, and the one the lineup rule's first
+      // draft left out (#211 item-3 addendum): the abandoned game's names must
+      // not survive onto a title screen that names no game.
+      expect(state.playerNames).toEqual([]);
     });
   });
 
@@ -2398,14 +2402,18 @@ describe('GameController', () => {
      * The other shape of a renderer that didn't come up: `hexGrid` is null until
      * init() succeeds, so a renderer object can exist without one. That is why
      * the four unmount seams spell `renderer && renderer.hexGrid` where the
-     * mid-game call sites settle for a bare `renderer` — the mid-game ones run
-     * inside a game, which means a board that came up, while quitting and
-     * starting are reachable from the menu screens with no board at all.
+     * mid-game call sites settle for a bare `renderer` — the mid-game ones
+     * assume the board a game is played on (an assumption with a known hole,
+     * #211 follow-up 14, which they surface by throwing), while starting is
+     * reachable from the menu screens with no board at all and its three
+     * sibling seams are guarded alike rather than reasoned about one by one.
      *
      * Reaching this state needs init() to have failed and a game to have been
-     * started anyway, which nothing today does — so, like the lineup seam pins,
-     * this holds the guard to its shape rather than covering a live path. Only
-     * the game-over seam is driven here: it is the one whose clear lands after
+     * started anyway. The second half is not prevented — START stays live over
+     * a failed init() (follow-up 14) — but the mid-game `hexGrid` calls throw
+     * long before this seam, so nothing gets here today; like the lineup seam
+     * pins, this holds the guard to its shape rather than covering a live path.
+     * Only the game-over seam is driven here: it is the one whose clear lands after
      * its own setState, so `screen` alone cannot tell a survived call from a
      * throw. Hence the sound and the silent console.
      */

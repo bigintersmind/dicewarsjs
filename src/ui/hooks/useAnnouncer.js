@@ -61,7 +61,13 @@ export function useAnnouncer(store) {
       return;
     }
 
-    if (!gameState) return;
+    // No game to talk about: the same rule as the screens above. Unreachable
+    // today — every `gameState: null` write also puts the screen on 'title' —
+    // but the hook says so itself rather than leave the last line standing.
+    if (!gameState) {
+      setAnnouncement('');
+      return;
+    }
 
     const currentPlayerId = gameState.turnOrder[gameState.currentPlayerIndex];
     const isHumanTurn = currentPlayerId === humanPlayerIndex;
@@ -82,8 +88,8 @@ export function useAnnouncer(store) {
     /*
      * No seat, nothing more to say: a spectated game is watched, not played, and
      * every branch below is about the human's turn or the wait for it. Without
-     * this, the last line spoken before SPECTATE — which leaves the screen on
-     * 'playing' and only nulls the seat — would sit in the region for the whole
+     * this, the last line spoken before SPECTATE — which puts the screen back
+     * on 'playing' and nulls only the seat — would sit in the region for the whole
      * spectated game. The old per-screen remount cleared it as a side effect;
      * one node for the session (#211 item 9) means the hook has to say so.
      *

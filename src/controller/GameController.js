@@ -262,8 +262,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * are replaced wholesale by the game that replaces it — the success setState
      * below, in the same breath as the new gameState and screen — and emptied on
      * every route back to the title, where no game is named at all: goToTitle,
-     * this function's own two failure exits, and rejectMap's two. Never ahead of
-     * the game.
+     * this function's own two title-bound failure exits, rejectMap's two
+     * bounces, and endTurn's engine-error bounce. Never ahead of the game.
      *
      * Nothing today reaches startNewGame with names still set, so this is the
      * invariant stated structurally rather than a flash anyone has seen. Its one
@@ -1311,6 +1311,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
         quitConfirmOpen: false,
         rulesOpen: false,
         error: 'An error occurred. Returning to title screen.',
+        // The lineup goes with the game, as on every other route to the title
+        // (#211 item-3 addendum): no game is named behind a screen that has none.
+        playerNames: [],
         /*
          * An unmount seam like goToTitle: the playing screen takes BoardFocus's
          * territory buttons with it, and a button removed while it holds focus

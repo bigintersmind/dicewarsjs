@@ -116,8 +116,9 @@
  *     attack, #211 follow-up 16 — but that is the selection layer, reached
  *     through the controller, and it leaves this one alone.) A primary-button
  *     click on a TERRITORY is the one that does not drop the ring, because it
- *     moves the keyboard with it: the canvas pointer handler hands the
- *     `pointerdown` — the primary button only — to `focusFromPointer`
+ *     moves the keyboard with it: the canvas pointer handler
+ *     (`controller/canvasPointer.js`) hands the `pointerdown` — the primary
+ *     button only — to `focusFromPointer`
  *     below, which — only when the board already holds focus — focuses that
  *     territory's button and lets the caller suppress mousedown's focus fixup,
  *     the thing that would otherwise have blurred the board to `<body>` and sent
@@ -223,11 +224,13 @@ export function createKeyboardController(store, controller, renderer) {
    * areas are live. Warn once rather than on every arrow.
    *
    * Per CAUSE, though, not once for the whole session (#211 follow-up 20). The
-   * arrow entering the board, the arrow stepping to a neighbor, a pointer
-   * carrying the cursor to a clicked territory, and an element that is present
-   * but refuses focus are four separate wiring failures that happen to share a
-   * console line; one boolean let whichever fired first silence the other three
-   * for the life of the page, which is the opposite of what a diagnostic is for.
+   * arrow entering the board, the arrow stepping to a neighbor and a pointer
+   * carrying the cursor to a clicked territory are three separate wiring
+   * failures that happen to share a console line — six, once each is crossed
+   * with "no button at all" versus "a button that refused focus", which get
+   * their own keys below — and one boolean let whichever fired first silence
+   * every other for the life of the page, which is the opposite of what a
+   * diagnostic is for.
    * The set is never reset. BoardFocus remounts every game, so a strictly
    * per-game budget would mean subscribing this file to the store purely to
    * expire a warning — out of proportion to what it buys, when the failures it
@@ -426,7 +429,9 @@ export function createKeyboardController(store, controller, renderer) {
    *
    * @param {number} areaId - The territory to focus
    * @param {'arrow-enter'|'arrow-step'|'pointer'} cause - What asked for the
-   *   move, so a failure is reported (once) per cause rather than once per page
+   *   move, so a failure is reported (once) per cause rather than once per page.
+   *   Required, and unchecked at runtime: a call site that forgets it warns
+   *   "(undefined)" and shares that one budget with every other forgetful site.
    */
   function focusArea(areaId, cause) {
     const el = document.getElementById(areaElementId(areaId));
@@ -453,8 +458,9 @@ export function createKeyboardController(store, controller, renderer) {
    * where it is. Moving focus goes through `focusArea`, so the `focusin` mirror
    * does the store and ring bookkeeping down the one path everything else uses.
    *
-   * That is this function's only condition; the canvas pointer handler adds one
-   * more before calling it, the primary button (`e.button === 0`). Within that,
+   * That is this function's only condition; the canvas pointer handler adds two
+   * more before calling it: the primary button (`e.button === 0`) and a real
+   * territory — water is never offered to it at all. Within that,
    * the cursor follows the pointer whenever the board holds focus, including
    * during an AI turn or a battle animation, when the arrows bail in
    * `handleKeyDown` and this is the only way left to move it.

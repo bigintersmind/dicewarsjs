@@ -79,7 +79,7 @@ function renderPlaying(stateOverrides = {}) {
     openRules: vi.fn(),
     closeRules: vi.fn(),
     handleTerritoryClick: vi.fn(),
-    refreshCandidateHighlights: vi.fn(),
+    cancelSelection: vi.fn(() => false),
   };
 
   container = document.createElement('div');

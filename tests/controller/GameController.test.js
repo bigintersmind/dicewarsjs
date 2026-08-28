@@ -1784,6 +1784,43 @@ describe('GameController', () => {
       expect(renderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
     });
 
+    /*
+     * ...and under a modal, for the same reason. The dialog's scrim eats the
+     * press in the browser, so this holds the branch to its shape rather than
+     * covering a live path — but the shape is what the comment on it claims,
+     * and the AI turn and the animation were the only two of the four gates a
+     * water click actually exercised.
+     */
+    it('ignores a water click while the quit confirm is open', () => {
+      controller.handleTerritoryClick(1);
+      store.setState({ quitConfirmOpen: true });
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+
+      controller.handleTerritoryClick(0);
+
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      expect(store.getState().selectedFrom).toBe(1);
+      expect(renderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
+    });
+
+    /*
+     * The screen gate, and this one is live rather than shape-holding: the
+     * canvas listener is attached for the life of the page, and the attract
+     * board plays on under the title/arena/tournament/leaderboard menus — so a
+     * press on that board really does arrive here with the screen moved on.
+     */
+    it('ignores a water click once the screen has moved on', () => {
+      controller.handleTerritoryClick(1);
+      store.setState({ screen: 'title' });
+      renderer.hexGrid.clearSelectionHighlights.mockClear();
+
+      controller.handleTerritoryClick(0);
+
+      expect(store.getState().awaitingInput).toBe('selectTo');
+      expect(store.getState().selectedFrom).toBe(1);
+      expect(renderer.hexGrid.clearSelectionHighlights).not.toHaveBeenCalled();
+    });
+
     it('ignores clicks when not on playing screen', () => {
       store.setState({ screen: 'title' });
       controller.handleTerritoryClick(1);
@@ -2762,10 +2799,11 @@ describe('GameController', () => {
      * The other shape of a renderer that didn't come up: main.jsx assigns
      * gameRenderer before awaiting init(), and GameRenderer.init destroys and
      * rethrows on failure, so a renderer object survives with `initialized ===
-     * false` and a null hexGrid. START used to carry it all the way to the
-     * playing screen — a blank board, and the first Tab throwing inside
-     * KeyboardController — with the `error: null` on the way in having wiped the
-     * WebGL banner that said why. Now the start seam refuses it, the way
+     * false` and no usable hex grid (null, or already destroyed by init()'s own
+     * cleanup). START used to carry it all the way to the playing screen — a
+     * blank board, and the first Tab handing that grid to KeyboardController's
+     * ring calls — with the `error: null` on the way in having wiped the WebGL
+     * banner that said why. Now the start seam refuses it, the way
      * TitleAttractMode already refuses to run its decorative game on one.
      */
     it('refuses to start on a renderer whose init() failed', async () => {

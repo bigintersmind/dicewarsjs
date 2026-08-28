@@ -37,7 +37,7 @@ function makeDeps({ areaId = 5, focusMoved = false } = {}) {
 }
 
 describe('createCanvasPointerDown', () => {
-  it('takes the focus ring and suppresses the default when the cursor moved', () => {
+  it('asks the focus layer to follow the pointer and suppresses the default when it did', () => {
     const deps = makeDeps({ areaId: 5, focusMoved: true });
 
     const event = press(createCanvasPointerDown(deps), { clientX: 42, clientY: 99 });

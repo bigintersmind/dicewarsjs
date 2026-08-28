@@ -59,13 +59,15 @@ tests/
 Vitest collects `tests/**/*.test.{js,cjs}`, `src/**/*.test.js`, and
 `tests/benchmarks/*.benchmark.js` (see `include` in `vite.config.js`).
 
-`tests/setup.js` installs the two global stubs needed under jsdom: a minimal
-canvas 2D context, because PixiJS probes `canvas.getContext('2d')` at import time
-and would otherwise log noisy "Not implemented" errors, and a `window.matchMedia`
-answering `matches: false`, which this jsdom does not implement at all and which
-`PreferencesManager` reads for the system reduced-motion preference. Both guard
-on the global they patch, so the file is a no-op under the default `node`
-environment.
+`tests/setup.js` stubs two globals jsdom is missing, both to keep the runs
+quiet: a minimal canvas 2D context, because PixiJS probes
+`canvas.getContext('2d')` at import time and would otherwise log noisy "Not
+implemented" errors, and a `window.matchMedia` answering `matches: false`, which
+this jsdom does not implement at all and which `PreferencesManager` reads for the
+system reduced-motion preference (that read is inside a try/catch and answers
+`false` without the stub too, so what the stub settles is the noise and the
+answer, not whether the tests run). Both guard on the global they patch, so the
+file is a no-op under the default `node` environment.
 
 ## Test types
 

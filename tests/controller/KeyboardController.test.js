@@ -77,8 +77,7 @@ function createMockRenderer() {
    * state assertion, where bare vi.fn()s can only spell it out as a negative per
    * writer (and a writer added later would slip past all of them). It models the
    * real renderer's outcomes: clearHighlights() wipes every layer, focus ring
-   * included, while clearSelectionHighlights() deliberately leaves it alone
-   * (#211 item 3).
+   * included.
    */
   const hexGrid = {
     focusUp: false,
@@ -91,7 +90,6 @@ function createMockRenderer() {
     clearHighlights: vi.fn(() => {
       hexGrid.focusUp = false;
     }),
-    clearSelectionHighlights: vi.fn(),
     _cellPos: { x, y },
     _getPlayerColor: vi.fn(() => 0xffffff),
   };
@@ -359,7 +357,6 @@ describe('KeyboardController', () => {
         hexGrid: {
           setFocusHighlight: vi.fn(),
           clearFocusHighlight: vi.fn(),
-          clearSelectionHighlights: vi.fn(),
           _cellPos: null,
         },
       };
@@ -433,6 +430,60 @@ describe('KeyboardController', () => {
     });
 
     /*
+     * A button that is missing and one that is present but refuses focus are
+     * different wiring failures reported through the same line, so they get
+     * different budgets too — otherwise whichever the arrows hit first silences
+     * the other for the life of the page (#211 follow-up 20).
+     */
+    it('reports a refused focus and a missing button on separate budgets', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        areaButton(1).focus();
+        /*
+         * Present, and refuses the focus() call. `disabled` is what a browser
+         * refuses on — but jsdom's isFocusableAreaElement answers "focusable"
+         * for anything carrying a parseable tabindex before it ever looks at
+         * disabled, and BoardFocus gives every button one, so the attribute has
+         * to come off here or the stand-in would take focus and pin nothing.
+         */
+        areaButton(2).removeAttribute('tabindex');
+        areaButton(2).disabled = true;
+
+        fireKey('ArrowRight'); // reported once...
+        fireKey('ArrowRight'); // ...and then quiet
+        areaButton(2).remove(); // now it is missing instead
+        fireKey('ArrowRight'); // ...which is its own budget
+
+        expect(warnSpy).toHaveBeenCalledTimes(2);
+        expect(warnSpy.mock.calls[0][0]).toContain('(arrow-step:refused)');
+        expect(warnSpy.mock.calls[1][0]).toContain('(arrow-step)');
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    /*
+     * The third cause: the arrow ENTERING the board, which picks its territory
+     * from the game state rather than from what BoardFocus rendered — so a miss
+     * here is exactly the disagreement between the two the warning exists to
+     * report, and it has to name itself as that path rather than as a step.
+     */
+    it('names the arrow entering the board when its first territory has no button', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // Nothing focused, so the arrow enters the board rather than stepping.
+        areaButton(1).remove();
+
+        fireKey('ArrowRight');
+
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0][0]).toContain('(arrow-enter)');
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    /*
      * A territory with nothing next to it. The key is claimed the moment focus
      * is on the board, so it is swallowed rather than left to scroll the page —
      * and focus stays where it was instead of being dropped somewhere else.
@@ -449,11 +500,14 @@ describe('KeyboardController', () => {
 
     /*
      * What a click on WATER does to the keyboard. A click on a territory now
-     * carries the ring with it (focusFromPointer below), but a click on nothing
-     * is left entirely to the browser: mousedown's focus fixup blurs the focused
-     * button to `<body>`, so the next arrow re-enters the board at the first own
-     * territory rather than resuming at area 3. Deliberate — clicking off the
-     * board is as good a way as any to say "done with the keyboard position".
+     * carries the ring with it (focusFromPointer below), but the FOCUS half of
+     * a click on nothing is left entirely to the browser: mousedown's focus
+     * fixup blurs the focused button to `<body>`, so the next arrow re-enters
+     * the board at the first own territory rather than resuming at area 3.
+     * Deliberate — clicking off the board is as good a way as any to say "done
+     * with the keyboard position". (The click does reach the game, cancelling a
+     * half-made attack since #211 follow-up 16, but that is the controller's
+     * layer and nothing here sees it.)
      */
     it('re-enters at the first own territory after a water click blurs the board', () => {
       areaButton(3).focus();
@@ -624,7 +678,7 @@ describe('KeyboardController', () => {
    * board clear and their order moved to GameController.test.js with the code.
    */
 
-  describe('cancel selection', () => {
+  describe('Escape (delegating the cancel)', () => {
     it('asks the controller to cancel, and claims the key when it did', () => {
       mockController.cancelSelection.mockReturnValue(true);
 
@@ -643,7 +697,7 @@ describe('KeyboardController', () => {
       expect(event.defaultPrevented).toBe(false);
     });
 
-    it('leaves the focus layer alone — cancelling a selection never took the ring down', () => {
+    it('leaves the focus layer alone — asking for the cancel never took the ring down', () => {
       areaButton(3).focus();
       mockController.cancelSelection.mockReturnValue(true);
       // Past the focusin paint, so this asserts only what the Escape did.
@@ -652,10 +706,12 @@ describe('KeyboardController', () => {
       fireKey('Escape');
 
       /*
-       * The selection was cancelled; DOM focus was not, and it is still on the
-       * button for area 3. The selection and the keyboard's position are
-       * different layers, and Escape is only the first one's — so "nothing
-       * happened to the ring" is the assertion, not "it was painted again".
+       * The cancel was asked for and reported done; DOM focus was not touched,
+       * and is still on the button for area 3. The selection and the keyboard's
+       * position are different layers and Escape is only the first one's — so
+       * "nothing happened to the ring" is the assertion, not "it was painted
+       * again". What the real cancel does to the board is
+       * GameController.test.js's.
        */
       expect(mockController.cancelSelection).toHaveBeenCalled(); // the path really ran
       expect(document.activeElement).toBe(areaButton(3));
@@ -668,7 +724,7 @@ describe('KeyboardController', () => {
       expect(mockRenderer.hexGrid.setFocusHighlight).not.toHaveBeenCalled();
     });
 
-    it('still cancels a half-made attack from a focused control', () => {
+    it('still asks for the cancel from a focused control', () => {
       const endTurn = mountButton('END TURN');
       endTurn.focus();
       mockController.cancelSelection.mockReturnValue(true);
@@ -938,14 +994,14 @@ describe('KeyboardController', () => {
    * -----------------------------------------------------------------------
    * A canvas click keeps the keyboard's position (#211)
    * -----------------------------------------------------------------------
-   * main.jsx calls this from the canvas `pointerdown`, before handing the click
-   * on to the controller. Without it, mousedown's own focus fixup blurs the
-   * focused territory button to `<body>` (the canvas is not focusable), so the
-   * ring goes down and the next arrow re-enters the board at the first own
-   * territory instead of stepping from the territory just clicked. The return
-   * value is what tells main.jsx whether to preventDefault() — and it is false
-   * for a mouse-only player, who never has a territory focused and must never
-   * acquire a ring by clicking.
+   * The canvas pointer handler calls this from its `pointerdown`, before handing
+   * the click on to the controller. Without it, mousedown's own focus fixup
+   * blurs the focused territory button to `<body>` (the canvas is not
+   * focusable), so the ring goes down and the next arrow re-enters the board at
+   * the first own territory instead of stepping from the territory just
+   * clicked. The return value is what tells that handler whether to
+   * preventDefault() — and it is false for a mouse-only player, who never has a
+   * territory focused and must never acquire a ring by clicking.
    */
 
   describe('focusFromPointer', () => {
@@ -994,9 +1050,9 @@ describe('KeyboardController', () => {
      * an oversight: E parks focus on a territory for the whole AI turn, the
      * arrows bail while an animation runs or it is not the human's turn, and a
      * click is then the only way left to move the cursor. Gating it would not
-     * leave the ring alone either — the mousedown fixup main.jsx suppresses on
-     * the strength of the `true` would drop focus to `<body>` and take the ring
-     * down with it. Nothing else moves: handleTerritoryClick ignores the click
+     * leave the ring alone either — the mousedown fixup the canvas handler
+     * suppresses on the strength of the `true` would drop focus to `<body>` and
+     * take the ring down with it. Nothing else moves: handleTerritoryClick ignores the click
      * on these turns, so store and DOM stay agreed.
      *
      * A pin of behaviour that already held (no source change went with it), so

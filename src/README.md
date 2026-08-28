@@ -12,7 +12,7 @@ src/
 ├── renderer/     # PixiJS rendering (hex grid, dice, battle animations)
 ├── ui/           # Preact components (screens, HUD, overlays)
 ├── store/        # Observable GameStore (pub/sub shared state)
-├── controller/   # GameController, the game loop orchestrator
+├── controller/   # GameController (game loop), KeyboardController, TitleAttractMode, canvasPointer
 ├── audio/        # Web Audio sound manager
 ├── utils/        # Game configuration: map-size presets
 ├── main.jsx      # Application entry point (PixiJS + Preact bootstrap)

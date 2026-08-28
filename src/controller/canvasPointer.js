@@ -14,7 +14,9 @@
  * `document` and therefore runs after this element-level one on the same press,
  * so an open dropdown closes and the board still gets the click. That is the
  * DOM's bubble order, not this factory's, and no unit test of this function
- * observes it (#211 follow-up 34 stays open for it).
+ * observes it — confirmed by hand in Chromium instead (a water click with the
+ * dropdown open both closes it and cancels the selection), so #211 follow-up 34
+ * stays open for the automated pin.
  *
  * @module controller/canvasPointer
  */

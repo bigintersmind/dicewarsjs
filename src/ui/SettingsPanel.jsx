@@ -303,6 +303,14 @@ export function SettingsPanel({ store, preferencesManager }) {
    */
   const open = useGameStore(store, s => s.settingsOpen);
   const setOpen = useCallback(value => store.setState({ settingsOpen: value }), [store]);
+  /*
+   * The flag must not outlive the panel. Nothing else writes it, so a panel that
+   * unmounts while open — the ErrorBoundary around it swapping in its fallback
+   * after a render threw — would otherwise leave the board's arrows, E and
+   * Escape suspended for the rest of the session, with no dropdown left to
+   * close; and the arrows are the only way to reach an enemy territory.
+   */
+  useEffect(() => () => store.setState({ settingsOpen: false }), [store]);
   const wrapperRef = useRef(null);
   const rawPrefs = useGameStore(store, s => s.preferences);
   const prefs = rawPrefs || PREF_DEFAULTS;

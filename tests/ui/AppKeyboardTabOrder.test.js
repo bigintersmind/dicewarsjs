@@ -197,6 +197,44 @@ describe('App playing-screen tab order (#211)', () => {
     expect(stops[stops.indexOf('dw-area-1') - 1]).toBe('Rules: how to play');
   });
 
+  /*
+   * The settings dropdown is the third overlay the board's keys respect (#211
+   * item 8), and the only one with no scrim — composed here with the real panel
+   * and the real controller on one document. The controller's listener runs
+   * first (the panel registers its own only while it is open, so always after
+   * the controller exists, whatever order main.jsx creates them in) and passes
+   * Escape through untouched, so the panel closes and the half-made attack is
+   * left standing for the next one.
+   */
+  it('closes the dropdown on Escape and leaves a half-made attack alone', () => {
+    const { store } = renderPlaying({ awaitingInput: 'selectTo', selectedFrom: 1 });
+
+    act(() => settingsBtn().click());
+    expect(store.getState().settingsOpen).toBe(true);
+
+    const event = press('Escape');
+
+    expect(store.getState().settingsOpen).toBe(false);
+    expect(settingsBtn().getAttribute('aria-expanded')).toBe('false');
+    expect(store.getState().awaitingInput).toBe('selectTo');
+    expect(store.getState().selectedFrom).toBe(1);
+    // And it stopped there: the panel claims and stops the key, so QuitConfirm's
+    // window listener never raises "Abandon this game?" on the same press.
+    expect(store.getState().quitConfirmOpen).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('does not end the turn on E with the dropdown open', () => {
+    const { store, controller } = renderPlaying();
+
+    act(() => settingsBtn().click());
+    const event = press('e');
+
+    expect(controller.endHumanTurn).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    expect(store.getState().settingsOpen).toBe(true);
+  });
+
   it('writes the ring when the browser tabs onto a territory', () => {
     const { store } = renderPlaying();
 

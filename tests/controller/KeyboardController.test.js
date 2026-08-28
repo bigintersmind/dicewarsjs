@@ -761,8 +761,10 @@ describe('KeyboardController', () => {
     });
 
     /*
-     * The order matters here: this controller's document listener is registered
-     * before render(), so it runs before the panel's. An Escape claimed here
+     * The order matters here: this controller's document listener runs before
+     * the panel's — the panel registers its own only while it is open, so after
+     * the controller exists whatever order main.jsx creates them in. An Escape
+     * claimed here
      * would reach the panel already defaultPrevented, and the panel yields to a
      * claimed key — the dropdown would stay up and the selection would be gone.
      * Passing it through untouched, the panel closes; the selection is the next

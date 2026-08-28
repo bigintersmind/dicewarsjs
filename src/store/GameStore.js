@@ -83,11 +83,14 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   behind it (#211 item 8). Keys only: the dropdown has no scrim, and a
  *   pointerdown on the board both lands and closes it (the canvas handler runs
  *   before the panel's document-level click-outside), so handleTerritoryClick
- *   deliberately does not read this flag. No navigation seam resets it either:
- *   the panel is mounted outside the screen switch and stays as the player
- *   left it across a screen change, and since it gates no click, a flag stuck
- *   true would cost the arrow/E/Escape shortcuts, not the game — Tab and Enter
- *   still reach every territory and END TURN.
+ *   deliberately does not read this flag. No navigation seam resets it, unlike
+ *   rulesOpen, because it cannot outlive the panel: the panel clears it on
+ *   unmount, which is what the ErrorBoundary around it does to a panel whose
+ *   render threw, and while the panel is alive its own Escape and click-outside
+ *   always clear it. That guarantee matters more here than for the two flags
+ *   above — a flag stuck true would be a lost game, not a lost shortcut, since
+ *   enemy territories are reachable only by the arrows it suspends (BoardFocus
+ *   tabs the human's own territories only).
  * @property {number} aiSpeed
  * @property {boolean} soundEnabled
  * @property {string | null} error

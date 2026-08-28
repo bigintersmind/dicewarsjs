@@ -40,11 +40,11 @@ function renderGameOver(overrides = {}) {
   });
 
   const onTitle = overrides.onTitle ?? vi.fn();
-  const onRules = overrides.onRules;
+  const { onHistory, onSpectate, onRules } = overrides;
   container = document.createElement('div');
   document.body.appendChild(container);
   act(() => {
-    render(h(GameOverScreen, { store, onTitle, onRules }), container);
+    render(h(GameOverScreen, { store, onTitle, onHistory, onSpectate, onRules }), container);
   });
   return { store, container };
 }
@@ -102,14 +102,16 @@ describe('GameOverScreen', () => {
   // onTitle. The rail's name for that screen is the Battle tab (NAV_TABS in
   // menuChrome.jsx), a label a player who only plays never sees: since #182 the
   // rail is hidden on the landing page, and the title's FooterNav filters that tab out.
-  it('labels the exit button HOME, first and unlabelled, and routes it through onTitle', () => {
+  it('labels the exit button HOME, first in its row and named by its own text, and routes it through onTitle', () => {
     const onTitle = vi.fn();
-    // With the reference button up too, so "first" has a neighbour to be first of.
-    renderGameOver({ gameState: { winner: 2 }, onTitle, onRules: vi.fn() });
+    // With HISTORY and the reference button up too — the row a real game over
+    // shows — so "first" has neighbours to be first of.
+    renderGameOver({ gameState: { winner: 2 }, onTitle, onHistory: vi.fn(), onRules: vi.fn() });
     const home = [...container.querySelectorAll('button')].find(b => b.textContent === 'HOME');
     expect(home).toBeTruthy();
     expect(home.getAttribute('aria-label')).toBeNull(); // spoken name is the visible name
-    expect([...container.querySelectorAll('button')][0]).toBe(home); // primary, and first in the tab walk
+    // Primary, and first in this screen's own row (App's settings die still precedes it).
+    expect([...container.querySelectorAll('button')][0]).toBe(home);
     act(() => home.click());
     expect(onTitle).toHaveBeenCalledTimes(1);
   });

@@ -11,6 +11,8 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { GameHUD } from '../../src/ui/GameHUD.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { THEMES } from '../../src/renderer/themes.js';
+import { contrast, surface, WCAG } from '../helpers/contrast.js';
 
 let container;
 
@@ -130,5 +132,29 @@ describe('GameHUD', () => {
   it('renders nothing without a game state', () => {
     renderHUD({ gameState: null });
     expect(container.innerHTML).toBe('');
+  });
+});
+
+describe('GameHUD — current-player ring (#220)', () => {
+  /** The chips, in seat order (the eliminated seat 2 renders nothing). */
+  const chips = () => [...playersRow().children];
+
+  it('rings the current chip in the text colour, and only that chip', () => {
+    renderHUD();
+    expect(chips()[0].style.outline).toBe('2px solid var(--ui-text)');
+    expect(chips()[1].style.outline).toBe('');
+  });
+
+  /*
+   * The ring used to be a literal white, which the dark theme's black bar
+   * made invisible to nobody and the light theme's 85%-white bar made
+   * invisible to everybody (1.03:1). Measure the token it now uses against
+   * the bar it sits on — flattened over the page, since the bar is
+   * translucent — in both themes, at WCAG's non-text minimum.
+   */
+  it.each(['dark', 'light'])('the %s ring clears 3:1 against the bar', name => {
+    const theme = THEMES[name];
+    const bar = surface(theme.bodyBg, theme.uiBg);
+    expect(contrast(theme.uiText, bar)).toBeGreaterThanOrEqual(WCAG.AA_NON_TEXT);
   });
 });

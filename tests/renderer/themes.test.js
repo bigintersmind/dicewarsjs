@@ -66,6 +66,9 @@ describe('themes', () => {
       expect(typeof theme.uiText).toBe('string');
       expect(typeof theme.uiAccent).toBe('string');
       expect(typeof theme.bodyBg).toBe('string');
+      // Not a color: the keyword that themes the browser's own native widgets,
+      // so it has to be one the browser actually understands.
+      expect(['dark', 'light']).toContain(theme.colorScheme);
     }
   });
 

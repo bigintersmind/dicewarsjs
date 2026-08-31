@@ -6,6 +6,11 @@
  * single mechanism for theming the DOM/UI overlay — new screens inherit the
  * theme automatically just by using the variables, with no per-screen wiring.
  *
+ * It also sets the two things a CSS variable cannot reach, because nothing in
+ * our own stylesheets paints them: the root's `color-scheme` (the tone the
+ * browser draws native widgets in) and `<meta name="theme-color">` (the tone
+ * the browser tints its own chrome around the page with).
+ *
  * The PixiJS renderer (the game board) is themed separately via
  * `GameRenderer.setTheme()`, since it draws to a canvas rather than the DOM.
  *
@@ -68,8 +73,9 @@ export function hexToRgba(hex, alpha) {
 }
 
 /**
- * Apply a theme's palette as CSS custom properties and sync the page
- * background. Safe to call repeatedly (e.g. on every preference change).
+ * Apply a theme's palette as CSS custom properties, set the root's
+ * `color-scheme`, and sync the page background and the browser-chrome tint.
+ * Safe to call repeatedly (e.g. on every preference change).
  *
  * @param {string} themeName - 'dark' | 'light' (falls back to dark)
  * @param {{ root?: HTMLElement, body?: HTMLElement }} [targets] - Override the
@@ -87,6 +93,24 @@ export function applyThemeVars(themeName, { root, body } = {}) {
   el.style.setProperty('--ui-accent-soft', hexToRgba(theme.uiAccent, 0.15));
   // Ink-rim shadow for text that floats directly on the scrimmed board.
   el.style.setProperty('--ui-text-halo', composeTextHalo(theme.uiInk, theme.uiInkSoft));
+  /*
+   * Not a custom property but a real one, so it is set directly and stays out
+   * of VAR_MAP: it is what tells the browser to draw the native widgets we
+   * don't style ourselves — the Custom-difficulty `<select>` popup on the title
+   * screen, scrollbars — in the theme's tone instead of always-light defaults.
+   */
+  el.style.setProperty('color-scheme', theme.colorScheme);
+
+  /*
+   * Mobile browsers tint their own chrome (address bar, task switcher) from
+   * `<meta name="theme-color">`, so it has to follow the theme too or the
+   * surround stays dark around the light theme. Resolved from the root's own
+   * document, since tests hand us a detached element whose real `<head>` is
+   * still reachable that way; a page without the meta just keeps its default.
+   */
+  const doc = el.ownerDocument || (typeof document !== 'undefined' ? document : null);
+  const themeColorMeta = doc && doc.querySelector('meta[name="theme-color"]');
+  if (themeColorMeta) themeColorMeta.setAttribute('content', theme.bodyBg);
 
   const bodyEl = body || (typeof document !== 'undefined' ? document.body : null);
   if (bodyEl) bodyEl.style.background = theme.bodyBg;

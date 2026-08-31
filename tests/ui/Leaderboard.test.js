@@ -82,7 +82,7 @@ describe('Leaderboard flag badge', () => {
   });
 });
 
-describe('Leaderboard flag badge — danger colour (#220)', () => {
+describe('Leaderboard flag badge — danger color (#220)', () => {
   /** The badge is the only element in a row carrying the explanatory tooltip. */
   const badge = name => row(name).querySelector('span[title]');
 
@@ -109,7 +109,7 @@ describe('Leaderboard flag badge — danger colour (#220)', () => {
    * surface the badge actually sits on, and the thinnest margin of the four. The wash comes
    * from the rendered row rather than a copy of the literal, so the two can't drift apart.
    */
-  it.each(['dark', 'light'])('the %s danger colour clears 4.5:1 wherever it is used', name => {
+  it.each(['dark', 'light'])('the %s danger color clears 4.5:1 wherever it is used', name => {
     flagOne();
     const rowWash = row('Broken').style.background;
     const theme = THEMES[name];

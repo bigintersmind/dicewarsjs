@@ -29,6 +29,7 @@ export const VAR_MAP = {
   '--ui-accent': 'uiAccent',
   '--ui-border': 'uiBorder',
   '--ui-body-bg': 'bodyBg',
+  '--ui-danger': 'uiDanger',
   '--ui-scrim': 'uiScrim',
 };
 

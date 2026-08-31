@@ -7,6 +7,8 @@
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { Leaderboard } from '../../src/ui/Leaderboard.jsx';
+import { THEMES } from '../../src/renderer/themes.js';
+import { contrast, surface, WCAG } from '../helpers/contrast.js';
 
 let container;
 
@@ -77,5 +79,62 @@ describe('Leaderboard flag badge', () => {
     // jsdom normalizes the rgba() background; just assert it differs from the unstyled row.
     expect(row('Broken').style.background).not.toBe('');
     expect(row('Healthy').style.background).toBe('');
+  });
+});
+
+describe('Leaderboard flag badge — danger colour (#220)', () => {
+  /** The badge is the only element in a row carrying the explanatory tooltip. */
+  const badge = name => row(name).querySelector('span[title]');
+
+  const flagOne = () =>
+    renderLeaderboard({
+      bots,
+      flagged: [{ name: 'Broken', errors: 30, invalidMoves: 0, errorFraction: 1 }],
+    });
+
+  it('paints the badge from the theme token, not a literal red', () => {
+    flagOne();
+    expect(badge('Broken').style.color).toBe('var(--ui-danger)');
+    expect(badge('Broken').style.border).toBe('1px solid var(--ui-danger)');
+  });
+
+  it('keeps the dark theme looking exactly as it shipped', () => {
+    expect(THEMES.dark.uiDanger).toBe('#e5534b');
+  });
+
+  /*
+   * The badge is 11px bold — body text as far as WCAG is concerned — so 4.5:1 is the bar,
+   * and every surface it can land on is translucent: flatten them over the page first. The
+   * flagged row's own wash sits on top of the panel, so measure that stack too — it is the
+   * surface the badge actually sits on, and the thinnest margin of the four. The wash comes
+   * from the rendered row rather than a copy of the literal, so the two can't drift apart.
+   */
+  it.each(['dark', 'light'])('the %s danger colour clears 4.5:1 wherever it is used', name => {
+    flagOne();
+    const rowWash = row('Broken').style.background;
+    const theme = THEMES[name];
+    const panel = surface(theme.bodyBg, theme.uiOverlayBg);
+    const surfaces = [
+      panel,
+      surface(theme.bodyBg, theme.uiScrim),
+      surface(theme.bodyBg, theme.uiBg),
+      surface(theme.bodyBg, theme.uiOverlayBg, rowWash),
+    ];
+    for (const bg of surfaces) {
+      expect(contrast(theme.uiDanger, bg)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+    }
+    // Danger must never collapse back into the accent, which the rank column of that very
+    // row is painted in.
+    expect(theme.uiDanger).not.toBe(theme.uiAccent);
+  });
+
+  it('separates the light danger red from the light accent, its nearest neighbour', () => {
+    /*
+     * The light accent is a crimson barely a dozen degrees of hue off a plain red, so the
+     * light danger is pushed darker as well as warmer — a lightness step still reads at
+     * badge size where a hue step alone might not. The dark pair is separated by hue only
+     * (1.03:1); that is the shipped look and stays untouched.
+     */
+    expect(contrast(THEMES.light.uiDanger, THEMES.light.uiAccent)).toBeGreaterThan(1.1);
   });
 });

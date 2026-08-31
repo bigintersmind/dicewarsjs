@@ -169,6 +169,34 @@ describe('resolveMapSize', () => {
 });
 ```
 
+## Manual checks
+
+Contrast is pinned by unit tests, but the light theme is not the one anyone
+develops in, so walk it once before shipping a UI change (#220). Open the
+settings die, set **Theme: light**, and go through the whole loop:
+
+1. **Title** — the wordmark, START, the difficulty row and the footer links,
+   all read against the attract board drifting behind them.
+2. **Setup** — open Custom: each seat swatch keeps a visible hairline, and the
+   bot dropdowns and luck rungs read on the panel.
+3. **Map preview** — the setup eyebrow and the PLAY / NEW MAP / ← BACK row. The
+   bot-load notice above them appears only when a chosen bot fails to load; to
+   see it, go offline in DevTools once the title screen is up, pick a persona or
+   a community bot under Custom, and press START — its lazy chunk fails and the
+   seat falls back to the default bot with the notice.
+4. **An AI turn** — the "… is thinking …" line: the seat swatch, the name in the
+   text color, and the halo behind them, over the brightest territory you can
+   find under it.
+5. **Your turn** — the instruction line ("Click your territory to attack from"),
+   END TURN, and on the HUD bar the ring around the current chip plus every
+   seat swatch.
+6. **Game over** — the heading, the subtitle, and the HOME / HISTORY / HOW TO
+   PLAY row.
+
+Then repeat the walk with **Color-blind: on**. It swaps the player and dice
+palettes, so every swatch, chip and thinking line changes color while the
+chrome around them does not.
+
 ## Continuous integration
 
 Tests run in CI on every pull request as part of the single `build-and-test` job,

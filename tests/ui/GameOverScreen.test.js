@@ -4,13 +4,18 @@
  *
  * Covers the subtitle the screen shows for each terminal outcome, in particular the
  * turn-cap draw (winner null + gameOverReason 'turnLimit') introduced with the browser
- * stalemate guard — a game that reached the turn cap with no conqueror.
+ * stalemate guard — a game that reached the turn cap with no conqueror. Also the
+ * rule that neither the heading nor the subtitle is ever set in a seat's board
+ * color (#220): the winner's seat rides beside the words as a swatch.
  */
 
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { GameOverScreen } from '../../src/ui/GameOverScreen.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../../src/renderer/constants.js';
+import { THEMES } from '../../src/renderer/themes.js';
+import { contrast, surface, WCAG } from '../helpers/contrast.js';
 
 let container;
 /*
@@ -37,6 +42,9 @@ function renderGameOver(overrides = {}) {
     gameOverReason: overrides.gameOverReason ?? null,
     playerNames: overrides.playerNames ?? ['You', 'Blitz', 'Conqueror'],
     rulesOpen: overrides.rulesOpen ?? false,
+    // Only when a test asks: setState shallow-merges, so an unconditional key
+    // would overwrite the store's own default preferences with a stub.
+    ...(overrides.preferences ? { preferences: overrides.preferences } : {}),
   });
 
   const onTitle = overrides.onTitle ?? vi.fn();
@@ -47,6 +55,13 @@ function renderGameOver(overrides = {}) {
     render(h(GameOverScreen, { store, onTitle, onHistory, onSpectate, onRules }), container);
   });
   return { store, container };
+}
+
+/** jsdom normalizes hex colors to rgb(); compare against the same normalization. */
+function cssColor(hex) {
+  const probe = document.createElement('div');
+  probe.style.color = hex;
+  return probe.style.color;
 }
 
 afterEach(() => {
@@ -124,6 +139,64 @@ describe('GameOverScreen', () => {
     renderGameOver({ gameState: { winner: 2 }, gameOverReason: 'turnLimit' });
     expect(container.textContent).toContain('Conqueror wins');
     expect(container.textContent).not.toContain('turn limit reached');
+  });
+
+  /*
+   * The heading and the subtitle used to be set in the winner's board color,
+   * which the light theme's near-white panel made unreadable — yellow 1.07:1,
+   * cyan 1.02:1, and seat 0's lavender (the human's seat, so the "YOU WIN!"
+   * heading) 2.47:1, short of even the large-text 3:1 (#220). Words are the
+   * theme's ink now; the seat rides beside them as a swatch.
+   */
+  describe('seat color beside the words, never in them (#220)', () => {
+    const heading = () => container.querySelector('h1');
+    const subtitleLine = () => [...container.querySelectorAll('p')].find(el => el.textContent);
+    const seatSwatch = () => subtitleLine().querySelector('span[aria-hidden="true"]');
+
+    const palettes = [
+      ['default', PLAYER_COLORS_CSS, {}],
+      ['color-blind', COLORBLIND_PLAYER_COLORS_CSS, { colorBlindMode: true }],
+    ];
+
+    // The human win is the case that used to take seat 0's lavender.
+    it.each(palettes)('sets the win heading in the text color (%s)', (_l, _p, preferences) => {
+      renderGameOver({ gameState: { winner: 0 }, humanPlayerIndex: 0, preferences });
+      expect(heading().textContent).toContain('W I N');
+      expect(heading().style.color).toBe('var(--ui-text)');
+    });
+
+    it.each(palettes)('sets the loss heading in the text color (%s)', (_l, _p, preferences) => {
+      renderGameOver({ gameState: { winner: 2 }, humanPlayerIndex: 0, preferences });
+      expect(heading().textContent).toContain('O V E R');
+      expect(heading().style.color).toBe('var(--ui-text)');
+    });
+
+    it.each(palettes)('gives the winner subtitle a %s swatch', (_label, palette, preferences) => {
+      renderGameOver({ gameState: { winner: 2 }, humanPlayerIndex: 0, preferences });
+      expect(subtitleLine().textContent).toBe('Conqueror wins!');
+      expect(seatSwatch().style.background).toBe(cssColor(palette[2]));
+      expect(subtitleLine().style.color).toBe('var(--ui-text)');
+    });
+
+    // Walk everything rendered, not just the two lines: a future line reaching
+    // for a seat color as text should fail here as well.
+    it.each(palettes)('sets no text in a %s palette color', (_label, palette, preferences) => {
+      renderGameOver({ gameState: { winner: 2 }, humanPlayerIndex: 0, preferences });
+      const seatColors = palette.map(cssColor);
+      for (const el of container.querySelectorAll('*')) {
+        expect(seatColors).not.toContain(el.style.color);
+      }
+    });
+
+    /*
+     * And the ink the words use does read: measured against this screen's own
+     * panel — the overlay flattened over the page, since it is translucent.
+     */
+    it.each(['dark', 'light'])('clears 4.5:1 in the %s theme', name => {
+      const theme = THEMES[name];
+      const panel = surface(theme.bodyBg, theme.uiOverlayBg);
+      expect(contrast(theme.uiText, panel)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+    });
   });
 
   /*

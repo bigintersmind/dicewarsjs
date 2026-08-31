@@ -9,6 +9,7 @@
 
 import { useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
+import { SeatSwatch } from './SeatSwatch.jsx';
 import { playerName } from '../store/GameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
@@ -47,9 +48,12 @@ const STYLE = {
     marginBottom: '1rem',
     textShadow: '2px 2px 8px rgba(0,0,0,0.6)',
   },
+  /* The winner's seat rides beside this line as a swatch, never in the ink:
+     on the light theme's panel a pastel seat as text measured near 1:1 (#220). */
   winner: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.5rem',
+    color: 'var(--ui-text)',
     marginBottom: '2rem',
   },
   buttonRow: {
@@ -124,13 +128,15 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
 
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const winner = gameState.winner;
-  const winnerColor =
-    winner !== null ? colorPalette[winner % colorPalette.length] : 'var(--ui-text)';
 
   // Determine heading and subtitle
   const isHumanWinner = winner !== null && winner === humanPlayerIndex;
   const heading = isHumanWinner ? 'Y O U\u00A0\u00A0W I N !' : 'G A M E\u00A0\u00A0O V E R';
 
+  // The seat the subtitle names, if any — the one line here that belongs to a
+  // particular player, so the one that gets a swatch. Null for the draw and for
+  // "You were eliminated!", which are about the game rather than about a seat.
+  let subtitleSeat = null;
   let subtitle = null;
   if (isHumanWinner) {
     subtitle = null; // heading says it all
@@ -138,6 +144,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
     subtitle = 'You were eliminated!';
   } else if (winner !== null) {
     subtitle = `${playerName(playerNames, winner)} wins!`;
+    subtitleSeat = winner;
   } else if (gameOverReason === 'turnLimit') {
     // No conquest before the turn cap — a stalemate (typically AI-vs-AI) ended as a draw.
     // Fires for any winnerless game that hits the cap, including a human still alive at 300.
@@ -146,11 +153,15 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
 
   return (
     <div style={STYLE.overlay}>
-      <h1 style={{ ...STYLE.title, color: isHumanWinner ? winnerColor : 'var(--ui-text)' }}>
-        {heading}
-      </h1>
+      {/* Always the text color: the heading used to take the winner's seat color
+          on a human win, and seat 0's lavender measured 2.47:1 on the light
+          panel — short of even the large-text 3:1 (#220). */}
+      <h1 style={STYLE.title}>{heading}</h1>
       {subtitle && (
-        <p style={{ ...STYLE.winner, color: humanEliminated ? 'var(--ui-text)' : winnerColor }}>
+        <p style={STYLE.winner}>
+          {subtitleSeat !== null && (
+            <SeatSwatch color={colorPalette[subtitleSeat % colorPalette.length]} />
+          )}
           {subtitle}
         </p>
       )}

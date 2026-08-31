@@ -7,6 +7,7 @@
  */
 
 import { useGameStore } from './hooks/useGameStore.js';
+import { SeatSwatch } from './SeatSwatch.jsx';
 import { playerName } from '../store/GameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
@@ -58,10 +59,15 @@ const STYLE = {
     letterSpacing: '0.05em',
     pointerEvents: 'auto',
   },
+  /* The only line here that floats straight on the live board with no panel
+     under it, so it carries the ink rim the rest of the over-the-board text
+     uses (composeTextHalo): its legibility must not depend on which territory
+     happens to drift beneath it. */
   thinking: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.2rem',
     color: 'var(--ui-text-muted)',
+    textShadow: 'var(--ui-text-halo)',
     marginBottom: '0.5rem',
   },
 };
@@ -93,12 +99,16 @@ export function GameOverlay({ store, onEndTurn }) {
       {isHumanTurn && awaitingInput === 'selectTo' && (
         <p style={STYLE.message}>Click a neighbor to attack</p>
       )}
-      {/* The opponent by name ("Conqueror is thinking..."), in its seat
-          color: the name gives each rival an identity, and the color already
-          tells two seats running the same bot apart. */}
+      {/* The opponent by name ("Conqueror is thinking..."), with its seat as a
+          swatch in front: the name gives each rival an identity and the seat
+          color tells two seats running the same bot apart, but the color rides
+          beside the words rather than in them — as text a pastel seat was
+          unreadable on the light theme's board (#220). The name is set in the
+          text color to keep it ahead of the muted "is thinking...". */}
       {!isHumanTurn && humanPlayerIndex !== null && (
         <p style={STYLE.thinking}>
-          <span style={{ color: colorPalette[currentPlayerId % colorPalette.length] }}>
+          <SeatSwatch color={colorPalette[currentPlayerId % colorPalette.length]} />
+          <span style={{ color: 'var(--ui-text)' }}>
             {playerName(playerNames, currentPlayerId)}
           </span>{' '}
           is thinking...

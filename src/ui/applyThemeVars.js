@@ -93,6 +93,10 @@ export function applyThemeVars(themeName, { root, body } = {}) {
   el.style.setProperty('--ui-accent-soft', hexToRgba(theme.uiAccent, 0.15));
   // Ink-rim shadow for text that floats directly on the scrimmed board.
   el.style.setProperty('--ui-text-halo', composeTextHalo(theme.uiInk, theme.uiInkSoft));
+
+  const bodyEl = body || (typeof document !== 'undefined' ? document.body : null);
+  if (bodyEl) bodyEl.style.background = theme.bodyBg;
+
   /*
    * Not a custom property but a real one, so it is set directly and stays out
    * of VAR_MAP: it is what tells the browser to draw the native widgets we
@@ -111,7 +115,4 @@ export function applyThemeVars(themeName, { root, body } = {}) {
   const doc = el.ownerDocument || (typeof document !== 'undefined' ? document : null);
   const themeColorMeta = doc && doc.querySelector('meta[name="theme-color"]');
   if (themeColorMeta) themeColorMeta.setAttribute('content', theme.bodyBg);
-
-  const bodyEl = body || (typeof document !== 'undefined' ? document.body : null);
-  if (bodyEl) bodyEl.style.background = theme.bodyBg;
 }

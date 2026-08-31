@@ -56,11 +56,15 @@ const STYLE = {
     color: 'var(--ui-text)',
     transition: 'opacity 0.3s',
   },
+  /* The hairline that lifts a seat color off the bar, in --ui-border rather
+     than a fixed 30% white: the light theme's 85%-white bar swallowed that
+     (1.01:1). It is decoration — the fill is the information — so it isn't
+     held to 3:1, only to being visible in both themes (#220). */
   swatch: {
     width: '14px',
     height: '14px',
     borderRadius: '3px',
-    border: '1px solid rgba(255,255,255,0.3)',
+    border: '1px solid var(--ui-border)',
     flexShrink: 0,
   },
   /* The ring is drawn in the text color, not white: the light theme's bar is

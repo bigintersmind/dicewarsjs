@@ -309,3 +309,25 @@ describe('GameOverScreen', () => {
     expect(document.activeElement).toBe(parked);
   });
 });
+
+describe('GameOverScreen — heading legibility (#220)', () => {
+  /*
+   * This heading sits on the screen's own overlay, not the board, so its shadow
+   * is depth rather than legibility — but it was a fixed dark one, which the
+   * light theme turned into a smudge under navy text. The halo token is the
+   * theme-aware version: dark ink under white, near-invisible pale ink in the
+   * light theme, whose own ink is pale.
+   */
+  it('draws the heading shadow from the halo token', () => {
+    renderGameOver({ gameState: { winner: 2 } });
+    expect(container.querySelector('h1').style.textShadow).toBe('var(--ui-text-halo)');
+  });
+
+  // What actually carries the heading, shadow or no shadow: the overlay it sits
+  // on, flattened over the page since it is translucent.
+  it.each(['dark', 'light'])('reads at 4.5:1 on the %s overlay', name => {
+    const theme = THEMES[name];
+    const backing = surface(theme.bodyBg, theme.uiOverlayBg);
+    expect(contrast(theme.uiText, backing)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+  });
+});

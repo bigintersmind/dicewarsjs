@@ -13,6 +13,8 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { MapPreview, describeSetup } from '../../src/ui/MapPreview.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
+import { THEMES } from '../../src/renderer/themes.js';
+import { contrast, surface, WCAG } from '../helpers/contrast.js';
 
 let container;
 
@@ -230,5 +232,29 @@ describe('MapPreview', () => {
     const alert = container.querySelector('[role="alert"]');
     expect(alert).toBeTruthy();
     expect(alert.textContent).toContain('broken/bot');
+  });
+});
+
+/*
+ * The banner is the one place a community bot's failure to load is announced,
+ * and it is read against the board, so its backing has to be the theme's — not
+ * the 60% black it used to carry, which put navy text on charcoal at 2.6:1 in
+ * the light theme (#220).
+ */
+describe('MapPreview — bot-load warning legibility (#220)', () => {
+  const banner = () => container.querySelector('[role="alert"]').firstElementChild;
+
+  it('backs the warning with the overlay token rather than a fixed black', () => {
+    renderPreview({ aiLoadWarnings: ['Player 2: community bot could not load.'] });
+    expect(banner().style.background).toBe('var(--ui-overlay-bg)');
+    expect(banner().style.color).toBe('var(--ui-text)');
+  });
+
+  it.each(['dark', 'light'])('reads at 4.5:1 on the %s theme', name => {
+    const theme = THEMES[name];
+    // The overlay is translucent, so flatten it over the page to get the
+    // surface the text really sits on.
+    const backing = surface(theme.bodyBg, theme.uiOverlayBg);
+    expect(contrast(theme.uiText, backing)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
   });
 });

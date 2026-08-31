@@ -291,11 +291,15 @@ const STYLE = {
     alignItems: 'center',
     gap: '0.5rem',
   },
+  /* Same hairline as the HUD chips, and --ui-border for the same reason: a
+     fixed 30% white disappeared against the light theme's pale panel (1.04:1).
+     Decoration around the seat color, not a control, so it answers to being
+     visible in both themes rather than to 3:1 (#220). */
   swatch: {
     width: '14px',
     height: '14px',
     borderRadius: '3px',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
+    border: '1px solid var(--ui-border)',
     flexShrink: 0,
   },
   slotLabel: {

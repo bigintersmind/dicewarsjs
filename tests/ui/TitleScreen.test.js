@@ -23,6 +23,8 @@ import {
   COLORBLIND_PLAYER_COLOR_NAMES,
   COLORBLIND_PLAYER_COLORS_CSS,
 } from '../../src/renderer/constants.js';
+import { THEMES } from '../../src/renderer/themes.js';
+import { contrast, surface } from '../helpers/contrast.js';
 
 let container;
 
@@ -947,5 +949,25 @@ describe('player color palettes', () => {
   it('keeps the color-name arrays index-aligned with their palettes', () => {
     expect(PLAYER_COLOR_NAMES).toHaveLength(PLAYER_COLORS_CSS.length);
     expect(COLORBLIND_PLAYER_COLOR_NAMES).toHaveLength(COLORBLIND_PLAYER_COLORS_CSS.length);
+  });
+});
+
+describe('slot swatch hairline (#220)', () => {
+  /*
+   * Same hairline as the HUD chips, retired for the same reason: a fixed 30%
+   * white vanished against the light theme's pale panel (1.04:1). Decoration
+   * around the seat color rather than a control, so it answers to being visible
+   * in both themes.
+   */
+  it('draws the swatch hairline in the border token', () => {
+    renderTitle();
+    openCustom();
+    expect(slotSwatches()[0].style.border).toBe('1px solid var(--ui-border)');
+  });
+
+  it.each(['dark', 'light'])('leaves the %s hairline visible against the panel', name => {
+    const theme = THEMES[name];
+    const panel = surface(theme.bodyBg, theme.uiOverlayBg);
+    expect(contrast(theme.uiBorder, panel)).toBeGreaterThan(2);
   });
 });

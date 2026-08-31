@@ -16,8 +16,9 @@ import { getTheme } from '../renderer/themes.js';
 
 /**
  * Map of CSS custom property name → theme palette key. Note that
- * `--ui-accent-soft` and `--ui-text-halo` are intentionally absent: they are
- * derived from palette keys at runtime (see below), not looked up directly.
+ * `--ui-accent-soft`, `--ui-text-halo`, `--ui-bevel-shadow` and
+ * `--ui-bevel-shadow-display` are intentionally absent: they are derived from
+ * palette keys at runtime (see below), not looked up directly.
  *
  * Exported so tests can iterate it and stay in lockstep with the live mapping.
  */
@@ -27,6 +28,8 @@ export const VAR_MAP = {
   '--ui-text': 'uiText',
   '--ui-text-muted': 'uiTextMuted',
   '--ui-accent': 'uiAccent',
+  '--ui-bevel-face': 'uiBevelFace',
+  '--ui-bevel-face-display': 'uiBevelFaceDisplay',
   '--ui-border': 'uiBorder',
   '--ui-body-bg': 'bodyBg',
   '--ui-scrim': 'uiScrim',
@@ -47,6 +50,42 @@ export const VAR_MAP = {
  */
 export function composeTextHalo(ink, soft) {
   return `0 1px 2px ${ink}, 0 -1px 2px ${ink}, 1px 0 2px ${ink}, -1px 0 2px ${ink}, 0 2px 6px ${soft}`;
+}
+
+/**
+ * Compose the logotype bevel at small sizes: a tight two-step extrusion
+ * down-right under a soft drop shadow. Worn by the 15-17px text that letters
+ * itself in the wordmark (the rail's current tab, the settings heading).
+ *
+ * The extrusion colors come from the theme because the light palette has to
+ * step its ramp down under a darker face — reusing the dark ramp there would
+ * put a #875300 shadow behind a face of about the same value, which is no
+ * extrusion at all. The soft drop shadow stays a literal black: it is the
+ * ground shadow the whole stack casts, and a bevel throws that on a pale
+ * surface exactly as it does on a dark one.
+ *
+ * @param {string} shade - First extrusion step (theme `uiBevelShade`)
+ * @param {string} deep - Deepest extrusion step (theme `uiBevelDeep`)
+ * @returns {string} A `text-shadow` value
+ */
+export function composeBevelShadow(shade, deep) {
+  return `1px 1px 0 ${shade}, 2px 2px 0 ${deep}, 1px 3px 6px rgba(0, 0, 0, 0.35)`;
+}
+
+/**
+ * Compose the bevel at display size: the wordmark's full stack — rim light
+ * up-left, three extrusion steps down-right, soft drop shadow — for the screen
+ * headline. Same division as `composeBevelShadow`: the ramp tracks the theme,
+ * the drop shadow is literal.
+ *
+ * @param {string} rim - Rim light up-left (theme `uiBevelRim`)
+ * @param {string} edge - First extrusion step (theme `uiBevelEdge`)
+ * @param {string} shade - Second extrusion step (theme `uiBevelShade`)
+ * @param {string} deep - Deepest extrusion step (theme `uiBevelDeep`)
+ * @returns {string} A `text-shadow` value
+ */
+export function composeBevelShadowDisplay(rim, edge, shade, deep) {
+  return `-2px -2px 0 ${rim}, 2px 2px 0 ${edge}, 3px 3px 0 ${shade}, 5px 5px 0 ${deep}, 4px 9px 16px rgba(0, 0, 0, 0.4)`;
 }
 
 /**
@@ -87,6 +126,20 @@ export function applyThemeVars(themeName, { root, body } = {}) {
   el.style.setProperty('--ui-accent-soft', hexToRgba(theme.uiAccent, 0.15));
   // Ink-rim shadow for text that floats directly on the scrimmed board.
   el.style.setProperty('--ui-text-halo', composeTextHalo(theme.uiInk, theme.uiInkSoft));
+  // Logotype bevel stacks; their face colors are plain VAR_MAP lookups above.
+  el.style.setProperty(
+    '--ui-bevel-shadow',
+    composeBevelShadow(theme.uiBevelShade, theme.uiBevelDeep)
+  );
+  el.style.setProperty(
+    '--ui-bevel-shadow-display',
+    composeBevelShadowDisplay(
+      theme.uiBevelRim,
+      theme.uiBevelEdge,
+      theme.uiBevelShade,
+      theme.uiBevelDeep
+    )
+  );
 
   const bodyEl = body || (typeof document !== 'undefined' ? document.body : null);
   if (bodyEl) bodyEl.style.background = theme.bodyBg;

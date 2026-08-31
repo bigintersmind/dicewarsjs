@@ -12,6 +12,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   applyThemeVars,
+  composeBevelShadow,
+  composeBevelShadowDisplay,
   composeTextHalo,
   hexToRgba,
   VAR_MAP,
@@ -65,6 +67,34 @@ describe('applyThemeVars', () => {
   it('derives a translucent --ui-accent-soft from the accent color', () => {
     applyThemeVars('dark', { root, body });
     expect(root.style.getPropertyValue('--ui-accent-soft')).toBe('rgba(233, 69, 96, 0.15)');
+  });
+
+  /*
+   * The bevel stacks carry the logotype lettering (#220), and the light theme
+   * steps its extrusion ramp down under a darker face, so both shadows have to
+   * be derived per theme rather than frozen at the wordmark's palette. Same
+   * "undefined" guard as the halo: a renamed uiBevel* key would otherwise make
+   * these comparisons pass vacuously on both sides.
+   */
+  it.each(['dark', 'light'])('derives --ui-bevel-shadow from the %s theme ramp', name => {
+    applyThemeVars(name, { root, body });
+    const shadow = root.style.getPropertyValue('--ui-bevel-shadow');
+    expect(shadow).not.toMatch(/undefined/);
+    expect(shadow).toBe(composeBevelShadow(THEMES[name].uiBevelShade, THEMES[name].uiBevelDeep));
+  });
+
+  it.each(['dark', 'light'])('derives --ui-bevel-shadow-display from the %s theme ramp', name => {
+    applyThemeVars(name, { root, body });
+    const shadow = root.style.getPropertyValue('--ui-bevel-shadow-display');
+    expect(shadow).not.toMatch(/undefined/);
+    expect(shadow).toBe(
+      composeBevelShadowDisplay(
+        THEMES[name].uiBevelRim,
+        THEMES[name].uiBevelEdge,
+        THEMES[name].uiBevelShade,
+        THEMES[name].uiBevelDeep
+      )
+    );
   });
 
   /*
@@ -122,6 +152,22 @@ describe('index.html first-paint :root defaults', () => {
    */
   it.each(Object.entries(VAR_MAP))('seeds %s with the dark-theme value', (cssVar, paletteKey) => {
     expect(indexHtml).toContain(`${cssVar}: ${THEMES.dark[paletteKey]};`);
+  });
+
+  /* Prettier wraps the long shadow lists here too; collapse before comparing. */
+  it.each([
+    ['--ui-bevel-shadow', composeBevelShadow(THEMES.dark.uiBevelShade, THEMES.dark.uiBevelDeep)],
+    [
+      '--ui-bevel-shadow-display',
+      composeBevelShadowDisplay(
+        THEMES.dark.uiBevelRim,
+        THEMES.dark.uiBevelEdge,
+        THEMES.dark.uiBevelShade,
+        THEMES.dark.uiBevelDeep
+      ),
+    ],
+  ])('seeds the derived %s with the dark-theme bevel stack', (cssVar, value) => {
+    expect(indexHtml.replace(/\s+/g, ' ')).toContain(`${cssVar}: ${value};`);
   });
 
   it('seeds the derived --ui-accent-soft to match hexToRgba(uiAccent, 0.15)', () => {

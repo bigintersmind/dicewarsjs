@@ -6,7 +6,7 @@
  * its own: the original 2001 art's white double-rimmed button (`.dw-btn`,
  * after BT_GRAPH: #fff face, #ccc inner edge, #333 rim) and bare Anton text
  * option (`.dw-opt`), the wordmark-style bevel headline
- * (`.dw-screen-title`, set in the logotype's exact layer palette), the Roboto
+ * (`.dw-screen-title`, set in the logotype's own layer palette), the Roboto
  * eyebrow label, and the translucent panel that carries dense data over the
  * live attract-mode board. All of it floats on `var(--ui-scrim)` — the same
  * tint the title screen uses over the background game.
@@ -22,10 +22,14 @@
  * row (`FooterNav`) at the foot of the page, and the landing page's scan path
  * is setup → START.
  *
- * The white button, the headline bevel, and the rail's active-tab bevel keep
- * fixed colors across themes: like the wordmark itself, they're part of the
- * game's identity and read well over the scrimmed board in both dark and
- * light. Everything theme-dependent goes through var(--ui-*).
+ * The white button keeps fixed colors across themes: like the wordmark itself,
+ * it's part of the game's identity and reads well over the scrimmed board in
+ * both dark and light. The headline and active-tab bevels are identity too,
+ * but they could not stay fixed — the wordmark's orange is unreadable on the
+ * light theme's pale scrim (#220) — so they go through the `--ui-bevel-*`
+ * tokens, which hold the wordmark's own palette on the dark theme and a
+ * darkened cast of it on the light one. Everything else theme-dependent goes
+ * through var(--ui-*).
  *
  * @module ui/menuChrome
  */
@@ -93,22 +97,20 @@ a.dw-btn { display: inline-block; text-decoration: none; }
 .dw-opt:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /*
- * Screen headline in the DICE WARS logotype's own bevel: yellow rim light
- * up-left, orange face, and the wordmark's brown layer stack extruded
- * down-right (#C57900 → #875300 → #4A2D00 are titleArt.jsx's exact values),
- * over a soft drop shadow like the one TitleScreen puts under the wordmark.
+ * Screen headline in the DICE WARS logotype's own bevel: rim light up-left,
+ * amber face, and the wordmark's layer stack extruded down-right over a soft
+ * drop shadow like the one TitleScreen puts under the wordmark. The stack is a
+ * theme token (see themes.js, uiBevel*) rather than the wordmark's literal
+ * palette, because the display face has to darken on the light theme to clear
+ * 3:1 against the pale scrim; on the dark theme it still resolves to
+ * titleArt.jsx's exact values.
  */
 .dw-screen-title {
   font-family: Anton, sans-serif;
   font-size: clamp(2.3rem, 6vw, 3rem);
   letter-spacing: 0.08em;
-  color: #ff9c00;
-  text-shadow:
-    -2px -2px 0 #ffff33,
-    2px 2px 0 #c57900,
-    3px 3px 0 #875300,
-    5px 5px 0 #4a2d00,
-    4px 9px 16px rgba(0, 0, 0, 0.4);
+  color: var(--ui-bevel-face-display);
+  text-shadow: var(--ui-bevel-shadow-display);
 }
 
 @keyframes dw-rise {
@@ -397,17 +399,17 @@ const NAV_CSS = `
   outline-offset: -2px;
   border-radius: 4px;
 }
-/* The logotype bevel, miniaturized. No yellow rim-light at this scale — a
-   15px glyph's strokes are as thin as the rim, which turns it to mush; the
-   orange face + tight brown extrusion is the smallest treatment that still
-   reads as the wordmark (and the dark extrusion keeps it legible over the
-   light theme's pale scrim, exactly like the headline). */
+/* The logotype bevel, miniaturized. No rim light at this scale — a 15px
+   glyph's strokes are as thin as the rim, which turns it to mush; the amber
+   face + tight extrusion is the smallest treatment that still reads as the
+   wordmark. At 15px the face owes a full 4.5:1, which the wordmark's orange
+   misses badly over the light scrim (1.8:1) — the extrusion under it adds edge
+   contrast but WCAG measures glyph against ground — so the face comes from
+   --ui-bevel-face, which the light theme darkens into the same amber family
+   (5.0:1) and the dark theme leaves at the wordmark's own orange. */
 .dw-tab[aria-current='page'] {
-  color: #ff9c00;
-  text-shadow:
-    1px 1px 0 #875300,
-    2px 2px 0 #4a2d00,
-    1px 3px 6px rgba(0, 0, 0, 0.35);
+  color: var(--ui-bevel-face);
+  text-shadow: var(--ui-bevel-shadow);
   cursor: default;
 }
 @keyframes dw-nav-drop {

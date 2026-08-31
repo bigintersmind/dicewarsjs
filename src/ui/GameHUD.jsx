@@ -63,9 +63,9 @@ const STYLE = {
     border: '1px solid rgba(255,255,255,0.3)',
     flexShrink: 0,
   },
-  /* The ring is drawn in the text colour, not white: the light theme's bar is
+  /* The ring is drawn in the text color, not white: the light theme's bar is
      85% white, and a white ring on it measured 1.03:1 — in the DOM and not on
-     screen (#220). --ui-text is the one colour guaranteed to read on --ui-bg
+     screen (#220). --ui-text is the one color guaranteed to read on --ui-bg
      in both themes. */
   current: {
     outline: '2px solid var(--ui-text)',

@@ -1,7 +1,7 @@
 /**
  * WCAG 2.x contrast arithmetic for tests.
  *
- * Contrast is a property of a pair — a colour and the surface it actually sits
+ * Contrast is a property of a pair — a color and the surface it actually sits
  * on — and most of this UI's surfaces are translucent (`--ui-bg`,
  * `--ui-overlay-bg`, `--ui-scrim`), so the surface half of the pair only means
  * something once it has been flattened over the page (`bodyBg`). `surface()`
@@ -19,7 +19,7 @@ const HEX3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i;
 const RGBA = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/i;
 
 /**
- * Parse a CSS colour into channels. Accepts `#rgb`, `#rrggbb`, `rgb()` and
+ * Parse a CSS color into channels. Accepts `#rgb`, `#rrggbb`, `rgb()` and
  * `rgba()` (comma syntax, as themes.js writes them), or an already-parsed
  * `{ r, g, b, a? }` object. Anything else throws, so a typo in a test never
  * measures as black.
@@ -53,7 +53,7 @@ export function parseColor(input) {
     };
   }
   throw new Error(
-    `contrast helper: unsupported colour "${input}" (use #rgb, #rrggbb, rgb() or rgba())`
+    `contrast helper: unsupported color "${input}" (use #rgb, #rrggbb, rgb() or rgba())`
   );
 }
 
@@ -74,7 +74,7 @@ export function over(top, bottom) {
 }
 
 /**
- * Flatten a stack of layers, bottom first, into one opaque colour — e.g.
+ * Flatten a stack of layers, bottom first, into one opaque color — e.g.
  * `surface(theme.bodyBg, theme.uiOverlayBg)` is what the game-over text
  * really sits on. The bottom layer must be opaque or the result is undefined.
  *
@@ -92,7 +92,7 @@ export function surface(...layers) {
 }
 
 /**
- * WCAG 2.x relative luminance of an (opaque) sRGB colour.
+ * WCAG 2.x relative luminance of an (opaque) sRGB color.
  *
  * @param {string | object} color
  * @returns {number} 0 (black) … 1 (white)
@@ -110,7 +110,7 @@ export function relativeLuminance(color) {
  * WCAG 2.x contrast ratio between a foreground and the opaque surface under it.
  * A translucent foreground is composited onto the surface first; a translucent
  * surface is an error — flatten it with `surface()` so the test says what the
- * colour really sits on.
+ * color really sits on.
  *
  * @param {string | object} fg
  * @param {string | object} bg - Must be opaque

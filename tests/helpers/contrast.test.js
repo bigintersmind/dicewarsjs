@@ -1,6 +1,6 @@
 /**
  * Pins the contrast helper to known WCAG values, so a wrong ratio elsewhere in
- * the suite is a wrong colour and not wrong arithmetic.
+ * the suite is a wrong color and not wrong arithmetic.
  */
 
 import { contrast, over, parseColor, relativeLuminance, surface, WCAG } from './contrast.js';
@@ -14,10 +14,10 @@ describe('tests/helpers/contrast', () => {
     expect(parseColor('RGBA(0,0,0,.5)')).toEqual({ r: 0, g: 0, b: 0, a: 0.5 });
   });
 
-  it('refuses colours it cannot measure instead of guessing', () => {
-    expect(() => parseColor('var(--ui-text)')).toThrow(/unsupported colour/);
-    expect(() => parseColor('transparent')).toThrow(/unsupported colour/);
-    expect(() => parseColor('#ffff')).toThrow(/unsupported colour/);
+  it('refuses colors it cannot measure instead of guessing', () => {
+    expect(() => parseColor('var(--ui-text)')).toThrow(/unsupported color/);
+    expect(() => parseColor('transparent')).toThrow(/unsupported color/);
+    expect(() => parseColor('#ffff')).toThrow(/unsupported color/);
   });
 
   it('measures black on white as 21:1 in either order', () => {

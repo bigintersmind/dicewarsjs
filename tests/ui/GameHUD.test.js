@@ -139,7 +139,7 @@ describe('GameHUD — current-player ring (#220)', () => {
   /** The chips, in seat order (the eliminated seat 2 renders nothing). */
   const chips = () => [...playersRow().children];
 
-  it('rings the current chip in the text colour, and only that chip', () => {
+  it('rings the current chip in the text color, and only that chip', () => {
     renderHUD();
     expect(chips()[0].style.outline).toBe('2px solid var(--ui-text)');
     expect(chips()[1].style.outline).toBe('');

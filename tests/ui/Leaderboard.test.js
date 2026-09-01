@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 /**
  * Leaderboard tests — the broken-bot flag badge (#92 item 2), whose flag decision lives in
- * the JS layer (reportBotErrors) so this component only displays the `flagged` prop, and
- * the phone layout (#222 item 2). jsdom does no layout and evaluates no media queries, so
- * the phone block pins the structure and the stylesheet text rather than measuring widths.
+ * the JS layer (reportBotErrors) so this component only displays the `flagged` prop; the
+ * phone layout (#222 item 2); and the sort headers, the table's one interactive behavior.
+ * jsdom does no layout and evaluates no media queries, so the phone block pins the
+ * structure and the stylesheet text rather than measuring widths.
  */
 
+import { assert } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { h, render } from 'preact';
@@ -26,6 +28,9 @@ function renderLeaderboard(props) {
 function row(name) {
   return [...container.querySelectorAll('tbody tr')].find(tr => tr.textContent.includes(name));
 }
+
+/** Header label with the sort indicator stripped — the sorted column carries ▲/▼. */
+const label = th => th.textContent.replace(/[\u25B2\u25BC]/g, '').trim();
 
 const bots = [
   { name: 'Healthy', elo: 1300, wins: 20, gamesPlayed: 40, avgPlacement: 2.1, attackWinRate: 0.55 },
@@ -185,10 +190,23 @@ describe('--ui-danger-soft plumbing (#220 item 5)', () => {
  * instead — the wrapper the overflow is confined to, and the rules that fire below 560px.
  */
 describe('Leaderboard on a phone (#222 item 2)', () => {
-  /** Header label with the sort indicator stripped — the sorted column carries ▲/▼. */
-  const label = th => th.textContent.replace(/[\u25B2\u25BC]/g, '').trim();
-
   const wrapper = () => container.querySelector('.dw-lb-scroll');
+
+  /*
+   * Comment-strip the sheet before matching it. The wrapper mounts LEADERBOARD_CSS as text,
+   * so a CSS comment added to it — one describing the media block, or recording a rule that
+   * used to live there — must not read as a rule and quietly satisfy the checks below.
+   */
+  const stripComments = css => css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  /** The body of the one phone block, or a failure naming the block as missing. */
+  const mediaBlock = () => {
+    const block = stripComments(LEADERBOARD_CSS).match(
+      /@media \(max-width: 560px\) \{([\s\S]*?)\n\}/
+    );
+    expect(block).not.toBeNull();
+    return block[1];
+  };
 
   /** Positions of the phone-hidden cells within a `<tr>`'s or `<thead>`'s children. */
   const derivedIndices = els =>
@@ -261,10 +279,46 @@ describe('Leaderboard on a phone (#222 item 2)', () => {
   });
 
   it('hides the derived columns and tightens the cells below the breakpoint', () => {
-    const block = LEADERBOARD_CSS.match(/@media \(max-width: 560px\) \{([\s\S]*?)\n\}/);
-    expect(block).not.toBeNull();
-    expect(block[1]).toMatch(/\.dw-lb-derived\s*\{\s*display:\s*none;?\s*\}/);
-    expect(block[1]).toMatch(/--dw-lb-pad-x:\s*0\.3rem;/);
+    const block = mediaBlock();
+    expect(block).toMatch(/\.dw-lb-derived\s*\{\s*display:\s*none;?\s*\}/);
+    expect(block).toMatch(/--dw-lb-pad-x:\s*0\.3rem;/);
+  });
+
+  /*
+   * ...and only below it. `display: none` promoted to the top level — moved there, or left
+   * behind as a duplicate by a refactor — would drop Avg Place and Atk% at every width,
+   * which looks exactly like the intended phone layout and nowhere else.
+   */
+  it('leaves nothing hiding the derived columns outside the media block', () => {
+    const sheet = stripComments(LEADERBOARD_CSS);
+    // Guard: a renamed class must fail here rather than pass the check below vacuously.
+    expect(sheet).toContain('dw-lb-derived');
+    expect(sheet.replace(/@media[^{]*\{[\s\S]*?\n\}/g, '')).not.toContain('dw-lb-derived');
+  });
+
+  /*
+   * The source calls the media block the variable's only declaration, which is what makes
+   * the `var(--dw-lb-pad-x, 0.6rem)` fallback the wide-screen value. Pin both halves: a
+   * closed list, so a second declaration smuggled into this rule is a failure rather than a
+   * silent override, and a count, so a second one elsewhere in the sheet is too.
+   */
+  it('declares the padding variable once, and changes nothing else on the wrapper', () => {
+    const sheet = stripComments(LEADERBOARD_CSS);
+    expect(sheet.match(/--dw-lb-pad-x\s*:/g)).toHaveLength(1);
+
+    const rule = mediaBlock().match(/\.dw-lb-scroll\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    const declared = rule[1]
+      .split(';')
+      .map(d => d.split(':')[0].trim())
+      .filter(Boolean)
+      .sort();
+    assert.deepEqual(
+      declared,
+      ['--dw-lb-pad-x'],
+      'The phone block may only retune the padding variable: any other declaration here ' +
+        'changes the wrapper at one width only, with nothing pinning the other.'
+    );
   });
 
   it("reuses the mode rail's 560px breakpoint instead of inventing a second one", () => {
@@ -283,5 +337,93 @@ describe('Leaderboard on a phone (#222 item 2)', () => {
     // And the wrapper must not declare the variable inline, which would out-specify the
     // media block and quietly pin the padding at its desktop value on a phone.
     expect(wrapper().style.getPropertyValue('--dw-lb-pad-x')).toBe('');
+  });
+});
+
+/*
+ * Sorting is the table's only behavior, and #222 re-indented every line of it into the new
+ * scroll wrapper without a test watching. What the headers do is pinned here: which column
+ * a click sorts by, which way it points, and which of them is a control at all.
+ *
+ * The fixture's four orders — input, by ELO descending, by ELO ascending, by name — are all
+ * different, so no assertion below can pass on an accident of the fixture.
+ */
+describe('Leaderboard sorting', () => {
+  const sortBots = [
+    { name: 'Beryl', elo: 1000, wins: 12, gamesPlayed: 40, avgPlacement: 3.1, attackWinRate: 0.4 },
+    { name: 'Cobalt', elo: 1200, wins: 25, gamesPlayed: 40, avgPlacement: 1.8, attackWinRate: 0.6 },
+    { name: 'Amber', elo: 1100, wins: 18, gamesPlayed: 40, avgPlacement: 2.4, attackWinRate: 0.5 },
+  ];
+
+  const header = text => [...container.querySelectorAll('thead th')].find(th => label(th) === text);
+
+  /** The rendered order, read off the Bot column. */
+  const names = () =>
+    [...container.querySelectorAll('tbody tr')].map(tr => tr.children[1].textContent.trim());
+
+  const ELO_DESC = ['Cobalt', 'Amber', 'Beryl'];
+  const ELO_ASC = ['Beryl', 'Amber', 'Cobalt'];
+  const BY_NAME = ['Amber', 'Beryl', 'Cobalt'];
+
+  it('opens on ELO, strongest first — the ranking the screens are for', () => {
+    renderLeaderboard({ bots: sortBots });
+    expect(names()).toEqual(ELO_DESC);
+    expect(header('ELO').textContent).toBe('ELO \u25BC');
+  });
+
+  it('reverses the rows when the sorted header is clicked, and back on the next click', () => {
+    renderLeaderboard({ bots: sortBots });
+
+    act(() => header('ELO').click());
+    expect(names()).toEqual(ELO_ASC);
+    expect(header('ELO').textContent).toBe('ELO \u25B2');
+
+    act(() => header('ELO').click());
+    expect(names()).toEqual(ELO_DESC);
+    expect(header('ELO').textContent).toBe('ELO \u25BC');
+  });
+
+  /*
+   * Bot is the one string column, so it takes the `localeCompare` branch rather than the
+   * numeric subtraction — and the one column that opens ascending, A-Z being the useful way
+   * to read a name list where a high ELO is the useful way to read a ranking.
+   */
+  it('sorts the Bot column alphabetically, A-Z on the first click and Z-A on the second', () => {
+    renderLeaderboard({ bots: sortBots });
+
+    act(() => header('Bot').click());
+    expect(names()).toEqual(BY_NAME);
+    expect(header('Bot').textContent).toBe('Bot \u25B2');
+    // The indicator moves with the sort: two arrows would name two sorted columns.
+    expect(header('ELO').textContent).toBe('ELO');
+
+    act(() => header('Bot').click());
+    expect(names()).toEqual([...BY_NAME].reverse());
+    expect(header('Bot').textContent).toBe('Bot \u25BC');
+  });
+
+  it('paints the sorted header in the accent, and only that one', () => {
+    renderLeaderboard({ bots: sortBots });
+    expect(header('ELO').style.color).toBe('var(--ui-accent)');
+    expect(header('Bot').style.color).toBe('var(--ui-text-muted)');
+
+    act(() => header('Bot').click());
+    expect(header('Bot').style.color).toBe('var(--ui-accent)');
+    expect(header('ELO').style.color).toBe('var(--ui-text-muted)');
+  });
+
+  /*
+   * `#` is a row counter, not a field — sorting by it would be sorting by the order already
+   * on screen. It has to both refuse the click and not offer itself as a control.
+   */
+  it('ignores a click on the unsortable # header', () => {
+    renderLeaderboard({ bots: sortBots });
+    expect(header('#').style.cursor).toBe('default');
+    expect(header('ELO').style.cursor).toBe('pointer');
+
+    act(() => header('#').click());
+    expect(names()).toEqual(ELO_DESC);
+    expect(header('#').textContent).toBe('#');
+    expect(header('ELO').textContent).toBe('ELO \u25BC');
   });
 });

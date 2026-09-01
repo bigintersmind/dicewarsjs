@@ -18,16 +18,20 @@ const HEX6 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
 const HEX3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i;
 const RGBA = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/i;
 
+// An alpha this close to 1 is opaque. Every alpha here is arithmetic output —
+// `over()` computes it — so an exact `=== 1` would let a stack that is
+// genuinely opaque be rejected on a 0.9999999999999999 rounding tail.
+const OPAQUE_TOLERANCE = 1e-9;
+const isOpaque = alpha => Math.abs(alpha - 1) <= OPAQUE_TOLERANCE;
+
 /**
- * Parse a CSS color into channels. Accepts `#rgb`, `#rrggbb`, `rgb()` and
- * `rgba()` (comma syntax, as themes.js writes them), or an already-parsed
- * `{ r, g, b, a? }` object. Anything else throws, so a typo in a test never
- * measures as black.
+ * Read a color's raw channels. Unvalidated on purpose — `parseColor()` owns the
+ * one validation pass, so every shape accepted here is checked the same way.
  *
  * @param {string | { r: number, g: number, b: number, a?: number }} input
- * @returns {{ r: number, g: number, b: number, a: number }}
+ * @returns {{ r: unknown, g: unknown, b: unknown, a: unknown }}
  */
-export function parseColor(input) {
+function readChannels(input) {
   if (input && typeof input === 'object') return { a: 1, ...input };
   const s = String(input).trim();
   let m = HEX6.exec(s);
@@ -58,6 +62,33 @@ export function parseColor(input) {
 }
 
 /**
+ * Parse a CSS color into channels. Accepts `#rgb`, `#rrggbb`, `rgb()` and
+ * `rgba()` (comma syntax, as themes.js writes them), or an already-parsed
+ * `{ r, g, b, a? }` object. Anything else throws, so a typo in a test never
+ * measures as black.
+ *
+ * @param {string | { r: number, g: number, b: number, a?: number }} input
+ * @returns {{ r: number, g: number, b: number, a: number }}
+ */
+export function parseColor(input) {
+  const { r, g, b, a } = readChannels(input);
+  // Two of those branches can hand back a non-number from an input that looked
+  // plausible: an object literal missing `g`/`b`, and a string like
+  // `rgb(1.2.3, 0, 0)` whose loose `[\d.]+` match Number()s to NaN. Validating
+  // here covers every return path, so a color we cannot measure throws as
+  // loudly as an unsupported one instead of poisoning a ratio with NaN.
+  if (![r, g, b, a].every(Number.isFinite)) {
+    throw new Error(`contrast helper: unparseable color ${JSON.stringify(input)}`);
+  }
+  if (r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255 || a < 0 || a > 1) {
+    throw new Error(
+      `contrast helper: color out of range ${JSON.stringify(input)} (r/g/b 0–255, a 0–1)`
+    );
+  }
+  return { r, g, b, a };
+}
+
+/**
  * Alpha-composite `top` onto `bottom` ("source over").
  *
  * @param {string | object} top
@@ -84,7 +115,7 @@ export function over(top, bottom) {
 export function surface(...layers) {
   const [base, ...rest] = layers;
   let out = parseColor(base);
-  if (out.a !== 1) {
+  if (!isOpaque(out.a)) {
     throw new Error('surface(): the bottom layer must be opaque (start from bodyBg)');
   }
   for (const layer of rest) out = over(layer, out);
@@ -92,13 +123,20 @@ export function surface(...layers) {
 }
 
 /**
- * WCAG 2.x relative luminance of an (opaque) sRGB color.
+ * WCAG 2.x relative luminance of an opaque sRGB color. A translucent color has
+ * no luminance of its own until you say what it sits on, so it throws — flatten
+ * it first with `surface()`/`over()` (which is what `contrast()` does).
  *
- * @param {string | object} color
+ * @param {string | object} color - Must be opaque
  * @returns {number} 0 (black) … 1 (white)
  */
 export function relativeLuminance(color) {
   const c = parseColor(color);
+  if (!isOpaque(c.a)) {
+    throw new Error(
+      'relativeLuminance(): the color must be opaque — composite it onto its surface first'
+    );
+  }
   const linear = v => {
     const s = v / 255;
     return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
@@ -118,11 +156,11 @@ export function relativeLuminance(color) {
  */
 export function contrast(fg, bg) {
   const b = parseColor(bg);
-  if (b.a !== 1) {
+  if (!isOpaque(b.a)) {
     throw new Error('contrast(): the surface must be opaque — flatten it with surface() first');
   }
   const f = parseColor(fg);
-  const flatFg = f.a === 1 ? f : over(f, b);
+  const flatFg = isOpaque(f.a) ? f : over(f, b);
   const l1 = relativeLuminance(flatFg);
   const l2 = relativeLuminance(b);
   const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1];

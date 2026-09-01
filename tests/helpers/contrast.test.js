@@ -20,6 +20,24 @@ describe('tests/helpers/contrast', () => {
     expect(() => parseColor('#ffff')).toThrow(/unsupported color/);
   });
 
+  it('refuses inputs that parse to NaN channels', () => {
+    // An object missing a channel, and a string the loose rgb() match accepts
+    // but Number() turns into NaN — both used to slip through as NaN channels.
+    expect(() => parseColor({ r: 1 })).toThrow(/unparseable color/);
+    expect(() => parseColor('rgb(1.2.3, 0, 0)')).toThrow(/unparseable color/);
+  });
+
+  it('refuses channels outside the sRGB/alpha range', () => {
+    expect(() => parseColor('rgb(256, 0, 0)')).toThrow(/out of range/);
+    expect(() => parseColor({ r: 0, g: 0, b: 0, a: 2 })).toThrow(/out of range/);
+  });
+
+  it('refuses to give a translucent color a luminance of its own', () => {
+    // Without this it answered 1 for near-transparent white — a luminance is
+    // only defined once you say what the color sits on.
+    expect(() => relativeLuminance('rgba(255, 255, 255, 0.1)')).toThrow(/opaque/);
+  });
+
   it('measures black on white as 21:1 in either order', () => {
     expect(contrast('#000000', '#ffffff')).toBeCloseTo(21, 5);
     expect(contrast('#ffffff', '#000000')).toBeCloseTo(21, 5);
@@ -61,8 +79,25 @@ describe('tests/helpers/contrast', () => {
     );
   });
 
+  it('feeds a flattened stack straight back into contrast()', () => {
+    // surface() hands contrast() an arithmetic alpha, not a literal 1, so the
+    // opacity check is a tolerance — an alpha a hair under 1 is still opaque.
+    const flat = surface('#ffffff', 'rgba(0, 0, 0, 0.4)');
+    expect(contrast('#000000', flat)).toBeGreaterThan(1);
+    expect(contrast('#000000', { ...flat, a: 1 - 1e-12 })).toBeCloseTo(
+      contrast('#000000', flat),
+      9
+    );
+  });
+
   it('reproduces the #220 audit measurement: seat yellow on the light overlay', () => {
     const lightOverlay = surface('#e8e8f0', 'rgba(240, 240, 245, 0.9)');
     expect(contrast('#ffff01', lightOverlay)).toBeCloseTo(1.07, 1);
+  });
+
+  it('pins the WCAG AA minimums the rest of the suite asserts against', () => {
+    // Every contrast assertion in the suite compares against these, so an edit
+    // here would silently relax all of them at once.
+    expect(WCAG).toEqual({ AA_TEXT: 4.5, AA_LARGE: 3, AA_NON_TEXT: 3 });
   });
 });

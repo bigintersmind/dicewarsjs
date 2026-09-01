@@ -37,7 +37,7 @@ like `window is not defined`.
 ## Directory structure
 
 Tests live under `tests/`, mirroring the `src/` layout, plus shared fixtures in
-`tests/mocks/`:
+`tests/mocks/` and shared utilities in `tests/helpers/`:
 
 ```
 tests/
@@ -52,6 +52,7 @@ tests/
 ├── utils/         # Configuration (map-size presets)
 ├── scripts/       # CLI tooling (arena, bot validation)
 ├── benchmarks/    # AI performance benchmarks (*.benchmark.js)
+├── helpers/       # Shared test utilities (e.g. contrast.js — WCAG arithmetic)
 ├── mocks/         # Shared test fixtures (e.g. areaData.js, gameMock.js)
 └── setup.js       # Global setup (registered via setupFiles)
 ```

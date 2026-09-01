@@ -5,15 +5,20 @@
  * results and the online leaderboard all drop this straight into `MENU_STYLE.panel`, so
  * the table has to fit a phone from inside the component or none of the three do (#222).
  *
- * Two things keep it inside that panel. The table sits in its own `overflow-x: auto`
- * wrapper, so a width the panel cannot hold — a long community-bot name, a column added
- * later — scrolls within the card instead of breaking its border and running off screen,
- * where nothing can bring it back (`html, body` are `overflow: hidden`). And under the
- * chrome's phone breakpoint the two least load-bearing columns, Avg Place and Atk%, drop
- * out: they are secondary reads on a bot that `npm run benchmark-bot` also reports, while
- * #/Bot/ELO/W/GP/Win% are the ranking itself. Losing them, plus tighter cell padding,
- * leaves the remaining six inside the panel's content width with no scrolling at all in
- * the common case — the wrapper stays the safety net rather than the everyday experience.
+ * Two things keep it inside that panel — a scroller around the table, and a phone
+ * breakpoint that drops two of the eight columns. The scroller is there because an
+ * overflowing table breaks the panel's border and runs off screen, where nothing can bring
+ * it back (`html, body` are `overflow: hidden`). The two columns to lose are Avg Place and
+ * Atk%: secondary reads that `npm run benchmark-bot` also reports, where #/Bot/ELO/W/GP/Win%
+ * are the ranking itself. Without them the remaining six fit the panel's content width, so
+ * the scroller stays a safety net for the unusual case — a long community-bot name, a column
+ * added later — rather than the everyday experience. How each is wired: `STYLE.scroll` and
+ * LEADERBOARD_CSS below.
+ *
+ * Known limitation: `sortKey` can point at a column the phone hides — sort by Atk% in
+ * landscape, rotate to portrait, and the rows keep that order with no visible header or
+ * ▲▼ to explain it. Left as it is, because the sort headers are being reworked for the
+ * keyboard and `aria-sort` under #221 item 2, which is where the fix belongs.
  *
  * @module ui/Leaderboard
  */
@@ -45,15 +50,14 @@ const FLAG_ROW_BG = 'var(--ui-danger-soft)';
  * mounts its own stylesheet (MenuScreen with CHROME_CSS, TopNav with NAV_CSS) — so the
  * component is self-contained wherever it is dropped.
  *
- * The breakpoint is the chrome's own 560px: the mode rail already tightens at exactly that
- * width in menuChrome.jsx, and one phone breakpoint for the app beats a second number
- * invented here.
+ * The breakpoint is the mode rail's 560px: NAV_CSS in menuChrome.jsx already tightens the
+ * rail above this panel at exactly that width, and matching the chrome the table sits under
+ * beats inventing a number here.
  *
  * `--dw-lb-pad-x` exists because the cells are styled inline and no class rule can outrank
- * an inline declaration. For the same reason the wide-screen value is NOT declared on
- * `.dw-lb-scroll` — an inline custom property on the wrapper would be out of this block's
- * reach, which is the specificity trap the variable is here to dodge. It lives in the
- * `var()` fallback at the two use sites instead, leaving this the variable's only
+ * an inline declaration. The wide-screen value then rides in the `var()` fallback at the two
+ * use sites, rather than in a second `.dw-lb-scroll` rule (or, worse, inline on the wrapper,
+ * where it would be out of this block's reach entirely) — leaving this the variable's only
  * declaration and the media query unambiguously the thing that changes it.
  */
 export const LEADERBOARD_CSS = `

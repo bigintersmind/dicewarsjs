@@ -190,6 +190,10 @@ describe('Leaderboard on a phone (#222 item 2)', () => {
 
   const wrapper = () => container.querySelector('.dw-lb-scroll');
 
+  /** Positions of the phone-hidden cells within a `<tr>`'s or `<thead>`'s children. */
+  const derivedIndices = els =>
+    els.flatMap((el, i) => (el.classList.contains('dw-lb-derived') ? [i] : []));
+
   it('confines the table to a scroller of its own, so nothing escapes the panel', () => {
     renderLeaderboard({ bots });
 
@@ -225,21 +229,34 @@ describe('Leaderboard on a phone (#222 item 2)', () => {
     ]);
   });
 
-  it('marks the matching two cells in every row and nothing else', () => {
+  /*
+   * The headers come from COLUMNS and carry the class from the `derived` flag; the cells are
+   * written out by hand and carry it literally, so the two can drift apart. Check them
+   * against each other rather than against hard-coded positions, so a failure names the
+   * drift — a column added to COLUMNS with no `<td>`, or a `<td>` that forgets the class and
+   * survives on a phone under a hidden header — instead of surfacing as a surprising label
+   * list. Rendered with a flag so the badged row, whose Bot cell carries extra markup, is
+   * covered by the same walk.
+   */
+  it('keeps every row in step with the header row it is hidden by', () => {
     renderLeaderboard({
       bots,
       flagged: [{ name: 'Broken', errors: 30, invalidMoves: 0, errorFraction: 1 }],
     });
 
+    const headers = [...container.querySelectorAll('thead th')];
+    const derived = derivedIndices(headers);
+    // Guard the check against passing vacuously if the class ever disappears entirely.
+    expect(derived.length).toBeGreaterThan(0);
+
     const rows = [...container.querySelectorAll('tbody tr')];
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(bots.length);
     for (const tr of rows) {
       const cells = [...tr.children];
-      expect(cells).toHaveLength(8);
-      const marked = cells.filter(td => td.classList.contains('dw-lb-derived'));
-      expect(marked).toHaveLength(2);
-      // Header and body have to hide together, so the marked cells are the last two.
-      expect(marked.map(td => cells.indexOf(td))).toEqual([6, 7]);
+      // A column added to COLUMNS needs a matching cell, or every row below is off by one.
+      expect(cells).toHaveLength(headers.length);
+      // ...and it has to hide with its header, or the phone shows a headless column.
+      expect(derivedIndices(cells)).toEqual(derived);
     }
   });
 

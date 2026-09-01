@@ -55,7 +55,7 @@ export const THEMES = {
      * than decoration — the screen headline, the rail's current tab and the
      * settings heading are all lettered in it — but tokenized rather than
      * hardcoded, because the orange face only clears WCAG over a DARK ground:
-     * on the light theme's pale scrim #ff9c00 measures 1.8:1 against ~4.5:1
+     * on the light theme's pale scrim #ff9c00 measures 1.9:1 against ~4.5:1
      * needed at 15px. Display type owes only 3:1, so it gets its own, lighter
      * face and keeps more of the orange than the small sites can.
      */

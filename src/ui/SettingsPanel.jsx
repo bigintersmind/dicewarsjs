@@ -58,8 +58,8 @@ const LEFT_PIP_2_PTS = [[-9.84, 5.42], [-4.23, 4.34]]; // prettier-ignore
 const RIGHT_PIP_1_PT = [6.85, 5.04];
 
 /*
- * Face colors cast from the DICE WARS logotype's layer palette (titleArt.jsx
- * / .dw-screen-title): #FF9C00 face, #C57900 first extrusion as the left
+ * Face colors cast from the DICE WARS logotype's layer palette
+ * (titleArt.jsx): #FF9C00 face, #C57900 first extrusion as the left
  * wall, #4A2D00 deepest layer as the silhouette, #FFFF33 rim light as the
  * glint. Identity colors, not theme — like the wordmark itself, and unlike the
  * lettering bevel, which had to darken on the light theme to stay readable
@@ -148,9 +148,9 @@ const MOTION_OPTIONS = [
 
 /*
  * Interactive states need a stylesheet (see CHROME_CSS's own comment). The
- * heading's fixed bevel colors are titleArt.jsx's wordmark palette at the
- * TopNav active-tab scale — identity, not theme, so they don't vary with
- * var(--ui-*).
+ * heading wears the logotype bevel at the TopNav active-tab scale through the
+ * `--ui-bevel-*` tokens (see the .dw-set-heading rule below) — identity, but
+ * theme-cast: the wordmark's orange face is illegible on the light panel.
  */
 const SETTINGS_CSS = `
 /* The pill shares the panel's radius (not a circle) so button and dropdown

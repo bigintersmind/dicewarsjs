@@ -352,8 +352,10 @@ export const NAV_TABS = [
  * layer of --ui-scrim on top of the screen's own, reading as a slightly deeper
  * strip of the same tint. The active tab is CSS-only: `aria-current="page"`
  * carries both the semantics and the bevel (declared after :hover so the bevel
- * wins on an active tab). Fixed bevel colors are titleArt.jsx's wordmark
- * palette — identity, not theme.
+ * wins on an active tab). The bevel colors come from the `--ui-bevel-*`
+ * tokens: titleArt.jsx's wordmark palette on the dark theme, a darkened cast
+ * of it on the light one, where the orange face misses 4.5:1 over the pale
+ * scrim (#220).
  */
 const NAV_CSS = `
 .dw-topnav {
@@ -403,7 +405,7 @@ const NAV_CSS = `
    glyph's strokes are as thin as the rim, which turns it to mush; the amber
    face + tight extrusion is the smallest treatment that still reads as the
    wordmark. At 15px the face owes a full 4.5:1, which the wordmark's orange
-   misses badly over the light scrim (1.8:1) — the extrusion under it adds edge
+   misses badly over the light scrim (1.9:1) — the extrusion under it adds edge
    contrast but WCAG measures glyph against ground — so the face comes from
    --ui-bevel-face, which the light theme darkens into the same amber family
    (5.0:1) and the dark theme leaves at the wordmark's own orange. */

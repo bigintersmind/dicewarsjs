@@ -172,7 +172,7 @@ When working with AI strategies:
 
 1. Unit tests for individual components (AI strategies, map generation, battle resolution).
 2. Performance tests for comparing AI strategies.
-3. Test utilities and mocks are located in the tests/mocks/ directory.
+3. Shared test mocks and fixtures live in tests/mocks/; shared test utilities (e.g. the WCAG contrast helper, tests/helpers/contrast.js) live in tests/helpers/.
 4. Benchmarks are in tests/benchmarks/.
 5. Error handling should be tested thoroughly, including edge cases.
 

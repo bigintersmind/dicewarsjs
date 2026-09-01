@@ -579,3 +579,27 @@ describe('SettingsPanel', () => {
     expect(btn).toBeTruthy();
   });
 });
+
+/*
+ * The heading is lettered in the logotype bevel, which used to be a hardcoded
+ * #ff9c00 here — unreadable (1.83:1) on the light theme's dropdown. It now goes
+ * through the --ui-bevel-* tokens; themes.test.js measures what those resolve
+ * to, so what matters here is that the stylesheet actually asks for them and
+ * that no literal survived the swap. The die art keeps its own fixed palette,
+ * but that lives in a JS object, never in this CSS.
+ */
+describe('SettingsPanel — heading bevel tokens (#220)', () => {
+  /** The panel's stylesheet: CHROME_CSS + SETTINGS_CSS in one mounted <style>. */
+  const styleText = () => container.querySelector('style').textContent;
+
+  it('letters the heading in the bevel tokens', () => {
+    renderPanel();
+    expect(styleText()).toContain('color: var(--ui-bevel-face);');
+    expect(styleText()).toContain('text-shadow: var(--ui-bevel-shadow);');
+  });
+
+  it('leaves no hardcoded wordmark orange in the panel CSS', () => {
+    renderPanel();
+    expect(styleText().toLowerCase()).not.toContain('#ff9c00');
+  });
+});

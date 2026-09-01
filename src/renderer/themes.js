@@ -49,6 +49,22 @@ export const THEMES = {
     uiText: '#ffffff',
     uiTextMuted: '#c9c9d6',
     uiAccent: '#e94560',
+    /*
+     * The logotype bevel: a face color plus the extrusion ramp the wordmark's
+     * layer stack is built from (titleArt.jsx's exact values). Identity rather
+     * than decoration — the screen headline, the rail's current tab and the
+     * settings heading are all lettered in it — but tokenized rather than
+     * hardcoded, because the orange face only clears WCAG over a DARK ground:
+     * on the light theme's pale scrim #ff9c00 measures 1.9:1 against ~4.5:1
+     * needed at 15px. Display type owes only 3:1, so it gets its own, lighter
+     * face and keeps more of the orange than the small sites can.
+     */
+    uiBevelFace: '#ff9c00',
+    uiBevelFaceDisplay: '#ff9c00',
+    uiBevelRim: '#ffff33',
+    uiBevelEdge: '#c57900',
+    uiBevelShade: '#875300',
+    uiBevelDeep: '#4a2d00',
     uiBorder: '#555555',
     bodyBg: '#1a1a2e',
     uiScrim: 'rgba(16, 16, 32, 0.68)',
@@ -68,6 +84,23 @@ export const THEMES = {
     uiText: '#1a1a2e',
     uiTextMuted: '#3f3f52',
     uiAccent: '#c0283d',
+    /*
+     * The bevel, cast down for the pale scrim: the face drops to a deep amber
+     * that measures 5.0:1 at 15px (and 4.9:1 on the settings dropdown, the
+     * darker of the two surfaces it lands on), the display face to one that
+     * measures 3.5:1 — the lightest steps of this ramp that clear their floor
+     * with room to spare. The extrusion steps down with the face so it still
+     * reads as a shadow instead of dissolving into it; the rim light stays a
+     * lit edge but becomes the wordmark's own #ff9c00, since pale yellow is
+     * mush on a near-white ground while the identity orange is visible on it
+     * and still clearly lighter than the face it lights.
+     */
+    uiBevelFace: '#935a00',
+    uiBevelFaceDisplay: '#b57000',
+    uiBevelRim: '#ff9c00',
+    uiBevelEdge: '#6f4400',
+    uiBevelShade: '#4a2d00',
+    uiBevelDeep: '#241600',
     uiBorder: '#999999',
     bodyBg: '#e8e8f0',
     uiScrim: 'rgba(244, 244, 250, 0.7)',

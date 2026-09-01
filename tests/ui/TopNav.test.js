@@ -324,3 +324,34 @@ describe('MenuScreen headline focus (#189)', () => {
     expect(heading().getAttribute('tabindex')).toBe('-1');
   });
 });
+
+/*
+ * The current tab and the screen headline are lettered in the logotype bevel,
+ * hardcoded at #ff9c00 until #220 measured it at 1.83:1 (tab) and 1.85:1
+ * (headline) over the light theme's pale scrim. Both now read the --ui-bevel-*
+ * tokens; themes.test.js measures what those resolve to, so what these pin is
+ * that the stylesheets ask for the tokens and that no literal was left behind.
+ */
+describe('logotype bevel tokens (#220)', () => {
+  /** The stylesheet a component mounts alongside its markup. */
+  const styleText = () => container.querySelector('style').textContent;
+
+  it('letters the current tab in the small bevel tokens', () => {
+    render(h(TopNav, { active: 'arena', onNavigate: vi.fn() }), container);
+    expect(styleText()).toContain('color: var(--ui-bevel-face);');
+    expect(styleText()).toContain('text-shadow: var(--ui-bevel-shadow);');
+  });
+
+  it('letters the screen headline in the display bevel tokens', () => {
+    render(h(MenuScreen, { title: 'Arena' }), container);
+    expect(styleText()).toContain('color: var(--ui-bevel-face-display);');
+    expect(styleText()).toContain('text-shadow: var(--ui-bevel-shadow-display);');
+  });
+
+  it('leaves no hardcoded wordmark orange in the rail or chrome CSS', () => {
+    render(h(TopNav, { active: 'arena', onNavigate: vi.fn() }), container);
+    expect(styleText().toLowerCase()).not.toContain('#ff9c00');
+    render(h(MenuScreen, { title: 'Arena' }), container);
+    expect(styleText().toLowerCase()).not.toContain('#ff9c00');
+  });
+});

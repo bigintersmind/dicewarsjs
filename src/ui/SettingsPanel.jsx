@@ -58,11 +58,12 @@ const LEFT_PIP_2_PTS = [[-9.84, 5.42], [-4.23, 4.34]]; // prettier-ignore
 const RIGHT_PIP_1_PT = [6.85, 5.04];
 
 /*
- * Face colors cast from the DICE WARS logotype's layer palette (titleArt.jsx
- * / .dw-screen-title): #FF9C00 face, #C57900 first extrusion as the left
+ * Face colors cast from the DICE WARS logotype's layer palette
+ * (titleArt.jsx): #FF9C00 face, #C57900 first extrusion as the left
  * wall, #4A2D00 deepest layer as the silhouette, #FFFF33 rim light as the
- * glint. Identity colors, not theme — like the wordmark and the active nav
- * tab — so the die reads as chrome rather than the orange player's piece
+ * glint. Identity colors, not theme — like the wordmark itself, and unlike the
+ * lettering bevel, which had to darken on the light theme to stay readable
+ * (#220) — so the die reads as chrome rather than the orange player's piece
  * (whose identity triple is the distinct amber E67F02/945100/371E00). The two rim wedges
  * and bottom crescent interpolate within that ramp the way the legacy die
  * sets do (left rim just under the top face, right rim a step above the
@@ -147,9 +148,9 @@ const MOTION_OPTIONS = [
 
 /*
  * Interactive states need a stylesheet (see CHROME_CSS's own comment). The
- * heading's fixed bevel colors are titleArt.jsx's wordmark palette at the
- * TopNav active-tab scale — identity, not theme, so they don't vary with
- * var(--ui-*).
+ * heading wears the logotype bevel at the TopNav active-tab scale through the
+ * `--ui-bevel-*` tokens (see the .dw-set-heading rule below) — identity, but
+ * theme-cast: the wordmark's orange face is illegible on the light panel.
  */
 const SETTINGS_CSS = `
 /* The pill shares the panel's radius (not a circle) so button and dropdown
@@ -200,15 +201,18 @@ const SETTINGS_CSS = `
 }
 .dw-set-panel-anim { animation: dw-set-open 0.16s ease-out both; }
 
+/* The miniaturized logotype bevel, same treatment as the rail's current tab.
+   Through the tokens rather than the wordmark's literal palette: this heading
+   sits on --ui-overlay-bg, the darker of the two light-theme surfaces the
+   bevel lands on, where the wordmark's orange face measures 1.8:1 against the
+   4.5:1 a 17px glyph owes. The light theme's darkened face measures 4.9:1
+   there; the dark theme resolves to the wordmark's own colors. */
 .dw-set-heading {
   font-family: Anton, sans-serif;
   font-size: 1.05rem;
   letter-spacing: 0.08em;
-  color: #ff9c00;
-  text-shadow:
-    1px 1px 0 #875300,
-    2px 2px 0 #4a2d00,
-    1px 3px 6px rgba(0, 0, 0, 0.35);
+  color: var(--ui-bevel-face);
+  text-shadow: var(--ui-bevel-shadow);
 }
 .dw-set-eyebrow {
   font-family: Roboto, sans-serif;

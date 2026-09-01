@@ -259,6 +259,25 @@ const SETTINGS_CSS = `
   .dw-set-die svg { transition: none; }
   .dw-set-panel-anim { animation: none; }
 }
+
+/*
+ * Touch: the audit measured these options 27px tall (#222), among the shortest
+ * hit areas in the menus — the title screen's footer links came out at 25px and
+ * the in-game bar's two text controls at 22px. They take the same 40px box as
+ * every other option, but from their own rule rather than CHROME_CSS's coarse
+ * .dw-opt, which the doubled class above shuts out by specificity — and has to,
+ * because the horizontal 0.45rem is not free space: .dw-set-row cancels it with
+ * a matching -0.45rem margin so option text left-aligns with the eyebrow, and a
+ * wider value would both break that alignment and wrap the four-up speed row
+ * inside a 236px card. So only the vertical padding grows and min-height
+ * carries the rest of the way. Seven option rows at 40px make the dropdown
+ * ~90px taller (~450px to ~540px), still inside its max-height on a short
+ * phone — and the panel scrolls rather than clipping if a future row ever
+ * changes that.
+ */
+@media (pointer: coarse) {
+  .dw-opt.dw-set-opt { padding: 0.4rem 0.45rem; min-height: 40px; }
+}
 `;
 
 /**

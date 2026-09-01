@@ -45,10 +45,17 @@ import { useEffect, useRef } from 'preact/hooks';
  * relying on some other component happening to be on screen. Several are
  * therefore mounted at once (SettingsPanel rides along on every screen, and the
  * quit confirm sits on top of the HUD), which is harmless: the rules are
- * identical, so whichever copy wins declares the same thing. The one rule any
- * of them overrides — SettingsPanel's `.dw-opt.dw-set-opt` padding — is doubled
- * up to win on specificity rather than source order, so mount order never
- * decides anything.
+ * identical, so whichever copy wins declares the same thing. Three rules do
+ * override one of these — SettingsPanel's `.dw-opt.dw-set-opt` padding, the
+ * in-game bar's `.dw-opt.dw-hud-opt` sizing (#222 item 1), and RulesModal's
+ * `.dw-opt.dw-rules-close`. Every screen that overrides a rule in here mounts
+ * this sheet concatenated with its own inside a single <style> (SettingsPanel
+ * and RulesModal do; so do QuitConfirm and TitleScreen, which override nothing)
+ * — so such an override is later text in the same sheet rather than a rule in
+ * another one, and would tie with the rule it means to beat instead of losing
+ * to it. Each therefore doubles its class to win on specificity rather than
+ * source order, so mount order never decides anything. The coarse-pointer block
+ * at the foot of this sheet is where all three are listed and explained.
  */
 export const CHROME_CSS = `
 .dw-btn {
@@ -131,6 +138,65 @@ a.dw-btn { display: inline-block; text-decoration: none; }
 .dw-anim-fade { animation: dw-fade 0.35s ease-out 0.2s both; }
 @media (prefers-reduced-motion: reduce) {
   .dw-anim-rise, .dw-anim-pop, .dw-anim-fade { animation: none; }
+}
+
+/*
+ * Touch: a hit area bigger than the glyphs. The bare-text option is the game's
+ * own idiom and the type is untouched — what the 2026-08-31 audit measured
+ * (#222) is the box around it. Option rows came out 28-33px tall and the
+ * leaderboard's compact watch button 59x28, against the 24px floor WCAG 2.5.8
+ * sets and the 44pt Apple's guidelines ask for (Material asks for 48dp). 40px
+ * is what the option rows can carry: a wrapping row of seven player counts
+ * turns into a page of its own well before 44.
+ *
+ * Coarse pointers only, so the mouse layout is byte for byte what it was.
+ * (pointer: coarse) asks about the finger, not the viewport, so a narrow
+ * desktop window keeps the tight rows and a tablet gets the roomy ones.
+ *
+ * This block is LAST in the sheet on purpose: its .dw-opt is the same
+ * specificity as the base rule above, so source order is the whole reason it
+ * wins (pinned in tests/ui/touchTargets.test.js), and the a.dw-btn rule below
+ * ties with its own base rule the same way. The three places that must NOT be
+ * reached opt out the other way, on specificity, by doubling their class — so
+ * none of them depends on which copy of this sheet a screen happens to mount,
+ * nor on which other sheet a screen concatenates onto it:
+ *
+ *   .dw-opt.dw-set-opt (the settings dropdown) — its horizontal padding is
+ *   cancelled by a matching negative margin on .dw-set-row, so widening it
+ *   would pull the option text out of eyebrow alignment; that sheet grows its
+ *   own rows vertically instead.
+ *
+ *   .dw-opt.dw-hud-opt (the in-game bar) — the bar's height is a contract with
+ *   the renderer, published by the bar itself as the --dw-hud-bar-height
+ *   custom property (HUD_BAR_HEIGHT's 50px on a desktop, two stacked rows and
+ *   about 80px under 560px), so its two text controls have to grow into the
+ *   bar rather than push it open, which they do with a layout-neutral
+ *   negative-margin rule of their own (#222 item 1).
+ *
+ *   .dw-opt.dw-rules-close (the how-to-play card's corner close button) —
+ *   RulesModal mounts this sheet concatenated with its own inside one <style>,
+ *   the way every screen that overrides a rule in here does, so a rule there is
+ *   later text in the same sheet rather than a rule in another one, and a bare
+ *   class would tie with this block instead of losing to it. It keeps its tight
+ *   padding on purpose and takes its 40px box from min-width / min-height
+ *   instead.
+ *
+ * .dw-btn only needs the floor: the filled buttons already clear 40px, so the
+ * rule is a floor rather than a resize, and two controls are short enough today
+ * for it to show — the leaderboard's compact watch button and the link out to
+ * the bot guide on the arena and tournament screens, both of which set their
+ * padding inline. That link is an anchor, and an inline-block anchor does not
+ * center its label in a box the floor has grown the way a button does, so the
+ * anchor takes flex centering here as well.
+ *
+ * Comments in here are rendered text: every sheet ships inside a <style> the
+ * component mounts, so an all-caps interface word written in a comment lands
+ * in that element's textContent. Keep the prose lowercase.
+ */
+@media (pointer: coarse) {
+  .dw-opt { padding: 0.45rem 0.6rem; min-height: 40px; }
+  .dw-btn { min-height: 40px; }
+  a.dw-btn { display: inline-flex; align-items: center; justify-content: center; }
 }
 `;
 
@@ -520,6 +586,18 @@ const FOOTER_NAV_CSS = `
   font-size: 0.85rem;
   color: var(--ui-text-muted);
   text-shadow: var(--ui-text-halo);
+}
+
+/*
+ * Touch, same reasoning as CHROME_CSS's coarse block: the audit measured these
+ * links 25px tall (#222) — a hair over the 24px floor and nowhere near the
+ * 40px a finger wants, on a row that wraps on a phone so the taps land close
+ * together. The row is centered and baseline-aligned, so the extra padding
+ * only spaces the three links apart and drops the row's baseline; the
+ * separators follow it. Nothing moves on a mouse.
+ */
+@media (pointer: coarse) {
+  .dw-footlink { padding: 0.5rem 0.6rem; min-height: 40px; }
 }
 `;
 

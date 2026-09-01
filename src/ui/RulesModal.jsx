@@ -168,10 +168,28 @@ const RULES_CSS = `
 }
 .dw-rules-fig svg { display: block; width: 100%; height: auto; }
 
-.dw-rules-close {
+/* Doubled class (.dw-opt.dw-rules-close), for the same reason as the settings
+   dropdown's option rule, and by the same mechanism: every screen that
+   overrides a chrome rule concatenates CHROME_CSS and its own sheet into one
+   <style>, so a bare .dw-rules-close would not lose to CHROME_CSS's coarse
+   .dw-opt at all — it would tie with it at (0,1,0) and win the tight padding
+   back on source order, an opt-out by concatenation that neither sheet's own
+   pins can see. Doubling settles it on specificity. */
+.dw-opt.dw-rules-close {
   font-size: 1.35rem;
   line-height: 1;
   padding: 0.1rem 0.5rem;
+}
+
+/* Touch: the same 40px box every other control takes on a coarse pointer
+   (#222 item 4), from min-width / min-height rather than padding. The padding
+   stays tight because this is a corner control set against the headline, and a
+   wide pill there would read as a second button; a <button> centers its own
+   content both ways, so the glyph stays in the middle of the bigger box. The
+   header is a flex row inside the card's own padding, so the box grows within
+   the card and the only thing that moves is the header row's height. */
+@media (pointer: coarse) {
+  .dw-opt.dw-rules-close { min-width: 40px; min-height: 40px; }
 }
 
 /* Narrow phones: the figure stacks over its copy rather than squeezing it. */

@@ -45,6 +45,8 @@ export class GameRenderer {
     this._warnedDrawMap = false;
     /** @type {boolean} Whether an update pre-init warning has been logged */
     this._warnedUpdate = false;
+    /** @type {boolean} Whether an unparseable bar-height warning has been logged */
+    this._warnedBarHeight = false;
   }
 
   /**
@@ -105,26 +107,33 @@ export class GameRenderer {
     this.app.resize();
     /*
      * How much room the HUD bar needs is the HUD's to say: under 560px it goes
-     * to two rows so all eight seats fit (#222), and it publishes the current
-     * height as `--hud-bar-height` on the document root. HUD_BAR_HEIGHT is the
-     * declared default and the fallback for every context with no HUD in the
-     * DOM — the title screen, the tests, a headless render.
+     * to two rows so all eight seats fit (#222). GameHUD is the writer — it
+     * measures its own bar after layout and publishes the result as
+     * `--dw-hud-bar-height` on the document root, then dispatches a 'resize' so
+     * this runs against the new value. So the read happens here, at resize
+     * time, and the publisher is what guarantees a resize to read it at.
+     * HUD_BAR_HEIGHT is the fallback for every context with no HUD in the DOM
+     * — the title screen, the tests, a headless render.
      *
-     * Read here, at resize time, which leaves one residual gap: the HUD mounts
-     * without a resize event, so a window that is BOTH under the breakpoint and
-     * short enough for the board to be height-bound (shorter than roughly its
-     * own width plus the bar) keeps the old reservation until something
-     * resizes, and the taller bar covers the board's bottom edge. A phone in
-     * portrait is width-bound with ~150px of slack under the board, so there
-     * nothing is covered.
+     * Only a plain px length is accepted. The value feeds arithmetic, and
+     * parseFloat is unit-blind: it would read '5rem' as 5 (a bar 45px shorter
+     * than it is) and 'calc(80px + env(safe-area-inset-bottom))' as NaN. An
+     * empty string is the ordinary no-HUD case and falls back silently;
+     * anything else is a writer bug, so it falls back loudly, once.
      */
     const declaredBarHeight =
       typeof document === 'undefined' || typeof getComputedStyle !== 'function'
-        ? NaN
-        : parseFloat(
-            getComputedStyle(document.documentElement).getPropertyValue('--hud-bar-height')
-          );
-    const barHeight = Number.isNaN(declaredBarHeight) ? HUD_BAR_HEIGHT : declaredBarHeight;
+        ? ''
+        : getComputedStyle(document.documentElement).getPropertyValue('--dw-hud-bar-height') || '';
+    const parsedBarHeight = /^\s*(\d+(?:\.\d+)?)px\s*$/.exec(declaredBarHeight);
+    if (!parsedBarHeight && declaredBarHeight.trim() !== '' && !this._warnedBarHeight) {
+      console.warn(
+        `[GameRenderer] --dw-hud-bar-height is not a px length (got "${declaredBarHeight.trim()}"); ` +
+          `reserving ${HUD_BAR_HEIGHT}px instead. The value is published by GameHUD (src/ui/GameHUD.jsx).`
+      );
+      this._warnedBarHeight = true;
+    }
+    const barHeight = parsedBarHeight ? Number(parsedBarHeight[1]) : HUD_BAR_HEIGHT;
     const availableHeight = Math.max(this.app.screen.height - barHeight, 1);
     const scale = Math.min(this.app.screen.width / BASE_WIDTH, availableHeight / BASE_HEIGHT);
     this.root.scale.set(scale);

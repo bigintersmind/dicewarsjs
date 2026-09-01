@@ -9,7 +9,11 @@
 import { useGameStore } from './hooks/useGameStore.js';
 import { SeatSwatch } from './SeatSwatch.jsx';
 import { playerName } from '../store/GameStore.js';
-import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
+import {
+  PLAYER_COLORS_CSS,
+  COLORBLIND_PLAYER_COLORS_CSS,
+  HUD_BAR_HEIGHT,
+} from '../renderer/constants.js';
 
 /*
  * END TURN cannot borrow `.dw-btn`'s focus ring: that ring is `--ui-accent`,
@@ -30,15 +34,16 @@ const STYLE = {
    * The strip stops at the top of the HUD bar, so END TURN and the instruction
    * line sit just above the chips rather than on them. The bar's height is not
    * a constant any more — under 560px it goes to two rows so eight seats fit
-   * (#222) — so the stop follows the `--hud-bar-height` GameHUD declares, and
-   * falls back to HUD_BAR_HEIGHT for any render with no HUD in the DOM.
+   * (#222) — so the stop follows the `--dw-hud-bar-height` the mounted GameHUD
+   * measures and publishes, and falls back to HUD_BAR_HEIGHT itself (the same
+   * constant GameRenderer reserves with) for any render with no HUD in the DOM.
    */
   overlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    bottom: 'var(--hud-bar-height, 50px)',
+    bottom: `var(--dw-hud-bar-height, ${HUD_BAR_HEIGHT}px)`,
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'flex-end',

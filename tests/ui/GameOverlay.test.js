@@ -280,28 +280,20 @@ describe('GameOverlay — theme-blind literals (#220)', () => {
  * The strip stops at the top of the HUD bar so END TURN sits above the chips
  * rather than on them. That used to be a hard-coded 50px in two places; since
  * #222 the bar goes to two rows under 560px, so the stop follows the height
- * the HUD declares.
+ * the mounted HUD measures and publishes.
+ *
+ * One assertion, on the whole value: the variable is the published height and
+ * the fallback is the constant GameRenderer reserves with wherever no HUD is
+ * mounted — a second hard-coded 50 here would be free to drift from it, so the
+ * source interpolates HUD_BAR_HEIGHT and this compares against the import.
+ * (jsdom substitutes no var(), so the resolved value is not observable here —
+ * the two-row measurement is the manual pass in docs/TESTING.md.)
  */
 describe('GameOverlay — the bar-height contract (#222)', () => {
   const overlay = () => container.firstChild;
 
-  it('stops at the height the HUD declares, falling back to HUD_BAR_HEIGHT', () => {
+  it('stops at the published bar height, falling back to HUD_BAR_HEIGHT', () => {
     renderOverlay();
-    const bottom = overlay().style.bottom;
-    expect(bottom).toBe(`var(--hud-bar-height, ${HUD_BAR_HEIGHT}px)`);
-  });
-
-  /*
-   * The fallback is what applies wherever no HUD is mounted, so it has to be
-   * the constant the renderer uses and not a second hard-coded 50 free to
-   * drift from it. Read back as a number, so the failure names the mismatch.
-   * (jsdom substitutes no var(), so the resolved value is not observable here
-   * — the two-row measurement is the manual pass in docs/TESTING.md.)
-   */
-  it('falls back to HUD_BAR_HEIGHT rather than a second copy of 50', () => {
-    renderOverlay();
-    const fallback = overlay().style.bottom.match(/,\s*([\d.]+)px\s*\)/);
-    expect(fallback).not.toBeNull();
-    expect(Number(fallback[1])).toBe(HUD_BAR_HEIGHT);
+    expect(overlay().style.bottom).toBe(`var(--dw-hud-bar-height, ${HUD_BAR_HEIGHT}px)`);
   });
 });

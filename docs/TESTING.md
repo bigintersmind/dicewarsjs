@@ -210,13 +210,18 @@ supporting). Set up a **Custom** game with **8 players**, then START → PLAY:
 
 1. **HUD** — every chip visible: eight swatches with their territory counts, the
    bar on two rows with QUIT and RULES above the chips, and the ring on the
-   current chip not clipped. On a crowded board the chips row scrolls
-   horizontally rather than cutting the last seats off; at rest it stays
-   centered. END TURN and the instruction line sit clear of the bar, not on it.
-2. **Leaderboard** — on the Arena and Tournament results, the table is never
-   wider than the panel around it (it scrolls inside the panel if it must, and
-   the panel border stays unbroken), and the **Avg Place** and **Atk%** columns
-   are gone under 560px.
+   current chip not clipped at either end. On a crowded board the chips row
+   scrolls horizontally rather than cutting the last seats off, with no
+   scrollbar taking height off the bar; at rest it stays centered. END TURN and
+   the instruction line sit clear of the bar, not on it, and the board's bottom
+   edge is above the bar rather than behind it — the HUD measures itself and
+   publishes `--dw-hud-bar-height` for the renderer, so check it again after
+   rotating the device and at a larger browser default font size.
+2. **Leaderboard** — the same table appears on three screens: the Leaderboard
+   hub screen (the one reachable without running anything) and the Arena and
+   Tournament results. On each, it is never wider than the panel around it (it
+   scrolls inside the panel if it must, and the panel border stays unbroken),
+   and the **Avg Place** and **Atk%** columns are gone under 560px.
 3. **Touch targets** — turn on touch emulation (the device toolbar does this).
    Option rows, footer links, the settings options and the HUD's QUIT / RULES
    each want a hit area at least 40px tall — check by tapping just above and
@@ -224,7 +229,9 @@ supporting). Set up a **Custom** game with **8 players**, then START → PLAY:
    controls look exactly as they did.
 4. **Every screen** — `document.documentElement.scrollWidth === innerWidth` in
    the console. Title, setup, map preview, playing, game over, and each of the
-   three hub screens.
+   three hub screens. The replay viewer is the known exception — its control row
+   pins a 300px slider beside a 100px counter and the transport buttons, which
+   overflows every phone width — and stays one until #222 item 3 lands.
 
 ## Continuous integration
 

@@ -7,6 +7,8 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <meta name="description" content="Dice Wars: a strategic dice game" />
+    <!-- Dark-theme body background; applyThemeVars() retints this on a theme change. -->
+    <meta name="theme-color" content="#1a1a2e" />
     <title>DICEWARS</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -34,8 +36,11 @@
       /*
        * Default (dark) theme variables for first paint, before main.jsx runs.
        * applyThemeVars() overrides these on the document root at startup based
-       * on the saved preference. Keep in sync with THEMES.dark in
-       * src/renderer/themes.js.
+       * on the saved preference. They duplicate THEMES.dark in
+       * src/renderer/themes.js, and that duplication is pinned by
+       * tests/ui/applyThemeVars.test.js ("index.html first-paint :root
+       * defaults") — a value that drifts from THEMES.dark fails CI rather
+       * than shipping a stale paint.
        */
       :root {
         --ui-bg: rgba(0, 0, 0, 0.5);
@@ -59,6 +64,8 @@
           0 1px 2px rgba(13, 13, 26, 0.92), 0 -1px 2px rgba(13, 13, 26, 0.92),
           1px 0 2px rgba(13, 13, 26, 0.92), -1px 0 2px rgba(13, 13, 26, 0.92),
           0 2px 6px rgba(0, 0, 0, 0.55);
+        /* Tone for the widgets we don't paint: <select> popups, scrollbars. */
+        color-scheme: dark;
       }
       * {
         margin: 0;

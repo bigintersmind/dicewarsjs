@@ -4,6 +4,11 @@
  * Dark and light theme color palettes for both the PixiJS renderer
  * and the Preact UI overlay.
  *
+ * Every key but `colorScheme` is a color. That one is the CSS `color-scheme`
+ * keyword the DOM layer hands to the browser for the widgets the page does not
+ * paint itself — the `<select>` popup, scrollbars, focus rings — which default
+ * to a light styling that looks pasted-in over the dark theme.
+ *
  * @module renderer/themes
  */
 
@@ -78,6 +83,7 @@ export const THEMES = {
     uiScrim: 'rgba(16, 16, 32, 0.68)',
     uiInk: 'rgba(13, 13, 26, 0.92)',
     uiInkSoft: 'rgba(0, 0, 0, 0.55)',
+    colorScheme: 'dark',
   },
   light: {
     bgColor: 0xe8e8f0,
@@ -115,6 +121,7 @@ export const THEMES = {
     uiScrim: 'rgba(244, 244, 250, 0.7)',
     uiInk: 'rgba(250, 250, 253, 0.95)',
     uiInkSoft: 'rgba(255, 255, 255, 0.9)',
+    colorScheme: 'light',
   },
 };
 

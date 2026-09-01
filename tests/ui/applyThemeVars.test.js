@@ -134,6 +134,42 @@ describe('applyThemeVars', () => {
      */
     expect(() => applyThemeVars('dark', {})).not.toThrow();
   });
+
+  /*
+   * `color-scheme` is a real CSS property rather than a --ui-* variable, so the
+   * VAR_MAP-iterating tests above can't reach it — and it is the only thing
+   * that themes the native widgets the page doesn't paint (the
+   * Custom-difficulty <select> popup, scrollbars).
+   */
+  it.each([
+    ['dark', 'dark'],
+    ['light', 'light'],
+    ['not-a-theme', 'dark'],
+  ])('writes color-scheme for the %s theme', (name, expected) => {
+    applyThemeVars(name, { root, body });
+    expect(root.style.getPropertyValue('color-scheme')).toBe(expected);
+  });
+
+  /*
+   * The meta lives in the real document head, not under the detached root the
+   * other tests use, so these two add and remove one around the call.
+   */
+  it.each(['dark', 'light'])('tints the theme-color meta with the %s bodyBg', name => {
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'theme-color');
+    document.head.appendChild(meta);
+    try {
+      applyThemeVars(name, { root, body });
+      expect(meta.getAttribute('content')).toBe(THEMES[name].bodyBg);
+    } finally {
+      meta.remove();
+    }
+  });
+
+  it('does not throw when the page carries no theme-color meta', () => {
+    expect(document.querySelector('meta[name="theme-color"]')).toBeNull();
+    expect(() => applyThemeVars('dark', { root, body })).not.toThrow();
+  });
 });
 
 describe('index.html first-paint :root defaults', () => {
@@ -145,10 +181,10 @@ describe('index.html first-paint :root defaults', () => {
 
   /*
    * index.html hardcodes the dark palette in a :root block so the first paint
-   * (before main.jsx runs) is themed. That duplicates THEMES.dark with only a
-   * "keep in sync" prose comment to guard it, so assert the values actually
-   * agree — a future edit to themes.js that forgets index.html now fails CI
-   * instead of silently shipping a stale first paint.
+   * (before main.jsx runs) is themed. That duplicates THEMES.dark, so assert
+   * the values actually agree — a future edit to themes.js that forgets
+   * index.html fails CI here instead of silently shipping a stale first paint.
+   * index.html's own comment points back at this describe as its guard.
    */
   it.each(Object.entries(VAR_MAP))('seeds %s with the dark-theme value', (cssVar, paletteKey) => {
     expect(indexHtml).toContain(`${cssVar}: ${THEMES.dark[paletteKey]};`);
@@ -180,5 +216,15 @@ describe('index.html first-paint :root defaults', () => {
     expect(collapsed).toContain(
       `--ui-text-halo: ${composeTextHalo(THEMES.dark.uiInk, THEMES.dark.uiInkSoft)};`
     );
+  });
+
+  it('declares color-scheme: dark so native widgets match the first paint', () => {
+    expect(indexHtml).toMatch(/:root\s*\{[^}]*color-scheme:\s*dark;/);
+  });
+
+  it('carries a theme-color meta seeded with the dark bodyBg', () => {
+    /* Collapse whitespace so a Prettier re-wrap of the tag doesn't fail this. */
+    const collapsed = indexHtml.replace(/\s+/g, ' ');
+    expect(collapsed).toContain(`<meta name="theme-color" content="${THEMES.dark.bodyBg}" />`);
   });
 });

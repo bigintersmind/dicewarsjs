@@ -173,7 +173,7 @@ describe('index.html first-paint :root defaults', () => {
   });
 
   it('declares color-scheme: dark so native widgets match the first paint', () => {
-    expect(indexHtml).toContain('color-scheme: dark;');
+    expect(indexHtml).toMatch(/:root\s*\{[^}]*color-scheme:\s*dark;/);
   });
 
   it('carries a theme-color meta seeded with the dark bodyBg', () => {

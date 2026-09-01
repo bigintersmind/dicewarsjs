@@ -108,11 +108,13 @@ export function applyThemeVars(themeName, { root, body } = {}) {
   /*
    * Mobile browsers tint their own chrome (address bar, task switcher) from
    * `<meta name="theme-color">`, so it has to follow the theme too or the
-   * surround stays dark around the light theme. Resolved from the root's own
-   * document, since tests hand us a detached element whose real `<head>` is
-   * still reachable that way; a page without the meta just keeps its default.
+   * surround stays dark around the light theme. Looked up in the root's own
+   * document, so a fake root can never retint the real page. A missing meta is
+   * skipped rather than treated as a failure: index.html's tag is pinned by
+   * this module's test (tests/ui/applyThemeVars.test.js), so its absence means
+   * a test fixture, not a regression.
    */
-  const doc = el.ownerDocument || (typeof document !== 'undefined' ? document : null);
-  const themeColorMeta = doc && doc.querySelector('meta[name="theme-color"]');
+  const doc = el.ownerDocument;
+  const themeColorMeta = doc.querySelector('meta[name="theme-color"]');
   if (themeColorMeta) themeColorMeta.setAttribute('content', theme.bodyBg);
 }

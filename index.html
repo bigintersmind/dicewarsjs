@@ -39,7 +39,8 @@
        * on the saved preference. They duplicate THEMES.dark in
        * src/renderer/themes.js, and that duplication is pinned by
        * tests/ui/applyThemeVars.test.js ("index.html first-paint :root
-       * defaults") — drift here fails CI rather than shipping a stale paint.
+       * defaults") — a value that drifts from THEMES.dark fails CI rather
+       * than shipping a stale paint.
        */
       :root {
         --ui-bg: rgba(0, 0, 0, 0.5);

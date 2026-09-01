@@ -119,6 +119,15 @@ describe('OnlineLeaderboardScreen', () => {
     // in-app badge uses (flagBadgeText).
     expect(container.textContent).toContain('Broken');
     expect(container.textContent).toContain('30 error turns');
+    /*
+     * The note is the second consumer of Leaderboard's FLAG_COLOR (#137), so pin the token
+     * here too: re-hardcoding the dark red would otherwise fail nothing, and it reads at
+     * only 3.2:1 on the light panel (#220).
+     */
+    const flaggedName = [...container.querySelectorAll('span')].find(
+      el => el.style.color && el.textContent.includes('Broken')
+    );
+    expect(flaggedName.style.color).toBe('var(--ui-danger)');
   });
 
   it('still shows the exclusion note when every bot was flagged (empty rankings)', async () => {

@@ -86,6 +86,9 @@ export function applyThemeVars(themeName, { root, body } = {}) {
   }
   // Soft, translucent accent for error-banner fills and subtle highlights.
   el.style.setProperty('--ui-accent-soft', hexToRgba(theme.uiAccent, 0.15));
+  // The flagged-row wash on the leaderboard: the danger red at 10%, derived here so the
+  // tint follows the token per theme instead of freezing one theme's red into a literal.
+  el.style.setProperty('--ui-danger-soft', hexToRgba(theme.uiDanger, 0.1));
   // Ink-rim shadow for text that floats directly on the scrimmed board.
   el.style.setProperty('--ui-text-halo', composeTextHalo(theme.uiInk, theme.uiInkSoft));
 

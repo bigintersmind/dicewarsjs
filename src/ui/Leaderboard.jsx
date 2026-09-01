@@ -19,11 +19,14 @@ import { PLAYER_COLORS_CSS } from '../renderer/constants.js';
  */
 export const FLAG_COLOR = 'var(--ui-danger)';
 /*
- * The flagged row's wash stays a literal, since CSS can't push a var() through rgba(): at
- * 10% alpha it is a faint warning tint either way, and the badge and row text still clear
- * AA over it in both themes (pinned in the tests).
+ * The flagged row's wash: the same warning red at 10% alpha, so the tint under the badge is
+ * the badge's own hue. It is a derived var (`--ui-danger-soft`, composed in applyThemeVars
+ * beside `--ui-accent-soft`) rather than an rgba() literal here, because a literal can only
+ * be one theme's red: it washed light-theme rows in the dark coral while the badge and
+ * border on top were the light red, and it would have stayed on the old hue if `uiDanger`
+ * ever moved. The badge and row text clear AA over it in both themes (pinned in the tests).
  */
-const FLAG_ROW_BG = 'rgba(229, 83, 75, 0.1)';
+const FLAG_ROW_BG = 'var(--ui-danger-soft)';
 
 /**
  * Short badge text for a flagged bot: lead with whichever forced-end signal actually

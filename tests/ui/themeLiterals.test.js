@@ -79,16 +79,20 @@ const ALLOWED = {
     why: 'Two mask-image gradient stops (opacity, not paint) plus the card’s drop shadow.',
   },
   'SettingsPanel.jsx': {
-    max: 3,
-    why: 'The chrome die’s black pips and the panel’s drop shadow, plus the heading bevel until #228 tokenizes it.',
+    max: 2,
+    why: 'The chrome die’s black pips and the panel’s drop shadow.',
   },
   'TitleScreen.jsx': {
     max: 1,
     why: 'Offset+blur drop shadow under the wordmark.',
   },
+  'applyThemeVars.js': {
+    max: 2,
+    why: 'The bevel stack’s ground drop shadow under the extrusion — a shadow, not a surface color, and the same on both themes.',
+  },
   'menuChrome.jsx': {
-    max: 6,
-    why: 'The .dw-btn white face and its three drop edges (rest, active, disabled) — deliberate identity chrome — plus the screen-headline and active-tab bevels until #228 tokenizes them.',
+    max: 4,
+    why: 'The .dw-btn white face and its three drop edges (rest, active, disabled) — deliberate identity chrome.',
   },
   'rulesArt.jsx': {
     max: 1,

@@ -21,9 +21,9 @@ import { getTheme } from '../renderer/themes.js';
 
 /**
  * Map of CSS custom property name → theme palette key. Note that
- * `--ui-accent-soft`, `--ui-text-halo`, `--ui-bevel-shadow` and
- * `--ui-bevel-shadow-display` are intentionally absent: they are derived from
- * palette keys at runtime (see below), not looked up directly.
+ * `--ui-accent-soft`, `--ui-danger-soft`, `--ui-text-halo`, `--ui-bevel-shadow`
+ * and `--ui-bevel-shadow-display` are intentionally absent: they are derived
+ * from palette keys at runtime (see below), not looked up directly.
  *
  * Exported so tests can iterate it and stay in lockstep with the live mapping.
  */

@@ -18,7 +18,12 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { GameOverlay } from '../../src/ui/GameOverlay.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
-import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../../src/renderer/constants.js';
+import {
+  PLAYER_COLORS_CSS,
+  COLORBLIND_PLAYER_COLORS_CSS,
+  HUD_BAR_HEIGHT,
+  HUD_BAR_HEIGHT_VAR,
+} from '../../src/renderer/constants.js';
 import { THEMES } from '../../src/renderer/themes.js';
 import { contrast, surface, WCAG } from '../helpers/contrast.js';
 
@@ -269,5 +274,27 @@ describe('GameOverlay — theme-blind literals (#220)', () => {
     expect(endTurnButton().style.background).toBe('var(--ui-accent)');
     expect(endTurnButton().style.color).toBe(cssColor('#ffffff'));
     expect(contrast('#ffffff', THEMES[name].uiAccent)).toBeGreaterThanOrEqual(WCAG.AA_LARGE);
+  });
+});
+
+/*
+ * The strip stops at the top of the HUD bar so END TURN sits above the chips
+ * rather than on them. That used to be a hard-coded 50px in two places; since
+ * #222 the bar goes to two rows under 560px, so the stop follows the height
+ * the mounted HUD measures and publishes.
+ *
+ * One assertion, on the whole value: the variable is the published height and
+ * the fallback is the constant GameRenderer reserves with wherever no HUD is
+ * mounted — a second hard-coded 50 here would be free to drift from it, so the
+ * source interpolates HUD_BAR_HEIGHT and this compares against the import.
+ * (jsdom substitutes no var(), so the resolved value is not observable here —
+ * the two-row measurement is the manual pass in docs/TESTING.md.)
+ */
+describe('GameOverlay — the bar-height contract (#222)', () => {
+  const overlay = () => container.firstChild;
+
+  it('stops at the published bar height, falling back to HUD_BAR_HEIGHT', () => {
+    renderOverlay();
+    expect(overlay().style.bottom).toBe(`var(${HUD_BAR_HEIGHT_VAR}, ${HUD_BAR_HEIGHT}px)`);
   });
 });

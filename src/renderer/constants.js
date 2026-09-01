@@ -100,6 +100,12 @@ export const BASE_HEIGHT = 840;
 /** Height reserved for the HUD bar at the bottom of the viewport. Keep in sync with GameHUD.jsx. */
 export const HUD_BAR_HEIGHT = 50;
 
+/**
+ * The custom property the mounted GameHUD publishes its measured bar height as.
+ * GameOverlay and GameRenderer read it and fall back to HUD_BAR_HEIGHT.
+ */
+export const HUD_BAR_HEIGHT_VAR = '--dw-hud-bar-height';
+
 /** Hex cell pixel dimensions (before scaling). */
 export const CELL_WIDTH = 27;
 export const CELL_HEIGHT = 18;

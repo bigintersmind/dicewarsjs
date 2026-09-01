@@ -132,6 +132,48 @@ a.dw-btn { display: inline-block; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   .dw-anim-rise, .dw-anim-pop, .dw-anim-fade { animation: none; }
 }
+
+/*
+ * Touch: a hit area bigger than the glyphs. The bare-text option is the game's
+ * own idiom and the type is untouched — what the 2026-08-31 audit measured
+ * (#222) is the box around it. Option rows came out 28-33px tall and the
+ * leaderboard's compact watch button 59x28, against the 24px floor WCAG 2.5.8
+ * sets and the 44px both platform guidelines ask for. 40px is what the option
+ * rows can carry: a wrapping row of seven player counts turns into a page of
+ * its own well before 44.
+ *
+ * Coarse pointers only, so the mouse layout is byte for byte what it was.
+ * (pointer: coarse) asks about the finger, not the viewport, so a narrow
+ * desktop window keeps the tight rows and a tablet gets the roomy ones.
+ *
+ * This block is LAST in the sheet on purpose: its .dw-opt is the same
+ * specificity as the base rule above, so source order is the whole reason it
+ * wins (pinned in tests/ui/touchTargets.test.js). The two places that must NOT
+ * be reached opt out the other way, on specificity, by doubling their class —
+ * so neither depends on which copy of this sheet a screen happens to mount:
+ *
+ *   .dw-opt.dw-set-opt (the settings dropdown) — its horizontal padding is
+ *   cancelled by a matching negative margin on .dw-set-row, so widening it
+ *   would pull the option text out of eyebrow alignment; that sheet grows its
+ *   own rows vertically instead.
+ *
+ *   .dw-opt.dw-hud-opt (the in-game bar) — the bar's 50px height is a contract
+ *   with the renderer (HUD_BAR_HEIGHT), so its two text controls have to grow
+ *   into the bar rather than push it open, which they do with a layout-neutral
+ *   rule of their own (#222 item 1).
+ *
+ * .dw-btn only needs the floor. The hero buttons already clear 40px, so this
+ * lifts the one compact button in the game (the leaderboard's per-replay
+ * button, which sets its padding inline) and is a no-op for the rest.
+ *
+ * Comments in here are rendered text: every sheet ships inside a <style> the
+ * component mounts, so an all-caps interface word written in a comment lands
+ * in that element's textContent. Keep the prose lowercase.
+ */
+@media (pointer: coarse) {
+  .dw-opt { padding: 0.45rem 0.6rem; min-height: 40px; }
+  .dw-btn { min-height: 40px; }
+}
 `;
 
 /** Shared inline-style fragments for menu screens. */
@@ -520,6 +562,18 @@ const FOOTER_NAV_CSS = `
   font-size: 0.85rem;
   color: var(--ui-text-muted);
   text-shadow: var(--ui-text-halo);
+}
+
+/*
+ * Touch, same reasoning as CHROME_CSS's coarse block: the audit measured these
+ * links 25px tall (#222) — a hair over the 24px floor and nowhere near the
+ * 40px a finger wants, on a row that wraps on a phone so the taps land close
+ * together. The row is centered and baseline-aligned, so the extra padding
+ * only spaces the three links apart and drops the row's baseline; the
+ * separators follow it. Nothing moves on a mouse.
+ */
+@media (pointer: coarse) {
+  .dw-footlink { padding: 0.5rem 0.6rem; min-height: 40px; }
 }
 `;
 

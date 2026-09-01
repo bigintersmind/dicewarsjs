@@ -39,14 +39,27 @@ const STYLE = {
     padding: '1rem',
     pointerEvents: 'none',
   },
+  /*
+   * The instruction line sits directly on the live board, so it carries the
+   * ink-rim halo as its own backing rather than a fixed dark smudge: the rim
+   * flips with the theme (a pale rim behind dark text on the light board),
+   * where `1px 1px 4px rgba(0,0,0,0.8)` only ever worked under white (#220).
+   */
   message: {
     fontFamily: 'Roboto, sans-serif',
     fontSize: '1rem',
     color: 'var(--ui-text)',
-    textShadow: '1px 1px 4px rgba(0,0,0,0.8)',
+    textShadow: 'var(--ui-text-halo)',
     marginBottom: '0.5rem',
     textAlign: 'center',
   },
+  /*
+   * White on the accent fill is a deliberate literal, not a missed token. END
+   * TURN is 1.3rem Anton (~21px bold), so WCAG's large-text 3:1 is the bar,
+   * and white clears it on both accents (dark 3.83:1, light 5.81:1) — pinned
+   * in GameOverlay.test.js. A `--ui-on-accent` token would carry the same
+   * value in both themes and buy nothing (#220).
+   */
   endTurnBtn: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.3rem',

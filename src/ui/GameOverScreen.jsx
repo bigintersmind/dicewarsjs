@@ -40,13 +40,20 @@ const STYLE = {
     background: 'var(--ui-overlay-bg)',
     pointerEvents: 'auto',
   },
+  /*
+   * The heading sits on this screen's own overlay, not the raw board, so its
+   * shadow is depth rather than legibility — but a fixed dark one smudged under
+   * the light theme's navy text. The ink-rim halo keeps the depth where it
+   * reads (dark ink under white) and all but vanishes in the light theme,
+   * whose own ink is pale (#220).
+   */
   title: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '3.5rem',
     color: 'var(--ui-text)',
     letterSpacing: '0.3em',
     marginBottom: '1rem',
-    textShadow: '2px 2px 8px rgba(0,0,0,0.6)',
+    textShadow: 'var(--ui-text-halo)',
   },
   /* The winner's seat rides beside this line as a swatch, never in the ink:
      on the light theme's panel a pastel seat as text measured near 1:1 (#220). */

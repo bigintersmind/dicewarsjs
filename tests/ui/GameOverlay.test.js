@@ -233,3 +233,41 @@ describe('GameOverlay — human turn', () => {
     expect(endTurnButton()).toBeUndefined();
   });
 });
+
+describe('GameOverlay — theme-blind literals (#220)', () => {
+  /*
+   * The instruction line floats on the live board, with whatever territory
+   * happens to be under it, so it carries its own backing. That backing has to
+   * flip with the theme: the fixed `rgba(0,0,0,0.8)` it used to carry was a
+   * smudge under the light theme's navy text.
+   */
+  it('backs the instruction line with the ink-rim halo', () => {
+    renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+    });
+    const line = [...container.querySelectorAll('p')].find(p =>
+      p.textContent.includes('attack from')
+    );
+    expect(line.style.textShadow).toBe('var(--ui-text-halo)');
+  });
+
+  /*
+   * END TURN's white ink is the one literal this file keeps: the button is
+   * filled with the accent in both themes, and white is what reads on both.
+   * The pair the button actually carries is read off the rendered element, so
+   * this measures the button rather than restating a palette fact — a fill
+   * moved onto a token with a different value would no longer be covered by
+   * the number below. 1.3rem Anton is ~21px bold, so WCAG's large-text bar
+   * applies, and a future accent that darkens under white fails here.
+   */
+  it.each(['dark', 'light'])('keeps white END TURN ink over the %s accent', name => {
+    renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+    });
+    expect(endTurnButton().style.background).toBe('var(--ui-accent)');
+    expect(endTurnButton().style.color).toBe(cssColor('#ffffff'));
+    expect(contrast('#ffffff', THEMES[name].uiAccent)).toBeGreaterThanOrEqual(WCAG.AA_LARGE);
+  });
+});

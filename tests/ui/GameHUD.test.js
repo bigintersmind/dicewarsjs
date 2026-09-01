@@ -158,3 +158,23 @@ describe('GameHUD — current-player ring (#220)', () => {
     expect(contrast(theme.uiText, bar)).toBeGreaterThanOrEqual(WCAG.AA_NON_TEXT);
   });
 });
+
+describe('GameHUD — seat swatch hairline (#220)', () => {
+  /*
+   * The hairline separating a seat color from the bar was a fixed 30% white,
+   * which the light theme's 85%-white bar swallowed (1.01:1). It is decoration
+   * — the fill is the information — so the bar it has to clear is visibility in
+   * both themes, not the 3:1 a control would owe.
+   */
+  it('draws the swatch hairline in the border token', () => {
+    renderHUD();
+    const swatch = playersRow().children[0].firstElementChild;
+    expect(swatch.style.border).toBe('1px solid var(--ui-border)');
+  });
+
+  it.each(['dark', 'light'])('leaves the %s hairline visible against the bar', name => {
+    const theme = THEMES[name];
+    const bar = surface(theme.bodyBg, theme.uiBg);
+    expect(contrast(theme.uiBorder, bar)).toBeGreaterThan(2);
+  });
+});

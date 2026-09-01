@@ -49,11 +49,18 @@ const STYLE = {
     gap: '0.25rem',
     marginBottom: '0.5rem',
   },
+  /*
+   * The overlay fill, not a fixed black: this banner is the only place a
+   * community bot's failure to load is announced, and `--ui-text` over 60%
+   * black measured 2.6:1 in the light theme — navy on charcoal (#220). The
+   * overlay token is the same near-opaque backing the game-over screen uses,
+   * and clears 4.5:1 in both themes.
+   */
   warning: {
     fontFamily: 'sans-serif',
     fontSize: '0.95rem',
     color: 'var(--ui-text)',
-    background: 'rgba(0,0,0,0.6)',
+    background: 'var(--ui-overlay-bg)',
     padding: '0.35rem 0.75rem',
     borderRadius: '6px',
     borderLeft: '3px solid var(--ui-accent)',

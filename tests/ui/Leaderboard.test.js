@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 /**
- * Leaderboard tests — focus on the broken-bot flag badge (#92 item 2). The flag decision
- * lives in the JS layer (reportBotErrors); this component only displays the `flagged` prop.
+ * Leaderboard tests — the broken-bot flag badge (#92 item 2), whose flag decision lives in
+ * the JS layer (reportBotErrors) so this component only displays the `flagged` prop, and
+ * the phone layout (#222 item 2). jsdom does no layout and evaluates no media queries, so
+ * the phone block pins the structure and the stylesheet text rather than measuring widths.
  */
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
-import { Leaderboard } from '../../src/ui/Leaderboard.jsx';
+import { Leaderboard, LEADERBOARD_CSS } from '../../src/ui/Leaderboard.jsx';
 import { applyThemeVars, hexToRgba } from '../../src/ui/applyThemeVars.js';
 import { THEMES } from '../../src/renderer/themes.js';
 import { contrast, surface, WCAG } from '../helpers/contrast.js';
@@ -172,5 +174,97 @@ describe('--ui-danger-soft plumbing (#220 item 5)', () => {
      */
     const indexHtml = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
     expect(indexHtml).toContain(`--ui-danger-soft: ${hexToRgba(THEMES.dark.uiDanger, 0.1)};`);
+  });
+});
+
+/*
+ * The table is dropped straight into `MENU_STYLE.panel` by three screens, so at 390px it
+ * used to render 475px wide inside a 341px panel: the border broke, the last two columns
+ * sat off screen, and `html, body { overflow: hidden }` meant nothing could scroll them
+ * back. jsdom neither lays out nor evaluates `@media`, so these pin the two mechanisms
+ * instead — the wrapper the overflow is confined to, and the rules that fire below 560px.
+ */
+describe('Leaderboard on a phone (#222 item 2)', () => {
+  /** Header label with the sort indicator stripped — the sorted column carries ▲/▼. */
+  const label = th => th.textContent.replace(/[\u25B2\u25BC]/g, '').trim();
+
+  const wrapper = () => container.querySelector('.dw-lb-scroll');
+
+  it('confines the table to a scroller of its own, so nothing escapes the panel', () => {
+    renderLeaderboard({ bots });
+
+    const scroll = wrapper();
+    expect(scroll.style.overflowX).toBe('auto');
+    expect(scroll.style.width).toBe('100%');
+    // The table must be *inside* it: a sibling scroller would leave the panel to break.
+    expect(container.querySelector('table').parentElement).toBe(scroll);
+    // ...and the scroller must be what the panel wraps, not something further out.
+    expect(scroll.parentElement).toBe(container);
+  });
+
+  it('mounts its own stylesheet inside that wrapper, like the other menu chrome', () => {
+    renderLeaderboard({ bots });
+    expect(wrapper().querySelector('style').textContent).toBe(LEADERBOARD_CSS);
+  });
+
+  it('marks exactly the two derived headers, leaving the ranking columns alone', () => {
+    renderLeaderboard({ bots });
+
+    const headers = [...container.querySelectorAll('thead th')];
+    expect(headers.filter(th => th.classList.contains('dw-lb-derived')).map(label)).toEqual([
+      'Avg Place',
+      'Atk%',
+    ]);
+    expect(headers.filter(th => !th.classList.contains('dw-lb-derived')).map(label)).toEqual([
+      '#',
+      'Bot',
+      'ELO',
+      'W',
+      'GP',
+      'Win%',
+    ]);
+  });
+
+  it('marks the matching two cells in every row and nothing else', () => {
+    renderLeaderboard({
+      bots,
+      flagged: [{ name: 'Broken', errors: 30, invalidMoves: 0, errorFraction: 1 }],
+    });
+
+    const rows = [...container.querySelectorAll('tbody tr')];
+    expect(rows).toHaveLength(2);
+    for (const tr of rows) {
+      const cells = [...tr.children];
+      expect(cells).toHaveLength(8);
+      const marked = cells.filter(td => td.classList.contains('dw-lb-derived'));
+      expect(marked).toHaveLength(2);
+      // Header and body have to hide together, so the marked cells are the last two.
+      expect(marked.map(td => cells.indexOf(td))).toEqual([6, 7]);
+    }
+  });
+
+  it('hides the derived columns and tightens the cells below the breakpoint', () => {
+    const block = LEADERBOARD_CSS.match(/@media \(max-width: 560px\) \{([\s\S]*?)\n\}/);
+    expect(block).not.toBeNull();
+    expect(block[1]).toMatch(/\.dw-lb-derived\s*\{\s*display:\s*none;?\s*\}/);
+    expect(block[1]).toMatch(/--dw-lb-pad-x:\s*0\.3rem;/);
+  });
+
+  it("reuses the mode rail's 560px breakpoint instead of inventing a second one", () => {
+    // Read from disk rather than importing: NAV_CSS is private to menuChrome.jsx.
+    const chrome = readFileSync(resolve(process.cwd(), 'src/ui/menuChrome.jsx'), 'utf8');
+    expect(chrome).toContain('@media (max-width: 560px)');
+  });
+
+  it("routes the cells' horizontal padding through the variable the media block sets", () => {
+    renderLeaderboard({ bots });
+
+    // Inline styles outrank class rules, so the media block can only reach the padding
+    // through a custom property. The fallback carries the wide-screen value.
+    expect(container.querySelector('th').style.padding).toBe('0.4rem var(--dw-lb-pad-x, 0.6rem)');
+    expect(container.querySelector('td').style.padding).toBe('0.35rem var(--dw-lb-pad-x, 0.6rem)');
+    // And the wrapper must not declare the variable inline, which would out-specify the
+    // media block and quietly pin the padding at its desktop value on a phone.
+    expect(wrapper().style.getPropertyValue('--dw-lb-pad-x')).toBe('');
   });
 });

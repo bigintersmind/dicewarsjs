@@ -1,7 +1,19 @@
 /**
  * Leaderboard Component
  *
- * Sortable table displaying bot rankings from arena results.
+ * Sortable table displaying bot rankings from arena results. Arena results, tournament
+ * results and the online leaderboard all drop this straight into `MENU_STYLE.panel`, so
+ * the table has to fit a phone from inside the component or none of the three do (#222).
+ *
+ * Two things keep it inside that panel. The table sits in its own `overflow-x: auto`
+ * wrapper, so a width the panel cannot hold — a long community-bot name, a column added
+ * later — scrolls within the card instead of breaking its border and running off screen,
+ * where nothing can bring it back (`html, body` are `overflow: hidden`). And under the
+ * chrome's phone breakpoint the two least load-bearing columns, Avg Place and Atk%, drop
+ * out: they are secondary reads on a bot that `npm run benchmark-bot` also reports, while
+ * #/Bot/ELO/W/GP/Win% are the ranking itself. Losing them, plus tighter cell padding,
+ * leaves the remaining six inside the panel's content width with no scrolling at all in
+ * the common case — the wrapper stays the safety net rather than the everyday experience.
  *
  * @module ui/Leaderboard
  */
@@ -28,6 +40,29 @@ export const FLAG_COLOR = 'var(--ui-danger)';
  */
 const FLAG_ROW_BG = 'var(--ui-danger-soft)';
 
+/*
+ * Phone rules for the table, mounted inside the scroll wrapper the way every menu screen
+ * mounts its own stylesheet (MenuScreen with CHROME_CSS, TopNav with NAV_CSS) — so the
+ * component is self-contained wherever it is dropped.
+ *
+ * The breakpoint is the chrome's own 560px: the mode rail already tightens at exactly that
+ * width in menuChrome.jsx, and one phone breakpoint for the app beats a second number
+ * invented here.
+ *
+ * `--dw-lb-pad-x` exists because the cells are styled inline and no class rule can outrank
+ * an inline declaration. For the same reason the wide-screen value is NOT declared on
+ * `.dw-lb-scroll` — an inline custom property on the wrapper would be out of this block's
+ * reach, which is the specificity trap the variable is here to dodge. It lives in the
+ * `var()` fallback at the two use sites instead, leaving this the variable's only
+ * declaration and the media query unambiguously the thing that changes it.
+ */
+export const LEADERBOARD_CSS = `
+@media (max-width: 560px) {
+  .dw-lb-scroll { --dw-lb-pad-x: 0.3rem; }
+  .dw-lb-derived { display: none; }
+}
+`;
+
 /**
  * Short badge text for a flagged bot: lead with whichever forced-end signal actually
  * fired so an author sees the failure mode (threw vs. submitted illegal moves), not a
@@ -47,6 +82,14 @@ export function flagBadgeText(f) {
 }
 
 const STYLE = {
+  /*
+   * The table's own scroller: `width: 100%` pins it to the panel's content box, so when
+   * the table inside is wider this is what scrolls — not the panel, and not the page.
+   */
+  scroll: {
+    width: '100%',
+    overflowX: 'auto',
+  },
   table: {
     width: '100%',
     borderCollapse: 'collapse',
@@ -54,7 +97,7 @@ const STYLE = {
     fontSize: '0.85rem',
   },
   th: {
-    padding: '0.4rem 0.6rem',
+    padding: '0.4rem var(--dw-lb-pad-x, 0.6rem)',
     borderBottom: '2px solid var(--ui-border)',
     color: 'var(--ui-text-muted)',
     cursor: 'pointer',
@@ -69,7 +112,7 @@ const STYLE = {
     color: 'var(--ui-accent)',
   },
   td: {
-    padding: '0.35rem 0.6rem',
+    padding: '0.35rem var(--dw-lb-pad-x, 0.6rem)',
     borderBottom: '1px solid var(--ui-border)',
     color: 'var(--ui-text)',
   },
@@ -102,6 +145,11 @@ const STYLE = {
   },
 };
 
+/**
+ * `derived: true` marks a column the phone layout drops (see LEADERBOARD_CSS). Its header
+ * carries the class from here; its cells are written out by hand in the row below and
+ * carry it there, so the two have to be kept in step.
+ */
 const COLUMNS = [
   { key: 'rank', label: '#', sortable: false },
   { key: 'name', label: 'Bot', sortable: true },
@@ -109,8 +157,8 @@ const COLUMNS = [
   { key: 'wins', label: 'W', sortable: true },
   { key: 'gamesPlayed', label: 'GP', sortable: true },
   { key: 'winRate', label: 'Win%', sortable: true },
-  { key: 'avgPlacement', label: 'Avg Place', sortable: true },
-  { key: 'attackWinRate', label: 'Atk%', sortable: true },
+  { key: 'avgPlacement', label: 'Avg Place', sortable: true, derived: true },
+  { key: 'attackWinRate', label: 'Atk%', sortable: true, derived: true },
 ];
 
 /**
@@ -153,62 +201,70 @@ export function Leaderboard({ bots, flagged }) {
     });
 
   return (
-    <table style={STYLE.table}>
-      <thead>
-        <tr>
-          {COLUMNS.map(col => (
-            <th
-              key={col.key}
-              style={{
-                ...STYLE.th,
-                ...(col.key === sortKey ? STYLE.thActive : {}),
-                cursor: col.sortable ? 'pointer' : 'default',
-              }}
-              onClick={() => col.sortable && handleSort(col.key)}
-            >
-              {col.label}
-              {col.key === sortKey && (sortAsc ? ' \u25B2' : ' \u25BC')}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {sorted.map((bot, i) => {
-          const flag = flaggedByName.get(bot.name);
-          return (
-            <tr key={bot.name} style={flag ? STYLE.flaggedRow : undefined}>
-              <td style={{ ...STYLE.td, ...STYLE.rank }}>{i + 1}</td>
-              <td style={STYLE.td}>
-                <span
-                  style={{
-                    ...STYLE.colorDot,
-                    background: PLAYER_COLORS_CSS[i % PLAYER_COLORS_CSS.length],
-                  }}
-                />
-                {bot.name}
-                {flag && (
+    <div className="dw-lb-scroll" style={STYLE.scroll}>
+      <style>{LEADERBOARD_CSS}</style>
+      <table style={STYLE.table}>
+        <thead>
+          <tr>
+            {COLUMNS.map(col => (
+              <th
+                key={col.key}
+                className={col.derived ? 'dw-lb-derived' : undefined}
+                style={{
+                  ...STYLE.th,
+                  ...(col.key === sortKey ? STYLE.thActive : {}),
+                  cursor: col.sortable ? 'pointer' : 'default',
+                }}
+                onClick={() => col.sortable && handleSort(col.key)}
+              >
+                {col.label}
+                {col.key === sortKey && (sortAsc ? ' \u25B2' : ' \u25BC')}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((bot, i) => {
+            const flag = flaggedByName.get(bot.name);
+            return (
+              <tr key={bot.name} style={flag ? STYLE.flaggedRow : undefined}>
+                <td style={{ ...STYLE.td, ...STYLE.rank }}>{i + 1}</td>
+                <td style={STYLE.td}>
                   <span
-                    style={STYLE.badge}
-                    title={
-                      "This bot's win% / ELO is not a meaningful measurement. It errored " +
-                      'on most of its turns, so it looks broken or mis-registered rather than ' +
-                      'legitimately losing.'
-                    }
-                  >
-                    {flagBadgeText(flag)}
-                  </span>
-                )}
-              </td>
-              <td style={STYLE.td}>{bot.elo}</td>
-              <td style={STYLE.td}>{bot.wins}</td>
-              <td style={STYLE.td}>{bot.gamesPlayed}</td>
-              <td style={STYLE.td}>{(bot.winRate * 100).toFixed(1)}%</td>
-              <td style={STYLE.td}>{bot.avgPlacement}</td>
-              <td style={STYLE.td}>{(bot.attackWinRate * 100).toFixed(1)}%</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                    style={{
+                      ...STYLE.colorDot,
+                      background: PLAYER_COLORS_CSS[i % PLAYER_COLORS_CSS.length],
+                    }}
+                  />
+                  {bot.name}
+                  {flag && (
+                    <span
+                      style={STYLE.badge}
+                      title={
+                        "This bot's win% / ELO is not a meaningful measurement. It errored " +
+                        'on most of its turns, so it looks broken or mis-registered rather than ' +
+                        'legitimately losing.'
+                      }
+                    >
+                      {flagBadgeText(flag)}
+                    </span>
+                  )}
+                </td>
+                <td style={STYLE.td}>{bot.elo}</td>
+                <td style={STYLE.td}>{bot.wins}</td>
+                <td style={STYLE.td}>{bot.gamesPlayed}</td>
+                <td style={STYLE.td}>{(bot.winRate * 100).toFixed(1)}%</td>
+                <td className="dw-lb-derived" style={STYLE.td}>
+                  {bot.avgPlacement}
+                </td>
+                <td className="dw-lb-derived" style={STYLE.td}>
+                  {(bot.attackWinRate * 100).toFixed(1)}%
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

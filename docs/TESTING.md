@@ -190,8 +190,10 @@ settings die, set **Theme: light**, and go through the whole loop:
 5. **Your turn** — the instruction line ("Click your territory to attack from"),
    END TURN, and on the HUD bar the ring around the current chip plus every
    seat swatch.
-6. **Game over** — the heading, the subtitle, and the HOME / HISTORY / HOW TO
-   PLAY row.
+6. **Game over** — the heading, the subtitle, and the button row: HOME and HOW
+   TO PLAY always, HISTORY when the game left a replay, and SPECTATE when you
+   were the one eliminated — the usual way a tester gets here. Fastest route: 2
+   players on a Small map with Speed 4x.
 
 Then repeat the walk with **Color-blind: on**. It swaps the player and dice
 palettes, so every swatch, chip and thinking line changes color while the

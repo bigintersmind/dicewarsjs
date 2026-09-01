@@ -151,6 +151,9 @@ describe('GameOverlay — seat color never carries glyphs (#220)', () => {
     ['color-blind', COLORBLIND_PLAYER_COLORS_CSS, { colorBlindMode: true }],
   ])('sets no text in a %s palette color', (_label, palette, preferences) => {
     renderOverlay({ preferences, gameState: makeGameState({ currentPlayerIndex: 1 }) });
+    // The walk is vacuous on an empty container (GameOverlay renders null with
+    // no gameState), so pin that the line under test is actually up.
+    expect(seatSwatch()).toBeTruthy();
     const seatColors = palette.map(cssColor);
     for (const el of container.querySelectorAll('*')) {
       expect(seatColors).not.toContain(el.style.color);
@@ -167,16 +170,23 @@ describe('GameOverlay — seat color never carries glyphs (#220)', () => {
   });
 
   /*
-   * There is no opaque surface to measure this line against — it sits on
-   * whatever territory drifts under it. The scrim is the closest stand-in the
-   * theme offers (it is what the menus put over the same board), so measure
-   * both inks on it: the name in `--ui-text`, "is thinking..." in the muted one.
+   * No opaque surface backs this line: the overlay paints no panel, and
+   * `playing` is not an attract screen, so there is no scrim under it either —
+   * it sits directly on whatever territory drifts beneath. What actually
+   * carries it is the ink rim the halo paints (composeTextHalo(uiInk,
+   * uiInkSoft)), so that is the surface to measure: the theme's ink flattened
+   * onto each seat color in turn, both palettes, both of the line's inks — the
+   * name in `--ui-text`, "is thinking..." in the muted one.
    */
-  it.each(['dark', 'light'])('clears 4.5:1 in the %s theme over the scrimmed board', name => {
+  it.each(['dark', 'light'])('the %s ink rim carries the line over any seat color', name => {
     const theme = THEMES[name];
-    const board = surface(theme.bodyBg, theme.uiScrim);
-    expect(contrast(theme.uiText, board)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
-    expect(contrast(theme.uiTextMuted, board)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+    for (const palette of [PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS]) {
+      for (const seat of palette) {
+        const rim = surface(seat, theme.uiInk); // the halo's ink, over the territory beneath
+        expect(contrast(theme.uiText, rim)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+        expect(contrast(theme.uiTextMuted, rim)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+      }
+    }
   });
 });
 

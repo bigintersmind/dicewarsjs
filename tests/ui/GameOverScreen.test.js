@@ -43,8 +43,10 @@ function renderGameOver(overrides = {}) {
     playerNames: overrides.playerNames ?? ['You', 'Blitz', 'Conqueror'],
     rulesOpen: overrides.rulesOpen ?? false,
     // Only when a test asks: setState shallow-merges, so an unconditional key
-    // would overwrite the store's own default preferences with a stub.
-    ...(overrides.preferences ? { preferences: overrides.preferences } : {}),
+    // would overwrite the store's own default preferences with a stub. Tested
+    // for `undefined` rather than truthiness — `{}` is a deliberate ask for an
+    // empty preference set, and reads as truthy anyway.
+    ...(overrides.preferences !== undefined ? { preferences: overrides.preferences } : {}),
   });
 
   const onTitle = overrides.onTitle ?? vi.fn();
@@ -153,8 +155,10 @@ describe('GameOverScreen', () => {
     const subtitleLine = () => [...container.querySelectorAll('p')].find(el => el.textContent);
     const seatSwatch = () => subtitleLine().querySelector('span[aria-hidden="true"]');
 
+    // `undefined`, not `{}`: the default row wants the store's real preferences,
+    // and a stub would be the one place colorBlindMode came from nowhere.
     const palettes = [
-      ['default', PLAYER_COLORS_CSS, {}],
+      ['default', PLAYER_COLORS_CSS, undefined],
       ['color-blind', COLORBLIND_PLAYER_COLORS_CSS, { colorBlindMode: true }],
     ];
 
@@ -178,15 +182,54 @@ describe('GameOverScreen', () => {
       expect(subtitleLine().style.color).toBe('var(--ui-text)');
     });
 
-    // Walk everything rendered, not just the two lines: a future line reaching
-    // for a seat color as text should fail here as well.
-    it.each(palettes)('sets no text in a %s palette color', (_label, palette, preferences) => {
-      renderGameOver({ gameState: { winner: 2 }, humanPlayerIndex: 0, preferences });
-      const seatColors = palette.map(cssColor);
-      for (const el of container.querySelectorAll('*')) {
-        expect(seatColors).not.toContain(el.style.color);
-      }
+    /*
+     * The two subtitles that name no seat, so neither may carry a swatch. The
+     * elimination one needs a live `winner` beside it to be worth anything: the
+     * ordinary loss (someone did win, but the line is about you) is the case
+     * where a seat is in hand and must still be left out, and without it a
+     * `subtitleSeat = winner` would sail through green.
+     */
+    it('gives the eliminated subtitle no swatch, even when another seat won', () => {
+      renderGameOver({ gameState: { winner: 2 }, humanPlayerIndex: 0, humanEliminated: true });
+      expect(subtitleLine().textContent).toBe('You were eliminated!');
+      expect(seatSwatch()).toBeNull();
     });
+
+    it('gives the draw subtitle no swatch', () => {
+      renderGameOver({ gameState: { winner: null }, gameOverReason: 'turnLimit' });
+      expect(subtitleLine().textContent).toBe('Draw: turn limit reached');
+      expect(seatSwatch()).toBeNull();
+    });
+
+    /*
+     * Walk everything rendered, not just the two lines: a future line reaching
+     * for a seat color as text should fail here as well. Over every terminal
+     * outcome the screen can show, not the winner one alone — the walk is a net
+     * for lines that do not exist yet, and it can only catch them on the branch
+     * it happens to render.
+     */
+    const outcomes = [
+      ['a human win', { gameState: { winner: 0 }, humanPlayerIndex: 0 }],
+      ['an AI win', { gameState: { winner: 2 }, humanPlayerIndex: 0 }],
+      ['an elimination', { gameState: { winner: 2 }, humanPlayerIndex: 0, humanEliminated: true }],
+      ['a draw', { gameState: { winner: null }, gameOverReason: 'turnLimit' }],
+    ];
+    const paletteOutcomes = palettes.flatMap(([label, palette, preferences]) =>
+      outcomes.map(([outcome, fixture]) => [label, outcome, palette, preferences, fixture])
+    );
+
+    it.each(paletteOutcomes)(
+      'sets no text in a %s palette color after %s',
+      (_label, _outcome, palette, preferences, fixture) => {
+        renderGameOver({ ...fixture, preferences });
+        // The walk is vacuous on an empty container, so pin that it rendered.
+        expect(heading().textContent).toBeTruthy();
+        const seatColors = palette.map(cssColor);
+        for (const el of container.querySelectorAll('*')) {
+          expect(seatColors).not.toContain(el.style.color);
+        }
+      }
+    );
 
     /*
      * And the ink the words use does read: measured against this screen's own

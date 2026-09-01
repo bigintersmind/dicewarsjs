@@ -59,10 +59,10 @@ const STYLE = {
     letterSpacing: '0.05em',
     pointerEvents: 'auto',
   },
-  /* The only line here that floats straight on the live board with no panel
-     under it, so it carries the ink rim the rest of the over-the-board text
-     uses (composeTextHalo): its legibility must not depend on which territory
-     happens to drift beneath it. */
+  /* Floats straight on the live board with no panel under it — and until #220
+     carried no shadow at all — so it takes the same ink rim the rest of the
+     over-the-board text uses (composeTextHalo): its legibility must not depend
+     on which territory drifts beneath it. */
   thinking: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '1.2rem',
@@ -70,6 +70,8 @@ const STYLE = {
     textShadow: 'var(--ui-text-halo)',
     marginBottom: '0.5rem',
   },
+  /* The bot's name, a step brighter than the muted "is thinking..." around it. */
+  thinkingName: { color: 'var(--ui-text)' },
 };
 
 /**
@@ -108,10 +110,8 @@ export function GameOverlay({ store, onEndTurn }) {
       {!isHumanTurn && humanPlayerIndex !== null && (
         <p style={STYLE.thinking}>
           <SeatSwatch color={colorPalette[currentPlayerId % colorPalette.length]} />
-          <span style={{ color: 'var(--ui-text)' }}>
-            {playerName(playerNames, currentPlayerId)}
-          </span>{' '}
-          is thinking...
+          <span style={STYLE.thinkingName}>{playerName(playerNames, currentPlayerId)}</span> is
+          thinking...
         </p>
       )}
       {/* Last in the playing screen's tab order: App renders BoardFocus — the

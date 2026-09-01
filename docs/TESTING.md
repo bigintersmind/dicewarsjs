@@ -206,7 +206,7 @@ means nothing that overflows can be scrolled back into view. jsdom does no
 layout and evaluates no media query, so the stylesheets are unit-pinned but the
 measurements are not — walk them in the DevTools device toolbar at **360, 390
 and 414px** wide, in that order (360 is the tightest phone still worth
-supporting). Set up a **Custom** game with **8 players**, then START → PLAY:
+supporting). Set up a game with **8 players**, then START → PLAY:
 
 1. **HUD** — every chip visible: eight swatches with their territory counts, the
    bar on two rows with QUIT and RULES above the chips, and the ring on the
@@ -225,12 +225,13 @@ supporting). Set up a **Custom** game with **8 players**, then START → PLAY:
 3. **Touch targets** — turn on touch emulation (the device toolbar does this).
    Option rows, footer links, the settings options and the HUD's QUIT / RULES
    each want a hit area at least 40px tall — check by tapping just above and
-   below the glyphs, not by eye. Then confirm at a desktop width that the same
-   controls look exactly as they did.
+   below the glyphs, not by eye. Then turn touch emulation **off** (device type
+   → Desktop) and confirm the same controls look exactly as they did — the
+   rules key on the pointer, not the viewport width.
 4. **Every screen** — `document.documentElement.scrollWidth === innerWidth` in
    the console. Title, setup, map preview, playing, game over, and each of the
    three hub screens. The replay viewer is the known exception — its control row
-   pins a 300px slider beside a 100px counter and the transport buttons, which
+   pins a 220px slider beside a 100px counter and the transport buttons, which
    overflows every phone width — and stays one until #222 item 3 lands.
 
 ## Continuous integration

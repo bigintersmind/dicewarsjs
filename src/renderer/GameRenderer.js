@@ -11,7 +11,13 @@ import { Application, Container } from 'pixi.js';
 import { HexGridRenderer } from './HexGridRenderer.js';
 import { DiceRenderer } from './DiceRenderer.js';
 import { createBattleAnimation } from './BattleAnimation.js';
-import { BASE_WIDTH, BASE_HEIGHT, BG_COLOR, HUD_BAR_HEIGHT } from './constants.js';
+import {
+  BASE_WIDTH,
+  BASE_HEIGHT,
+  BG_COLOR,
+  HUD_BAR_HEIGHT,
+  HUD_BAR_HEIGHT_VAR,
+} from './constants.js';
 import { getTheme } from './themes.js';
 import { createBurstEffect } from './ParticleEffect.js';
 import { animateReinforcements } from './ReinforcementAnimation.js';
@@ -109,26 +115,27 @@ export class GameRenderer {
      * How much room the HUD bar needs is the HUD's to say: under 560px it goes
      * to two rows so all eight seats fit (#222). GameHUD is the writer — it
      * measures its own bar after layout and publishes the result as
-     * `--dw-hud-bar-height` on the document root, then dispatches a 'resize' so
+     * HUD_BAR_HEIGHT_VAR on the document root, then dispatches a 'resize' so
      * this runs against the new value. So the read happens here, at resize
      * time, and the publisher is what guarantees a resize to read it at.
      * HUD_BAR_HEIGHT is the fallback for every context with no HUD in the DOM
      * — the title screen, the tests, a headless render.
      *
      * Only a plain px length is accepted. The value feeds arithmetic, and
-     * parseFloat is unit-blind: it would read '5rem' as 5 (a bar 45px shorter
-     * than it is) and 'calc(80px + env(safe-area-inset-bottom))' as NaN. An
-     * empty string is the ordinary no-HUD case and falls back silently;
-     * anything else is a writer bug, so it falls back loudly, once.
+     * parseFloat is unit-blind: it would read '5rem' (80px at the default root
+     * size) as 5, reserving almost nothing, and 'calc(80px +
+     * env(safe-area-inset-bottom))' as NaN. An empty string is the ordinary
+     * no-HUD case and falls back silently; anything else is a writer bug, so it
+     * falls back loudly, once.
      */
     const declaredBarHeight =
       typeof document === 'undefined' || typeof getComputedStyle !== 'function'
         ? ''
-        : getComputedStyle(document.documentElement).getPropertyValue('--dw-hud-bar-height') || '';
+        : getComputedStyle(document.documentElement).getPropertyValue(HUD_BAR_HEIGHT_VAR) || '';
     const parsedBarHeight = /^\s*(\d+(?:\.\d+)?)px\s*$/.exec(declaredBarHeight);
     if (!parsedBarHeight && declaredBarHeight.trim() !== '' && !this._warnedBarHeight) {
       console.warn(
-        `[GameRenderer] --dw-hud-bar-height is not a px length (got "${declaredBarHeight.trim()}"); ` +
+        `[GameRenderer] ${HUD_BAR_HEIGHT_VAR} is not a px length (got "${declaredBarHeight.trim()}"); ` +
           `reserving ${HUD_BAR_HEIGHT}px instead. The value is published by GameHUD (src/ui/GameHUD.jsx).`
       );
       this._warnedBarHeight = true;

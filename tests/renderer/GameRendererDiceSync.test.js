@@ -21,10 +21,12 @@
  */
 
 import { GameRenderer } from '../../src/renderer/GameRenderer.js';
-import { BASE_WIDTH, BASE_HEIGHT, HUD_BAR_HEIGHT } from '../../src/renderer/constants.js';
-
-/** The custom property GameHUD publishes its measured bar height as. */
-const BAR_HEIGHT_VAR = '--dw-hud-bar-height';
+import {
+  BASE_WIDTH,
+  BASE_HEIGHT,
+  HUD_BAR_HEIGHT,
+  HUD_BAR_HEIGHT_VAR,
+} from '../../src/renderer/constants.js';
 
 vi.mock('pixi.js', async importOriginal => {
   const actual = await importOriginal();
@@ -177,7 +179,9 @@ describe('GameRenderer _resize()', () => {
  * into arithmetic: '5rem' is not 5 pixels and a calc() is not a number at all.
  * Anything non-empty that does not parse is a bug in the writer, so it warns —
  * once per renderer, the same idiom as the pre-init warnings above — rather
- * than silently shrinking the board by 30px.
+ * than silently running the board's bottom 30px under the bar (falling back to
+ * 50 under an 80px bar reserves 30px too LITTLE, so the board is drawn that
+ * much bigger and the bar covers the difference).
  */
 describe('GameRenderer _resize() — the HUD bar reservation (#222)', () => {
   const setScreen = (renderer, width, height) => {
@@ -186,11 +190,14 @@ describe('GameRenderer _resize() — the HUD bar reservation (#222)', () => {
   };
   const expectedScale = (width, height, bar) =>
     Math.min(width / BASE_WIDTH, Math.max(height - bar, 1) / BASE_HEIGHT);
+  /** Where _resize() centers the board: inside the band the reservation leaves. */
+  const expectedY = (width, height, bar) =>
+    (Math.max(height - bar, 1) - BASE_HEIGHT * expectedScale(width, height, bar)) / 2;
   /** A renderer on a SHORT window, where the reservation is what decides the scale. */
   const shortWindow = async (declared, { width = 390, height = 400 } = {}) => {
     const renderer = new GameRenderer();
     await renderer.init(document.createElement('canvas'));
-    if (declared !== null) document.documentElement.style.setProperty(BAR_HEIGHT_VAR, declared);
+    if (declared !== null) document.documentElement.style.setProperty(HUD_BAR_HEIGHT_VAR, declared);
     setScreen(renderer, width, height);
     return renderer;
   };
@@ -202,7 +209,7 @@ describe('GameRenderer _resize() — the HUD bar reservation (#222)', () => {
   });
 
   afterEach(() => {
-    document.documentElement.style.removeProperty(BAR_HEIGHT_VAR);
+    document.documentElement.style.removeProperty(HUD_BAR_HEIGHT_VAR);
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -221,6 +228,54 @@ describe('GameRenderer _resize() — the HUD bar reservation (#222)', () => {
     expect(renderer.root.scale.x).toBeCloseTo(expectedScale(390, 400, 80));
     // ...and that is not what the constant alone would have given.
     expect(renderer.root.scale.x).not.toBeCloseTo(expectedScale(390, 400, HUD_BAR_HEIGHT));
+    // The board is placed inside the band the reservation leaves, not inside
+    // the window. Height-bound here, so that band is exactly the board and it
+    // comes out flush at 0; the tall window below is where centering moves.
+    expect(renderer.root.y).toBeCloseTo(expectedY(390, 400, 80));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  /*
+   * ...and on a TALL window it is the centering that carries the reservation:
+   * the board is width-bound there, so the scale is the same whatever the bar
+   * costs and only `root.y` moves. That is the phone in portrait — the case
+   * #222 is actually about — so both halves of the layout are pinned.
+   */
+  it('centers the board in the band the reservation leaves', async () => {
+    const renderer = await shortWindow('80px', { height: 844 });
+
+    renderer._resize();
+
+    expect(renderer.root.scale.x).toBeCloseTo(expectedScale(390, 844, 80));
+    expect(renderer.root.y).toBeCloseTo(expectedY(390, 844, 80));
+    // 15px lower than the fallback would have put it — half of the 30px the
+    // reservation differs by, because the band is centered.
+    expect(renderer.root.y).not.toBeCloseTo(expectedY(390, 844, HUD_BAR_HEIGHT));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  /*
+   * Two shapes the px regex deliberately allows. Whitespace because
+   * getPropertyValue hands back the declared text on some engines, padding and
+   * all; a decimal because a bar measured against a fractional device-pixel
+   * ratio is not a whole number. Neither is a writer bug, so neither warns.
+   *
+   * The padded form has to come from a stubbed getComputedStyle: jsdom trims
+   * the value on the way in through setProperty, so declaring ' 80px ' would
+   * quietly put the trimmed one under test.
+   */
+  it.each([
+    ['surrounding whitespace', ' 80px ', 80],
+    ['a fractional px length', '79.5px', 79.5],
+  ])('accepts %s', async (_label, declared, bar) => {
+    const renderer = await shortWindow(null);
+    vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => declared }));
+
+    renderer._resize();
+
+    // Precision 6: 79.5 and 80 are only ~0.0006 apart in scale, and the point
+    // of the row is that the decimal is read as itself.
+    expect(renderer.root.scale.x).toBeCloseTo(expectedScale(390, 400, bar), 6);
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -254,7 +309,7 @@ describe('GameRenderer _resize() — the HUD bar reservation (#222)', () => {
     // Once per renderer, however many resizes follow — a resize storm must not
     // become a console storm.
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain(BAR_HEIGHT_VAR);
+    expect(warn.mock.calls[0][0]).toContain(HUD_BAR_HEIGHT_VAR);
     expect(warn.mock.calls[0][0]).toContain(declared);
   });
 

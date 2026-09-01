@@ -23,7 +23,7 @@ import { GameHUD, HUD_CSS } from '../../src/ui/GameHUD.jsx';
 import { CHROME_CSS } from '../../src/ui/menuChrome.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { THEMES } from '../../src/renderer/themes.js';
-import { HUD_BAR_HEIGHT } from '../../src/renderer/constants.js';
+import { HUD_BAR_HEIGHT, HUD_BAR_HEIGHT_VAR } from '../../src/renderer/constants.js';
 import { contrast, surface, WCAG } from '../helpers/contrast.js';
 
 let container;
@@ -153,9 +153,10 @@ describe('GameHUD', () => {
        * .dw-hud-opt is load-bearing on the twins, not decoration copied off the
        * buttons: a coarse pointer WIDER than 560px (a tablet) shows them, and
        * without the class they would take CHROME_CSS's generic 40px hit area
-       * — 3.2px wider than the buttons they exist to mirror, and enough extra
-       * height to push the bar to 56px. Pinned as an exact set so neither the
-       * override hook nor the hide-me class can be dropped silently.
+       * — 6.4px wider than the buttons they exist to mirror (3.2px per side),
+       * and enough extra height to push the bar to 56px. Pinned as an exact set
+       * so neither the override hook nor the hide-me class can be dropped
+       * silently.
        */
       expect([...twin.classList].sort()).toEqual(['dw-hud-opt', 'dw-hud-twin', 'dw-opt']);
       expect(twin.style.visibility).toBe('hidden');
@@ -276,6 +277,35 @@ describe('GameHUD — phone layout and the bar-height contract (#222)', () => {
     return Number(match[2]);
   };
 
+  /** The selectors a media block's rules declare, in source order. */
+  const selectorsIn = block =>
+    [...block.slice(block.indexOf('{') + 1).matchAll(/([^{}]+)\{[^}]*\}/g)].map(m => m[1].trim());
+
+  /**
+   * The property names CHROME_CSS's generic coarse `.dw-opt` rule declares —
+   * the set this sheet's override has to cover — or null when CHROME_CSS has no
+   * coarse block yet. That is the state of master until #222 item 4 lands, and
+   * the two changes are separate PRs, so the pin has to survive the interim.
+   */
+  function chromeCoarseOptProps() {
+    const css = CHROME_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const start = css.indexOf('@media (pointer: coarse) {');
+    if (start === -1) return null;
+    const open = css.indexOf('{', start);
+    let depth = 0;
+    for (let i = open; i < css.length; i += 1) {
+      if (css[i] === '{') depth += 1;
+      else if (css[i] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          const match = css.slice(open + 1, i).match(/(^|\})\s*\.dw-opt\s*\{([^}]*)\}/);
+          return match ? declaredProps(match[2]) : null;
+        }
+      }
+    }
+    throw new Error('unterminated @media (pointer: coarse) in CHROME_CSS');
+  }
+
   const phone = () => mediaBlock('(max-width: 560px)');
   const coarse = () => mediaBlock('(pointer: coarse)');
   /** The sheet with both media blocks removed — what applies at every width. */
@@ -322,7 +352,7 @@ describe('GameHUD — phone layout and the bar-height contract (#222)', () => {
    * value can survive a big browser font or a scrollbar gutter.
    */
   it('declares no bar height in the sheet — the mounted HUD publishes the measured one', () => {
-    expect(SHEET).not.toMatch(/--dw-hud-bar-height\s*:/);
+    expect(SHEET).not.toMatch(new RegExp(`${HUD_BAR_HEIGHT_VAR}\\s*:`));
     expect(ruleBody(base(), '.dw-hud')).not.toContain('var(');
   });
 
@@ -366,21 +396,39 @@ describe('GameHUD — phone layout and the bar-height contract (#222)', () => {
   });
 
   /*
-   * CHROME_CSS's coarse-pointer block gives every `.dw-opt` a 40px hit area on
-   * touch (#222 item 4). These two live in a bar whose height is a contract, so
-   * they take the same hit area as overhang instead — and the override has to
-   * beat the generic rule on specificity, because GameHUD mounts CHROME_CSS
+   * CHROME_CSS's coarse-pointer block (#222 item 4) gives every `.dw-opt` a
+   * 40px hit area on touch. These two live in a bar whose height is a contract,
+   * so they take the same hit area as overhang instead — and the override has
+   * to beat the generic rule on specificity, because GameHUD mounts CHROME_CSS
    * immediately after this sheet in its own subtree, so the generic rule always
    * comes later in document order and source order would go the other way.
    */
   it('overrides the touch hit area with a doubled class, not source order', () => {
     const block = coarse();
     expect(block).toContain('.dw-opt.dw-hud-opt');
-    // Every property the generic rule sets, or the generic one wins that one.
-    // (#222 item 4 pins the generic coarse rule to exactly padding + min-height,
-    // so a property added on one side without the other fails one of the two.)
+    /*
+     * A SUPERSET of whatever the generic rule declares, computed rather than
+     * listed: any property it sets that this one does not is a property the
+     * generic value still wins, and each of those grows the bar. The reverse
+     * needs no pin — the negative margin is this override's own trick and has
+     * no generic counterpart. `?? []` is the vacuous case: CHROME_CSS has no
+     * coarse block at all until #222 item 4 lands, and this starts biting the
+     * moment it does.
+     */
     const props = declaredProps(ruleBody(block, '.dw-opt.dw-hud-opt'));
-    expect(props).toEqual(expect.arrayContaining(['padding', 'margin', 'min-height']));
+    expect(props).toEqual(expect.arrayContaining(chromeCoarseOptProps() ?? []));
+  });
+
+  /*
+   * ...and the doubled selector is the ONLY thing this block styles. HUD_CSS
+   * is mounted wherever the bar is, so a bare `.dw-opt` rule here would quietly
+   * restyle every option on the screen — the settings dropdown, the footer
+   * links — from a sheet named for the HUD that nobody would think to look in.
+   */
+  it('keeps a bare .dw-opt out of its own coarse block', () => {
+    const selectors = selectorsIn(coarse());
+    expect(selectors).not.toContain('.dw-opt');
+    expect(selectors).toEqual(['.dw-opt.dw-hud-opt']);
   });
 
   /*
@@ -391,8 +439,20 @@ describe('GameHUD — phone layout and the bar-height contract (#222)', () => {
    */
   it('cancels the overhang exactly — padding out, margin back in', () => {
     const body = ruleBody(coarse(), '.dw-opt.dw-hud-opt');
-    expect(firstNumber(body, 'padding')).toBe(-firstNumber(body, 'margin'));
-    expect(body).toMatch(/min-height:\s*0/);
+    const padding = firstNumber(body, 'padding');
+    expect(padding).toBe(-firstNumber(body, 'margin'));
+    /*
+     * The box is stated, not inferred. Left to fall out of 11px around whatever
+     * line box the text renders, the hit area would be ~41px only once Anton
+     * has loaded — the fallback face during the swap is a ~14px line box, so
+     * ~36px — and the bar's published height would move with the swap. As a
+     * min-height it is 41 whatever face is loaded, and the negative margin
+     * still takes 2x11 back out, so the flex line measures the same 19px the
+     * desktop row is built around.
+     */
+    const box = firstNumber(body, 'min-height');
+    expect(box).toBe(41);
+    expect(box - 2 * padding).toBe(19);
   });
 
   /*
@@ -432,13 +492,15 @@ describe('GameHUD — phone layout and the bar-height contract (#222)', () => {
  * browser default font, a scrollbar gutter moves it again), so the mounted HUD
  * reads its own box and publishes the result on the document root — the same
  * place applyThemeVars writes the --ui-* palette. The dispatched 'resize' is
- * the only way GameRenderer hears about it: it re-reserves on that event and on
- * nothing else, and nothing fires one when the HUD mounts.
+ * the only way GameRenderer hears about it after startup: it re-reserves on
+ * that event and, once, at init, and nothing fires one when the HUD mounts.
  */
 describe('GameHUD — publishing the measured bar height (#222)', () => {
-  const published = () => document.documentElement.style.getPropertyValue('--dw-hud-bar-height');
+  const published = () => document.documentElement.style.getPropertyValue(HUD_BAR_HEIGHT_VAR);
   const stubHeight = height =>
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height });
+  /** The bar itself — what the observer has to be watching. */
+  const bar = () => container.querySelector('.dw-hud');
 
   let rootStyle;
   let onResize;
@@ -454,8 +516,19 @@ describe('GameHUD — publishing the measured bar height (#222)', () => {
     unmountHUD();
     window.removeEventListener('resize', onResize);
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     if (rootStyle === null) document.documentElement.removeAttribute('style');
     else document.documentElement.setAttribute('style', rootStyle);
+  });
+
+  /*
+   * Everything else here reads the name off the constant, which is the point —
+   * GameRenderer, GameOverlay and the manual pass in docs/TESTING.md all spell
+   * it out, and a rename that only reached some of them would put phones back
+   * on the 50px fallback with nothing failing. So pin the string exactly once.
+   */
+  it('publishes under the documented property name', () => {
+    expect(HUD_BAR_HEIGHT_VAR).toBe('--dw-hud-bar-height');
   });
 
   it('publishes the measured height and asks for one re-layout', () => {
@@ -492,6 +565,61 @@ describe('GameHUD — publishing the measured bar height (#222)', () => {
     stubHeight(80);
     renderHUD({ gameState: null });
 
+    expect(published()).toBe('');
+  });
+
+  /*
+   * The bar's height is content-driven under 560px, so it moves after mount:
+   * a rotation, the web font swapping in, a scrollbar gutter appearing. The
+   * observer is what keeps the published value honest through all of that —
+   * jsdom has none, so it is stubbed here, and the whole branch (observe the
+   * bar, republish on a change, skip an unchanged pass, disconnect on unmount)
+   * is otherwise never executed by this suite.
+   */
+  it('re-publishes through a ResizeObserver on the bar, and disconnects on unmount', () => {
+    let notify = null;
+    let observed = null;
+    let disconnected = 0;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback) {
+          notify = callback;
+        }
+
+        observe(el) {
+          observed = el;
+        }
+
+        disconnect() {
+          disconnected += 1;
+        }
+      }
+    );
+
+    const rect = stubHeight(80);
+    renderHUD();
+
+    expect(typeof notify).toBe('function');
+    expect(observed).toBe(bar());
+    expect(published()).toBe('80px');
+    expect(onResize).toHaveBeenCalledTimes(1);
+
+    // The bar got taller (a font swap, a rotation into portrait): the property
+    // follows it, and the renderer is asked to re-reserve against the new one.
+    rect.mockReturnValue({ height: 96.2 });
+    notify();
+    expect(published()).toBe('97px');
+    expect(onResize).toHaveBeenCalledTimes(2);
+
+    // A layout pass that did not move the bar. The observer fires on plenty of
+    // those, and each one would otherwise rescale the whole board.
+    notify();
+    expect(published()).toBe('97px');
+    expect(onResize).toHaveBeenCalledTimes(2);
+
+    unmountHUD();
+    expect(disconnected).toBe(1);
     expect(published()).toBe('');
   });
 

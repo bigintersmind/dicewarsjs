@@ -22,6 +22,7 @@ import {
   PLAYER_COLORS_CSS,
   COLORBLIND_PLAYER_COLORS_CSS,
   HUD_BAR_HEIGHT,
+  HUD_BAR_HEIGHT_VAR,
 } from '../../src/renderer/constants.js';
 import { THEMES } from '../../src/renderer/themes.js';
 import { contrast, surface, WCAG } from '../helpers/contrast.js';
@@ -294,6 +295,6 @@ describe('GameOverlay — the bar-height contract (#222)', () => {
 
   it('stops at the published bar height, falling back to HUD_BAR_HEIGHT', () => {
     renderOverlay();
-    expect(overlay().style.bottom).toBe(`var(--dw-hud-bar-height, ${HUD_BAR_HEIGHT}px)`);
+    expect(overlay().style.bottom).toBe(`var(${HUD_BAR_HEIGHT_VAR}, ${HUD_BAR_HEIGHT}px)`);
   });
 });

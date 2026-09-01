@@ -33,10 +33,8 @@ import {
   PLAYER_COLORS_CSS,
   COLORBLIND_PLAYER_COLORS_CSS,
   HUD_BAR_HEIGHT,
+  HUD_BAR_HEIGHT_VAR,
 } from '../renderer/constants.js';
-
-/** The custom property the bar's measured height is published as. */
-const BAR_HEIGHT_VAR = '--dw-hud-bar-height';
 
 /*
  * The bar's layout stylesheet. An inline style cannot carry a media query and
@@ -123,19 +121,31 @@ export const HUD_CSS = `
   .dw-hud-chip:last-child { margin-right: auto; }
   .dw-hud-twin { display: none; }
 }
-/* CHROME_CSS's coarse-pointer block gives every .dw-opt a 40px hit area on
-   touch (#222). Applied to these two that would grow the bar and break its
-   height contract, so the pair takes the padding as *overhang* instead,
-   cancelled by an equal negative margin: 11px around a 19px text box makes the
-   hit area 41px while the flex line still measures the text, so the bar keeps
-   its height. Doubled class (.dw-opt.dw-hud-opt) so it outranks the generic
-   rule on specificity rather than source order — this component mounts
+/* CHROME_CSS's coarse-pointer block (#222 item 4) gives every .dw-opt a 40px
+   hit area on touch. Applied to these two that would grow the bar and break its
+   height contract, so the pair takes the hit area as *overhang* instead: a 41px
+   box, with an equal negative margin taking the two 11px paddings back out, so
+   the flex line still measures 41 - 2x11 = 19 and the bar keeps its height.
+
+   The 41 is stated as a min-height rather than left to fall out of 11px around
+   whatever line box the text renders. Every other coarse target takes its 40px
+   from a min-height that wins whatever the line box is; deriving it from
+   Anton's metrics (~18-19px at 0.8rem) only holds once the webfont has loaded,
+   and during the swap the fallback face is a ~14px line box — a ~36px hit area,
+   and a published bar height that moves when the font arrives. As a min-height
+   the box is a deterministic 41 whatever face is loaded (index.html sets
+   box-sizing: border-box on everything, so the 41 is the outer box). Desktop is
+   unaffected: the row there is max(19, chip ~= 26) either way.
+
+   Doubled class (.dw-opt.dw-hud-opt) so it outranks the generic rule on
+   specificity rather than source order — this component mounts
    <style>{CHROME_CSS}</style> immediately after its own <style>{HUD_CSS}</style>
    in the same subtree, so the generic .dw-opt always comes later in document
    order and an equal-specificity rule here would lose that tie every time.
-   Every property the generic rule sets is overridden here. */
+   Every property the generic rule sets is overridden here, the 41 included: it
+   has to beat that rule's own min-height: 40px, not merely coexist with it. */
 @media (pointer: coarse) {
-  .dw-opt.dw-hud-opt { padding: 11px 0.4rem; margin: -11px 0; min-height: 0; }
+  .dw-opt.dw-hud-opt { padding: 11px 0.4rem; margin: -11px 0; min-height: 41px; }
 }
 `;
 
@@ -207,16 +217,29 @@ export function GameHUD({ store, onQuit, onRules }) {
    * consumers need no change to prefer it.
    *
    * The dispatched 'resize' is how the renderer hears about it — GameRenderer
-   * re-reserves on the window's resize event and on nothing else, and nothing
+   * re-reserves on the window's resize event and, once, at init, and nothing
    * fires one when the HUD mounts (main.jsx dispatches a synthetic resize only
    * on a non-canvas -> canvas screen change, and every screen the HUD is on is
    * already a canvas screen). Without this the phone bar would grow to two rows
    * over a board still reserving 50px, and cover its bottom edge.
    *
    * The ResizeObserver keeps that true for every later change (rotation, a font
-   * swap, a scrollbar gutter appearing). jsdom has none, hence the feature
-   * test. Unmount removes the property so the next render without a HUD — the
-   * title screen — gets the fallback reservation back.
+   * swap, a scrollbar gutter appearing). jsdom has none, hence the feature test
+   * — and with no observer the value is published exactly once and never
+   * updated after, so a first measurement of 0 (skipped below) stays permanent
+   * with no retry. That is deliberate rather than an oversight: the no-observer
+   * case IS jsdom, where nothing lays the bar out at all, and a warning there
+   * would fire in every HUD test. Unmount removes the property so the next
+   * render without a HUD — the title screen — gets the fallback reservation
+   * back.
+   *
+   * That cleanup makes this effect the singleton writer of a document-root
+   * global keyed to one component's lifetime. It holds because exactly one
+   * GameHUD is mounted at a time — App's screen switch puts one on 'playing'
+   * and one on 'gameOver', never both — and a second, concurrent mount would
+   * break it in a way nothing here would catch: the first to unmount withdraws
+   * the reservation for both. Naming the assumption so a second mount is not
+   * added silently.
    */
   useLayoutEffect(() => {
     const el = barRef.current;
@@ -231,8 +254,8 @@ export function GameHUD({ store, onQuit, onRules }) {
       const next = `${height}px`;
       // The observer fires on every layout pass that touches the bar; only an
       // actual change is worth a rescale of the whole board.
-      if (root.style.getPropertyValue(BAR_HEIGHT_VAR) === next) return;
-      root.style.setProperty(BAR_HEIGHT_VAR, next);
+      if (root.style.getPropertyValue(HUD_BAR_HEIGHT_VAR) === next) return;
+      root.style.setProperty(HUD_BAR_HEIGHT_VAR, next);
       window.dispatchEvent(new Event('resize'));
     };
 
@@ -243,7 +266,7 @@ export function GameHUD({ store, onQuit, onRules }) {
 
     return () => {
       if (observer) observer.disconnect();
-      root.style.removeProperty(BAR_HEIGHT_VAR);
+      root.style.removeProperty(HUD_BAR_HEIGHT_VAR);
       window.dispatchEvent(new Event('resize'));
     };
   }, [hasBar]);
@@ -312,8 +335,9 @@ export function GameHUD({ store, onQuit, onRules }) {
           phone breakpoint and merely hidden by it, so the desktop layout is
           the one that decides what they are. .dw-hud-opt rides along on the
           twins too: on a coarse pointer wider than the breakpoint they are
-          visible, and without it they would take the generic 40px hit area and
-          stop matching the controls whose width they exist to mirror. */}
+          visible, and without it they would take the 40px hit area that
+          CHROME_CSS's coarse-pointer block (#222 item 4) gives every .dw-opt,
+          and stop matching the controls whose width they exist to mirror. */}
       {onRules && (
         <span
           className="dw-opt dw-hud-opt dw-hud-twin"

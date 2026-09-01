@@ -199,6 +199,33 @@ Then repeat the walk with **Color-blind: on**. It swaps the player and dice
 palettes, so every swatch, chip and thinking line changes color while the
 chrome around them does not.
 
+### Phone viewports (#222)
+
+The dense surfaces overflow on a phone, and `html, body { overflow: hidden }`
+means nothing that overflows can be scrolled back into view. jsdom does no
+layout and evaluates no media query, so the stylesheets are unit-pinned but the
+measurements are not — walk them in the DevTools device toolbar at **360, 390
+and 414px** wide, in that order (360 is the tightest phone still worth
+supporting). Set up a **Custom** game with **8 players**, then START → PLAY:
+
+1. **HUD** — every chip visible: eight swatches with their territory counts, the
+   bar on two rows with QUIT and RULES above the chips, and the ring on the
+   current chip not clipped. On a crowded board the chips row scrolls
+   horizontally rather than cutting the last seats off; at rest it stays
+   centered. END TURN and the instruction line sit clear of the bar, not on it.
+2. **Leaderboard** — on the Arena and Tournament results, the table is never
+   wider than the panel around it (it scrolls inside the panel if it must, and
+   the panel border stays unbroken), and the **Avg Place** and **Atk%** columns
+   are gone under 560px.
+3. **Touch targets** — turn on touch emulation (the device toolbar does this).
+   Option rows, footer links, the settings options and the HUD's QUIT / RULES
+   each want a hit area at least 40px tall — check by tapping just above and
+   below the glyphs, not by eye. Then confirm at a desktop width that the same
+   controls look exactly as they did.
+4. **Every screen** — `document.documentElement.scrollWidth === innerWidth` in
+   the console. Title, setup, map preview, playing, game over, and each of the
+   three hub screens.
+
 ## Continuous integration
 
 Tests run in CI on every pull request as part of the single `build-and-test` job,

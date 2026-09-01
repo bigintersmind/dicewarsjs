@@ -103,7 +103,29 @@ export class GameRenderer {
      * resize (visible when the always-on title canvas transitions to a game).
      */
     this.app.resize();
-    const availableHeight = Math.max(this.app.screen.height - HUD_BAR_HEIGHT, 1);
+    /*
+     * How much room the HUD bar needs is the HUD's to say: under 560px it goes
+     * to two rows so all eight seats fit (#222), and it publishes the current
+     * height as `--hud-bar-height` on the document root. HUD_BAR_HEIGHT is the
+     * declared default and the fallback for every context with no HUD in the
+     * DOM — the title screen, the tests, a headless render.
+     *
+     * Read here, at resize time, which leaves one residual gap: the HUD mounts
+     * without a resize event, so a window that is BOTH under the breakpoint and
+     * short enough for the board to be height-bound (shorter than roughly its
+     * own width plus the bar) keeps the old reservation until something
+     * resizes, and the taller bar covers the board's bottom edge. A phone in
+     * portrait is width-bound with ~150px of slack under the board, so there
+     * nothing is covered.
+     */
+    const declaredBarHeight =
+      typeof document === 'undefined' || typeof getComputedStyle !== 'function'
+        ? NaN
+        : parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue('--hud-bar-height')
+          );
+    const barHeight = Number.isNaN(declaredBarHeight) ? HUD_BAR_HEIGHT : declaredBarHeight;
+    const availableHeight = Math.max(this.app.screen.height - barHeight, 1);
     const scale = Math.min(this.app.screen.width / BASE_WIDTH, availableHeight / BASE_HEIGHT);
     this.root.scale.set(scale);
     // Center the scaled root within available area (above HUD)

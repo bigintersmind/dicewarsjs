@@ -18,7 +18,11 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { GameOverlay } from '../../src/ui/GameOverlay.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
-import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../../src/renderer/constants.js';
+import {
+  PLAYER_COLORS_CSS,
+  COLORBLIND_PLAYER_COLORS_CSS,
+  HUD_BAR_HEIGHT,
+} from '../../src/renderer/constants.js';
 import { THEMES } from '../../src/renderer/themes.js';
 import { contrast, surface, WCAG } from '../helpers/contrast.js';
 
@@ -269,5 +273,35 @@ describe('GameOverlay — theme-blind literals (#220)', () => {
     expect(endTurnButton().style.background).toBe('var(--ui-accent)');
     expect(endTurnButton().style.color).toBe(cssColor('#ffffff'));
     expect(contrast('#ffffff', THEMES[name].uiAccent)).toBeGreaterThanOrEqual(WCAG.AA_LARGE);
+  });
+});
+
+/*
+ * The strip stops at the top of the HUD bar so END TURN sits above the chips
+ * rather than on them. That used to be a hard-coded 50px in two places; since
+ * #222 the bar goes to two rows under 560px, so the stop follows the height
+ * the HUD declares.
+ */
+describe('GameOverlay — the bar-height contract (#222)', () => {
+  const overlay = () => container.firstChild;
+
+  it('stops at the height the HUD declares, falling back to HUD_BAR_HEIGHT', () => {
+    renderOverlay();
+    const bottom = overlay().style.bottom;
+    expect(bottom).toBe(`var(--hud-bar-height, ${HUD_BAR_HEIGHT}px)`);
+  });
+
+  /*
+   * The fallback is what applies wherever no HUD is mounted, so it has to be
+   * the constant the renderer uses and not a second hard-coded 50 free to
+   * drift from it. Read back as a number, so the failure names the mismatch.
+   * (jsdom substitutes no var(), so the resolved value is not observable here
+   * — the two-row measurement is the manual pass in docs/TESTING.md.)
+   */
+  it('falls back to HUD_BAR_HEIGHT rather than a second copy of 50', () => {
+    renderOverlay();
+    const fallback = overlay().style.bottom.match(/,\s*([\d.]+)px\s*\)/);
+    expect(fallback).not.toBeNull();
+    expect(Number(fallback[1])).toBe(HUD_BAR_HEIGHT);
   });
 });

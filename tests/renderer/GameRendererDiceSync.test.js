@@ -161,3 +161,64 @@ describe('GameRenderer _resize()', () => {
     expect(renderer.root.scale.x).toBeCloseTo(expected);
   });
 });
+
+/*
+ * How much room to leave under the board is the HUD's call, not a constant:
+ * under 560px the bar goes to two rows so all eight seats fit (#222), and
+ * GameHUD publishes the height it needs as --hud-bar-height. HUD_BAR_HEIGHT is
+ * the declared default and the fallback wherever no HUD is mounted — the title
+ * screen, a headless render, most of this suite.
+ */
+describe('GameRenderer _resize() — the HUD bar reservation (#222)', () => {
+  const setScreen = (renderer, width, height) => {
+    renderer.app.screen = { width, height };
+    renderer.app.resize = () => {};
+  };
+  const expectedScale = (width, height, bar) =>
+    Math.min(width / BASE_WIDTH, Math.max(height - bar, 1) / BASE_HEIGHT);
+
+  afterEach(() => {
+    document.documentElement.style.removeProperty('--hud-bar-height');
+  });
+
+  /*
+   * Measured on a SHORT window, where the board is height-bound and the
+   * reservation is what decides the scale. On a phone in portrait the board is
+   * width-bound with room to spare, which is exactly why the stale-value gap
+   * documented in _resize costs nothing there.
+   */
+  it('reserves the height the HUD declares', async () => {
+    const renderer = new GameRenderer();
+    await renderer.init(document.createElement('canvas'));
+    // The two-row phone bar, as GameHUD's media query declares it.
+    document.documentElement.style.setProperty('--hud-bar-height', '80px');
+    setScreen(renderer, 390, 400);
+
+    renderer._resize();
+
+    expect(renderer.root.scale.x).toBeCloseTo(expectedScale(390, 400, 80));
+    // ...and that is not what the constant alone would have given.
+    expect(renderer.root.scale.x).not.toBeCloseTo(expectedScale(390, 400, HUD_BAR_HEIGHT));
+  });
+
+  it('falls back to HUD_BAR_HEIGHT when no HUD has declared one', async () => {
+    const renderer = new GameRenderer();
+    await renderer.init(document.createElement('canvas'));
+    setScreen(renderer, 390, 844);
+
+    renderer._resize();
+
+    expect(renderer.root.scale.x).toBeCloseTo(expectedScale(390, 844, HUD_BAR_HEIGHT));
+  });
+
+  it('falls back rather than collapsing on a junk value', async () => {
+    const renderer = new GameRenderer();
+    await renderer.init(document.createElement('canvas'));
+    document.documentElement.style.setProperty('--hud-bar-height', 'auto');
+    setScreen(renderer, 390, 844);
+
+    renderer._resize();
+
+    expect(renderer.root.scale.x).toBeCloseTo(expectedScale(390, 844, HUD_BAR_HEIGHT));
+  });
+});

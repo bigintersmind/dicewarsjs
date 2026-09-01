@@ -13,11 +13,12 @@
  * There is no browser-level harness in this repo, so nothing here measures a
  * rendered box — these are text pins on the four stylesheets, in the style of
  * themeLiterals.test.js. They hold the things a later edit could quietly undo:
- * that the rules exist and say 40px, that CHROME_CSS's coarse block stays LAST
- * (source order is the only reason its `.dw-opt` and `a.dw-btn` outrank base
- * rules of identical specificity), that each coarse rule declares exactly the
- * property set the opt-outs below know to override, and that nothing grew on
- * the desktop side.
+ * that the rules exist and say 40px, that the coarse blocks of CHROME_CSS and
+ * FOOTER_NAV_CSS stay LAST in their sheets (source order is the only reason
+ * their `.dw-opt`, `a.dw-btn` and `.dw-footlink` outrank base rules of
+ * identical specificity), that each coarse rule declares exactly the property
+ * set the opt-outs below know to override, and that nothing grew on the
+ * desktop side.
  *
  * The rules that deliberately escape the generic `.dw-opt` do it on
  * specificity, by doubling their class, so each is pinned where it lives: the
@@ -292,6 +293,24 @@ describe('coarse-pointer touch targets (#222 item 4)', () => {
     // And nothing may follow it: it has to be the sheet's last block.
     const { end } = blockAt(CHROME_CSS, CHROME_CSS.indexOf('{', coarse));
     expect(CHROME_CSS.slice(end).trim()).toBe('');
+  });
+
+  /*
+   * FOOTER_NAV_CSS is the other sheet settled by order alone: its coarse
+   * `.dw-footlink` ties with the base `.dw-footlink` above it at (0,1,0), and
+   * the footer row mounts this sheet on its own, so nothing else in the
+   * cascade is going to save it. (SETTINGS_CSS and RULES_CSS need no such pin:
+   * their coarse rules are doubled, so they win on specificity wherever they
+   * sit in their sheet.)
+   */
+  it('keeps the coarse block after the base .dw-footlink rule in FOOTER_NAV_CSS', () => {
+    const base = FOOTER_NAV_CSS.indexOf('.dw-footlink {');
+    const coarse = FOOTER_NAV_CSS.indexOf(COARSE);
+    expect(base).toBeGreaterThan(-1);
+    expect(coarse).toBeGreaterThan(base);
+    // And nothing may follow it: it has to be the sheet's last block.
+    const { end } = blockAt(FOOTER_NAV_CSS, FOOTER_NAV_CSS.indexOf('{', coarse));
+    expect(FOOTER_NAV_CSS.slice(end).trim()).toBe('');
   });
 
   /*

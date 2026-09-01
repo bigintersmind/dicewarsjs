@@ -169,11 +169,12 @@ const RULES_CSS = `
 .dw-rules-fig svg { display: block; width: 100%; height: auto; }
 
 /* Doubled class (.dw-opt.dw-rules-close), for the same reason as the settings
-   dropdown's option rule but a step more urgent: this card mounts CHROME_CSS
-   and this sheet inside one <style>, so a bare .dw-rules-close would not lose
-   to CHROME_CSS's coarse .dw-opt at all — it would tie with it at (0,1,0) and
-   win the tight padding back on source order, an opt-out by concatenation that
-   neither sheet's own pins can see. Doubling settles it on specificity. */
+   dropdown's option rule, and by the same mechanism: every screen that
+   overrides a chrome rule concatenates CHROME_CSS and its own sheet into one
+   <style>, so a bare .dw-rules-close would not lose to CHROME_CSS's coarse
+   .dw-opt at all — it would tie with it at (0,1,0) and win the tight padding
+   back on source order, an opt-out by concatenation that neither sheet's own
+   pins can see. Doubling settles it on specificity. */
 .dw-opt.dw-rules-close {
   font-size: 1.35rem;
   line-height: 1;

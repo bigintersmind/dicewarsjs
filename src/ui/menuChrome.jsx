@@ -47,11 +47,15 @@ import { useEffect, useRef } from 'preact/hooks';
  * quit confirm sits on top of the HUD), which is harmless: the rules are
  * identical, so whichever copy wins declares the same thing. Three rules do
  * override one of these — SettingsPanel's `.dw-opt.dw-set-opt` padding, the
- * in-game bar's `.dw-opt.dw-hud-opt` sizing, and RulesModal's
- * `.dw-opt.dw-rules-close`, which is concatenated onto this sheet inside a
- * single <style> — and each doubles its class to win on specificity rather
- * than source order, so mount order never decides anything. The coarse-pointer
- * block at the foot of this sheet is where all three are listed and explained.
+ * in-game bar's `.dw-opt.dw-hud-opt` sizing (#222 item 1), and RulesModal's
+ * `.dw-opt.dw-rules-close`. Every screen that overrides a rule in here mounts
+ * this sheet concatenated with its own inside a single <style> (SettingsPanel
+ * and RulesModal do; so do QuitConfirm and TitleScreen, which override nothing)
+ * — so such an override is later text in the same sheet rather than a rule in
+ * another one, and would tie with the rule it means to beat instead of losing
+ * to it. Each therefore doubles its class to win on specificity rather than
+ * source order, so mount order never decides anything. The coarse-pointer block
+ * at the foot of this sheet is where all three are listed and explained.
  */
 export const CHROME_CSS = `
 .dw-btn {
@@ -167,13 +171,15 @@ a.dw-btn { display: inline-block; text-decoration: none; }
  *   custom property (HUD_BAR_HEIGHT's 50px on a desktop, two stacked rows and
  *   about 80px under 560px), so its two text controls have to grow into the
  *   bar rather than push it open, which they do with a layout-neutral
- *   negative-margin rule of their own (#222).
+ *   negative-margin rule of their own (#222 item 1).
  *
  *   .dw-opt.dw-rules-close (the how-to-play card's corner close button) —
- *   RulesModal mounts this sheet and its own in one <style>, so a rule there is
- *   later text in the same sheet rather than a rule in another one, and would
- *   tie with this block instead of losing to it. It keeps its tight padding on
- *   purpose and takes its 40px box from min-width / min-height instead.
+ *   RulesModal mounts this sheet concatenated with its own inside one <style>,
+ *   the way every screen that overrides a rule in here does, so a rule there is
+ *   later text in the same sheet rather than a rule in another one, and a bare
+ *   class would tie with this block instead of losing to it. It keeps its tight
+ *   padding on purpose and takes its 40px box from min-width / min-height
+ *   instead.
  *
  * .dw-btn only needs the floor: the filled buttons already clear 40px, so the
  * rule is a floor rather than a resize, and two controls are short enough today

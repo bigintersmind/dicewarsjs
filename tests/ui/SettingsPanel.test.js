@@ -561,6 +561,38 @@ describe('SettingsPanel', () => {
 
   /*
    * -----------------------------------------------------------------------
+   * Touch targets (#222 item 4)
+   * -----------------------------------------------------------------------
+   */
+
+  /*
+   * On a coarse pointer SETTINGS_CSS grows these rows through the doubled
+   * selector `.dw-opt.dw-set-opt`, doubled so it beats CHROME_CSS's own coarse
+   * `.dw-opt` on specificity rather than on which sheet a screen mounted last.
+   * Half of that selector lives here in the JSX, and the stylesheet pins in
+   * tests/ui/touchTargets.test.js cannot see it: drop `dw-opt` from the button
+   * and neither rule matches any more, the options fall back to the 27px box
+   * the audit measured, and every sheet pin stays green. So the class list is
+   * pinned as an exact set rather than as a `contains`: losing either class
+   * breaks the sizing silently, and a third one arriving is worth a look at
+   * what it does to the cascade.
+   */
+  it('carries both halves of the doubled option selector on every option', () => {
+    renderPanel();
+    act(() => container.querySelector('button[aria-label="Settings"]').click());
+
+    const options = Array.from(container.querySelectorAll('[role="group"] button'));
+    // The panel is open, so every preference group is rendered.
+    expect(options.length).toBeGreaterThan(0);
+
+    const wrong = options
+      .map(opt => ({ label: opt.textContent, classes: [...opt.classList].sort() }))
+      .filter(({ classes }) => classes.join(' ') !== 'dw-opt dw-set-opt');
+    expect(wrong).toEqual([]);
+  });
+
+  /*
+   * -----------------------------------------------------------------------
    * Null guard
    * -----------------------------------------------------------------------
    */

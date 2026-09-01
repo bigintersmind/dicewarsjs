@@ -4,9 +4,14 @@
  * lives in the JS layer (reportBotErrors); this component only displays the `flagged` prop.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { Leaderboard } from '../../src/ui/Leaderboard.jsx';
+import { applyThemeVars, hexToRgba } from '../../src/ui/applyThemeVars.js';
+import { THEMES } from '../../src/renderer/themes.js';
+import { contrast, surface, WCAG } from '../helpers/contrast.js';
 
 let container;
 
@@ -74,8 +79,98 @@ describe('Leaderboard flag badge', () => {
       bots,
       flagged: [{ name: 'Broken', errors: 30, invalidMoves: 0, errorFraction: 1 }],
     });
-    // jsdom normalizes the rgba() background; just assert it differs from the unstyled row.
+    // The exact wash is pinned in the danger-color describe below; here just assert the
+    // flagged row is styled and the healthy one is not.
     expect(row('Broken').style.background).not.toBe('');
     expect(row('Healthy').style.background).toBe('');
+  });
+});
+
+describe('Leaderboard flag badge — danger color (#220)', () => {
+  /** The badge is the only element in a row carrying the explanatory tooltip. */
+  const badge = name => row(name).querySelector('span[title]');
+
+  const flagOne = () =>
+    renderLeaderboard({
+      bots,
+      flagged: [{ name: 'Broken', errors: 30, invalidMoves: 0, errorFraction: 1 }],
+    });
+
+  it('paints the badge from the theme token, not a literal red', () => {
+    flagOne();
+    expect(badge('Broken').style.color).toBe('var(--ui-danger)');
+    expect(badge('Broken').style.border).toBe('1px solid var(--ui-danger)');
+  });
+
+  it('keeps the dark theme looking exactly as it shipped', () => {
+    expect(THEMES.dark.uiDanger).toBe('#e5534b');
+  });
+
+  /*
+   * The badge is 11px bold — body text as far as WCAG is concerned — so 4.5:1 is the bar,
+   * and every surface it can land on is translucent: flatten them over the page first. The
+   * flagged row's own wash sits on top of the panel, so measure that stack too — it is the
+   * surface the badge actually sits on, and the thinnest margin of the four. The row paints
+   * the wash as `var(--ui-danger-soft)`, so the measurable value comes from applying the
+   * theme and reading the var back — the same composition the browser resolves.
+   */
+  it.each(['dark', 'light'])('the %s danger color clears 4.5:1 wherever it is used', name => {
+    flagOne();
+    // Pin the coupling too: the row must reference the token, not a copy of one theme's red.
+    expect(row('Broken').style.background).toBe('var(--ui-danger-soft)');
+
+    // Own root and body so applying a theme here doesn't restyle the shared document.
+    const el = document.createElement('div');
+    applyThemeVars(name, { root: el, body: document.createElement('div') });
+    const rowWash = el.style.getPropertyValue('--ui-danger-soft');
+
+    const theme = THEMES[name];
+    const panel = surface(theme.bodyBg, theme.uiOverlayBg);
+    const surfaces = [
+      panel,
+      surface(theme.bodyBg, theme.uiScrim),
+      surface(theme.bodyBg, theme.uiBg),
+      surface(theme.bodyBg, theme.uiOverlayBg, rowWash),
+    ];
+    for (const bg of surfaces) {
+      expect(contrast(theme.uiDanger, bg)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+    }
+    // Danger must never collapse back into the accent, which the rank column of that very
+    // row is painted in.
+    expect(theme.uiDanger).not.toBe(theme.uiAccent);
+  });
+
+  it('separates the light danger red from the light accent, its nearest neighbour', () => {
+    /*
+     * The light accent is a crimson barely a dozen degrees of hue off a plain red, so the
+     * light danger is pushed darker as well as warmer — a lightness step still reads at
+     * badge size where a hue step alone might not. The dark pair is separated by hue only
+     * (1.03:1); that is the shipped look and stays untouched.
+     */
+    expect(contrast(THEMES.light.uiDanger, THEMES.light.uiAccent)).toBeGreaterThan(1.1);
+  });
+});
+
+/*
+ * The flagged row's wash is the token's only consumer, so its plumbing is pinned here,
+ * beside the contrast measurements it exists for, rather than in the shared theming tests.
+ */
+describe('--ui-danger-soft plumbing (#220 item 5)', () => {
+  it.each(['dark', 'light'])('applyThemeVars derives it from the %s danger color', name => {
+    const el = document.createElement('div');
+    applyThemeVars(name, { root: el, body: document.createElement('div') });
+    const wash = el.style.getPropertyValue('--ui-danger-soft');
+    expect(wash).not.toMatch(/undefined/);
+    expect(wash).toBe(hexToRgba(THEMES[name].uiDanger, 0.1));
+  });
+
+  it('is seeded in the index.html :root block for the first paint', () => {
+    /*
+     * Resolve from the repo root (vitest's cwd); import.meta.url is not a file: URL under
+     * the jsdom environment. index.html seeds the dark palette before main.jsx runs, so a
+     * missing seed means flagged rows flash unwashed on load.
+     */
+    const indexHtml = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(indexHtml).toContain(`--ui-danger-soft: ${hexToRgba(THEMES.dark.uiDanger, 0.1)};`);
   });
 });

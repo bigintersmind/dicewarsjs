@@ -67,6 +67,14 @@ export const THEMES = {
     uiBevelDeep: '#4a2d00',
     uiBorder: '#555555',
     bodyBg: '#1a1a2e',
+    /*
+     * `uiDanger` is the theme's one error/danger color, kept apart from `uiAccent` (the
+     * brand hue, which error banners reuse) so a "this is broken" mark never reads as
+     * chrome. It is tuned per theme rather than shared: this dark coral only reaches
+     * 3.2:1 on the light theme's panels, so the light entry is a deeper red that clears
+     * AA there and still separates from the light accent's crimson (#220).
+     */
+    uiDanger: '#e5534b',
     uiScrim: 'rgba(16, 16, 32, 0.68)',
     uiInk: 'rgba(13, 13, 26, 0.92)',
     uiInkSoft: 'rgba(0, 0, 0, 0.55)',
@@ -103,6 +111,7 @@ export const THEMES = {
     uiBevelDeep: '#241600',
     uiBorder: '#999999',
     bodyBg: '#e8e8f0',
+    uiDanger: '#a92d1c',
     uiScrim: 'rgba(244, 244, 250, 0.7)',
     uiInk: 'rgba(250, 250, 253, 0.95)',
     uiInkSoft: 'rgba(255, 255, 255, 0.9)',

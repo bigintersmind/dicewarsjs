@@ -10,14 +10,23 @@ import { useState } from 'preact/hooks';
 import { PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
 /*
- * Warning red for the broken-bot flag. The DOM theme (applyThemeVars) has no danger
- * color — `--ui-accent` is the app's brand hue and is reused for error banners — so
- * flag styling (the row/badge here, the exclusion note on OnlineLeaderboardScreen)
- * uses a self-contained desaturated red that reads on both light and dark themes
- * rather than colliding with the accent. Exported so that note shares the hue (#137).
+ * Warning red for the broken-bot flag. `--ui-danger` is the DOM theme's danger color: it
+ * exists so flag styling (the row/badge here, the exclusion note on
+ * OnlineLeaderboardScreen) never has to borrow `--ui-accent`, the brand hue that error
+ * banners already reuse. The token is tuned per theme, because a single red can't clear
+ * AA on both a near-black overlay and a near-white one — the old literal was the dark
+ * value and measured 3.2:1 on the light panel (#220). Exported so that note shares it (#137).
  */
-export const FLAG_COLOR = '#e5534b';
-const FLAG_ROW_BG = 'rgba(229, 83, 75, 0.1)';
+export const FLAG_COLOR = 'var(--ui-danger)';
+/*
+ * The flagged row's wash: the same warning red at 10% alpha, so the tint under the badge is
+ * the badge's own hue. It is a derived var (`--ui-danger-soft`, composed in applyThemeVars
+ * beside `--ui-accent-soft`) rather than an rgba() literal here, because a literal can only
+ * be one theme's red: it washed light-theme rows in the dark coral while the badge and
+ * border on top were the light red, and it would have stayed on the old hue if `uiDanger`
+ * ever moved. The badge and row text clear AA over it in both themes (pinned in the tests).
+ */
+const FLAG_ROW_BG = 'var(--ui-danger-soft)';
 
 /**
  * Short badge text for a flagged bot: lead with whichever forced-end signal actually

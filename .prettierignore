@@ -7,7 +7,7 @@ node_modules/
 # Coverage directory
 coverage/
 
-# Local agent working notes (also excluded by their own .gitignore).
+# Local agent working notes (also ignored by the root .gitignore)
 .superpowers/
 
 # Configuration files

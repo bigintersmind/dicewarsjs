@@ -1,34 +1,62 @@
 # Daily Conquest
 
-Daily Conquest is a small daily game of classic DiceWars: you and three Standard opponents, on a small map, with fair dice. Choose **PLAY DAILY** below the ordinary setup. Everyone running the same game version gets the same starting board, dice and turn order for that UTC date. A new board arrives at **00:00 UTC**.
+Daily Conquest is a small daily game of classic DiceWars: you and three Standard opponents on a small map. Choose **PLAY DAILY** below the ordinary setup. Everyone running the same game version gets the same starting board, turn order and dice for that UTC date. A new board arrives at **00:00 UTC**.
 
-You can retry as often as you like. **TRY AGAIN** from the result screen returns to the same board, even if midnight passed during the match. **PLAY DAILY** from the title always opens today's board. Daily previews offer PLAY and BACK; the daily board cannot be rerolled. Your ordinary player count, difficulty, map size and Custom luck choices survive the daily detour.
+## One scored attempt
 
-## Personal results
+Your **first completed attempt** on a date is the one that counts. A win, an elimination, or a turn-limit draw completes an attempt; quitting does not. Spectating after elimination and watching a replay change nothing.
 
-The title remembers completed attempts and your fastest victory, measured in **your turns**, on this browser. A turn counts when you first attack or end it; a victory during an attack includes that final turn. An elimination before your first action counts as zero turns. Rounds in the supply display are the engine's full cycles through the turn order, a different measure.
+After that, the same board stays open for **practice**. PRACTICE from the title and PRACTICE AGAIN from the result screen replay today's board as often as you like. Practice runs are counted but never change the scored result, and they cannot be posted to the leaderboard.
 
-An elimination or a turn-limit draw counts as a completed attempt. Quitting does not. Spectating after elimination and watching a replay cannot add attempts or change your campaign report. The best score is the fewest human turns in a **win**; a quick loss cannot replace a victory.
+The scored attempt is remembered per browser. Clearing site data, a private window, or another device starts the day over. The leaderboard's own guard against repeat posting is a small per-network daily cap, so a determined player can still practice elsewhere first. That tradeoff is deliberate: it keeps the game free of accounts.
 
-These are local personal records, with the most recent 30 daily dates retained. There is no online score submission or cross-device sync. When browser storage is unavailable, play still works and the title/result screen explains that personal results cannot be saved.
+## Same dice, on purpose
+
+The board's seed fixes the map, the turn order and the whole sequence of dice. Two players who make the same moves see the same rolls, and the opponents, who are deterministic, respond the same way. Nobody tops the leaderboard because of better dice. Different moves lead to different rolls from that point on, so repeating a board does not guarantee the same battles after different decisions.
+
+## Score, streak and sharing
+
+The score is **your turns**: a turn counts when you first attack or end it, and a victory during an attack includes that final turn. An elimination before your first action counts as zero turns.
+
+Your **streak** is the number of consecutive UTC dates with a scored attempt, ending today or, if you have not played yet today, yesterday. Wins are not required to keep a streak.
+
+**COPY RESULT** on the result screen produces a short, spoiler-free text for sharing:
+
+```
+Dice Wars Daily · Sep 7, 2026
+Won in 9 turns · 36/37 attacks won
+Streak: 3 days
+https://ivanlay.com/dicewarsjs/
+```
+
+**SHARE** appears on devices that offer a native share sheet.
+
+## Leaderboard
+
+Each day's leaderboard ranks scored **wins** by fewest turns; ties go to the earlier post. Losses and draws can be posted too and count toward the day's totals. Post from the result screen with a display name (1–16 characters, no account). The title screen shows the top three and the day's totals.
+
+The server never trusts a claimed score. A post is the game's replay, and the server rebuilds the game from the daily seed, replays your moves through the same engine, runs the same opponents itself, and derives the result. A replay with an illegal move, altered opponent moves, a different board, or an unfinished game is rejected. Posting is open for the current and previous UTC date.
+
+Stored per post: display name, result, turn count, attack counts, and a salted hash of the network address used only for the daily cap. Replays are not kept. There is no account, no email, and no cross-device sync of personal records.
 
 ## Supply and campaign reports
 
-Both daily and ordinary human games show:
+Both daily and ordinary human games show your position during play:
 
 - **Land:** all territories you own.
-- **Income / turn:** your largest connected group, which supplies reinforcement dice when you end your turn. Placement and reserve caps follow the normal rules.
-- **In reserve:** reinforcement dice held in stock.
+- **Largest connected group:** the territories that supply your reinforcement dice when you end your turn. Placement and stockpile caps follow the normal rules.
+- **Stockpile:** reinforcement dice held in reserve.
 
-The end-of-match report shows your turns, attacks won, most land held, and best connected-territory income. Its chart samples your land after each completed player-turn, plus the starting and final positions. Peaks count every attack, so a brief mid-turn high can exceed the chart's samples. The graph also has a text equivalent for screen readers.
+The end-of-match report shows your turns, attacks won, most land held, and your best connected group. Its chart samples your land at the start, after each of your turns, and at the finish. Peaks count every attack, so a brief mid-turn high can exceed the chart's samples. The chart has a text equivalent for screen readers.
 
-**TRY AGAIN** is available after ordinary matches too. It restores the original setup, starting board, dice and turn order. If you used NEW MAP, it retries the board you accepted. Different actions can change the subsequent random sequence and the opponents' responses; repeating a board does not guarantee the same battle outcomes after different decisions.
+**TRY AGAIN** after an ordinary match restores the original setup, starting board, dice and turn order and goes straight into play. If you used NEW MAP, it retries the board you accepted.
 
 ## Implementation contract
 
-- `src/game/dailyChallenge.js` owns the UTC date, versioned identity and deterministic seed. Version 1 is four seats on Small, with the original `ai_default` in all three opponent seats, human seat 0, and no handicap.
-- `src/store/dailyRecords.js` validates stored records and bounds history under `dicewars_daily_v1`. A write failure does not prevent the game-over transition.
-- `src/game/matchJournal.js` reads resolved state transitions without consuming RNG or changing engine state. `GameController` records both human and AI attacks and end turns, then freezes the journal at the human result.
-- Daily identity is separate from the ordinary `store.config`. The controller resolves daily setup itself and prevents a daily reroll; the UI is not the only guard.
-- The recipe's real initial engine state has a pinned checksum test. If a future engine/map/AI change affects daily reproducibility, intentionally advance the daily version and storage namespace rather than mixing incompatible results. The recipe does not promise identical boards across different game versions.
+- `src/game/dailyChallenge.js` owns the UTC date, the versioned identity (`daily-v1-YYYY-MM-DD`) and the deterministic seed. Version 1 is four seats on Small, the original `ai_default` in all three opponent seats, human seat 0, no handicap. A pinned checksum test guards the real initial engine state; if a future engine, map or AI change alters daily reproducibility, advance `DAILY_VERSION`, which also moves the storage namespace and the id prefix, rather than mixing incompatible results.
+- `src/store/dailyRecords.js` keeps the scored result, the practice count and the leaderboard post per date under `dicewars_daily_v<version>`, newest 30 dates retained. A real storage failure reports `available: false` and play continues; a corrupt stored value is replaced on the next save.
+- `src/game/matchJournal.js` reads resolved state transitions without consuming RNG or changing engine state. The controller records both human and AI actions and freezes the journal at the human's result. Statistics never block the game loop.
+- `src/game/dailyShare.js` formats the share text. `src/game/dailyLeaderboard.js` is the HTTP client; it is disabled unless the build sets `VITE_DAILY_LEADERBOARD_URL` (the Pages deploy reads the repository variable `DAILY_LEADERBOARD_URL`).
+- `src/game/verifyDailyReplay.js` is the pure verifier shared with the server in `server/daily-leaderboard/` (a Cloudflare Worker with D1). See that folder's README for deployment.
+- Daily identity lives outside the ordinary `store.config`, so the player's own setup survives the daily detour. The controller resolves the daily setup and refuses a reroll; the UI is not the only guard.
 - No engine rules, AI strategies, handicap rules, arena/tournament fields, replay schemas, or ML encoding/weights are changed by this feature.

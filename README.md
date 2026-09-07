@@ -8,9 +8,9 @@ Built on the original [Dice Wars](https://www.gamedesign.jp/games/dicewars/) by 
 
 ## Features
 
-- **Daily Conquest.** A shared daily board: four players, a small map, Standard opponents and fair dice. Retry the same opening and beat your personal best; the board changes at midnight UTC.
-- **Know your supply.** See your land, connected-territory income and reserve during play, then review a territory chart and campaign statistics after the match.
-- **Try another opening.** TRY AGAIN replays the same starting board, dice and turn order in daily and ordinary games.
+- **Daily Conquest.** One board a day for everyone: four players, a small map, Standard opponents, and the same dice for every player. Your first completed attempt is the one that counts; post it to the day's leaderboard, share the result, keep your streak going, then practice the same board as often as you like. A new board arrives at midnight UTC.
+- **See your supply line.** Your land, your largest connected group (the dice you earn each turn), and your stockpile are on screen while you play. After the match, a campaign report shows your turns, attacks won, and a territory chart.
+- **Try another opening.** TRY AGAIN restarts an ordinary game on the same starting board, dice and turn order.
 - **Play or spectate.** Face AI opponents yourself, or watch bots battle each other.
 - **Choose your opponents.** Pick a difficulty (Easy/Standard/Hard), or go Custom and pick a bot per slot, including the curated community bots. Duplicates are allowed.
 - **Tilt the dice your way.** Custom mode has an optional luck handicap: Normal, Lucky, or Very lucky. Your seat rolls extra dice and drops as many of the lowest as it added, attacking and defending. The presets always roll fair dice.
@@ -100,7 +100,7 @@ npm run benchmark       # Run AI strategy benchmarks
 ```
 src/
 ├── engine/       Pure game logic (state, battles, maps, turns), no DOM
-├── game/         Daily board recipes and human campaign statistics
+├── game/         Daily board recipe, campaign journal, share text, replay verifier
 ├── renderer/     PixiJS rendering (hex grid, dice, animations)
 ├── ui/           Preact components (screens, HUD, overlays)
 ├── arena/        Bot SDK (validation, execution, tournaments, ELO, replays)
@@ -141,7 +141,7 @@ See [Architecture](docs/ARCHITECTURE.md) for how data flows through the system.
 
 - [Bot Guide](docs/BOT_GUIDE.md): how to write a bot, full SDK reference
 - [Game Rules](docs/GAME_RULES.md): how the game works
-- [Daily Conquest](docs/DAILY_CONQUEST.md): daily boards, personal records, and campaign reports
+- [Daily Conquest](docs/DAILY_CONQUEST.md): the daily board, one scored attempt, streaks, the leaderboard, and campaign reports
 - [Architecture](docs/ARCHITECTURE.md): codebase organization and data flow
 - [Modernization Roadmap](docs/MODERNIZATION_ROADMAP.md): project vision and phase plan
 - [AI Strategies](docs/ai-strategies/README.md): detailed AI strategy patterns

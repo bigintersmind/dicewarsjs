@@ -1,5 +1,10 @@
 # Daily Conquest experiment
 
+> **Superseded.** This log describes the first experiment on `feat/field-notes` at `551a250`. The
+> shipped rules changed afterwards: one scored attempt per day, practice runs, a streak, share text and a
+> verified shared leaderboard (see [DAILY_CONQUEST.md](../DAILY_CONQUEST.md)). The screenshots below show
+> the earlier interface.
+
 Baseline: `f8b87d4` on `origin/master`. Experiment: `feat/field-notes`.
 
 The idea is to give the human game a reason to return tomorrow and make its central strategic rule more visible: connected land funds the next turn. The experiment combines a daily board, a supply readout, a campaign report and a same-board retry. Ordinary setup and the original rules remain available.

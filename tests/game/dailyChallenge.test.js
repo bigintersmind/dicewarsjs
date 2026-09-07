@@ -1,0 +1,36 @@
+import { createDailyChallenge, dailyDate } from '../../src/game/dailyChallenge.js';
+import { createGame } from '../../src/engine/index.js';
+import { resolveMapSize } from '../../src/utils/config.js';
+import { createHash } from 'node:crypto';
+
+describe('Daily Conquest recipe', () => {
+  it('uses the UTC day, including across time-zone and year boundaries', () => {
+    expect(dailyDate(new Date('2026-09-07T23:59:59-05:00'))).toBe('2026-09-08');
+    expect(dailyDate(new Date('2027-01-01T00:30:00+09:00'))).toBe('2026-12-31');
+  });
+
+  it('recreates the exact initial board, dice, turn order and RNG state', () => {
+    const recipe = createDailyChallenge('2026-09-07');
+    const config = { ...recipe, ...resolveMapSize(recipe.mapSize) };
+    const first = createGame(config);
+    const second = createGame(config);
+    expect(second).toEqual(first);
+    expect(first.config.handicap).toBeNull();
+    // A map/engine change that alters the shared board needs an intentional recipe version bump.
+    expect(createHash('sha256').update(JSON.stringify(first)).digest('hex')).toBe(
+      'a1c2eccd124fe9b17a2f6b11f09a343021e6629a708d7e39dc76c73e0166184c'
+    );
+    expect(recipe.aiAssignments).toEqual([null, 'ai_default', 'ai_default', 'ai_default']);
+    expect(createDailyChallenge('2026-09-08').seed).not.toBe(recipe.seed);
+  });
+
+  it('returns independent lineups and rejects impossible dates', () => {
+    const recipe = createDailyChallenge('2026-09-07');
+    recipe.aiAssignments[1] = 'ai_conqueror';
+    expect(createDailyChallenge('2026-09-07').aiAssignments[1]).toBe('ai_default');
+    for (const date of ['2026-02-30', '2026-13-01', 'tomorrow', '2026-9-7']) {
+      expect(() => createDailyChallenge(date)).toThrow();
+    }
+    expect(createDailyChallenge('2028-02-29').date).toBe('2028-02-29');
+  });
+});

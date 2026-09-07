@@ -111,6 +111,12 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   and the territory buttons' accessible names.
  * @property {Object} config - Per-game setup carried between the title screen and
  *   the controller: { playerCount, mapSize, difficulty, aiAssignments, luck }.
+ * @property {Object | null} dailyChallenge - Versioned daily recipe for this match;
+ *   kept outside config so the player's ordinary setup survives the daily detour.
+ * @property {Object | null} dailyResult - Personal record and storage availability
+ *   returned when a daily attempt ends. Abandoned games are not counted.
+ * @property {Object | null} matchJournal - Human turns, captures, peaks and territory
+ *   samples. Frozen at the human's result, including an early elimination.
  * @property {Object | null} currentReplay
  */
 
@@ -125,6 +131,11 @@ const DEFAULT_STATE = {
   humanPlayerIndex: 0,
   humanEliminated: false,
   gameOverReason: null,
+  // Daily identity is per match; ordinary setup remains in config for the return to title.
+  dailyChallenge: null,
+  dailyResult: null,
+  // Human campaign statistics, frozen at elimination so spectating cannot rewrite the result.
+  matchJournal: null,
   quitConfirmOpen: false,
   rulesOpen: false,
   settingsOpen: false,

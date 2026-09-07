@@ -20,6 +20,7 @@ import { useGameStore } from './hooks/useGameStore.js';
 import { CHROME_CSS, MENU_STYLE } from './menuChrome.jsx';
 import { DIFFICULTY_MODES } from '../ai/difficultyModes.js';
 import { LUCK_LEVELS } from '../utils/config.js';
+import { formatDailyDate } from '../game/dailyChallenge.js';
 
 const STYLE = {
   /*
@@ -149,6 +150,7 @@ export function describeSetup(config = {}, handicap = null) {
 export function MapPreview({ store, onAccept, onReject, onBack }) {
   const warnings = useGameStore(store, s => s.aiLoadWarnings);
   const config = useGameStore(store, s => s.config);
+  const daily = useGameStore(store, s => s.dailyChallenge);
   // The engine's own resolved handicap — the game being previewed, not the remembered pick.
   const handicap = useGameStore(store, s => s.gameState?.config?.handicap ?? null);
   const playRef = useRef(null);
@@ -184,7 +186,9 @@ export function MapPreview({ store, onAccept, onReject, onBack }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [onBack]);
 
-  const setup = describeSetup(config, handicap);
+  const setup = daily
+    ? `Daily Conquest · ${formatDailyDate(daily.date)} · ${describeSetup(daily)}`
+    : describeSetup(config, handicap);
 
   return (
     <div style={STYLE.dock}>
@@ -224,15 +228,17 @@ export function MapPreview({ store, onAccept, onReject, onBack }) {
         >
           PLAY
         </button>
-        <button
-          type="button"
-          className="dw-btn"
-          style={MENU_STYLE.heroSecondaryBtn}
-          onClick={onReject}
-          title="Generate another board with the same setup"
-        >
-          NEW MAP
-        </button>
+        {!daily && (
+          <button
+            type="button"
+            className="dw-btn"
+            style={MENU_STYLE.heroSecondaryBtn}
+            onClick={onReject}
+            title="Generate another board with the same setup"
+          >
+            NEW MAP
+          </button>
+        )}
       </div>
     </div>
   );

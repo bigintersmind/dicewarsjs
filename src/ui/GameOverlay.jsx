@@ -9,6 +9,7 @@
 import { useGameStore } from './hooks/useGameStore.js';
 import { SeatSwatch } from './SeatSwatch.jsx';
 import { playerName } from '../store/GameStore.js';
+import { getValidMoves } from '../engine/StateManager.js';
 import {
   PLAYER_COLORS_CSS,
   COLORBLIND_PLAYER_COLORS_CSS,
@@ -28,6 +29,7 @@ const OVERLAY_CSS = `
   outline: 3px solid var(--ui-text);
   outline-offset: 3px;
 }
+.dw-end-turn:disabled { opacity: .55; cursor: default; }
 `;
 
 const STYLE = {
@@ -117,12 +119,17 @@ export function GameOverlay({ store, onEndTurn }) {
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const currentPlayerId = gameState.turnOrder[gameState.currentPlayerIndex];
   const isHumanTurn = currentPlayerId === humanPlayerIndex;
+  const noAttacks = isHumanTurn && gameState.areas && getValidMoves(gameState).length === 0;
 
   return (
     <div style={STYLE.overlay}>
       <style>{OVERLAY_CSS}</style>
       {isHumanTurn && awaitingInput === 'selectFrom' && (
-        <p style={STYLE.message}>Click your territory to attack from</p>
+        <p style={STYLE.message}>
+          {noAttacks
+            ? 'No attacks available. End your turn to reinforce.'
+            : 'Click your territory to attack from'}
+        </p>
       )}
       {isHumanTurn && awaitingInput === 'selectTo' && (
         <p style={STYLE.message}>Click a neighbor to attack</p>
@@ -150,6 +157,7 @@ export function GameOverlay({ store, onEndTurn }) {
           className="dw-end-turn"
           style={STYLE.endTurnBtn}
           onClick={onEndTurn}
+          disabled={awaitingInput === null}
           title="End turn (E)"
           aria-keyshortcuts="E"
         >

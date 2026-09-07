@@ -22,6 +22,9 @@ import { getCommunityBotList, loadCommunityBot } from '../arena/communityBots.js
 import { adaptModernBot } from '../arena/modernBotAdapter.js';
 import { HUMAN_PLAYER_NAME, playerName } from '../store/GameStore.js';
 import { resolveMapSize, luckToHandicap, resolveLuck } from '../utils/config.js';
+import { createDailyChallenge } from '../game/dailyChallenge.js';
+import { createMatchJournal, recordMatchStep, finishMatchJournal } from '../game/matchJournal.js';
+import { saveDailyResult } from '../store/dailyRecords.js';
 
 /** Prefix marking a per-slot assignment id as a curated community bot. */
 const COMMUNITY_PREFIX = 'community:';
@@ -109,6 +112,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * screen (#181).
    */
   let nextTurnTimer = null;
+  let gameStartId = 0;
+  let lastGameSetup = null;
 
   /** Cancel a pending next-turn timer, if any. */
   function clearNextTurnTimer() {
@@ -130,11 +135,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *
    * @param {number} playerCount
    * @param {boolean} spectator
+   * @param {(string | null)[]} assignmentIds - The selected lineup, including daily overrides.
    * @returns {Promise<{ fns: (Function | null)[], names: string[], warnings: string[] }>}
    */
-  async function loadAIFunctions(playerCount, spectator) {
-    const storeState = store.getState();
-    const assignments = [...storeState.config.aiAssignments].slice(0, playerCount);
+  async function loadAIFunctions(playerCount, spectator, assignmentIds) {
+    const assignments = [...assignmentIds].slice(0, playerCount);
 
     // In spectator mode, all players are AI (playerCount, not assignments.length:
     // a lineup shorter than the seat count must not leave a seat human-and-idle).
@@ -231,7 +236,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   /**
-   * Start a new game from the title screen.
+   * Start a game from setup, the daily entry, or a finished match's retry.
    *
    * @param {Object} config
    * @param {number} config.playerCount
@@ -252,7 +257,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *   engine's `config.handicap` for the human seat; stored as picked even in
    *   spectator mode, where the derived handicap is null (no human seat).
    */
-  async function startNewGame(config) {
+  async function startNewGame(config, challenge = null) {
+    const startId = ++gameStartId;
     aiAborted = true; // abort any running AI turn
     clearNextTurnTimer();
     /*
@@ -265,18 +271,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * this function's own two title-bound failure exits, rejectMap's two
      * bounces, and endTurn's engine-error bounce. Never ahead of the game.
      *
-     * Nothing today reaches startNewGame with names still set, so this is the
-     * invariant stated structurally rather than a flash anyone has seen. Its one
-     * caller is START on the title screen, where the lineup is already empty,
-     * and HOME on the game-over card goes through goToTitle(), which empties
-     * the names in the very setState that swaps the screen — the card unmounts
-     * with them, leaving no window to read a stale lineup in. What the rule buys
-     * is a future caller that does land here over a finished game: the card
-     * would stay up for as long as the AI load below takes, and GameOverScreen
-     * reads playerNames for "<name> wins!" while useAnnouncer has them in the
-     * deps of its game-over effect — so emptying the lineup on the way in would
-     * both degrade that subtitle to "Player 2 wins!" and have the live region
-     * re-speak it that way. A test pins the seam.
+     * TRY AGAIN now reaches this seam over a finished game. Keep that card's
+     * names while its replacement loads, or the winner would briefly become
+     * "Player 2" and the live region would announce that changed identity.
      */
     store.setState({ error: null, aiLoadWarnings: [] });
 
@@ -318,8 +315,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
     const mapSize = config.mapSize ?? store.getState().config.mapSize;
     /*
      * Per-slot bot lineup chosen on the title screen. Fall back to the store's
-     * current assignments when the caller omits it. loadAIFunctions reads this
-     * from the store below, so it must be written before that call.
+     * current assignments when the caller omits it. Pass the resolved lineup
+     * to loadAIFunctions explicitly: daily setup is not written into config.
      */
     const aiAssignments = config.aiAssignments ?? store.getState().config.aiAssignments;
 
@@ -371,20 +368,24 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * regenerates at the same size, and with the same dice, the player chose.
      */
     store.setState({
-      config: {
-        ...store.getState().config,
-        playerCount,
-        mapSize,
-        aiAssignments,
-        difficulty,
-        luck,
-      },
+      // Daily setup belongs to its board; keep the player's ordinary setup intact.
+      ...(!challenge && {
+        config: {
+          ...store.getState().config,
+          playerCount,
+          mapSize,
+          aiAssignments,
+          difficulty,
+          luck,
+        },
+      }),
       humanPlayerIndex,
     });
 
     try {
       // Load AI functions
-      const { fns, names, warnings } = await loadAIFunctions(playerCount, spectator);
+      const { fns, names, warnings } = await loadAIFunctions(playerCount, spectator, aiAssignments);
+      if (startId !== gameStartId) return;
       aiFunctions = fns;
 
       // Create game via engine
@@ -392,7 +393,18 @@ export function createGameController(store, renderer, soundManager, preferencesM
         playerCount,
         ...resolveMapSize(mapSize),
         handicap,
+        ...(config.seed !== undefined && { seed: config.seed }),
       });
+
+      lastGameSetup = {
+        playerCount,
+        spectator,
+        mapSize,
+        aiAssignments: [...aiAssignments],
+        difficulty,
+        luck,
+        seed: gameState.config?.seed,
+      };
 
       store.setState({
         gameState,
@@ -418,6 +430,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
         rulesOpen: false,
         aiLoadWarnings: warnings,
         playerNames: names,
+        dailyChallenge: challenge,
+        dailyResult: null,
+        matchJournal: createMatchJournal(gameState, humanPlayerIndex),
+        currentReplay: null,
+        replayOrigin: null,
       });
       /*
        * The ring, paired with the `focusedAreaId: null` above — by construction,
@@ -435,16 +452,16 @@ export function createGameController(store, renderer, soundManager, preferencesM
         renderer.drawMap(gameState);
       }
     } catch (err) {
+      if (startId !== gameStartId) return;
       console.error('Failed to start new game:', err);
       /*
        * This is a trip back to the title, so it has to leave the same state
        * goToTitle() would (#181) — a confirm dialog raised over the previous
        * game must not still be flagged open on the title screen, and the lineup
        * goes with the game it named (goToTitle empties it too), the setState
-       * that would have replaced it wholesale being the one that just threw. As
-       * at the luck bail, there is in practice nothing here to empty: only the
-       * title screen starts games. (aiAborted and the next-turn timer were
-       * already dealt with on the way in.)
+       * that would have replaced it wholesale being the one that just threw.
+       * A failed retry can leave a finished game's names here. aiAborted and
+       * the next-turn timer were already dealt with on the way in.
        */
       store.setState({
         screen: 'title',
@@ -460,6 +477,19 @@ export function createGameController(store, renderer, soundManager, preferencesM
     }
   }
 
+  /** Daily games always use the versioned recipe, even after a lucky Custom game. */
+  function startDailyGame(date) {
+    const challenge = createDailyChallenge(date);
+    return startNewGame(challenge, challenge);
+  }
+
+  /** Repeat the initial board, dice and turn order; new decisions can change the outcome. */
+  function retryGame() {
+    const { screen, dailyChallenge } = store.getState();
+    if (screen !== 'gameOver' || !lastGameSetup) return;
+    return startNewGame(lastGameSetup, dailyChallenge);
+  }
+
   /** Accept the current map and start playing. */
   function acceptMap() {
     store.setState({ screen: 'playing' });
@@ -469,6 +499,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
   /** Reject the current map and generate a new one. */
   async function rejectMap() {
     const storeState = store.getState();
+    if (storeState.dailyChallenge) return;
     const playerCount = storeState.config.playerCount;
     const mapSize = storeState.config.mapSize;
     /*
@@ -518,7 +549,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
       return;
     }
 
-    store.setState({ gameState });
+    if (lastGameSetup) lastGameSetup = { ...lastGameSetup, seed: gameState.config?.seed };
+    store.setState({
+      gameState,
+      matchJournal: createMatchJournal(gameState, storeState.humanPlayerIndex),
+    });
     if (renderer) {
       renderer.drawMap(gameState);
     }
@@ -543,6 +578,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * returns.
    */
   function goToTitle() {
+    gameStartId++;
     aiAborted = true;
     clearNextTurnTimer();
     /*
@@ -568,6 +604,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
       quitConfirmOpen: false,
       rulesOpen: false,
       playerNames: [],
+      dailyChallenge: null,
+      dailyResult: null,
+      matchJournal: null,
     });
     /*
      * `battle` and `hexGrid` are both null until init() succeeds, and quitting
@@ -616,21 +655,25 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   function goToArena() {
+    gameStartId++;
     aiAborted = true;
     store.setState({ screen: 'arena' });
   }
 
   function goToTournament() {
+    gameStartId++;
     aiAborted = true;
     store.setState({ screen: 'tournament' });
   }
 
   function goToOnlineLeaderboard() {
+    gameStartId++;
     aiAborted = true;
     store.setState({ screen: 'onlineLeaderboard' });
   }
 
   function goToReplay(replay) {
+    gameStartId++;
     aiAborted = true;
     store.setState({ screen: 'replay', currentReplay: replay });
   }
@@ -741,6 +784,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
       store.setState({
         gameState: state,
+        matchJournal: recordMatchStep(store.getState().matchJournal, prevState, state),
         battleResult: battleResult
           ? { ...battleResult, attacker: atkOwner, defender: defOwner }
           : null,
@@ -1152,6 +1196,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     store.setState({
       gameState: nextState,
+      matchJournal: recordMatchStep(store.getState().matchJournal, prevState, nextState),
       battleResult: battleResult
         ? { ...battleResult, attacker: atkOwner, defender: defOwner }
         : null,
@@ -1279,9 +1324,18 @@ export function createGameController(store, renderer, soundManager, preferencesM
      */
     if (store.getState().screen !== 'playing') return;
 
+    const { matchJournal, dailyChallenge, dailyResult } = store.getState();
+    const finishedJournal = finishMatchJournal(matchJournal, state);
+    const result =
+      dailyChallenge && matchJournal && !matchJournal.finished
+        ? saveDailyResult(dailyChallenge.id, finishedJournal)
+        : dailyResult;
+
     store.setState({
       gameState: state,
       screen: 'gameOver',
+      matchJournal: finishedJournal,
+      dailyResult: result,
       currentReplay: replay,
       humanEliminated,
       gameOverReason: drawReason,
@@ -1321,6 +1375,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
   /** Navigate to replay viewer for the current game's replay. */
   function viewGameReplay() {
+    gameStartId++;
     const { currentReplay } = store.getState();
     if (currentReplay) {
       store.setState({ screen: 'replay', replayOrigin: 'gameOver' });
@@ -1489,6 +1544,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     store.setState({
       gameState: nextState,
+      matchJournal: recordMatchStep(store.getState().matchJournal, prevState, nextState),
       selectedFrom: null,
       selectedTo: null,
       awaitingInput: null,
@@ -1544,6 +1600,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
   return {
     startNewGame,
+    startDailyGame,
+    retryGame,
     acceptMap,
     rejectMap,
     goToTitle,

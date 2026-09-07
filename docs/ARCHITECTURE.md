@@ -53,6 +53,13 @@ Click on territory → GameController.handleTerritoryClick()
 
 ### AI player takes a turn
 
+Human games also maintain a small campaign journal (`src/game/matchJournal.js`)
+alongside each resolved attack and end-turn transition. It consumes no RNG and
+does not change engine state. The controller freezes it at the human's result,
+including early elimination, for the campaign report. Daily Conquest supplies a
+versioned initial seed and fixed setup outside the ordinary setup config; see
+[Daily Conquest](DAILY_CONQUEST.md) for its persistence and retry contracts.
+
 ```
 GameController advances to AI turn
   → GameController steps engine.runAI + applyAction one move at a time (its own loop, so each battle can animate)

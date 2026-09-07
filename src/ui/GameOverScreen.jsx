@@ -11,6 +11,8 @@ import { useEffect, useRef } from 'preact/hooks';
 import { useGameStore } from './hooks/useGameStore.js';
 import { SeatSwatch } from './SeatSwatch.jsx';
 import { playerName } from '../store/GameStore.js';
+import { MatchReport } from './MatchReport.jsx';
+import { formatDailyDate } from '../game/dailyChallenge.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../renderer/constants.js';
 
 /** The screen's one button shape; `mutedBtn` is the same outline, quieter ink. */
@@ -35,10 +37,12 @@ const STYLE = {
     bottom: 0,
     display: 'flex',
     flexDirection: 'column',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     background: 'var(--ui-overlay-bg)',
     pointerEvents: 'auto',
+    overflowY: 'auto',
+    padding: '2rem 1.25rem',
   },
   /*
    * The heading sits on this screen's own overlay, not the raw board, so its
@@ -49,7 +53,7 @@ const STYLE = {
    */
   title: {
     fontFamily: 'Anton, sans-serif',
-    fontSize: '3.5rem',
+    fontSize: 'clamp(1.6rem, 5vw, 3.5rem)',
     color: 'var(--ui-text)',
     letterSpacing: '0.3em',
     marginBottom: '1rem',
@@ -85,17 +89,21 @@ const STYLE = {
  * @param {Object} props.store - GameStore instance
  * @param {() => void} props.onTitle
  * @param {() => void} [props.onHistory]
+ * @param {() => void} [props.onRetry] - Replay this starting board and setup.
  * @param {() => void} [props.onSpectate]
  * @param {() => void} [props.onRules] - Opens the "How to play" reference: the
  *   end of a game you lost is when a rule you missed is worth looking up.
  */
-export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules }) {
+export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules, onRetry }) {
   const gameState = useGameStore(store, s => s.gameState);
   const prefs = useGameStore(store, s => s.preferences);
   const humanPlayerIndex = useGameStore(store, s => s.humanPlayerIndex);
   const humanEliminated = useGameStore(store, s => s.humanEliminated);
   const gameOverReason = useGameStore(store, s => s.gameOverReason);
   const playerNames = useGameStore(store, s => s.playerNames);
+  const journal = useGameStore(store, s => s.matchJournal);
+  const daily = useGameStore(store, s => s.dailyChallenge);
+  const dailyResult = useGameStore(store, s => s.dailyResult);
 
   const homeRef = useRef(null);
   const rulesOpen = useGameStore(store, s => s.rulesOpen);
@@ -159,7 +167,14 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
   }
 
   return (
-    <div style={STYLE.overlay}>
+    <div className="dw-result" style={STYLE.overlay}>
+      <style>{`.dw-result-spacer { margin-top: auto; } .dw-result-bottom { margin-bottom: auto; }
+        .dw-result > * { flex-shrink: 0; }
+        .dw-result-date { color: var(--ui-accent); font: .8rem Roboto, sans-serif; letter-spacing: .08em; margin-bottom: .7rem; }`}</style>
+      <div className="dw-result-spacer" />
+      {daily && (
+        <div className="dw-result-date">DAILY CONQUEST · {formatDailyDate(daily.date)}</div>
+      )}
       {/* Always the text color: the heading used to take the winner's seat color
           on a human win, and seat 0's lavender measured 2.47:1 on the light
           panel — short of even the large-text 3:1 (#220). */}
@@ -172,10 +187,20 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
           {subtitle}
         </p>
       )}
+      <MatchReport journal={journal} daily={daily} dailyResult={dailyResult} />
       <div style={STYLE.buttonRow}>
         <button style={STYLE.btn} onClick={onTitle} ref={homeRef}>
           HOME
         </button>
+        {onRetry && (
+          <button
+            style={STYLE.btn}
+            onClick={onRetry}
+            title="Replay the same starting board and lineup"
+          >
+            TRY AGAIN
+          </button>
+        )}
         {onHistory && (
           <button style={STYLE.btn} onClick={onHistory}>
             HISTORY
@@ -199,6 +224,7 @@ export function GameOverScreen({ store, onTitle, onHistory, onSpectate, onRules 
           </button>
         )}
       </div>
+      <div className="dw-result-bottom" />
     </div>
   );
 }

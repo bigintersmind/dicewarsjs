@@ -1,7 +1,18 @@
-import { createDailyChallenge, dailyDate } from '../../src/game/dailyChallenge.js';
+import {
+  createDailyChallenge,
+  dailyDate,
+  dailyDateFromId,
+  dailyIdForDate,
+  formatDailyDate,
+  isDailyId,
+} from '../../src/game/dailyChallenge.js';
 import { createGame } from '../../src/engine/index.js';
 import { resolveMapSize } from '../../src/utils/config.js';
 import { createHash } from 'node:crypto';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('Daily Conquest recipe', () => {
   it('uses the UTC day, including across time-zone and year boundaries', () => {
@@ -32,5 +43,48 @@ describe('Daily Conquest recipe', () => {
       expect(() => createDailyChallenge(date)).toThrow();
     }
     expect(createDailyChallenge('2028-02-29').date).toBe('2028-02-29');
+  });
+
+  it('recognises only ids of the current recipe version', () => {
+    const recipe = createDailyChallenge('2026-09-07');
+    expect(dailyIdForDate('2026-09-07')).toBe(recipe.id);
+    expect(isDailyId(recipe.id)).toBe(true);
+    expect(dailyDateFromId(recipe.id)).toBe('2026-09-07');
+
+    for (const id of [
+      'daily-v2-2026-09-07', // a future recipe's results must not be counted as ours
+      'daily-v1-2026-9-7',
+      'daily-v1-2026-09-07-extra',
+      'dicewars_daily_v1',
+      '',
+      null,
+      undefined,
+      42,
+      { id: 'daily-v1-2026-09-07' },
+    ]) {
+      expect(isDailyId(id)).toBe(false);
+      expect(dailyDateFromId(id)).toBeNull();
+    }
+  });
+
+  it('names the board’s UTC date, not the reader’s local day', () => {
+    // Los Angeles is 7 hours behind: midnight UTC on the 7th is the evening of
+    // the 6th there, and a player in that window is still on the 7th's board.
+    vi.stubEnv('TZ', 'America/Los_Angeles');
+    const boardMidnight = new Date('2026-09-07T00:00:00Z');
+    // Guard the guard: prove the runtime honoured the stub before leaning on it.
+    expect(boardMidnight.getUTCDate() - boardMidnight.getDate()).toBe(1);
+
+    // Locale-independent: the same fields, the difference being the zone.
+    expect(formatDailyDate('2026-09-07')).toBe(
+      boardMidnight.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'UTC',
+      })
+    );
+    expect(formatDailyDate('2026-09-07')).not.toBe(
+      boardMidnight.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    );
   });
 });

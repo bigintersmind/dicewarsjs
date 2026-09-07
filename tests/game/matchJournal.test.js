@@ -23,6 +23,7 @@ describe('Human campaign journal', () => {
     let journal = createMatchJournal(state, 0);
     const originalJournal = structuredClone(journal);
     const humanTurns = new Set();
+    let humanEndTurns = 0;
     let attacks = 0;
     let wins = 0;
     let peakLand = state.players[0].territoryCount;
@@ -42,6 +43,8 @@ describe('Human campaign journal', () => {
         if (move) {
           attacks++;
           if (state.areas[move.to].owner === 0) wins++;
+        } else {
+          humanEndTurns++;
         }
       }
       peakLand = Math.max(peakLand, state.players[0].territoryCount);
@@ -57,7 +60,15 @@ describe('Human campaign journal', () => {
       peakTerritories: peakLand,
       peakIncome,
     });
+    /*
+     * The chart is labelled "Your turns": one sample per turn the HUMAN ended,
+     * never one per player-turn. Three opponents ending their turns between the
+     * player's own moves used to put four times as many points on it.
+     */
+    expect(humanEndTurns).toBeGreaterThan(1);
+    expect(journal.points).toHaveLength(humanEndTurns + 1); // + the starting position
     const finished = finishMatchJournal(journal, state);
+    expect(finished.points).toHaveLength(humanEndTurns + 2); // + the final position
     expect(finished.points[0]).toEqual({ turn: 0, territories: initial.players[0].territoryCount });
     expect(finished.points.at(-1).territories).toBe(state.players[0].territoryCount);
     expect(finishMatchJournal(finished, state)).toBe(finished);
@@ -79,5 +90,37 @@ describe('Human campaign journal', () => {
     expect(finishMatchJournal(finished, initial)).toBe(finished);
     expect(createMatchJournal(initial, null)).toBeNull();
     expect(recordMatchStep(null, initial, terminal)).toBeNull();
+  });
+
+  it('closes without a final sample rather than throwing on a seatless terminal state', () => {
+    const initial = createGame({ playerCount: 2, seed: 21 });
+    const journal = createMatchJournal(initial, 0);
+    // A truncated terminal state: statistics must never be why a finished game
+    // fails to reach its game-over screen.
+    for (const terminal of [{ ...initial, players: [] }, { ...initial, players: undefined }, {}]) {
+      const finished = finishMatchJournal(journal, terminal);
+      expect(finished).toMatchObject({ finished: true, won: false });
+      expect(finished.points).toEqual(journal.points);
+    }
+  });
+
+  it('samples only the journal owner’s end turns, never an opponent’s', () => {
+    const initial = createGame({ playerCount: 2, seed: 21 });
+    const journal = createMatchJournal(initial, 0);
+    const opponentsTurn = { ...initial, currentPlayerIndex: initial.turnOrder.indexOf(1) };
+    const after = {
+      ...opponentsTurn,
+      turnsTaken: opponentsTurn.turnsTaken + 1,
+      history: [{ type: 'END_TURN' }],
+    };
+    expect(recordMatchStep(journal, opponentsTurn, after).points).toEqual(journal.points);
+
+    const ownTurn = { ...initial, currentPlayerIndex: initial.turnOrder.indexOf(0) };
+    const afterOwn = {
+      ...ownTurn,
+      turnsTaken: ownTurn.turnsTaken + 1,
+      history: [{ type: 'END_TURN' }],
+    };
+    expect(recordMatchStep(journal, ownTurn, afterOwn).points).toHaveLength(2);
   });
 });

@@ -111,12 +111,25 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   and the territory buttons' accessible names.
  * @property {Object} config - Per-game setup carried between the title screen and
  *   the controller: { playerCount, mapSize, difficulty, aiAssignments, luck }.
- * @property {Object | null} dailyChallenge - Versioned daily recipe for this match;
- *   kept outside config so the player's ordinary setup survives the daily detour.
- * @property {Object | null} dailyResult - Personal record and storage availability
- *   returned when a daily attempt ends. Abandoned games are not counted.
+ * @property {Object | null} dailyChallenge - Versioned daily recipe for this match
+ *   (`DailyChallenge & { practice: boolean }`), kept outside config so the player's
+ *   ordinary setup survives the daily detour. `practice` is true when this board
+ *   already had an official result in storage when the match started: the run is
+ *   played and counted, but it can never replace the one scored attempt.
+ * @property {Object | null} dailyResult - How a finished daily attempt was
+ *   recorded: `{ available, official, record, streak }` — whether storage
+ *   worked, whether THIS run was the scored one, the stored DailyRecord
+ *   (src/store/dailyRecords.js) and the current streak in UTC days. Set at game
+ *   over of a daily; abandoned games are not counted at all.
  * @property {Object | null} matchJournal - Human turns, captures, peaks and territory
- *   samples. Frozen at the human's result, including an early elimination.
+ *   samples. Frozen at the human's result, including an early elimination. `points`
+ *   is sampled on the human's own END_TURN only, plus the start and final positions.
+ * @property {boolean} noValidMoves - True only in the dead end: it is the human's
+ *   turn, input is being awaited, and the engine offers no legal attack at all, so
+ *   ending the turn is the only move left. Controller-owned and computed at the same
+ *   seam as the board hints (refreshCandidateHighlights), but deliberately NOT gated
+ *   on the `boardHints` preference — a player who turned the hints off still has to
+ *   be told when the game is waiting on a turn they cannot spend.
  * @property {Object | null} currentReplay
  */
 
@@ -136,6 +149,8 @@ const DEFAULT_STATE = {
   dailyResult: null,
   // Human campaign statistics, frozen at elimination so spectating cannot rewrite the result.
   matchJournal: null,
+  // The dead end: the human's turn, awaiting input, and no legal attack anywhere.
+  noValidMoves: false,
   quitConfirmOpen: false,
   rulesOpen: false,
   settingsOpen: false,

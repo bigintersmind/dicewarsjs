@@ -30,9 +30,16 @@ export function recordMatchStep(journal, before, after) {
     captures: journal.captures + Number(attack && action.result.success),
     peakTerritories: Math.max(journal.peakTerritories, player.territoryCount),
     peakIncome: Math.max(journal.peakIncome, player.largestGroup),
-    // Sample once per completed player-turn; battles still contribute to peaks.
+    /*
+     * Sample once per completed turn OF THE PLAYER THIS JOURNAL IS ABOUT — not
+     * once per player-turn. The chart is labelled "Your turns", and sampling
+     * every seat's END_TURN put four samples on a four-player board where one
+     * turn had passed, drawing a saw of the opponents' captures between the
+     * player's own moves. Battles still contribute to the peaks, which is where
+     * a mid-turn high is recorded.
+     */
     points:
-      action?.type === 'END_TURN'
+      ownTurn && action?.type === 'END_TURN'
         ? [...journal.points, { turn: after.turnsTaken, territories: player.territoryCount }]
         : journal.points,
   };
@@ -40,13 +47,19 @@ export function recordMatchStep(journal, before, after) {
 
 export function finishMatchJournal(journal, state) {
   if (!journal || journal.finished) return journal;
+  /*
+   * The final sample is skipped rather than thrown over when the seat is gone
+   * from the state being finished against (a truncated or mocked terminal
+   * state): a statistics helper must never be the reason a finished game fails
+   * to reach the game-over screen. The journal still closes.
+   */
+  const player = state?.players?.[journal.playerId];
   return {
     ...journal,
     finished: true,
-    won: state.winner === journal.playerId,
-    points: [
-      ...journal.points,
-      { turn: state.turnsTaken, territories: state.players[journal.playerId].territoryCount },
-    ],
+    won: state?.winner === journal.playerId,
+    points: player
+      ? [...journal.points, { turn: state.turnsTaken, territories: player.territoryCount }]
+      : journal.points,
   };
 }

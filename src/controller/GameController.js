@@ -24,10 +24,34 @@ import { HUMAN_PLAYER_NAME, playerName } from '../store/GameStore.js';
 import { resolveMapSize, luckToHandicap, resolveLuck } from '../utils/config.js';
 import { createDailyChallenge } from '../game/dailyChallenge.js';
 import { createMatchJournal, recordMatchStep, finishMatchJournal } from '../game/matchJournal.js';
-import { saveDailyResult } from '../store/dailyRecords.js';
+import {
+  readDailyRecord,
+  recordDailyPractice,
+  saveDailyOfficial,
+  saveDailySubmission,
+} from '../store/dailyRecords.js';
+import { leaderboardError, normalizeName, submitDailyResult } from '../game/dailyLeaderboard.js';
 
 /** Prefix marking a per-slot assignment id as a curated community bot. */
 const COMMUNITY_PREFIX = 'community:';
+
+/**
+ * The per-match state that must not survive a route back to the title.
+ *
+ * Six routes reach the title screen: goToTitle (the deliberate quit) and five
+ * failure exits — the daily recipe bail, startNewGame's luck bail and start
+ * catch, rejectMap's two bounces, and endTurn's engine-error bounce. Each was
+ * already clearing the state it happened to know about; this is the daily half
+ * of the same rule, kept in one object so a seventh route (or a seventh field)
+ * cannot leave a finished daily's identity, its result card, or a dead-end
+ * notice sitting behind the title screen.
+ */
+const ABANDONED_MATCH_STATE = {
+  dailyChallenge: null,
+  dailyResult: null,
+  matchJournal: null,
+  noValidMoves: false,
+};
 
 /**
  * Hard turn budget for a browser game, counted in completed player-turns
@@ -211,6 +235,38 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   /**
+   * Fold one resolved transition into the human's campaign journal.
+   *
+   * Statistics must never break the game loop: the journal is a summary of a
+   * game that has already happened in the engine, so a throw in here is logged
+   * and the journal left exactly as it was. A missing sample costs a point on a
+   * chart; a throw at an attack seam would cost the game.
+   *
+   * @param {Object} before - Engine state the action was applied to.
+   * @param {Object} after - Engine state it produced.
+   * @returns {Object | null} The journal to store.
+   */
+  function stepJournal(before, after) {
+    const journal = store.getState().matchJournal;
+    try {
+      return recordMatchStep(journal, before, after);
+    } catch (err) {
+      console.error('[GameController] Match journal step failed:', err);
+      return journal;
+    }
+  }
+
+  /** Close the journal at the human's result, with the same guarantee. */
+  function closeJournal(journal, state) {
+    try {
+      return finishMatchJournal(journal, state);
+    } catch (err) {
+      console.error('[GameController] Match journal finish failed:', err);
+      return journal;
+    }
+  }
+
+  /**
    * Build a Replay object from the current game state.
    * Returns null if the state lacks config (e.g. in unit-test mocks).
    * @param {Object} state - Engine GameState
@@ -256,8 +312,17 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *   store for the session (not localStorage) like mapSize, and turned into the
    *   engine's `config.handicap` for the human seat; stored as picked even in
    *   spectator mode, where the derived handicap is null (no human seat).
+   * @param {Object | null} [challenge] - The daily recipe this match is playing,
+   *   with its `practice` flag, or null for an ordinary game.
+   * @param {Object} [options]
+   * @param {boolean} [options.skipPreview] - Land straight on the playing screen
+   *   with the first turn started, instead of offering the map preview. TRY
+   *   AGAIN / PRACTICE AGAIN: the player has already seen this exact board — it
+   *   is why they pressed the button — so re-offering PLAY/BACK is a click that
+   *   asks nothing. Runs acceptMap() itself rather than repeating its two steps,
+   *   so both entrances into a live game start the turn the same way.
    */
-  async function startNewGame(config, challenge = null) {
+  async function startNewGame(config, challenge = null, { skipPreview = false } = {}) {
     const startId = ++gameStartId;
     aiAborted = true; // abort any running AI turn
     clearNextTurnTimer();
@@ -358,6 +423,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         quitConfirmOpen: false,
         rulesOpen: false,
         playerNames: [],
+        ...ABANDONED_MATCH_STATE,
         error: "That luck setting isn't available. Pick another and try again.",
       });
       return;
@@ -382,6 +448,14 @@ export function createGameController(store, renderer, soundManager, preferencesM
       humanPlayerIndex,
     });
 
+    /*
+     * Whether the board actually came up, so the skipPreview hand-off below runs
+     * over a started game only. Deliberately outside the try: acceptMap() drives
+     * the first turn, and a throw from there is a mid-game failure, not a failed
+     * start — routing it into the catch would bounce a live game to the title
+     * under a "Failed to start game" banner.
+     */
+    let started = false;
     try {
       // Load AI functions
       const { fns, names, warnings } = await loadAIFunctions(playerCount, spectator, aiAssignments);
@@ -416,6 +490,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         awaitingInput: null,
         focusedAreaId: null,
         candidateAreas: null,
+        noValidMoves: false,
         humanEliminated: false,
         gameOverReason: null,
         /*
@@ -451,6 +526,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       if (renderer) {
         renderer.drawMap(gameState);
       }
+      started = true;
     } catch (err) {
       if (startId !== gameStartId) return;
       console.error('Failed to start new game:', err);
@@ -472,22 +548,86 @@ export function createGameController(store, renderer, soundManager, preferencesM
         quitConfirmOpen: false,
         rulesOpen: false,
         playerNames: [],
+        ...ABANDONED_MATCH_STATE,
         error: 'Failed to start game. Please try again.',
       });
+    }
+
+    /*
+     * TRY AGAIN / PRACTICE AGAIN: straight into the game, past the preview.
+     * Nothing awaits between the start-id check inside the try and here, so this
+     * runs over the board that check cleared — no new race with a later start.
+     */
+    if (started && skipPreview) acceptMap();
+  }
+
+  /**
+   * Is this board's ONE scored attempt already on the books?
+   *
+   * Asked of storage at the moment a match starts, not of the store: a board is
+   * practice because a result exists, and only storage knows that (a second tab,
+   * an earlier session, or the run that just finished). When storage is
+   * unavailable the answer is "no", so the attempt is played as the official one
+   * — an unrecordable result is better than silently demoting every game to
+   * practice.
+   *
+   * @param {string} id - Daily id.
+   * @returns {boolean}
+   */
+  function isPracticeBoard(id) {
+    try {
+      return !!readDailyRecord(id).record?.official;
+    } catch (err) {
+      console.error('[GameController] Could not read the daily record:', err);
+      return false;
     }
   }
 
   /** Daily games always use the versioned recipe, even after a lucky Custom game. */
-  function startDailyGame(date) {
-    const challenge = createDailyChallenge(date);
-    return startNewGame(challenge, challenge);
+  async function startDailyGame(date) {
+    let challenge;
+    try {
+      challenge = createDailyChallenge(date);
+    } catch (err) {
+      /*
+       * A bad date is the only way this throws, and PLAY DAILY discards the
+       * promise — so an escaping rejection would read as a dead button. It lands
+       * on the store's error path like every other start failure instead, and
+       * leaves the title exactly as the other title-bound exits do.
+       */
+      console.error('[GameController] Cannot start Daily Conquest:', err);
+      store.setState({
+        screen: 'title',
+        gameState: null,
+        animationPhase: 'idle',
+        awaitingInput: null,
+        candidateAreas: null,
+        quitConfirmOpen: false,
+        rulesOpen: false,
+        playerNames: [],
+        ...ABANDONED_MATCH_STATE,
+        error: "That daily board isn't available. Please try again.",
+      });
+      return;
+    }
+    await startNewGame(challenge, { ...challenge, practice: isPracticeBoard(challenge.id) });
   }
 
-  /** Repeat the initial board, dice and turn order; new decisions can change the outcome. */
+  /**
+   * Repeat the initial board, dice and turn order; new decisions can change the
+   * outcome. Straight into the game — the board is the one just played.
+   *
+   * A daily retry is PRACTICE whenever the board's scored attempt is on the
+   * books, which it will be unless storage refused the write: practice runs are
+   * played and counted, but they never replace the official result.
+   */
   function retryGame() {
     const { screen, dailyChallenge } = store.getState();
     if (screen !== 'gameOver' || !lastGameSetup) return;
-    return startNewGame(lastGameSetup, dailyChallenge);
+    const challenge = dailyChallenge
+      ? { ...dailyChallenge, practice: isPracticeBoard(dailyChallenge.id) }
+      : null;
+    return startNewGame(lastGameSetup, challenge, { skipPreview: true });
   }
 
   /** Accept the current map and start playing. */
@@ -499,7 +639,16 @@ export function createGameController(store, renderer, soundManager, preferencesM
   /** Reject the current map and generate a new one. */
   async function rejectMap() {
     const storeState = store.getState();
-    if (storeState.dailyChallenge) return;
+    if (storeState.dailyChallenge) {
+      /*
+       * Everyone plays the same daily board, so there is nothing to re-roll.
+       * The UI doesn't offer NEW MAP on a daily preview; say so out loud rather
+       * than returning in silence, because a silent no-op here would look like
+       * a broken button to whoever put the button back.
+       */
+      console.warn('[GameController] rejectMap ignored: daily boards cannot be rerolled');
+      return;
+    }
     const playerCount = storeState.config.playerCount;
     const mapSize = storeState.config.mapSize;
     /*
@@ -524,6 +673,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         // empty — NEW MAP is pressed over a named game — but it is the same
         // rule: no route to the title leaves a game named behind it.
         playerNames: [],
+        ...ABANDONED_MATCH_STATE,
         error: "That luck setting isn't available. Pick another and try again.",
       });
       return;
@@ -544,6 +694,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
         candidateAreas: null,
         // The other half of the same rule as the luck bail above.
         playerNames: [],
+        ...ABANDONED_MATCH_STATE,
         error: 'Map generation failed. Please try again.',
       });
       return;
@@ -604,9 +755,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
       quitConfirmOpen: false,
       rulesOpen: false,
       playerNames: [],
-      dailyChallenge: null,
-      dailyResult: null,
-      matchJournal: null,
+      ...ABANDONED_MATCH_STATE,
     });
     /*
      * `battle` and `hexGrid` are both null until init() succeeds, and quitting
@@ -784,7 +933,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
       store.setState({
         gameState: state,
-        matchJournal: recordMatchStep(store.getState().matchJournal, prevState, state),
+        matchJournal: stepJournal(prevState, state),
         battleResult: battleResult
           ? { ...battleResult, attacker: atkOwner, defender: defOwner }
           : null,
@@ -969,6 +1118,30 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   /**
+   * The dead end: it is the human's turn, the game is waiting on them, and the
+   * engine offers no legal attack at all — every territory they own is either
+   * down to one die or has no live enemy beside it. Ending the turn is the only
+   * move left, and nothing on the board says so.
+   *
+   * Computed at the hint seam but NOT gated on the `boardHints` preference,
+   * unlike `computeCandidateAreas`: hints are an aid a confident player can
+   * switch off, while this is the difference between a turn worth thinking
+   * about and a turn that cannot be spent. A player who turned the hints off
+   * still has to be told the game is waiting on them.
+   *
+   * @param {Object} storeState - Current store state
+   * @returns {boolean}
+   */
+  function computeNoValidMoves(storeState) {
+    const state = storeState.gameState;
+    if (!state) return false;
+    // Nobody is playing (spectator), or the board isn't waiting on input.
+    if (storeState.humanPlayerIndex === null || storeState.awaitingInput === null) return false;
+    if (state.turnOrder[state.currentPlayerIndex] !== storeState.humanPlayerIndex) return false;
+    return getValidMoves(state).length === 0;
+  }
+
+  /**
    * The single seam between the game state and the board hints: recompute the
    * candidate set, publish it to the store (for observers — none in the UI yet)
    * and paint it (for the player). Idempotent — every caller just calls it after
@@ -979,14 +1152,20 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * which deliberately wipes this layer along with the selection.
    */
   function refreshCandidateHighlights() {
-    const candidates = computeCandidateAreas(store.getState());
+    const storeState = store.getState();
+    const candidates = computeCandidateAreas(storeState);
+    const noValidMoves = computeNoValidMoves(storeState);
     /*
      * Skip the write when nothing was on offer and nothing is: every AI-turn
      * seam passes through here, and a null-over-null setState still notifies
      * every store subscriber, re-rendering UI that reads none of this.
      */
-    if (candidates !== null || store.getState().candidateAreas !== null) {
-      store.setState({ candidateAreas: candidates });
+    if (
+      candidates !== null ||
+      storeState.candidateAreas !== null ||
+      noValidMoves !== storeState.noValidMoves
+    ) {
+      store.setState({ candidateAreas: candidates, noValidMoves });
     }
 
     if (!renderer || !renderer.hexGrid) return;
@@ -1196,7 +1375,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     store.setState({
       gameState: nextState,
-      matchJournal: recordMatchStep(store.getState().matchJournal, prevState, nextState),
+      matchJournal: stepJournal(prevState, nextState),
       battleResult: battleResult
         ? { ...battleResult, attacker: atkOwner, defender: defOwner }
         : null,
@@ -1285,6 +1464,100 @@ export function createGameController(store, renderer, soundManager, preferencesM
   }
 
   /**
+   * Write a completed daily attempt to this browser's records and return what
+   * the game-over card should show.
+   *
+   * The scored/practice split is decided by the flag the match was STARTED
+   * with, not by re-reading storage here: a second tab finishing the same board
+   * mid-game must not retroactively demote this run, and the player was told
+   * which kind of run they were playing before they played it.
+   *
+   * Nothing in here may stop the game reaching its game-over screen — the
+   * record store already turns a storage failure into `available: false`, and
+   * this catch covers everything else, down to a `localStorage` getter that
+   * throws.
+   *
+   * @param {Object} challenge - store.dailyChallenge (carries `id` and `practice`).
+   * @param {Object | null} journal - The closed match journal.
+   * @param {Object | null} replay - The replay built for this game.
+   * @param {number | null} humanIdx
+   * @param {Object} state - Terminal engine state.
+   * @returns {{ available: boolean, official: boolean, record: Object|null, streak: number }}
+   */
+  function recordDailyAttempt(challenge, journal, replay, humanIdx, state) {
+    const official = !challenge.practice;
+    try {
+      const saved = official
+        ? saveDailyOfficial(challenge.id, {
+            // `won` from the journal, with the terminal state as the fallback:
+            // a journal that failed to close still has to be scored honestly.
+            won: journal?.won ?? state.winner === humanIdx,
+            turns: journal?.turns ?? 0,
+            attacks: journal?.attacks ?? 0,
+            captures: journal?.captures ?? 0,
+            replay,
+          })
+        : recordDailyPractice(challenge.id);
+      return {
+        available: saved.available,
+        official,
+        record: saved.record,
+        streak: saved.streak,
+      };
+    } catch (err) {
+      console.error('[GameController] Could not record the daily attempt:', err);
+      return { available: false, official, record: null, streak: 0 };
+    }
+  }
+
+  /**
+   * Post this browser's scored daily result to the shared leaderboard.
+   *
+   * The replay goes up, not a score: the server re-simulates it against the
+   * day's seed and derives the numbers itself, so nothing here is trusted. Only
+   * an OFFICIAL result may be submitted — a practice run has no standing —
+   * and the rank that comes back is stored beside the record so a later visit
+   * shows it instead of offering the post again.
+   *
+   * Rejections are rethrown with `.code` and a player-readable `.message` for
+   * the UI to show; this is a user-initiated action with a visible outcome, so
+   * swallowing a failure would leave a button that silently does nothing.
+   *
+   * @param {string} name - Player-entered display name.
+   * @returns {Promise<Object>} The server's SubmissionResult.
+   */
+  async function submitDailyScore(name) {
+    const normalized = normalizeName(name);
+    if (!normalized) throw leaderboardError('name_rejected');
+
+    const { dailyChallenge, dailyResult, currentReplay } = store.getState();
+    if (!dailyChallenge || !dailyResult?.official || !currentReplay) {
+      throw leaderboardError('not_submittable');
+    }
+
+    const outcome = await submitDailyResult({
+      date: dailyChallenge.date,
+      name: normalized,
+      replay: currentReplay,
+    });
+
+    const { record } = saveDailySubmission(dailyChallenge.id, {
+      name: normalized,
+      rank: outcome.rank,
+    });
+    /*
+     * Re-read rather than closing over the dailyResult above: the submission is
+     * a network round trip, and the player may have started another game while
+     * it was in flight. Publish only if the result on screen is still this one.
+     */
+    const current = store.getState().dailyResult;
+    if (current && current === dailyResult) {
+      store.setState({ dailyResult: { ...current, record: record ?? current.record } });
+    }
+    return outcome;
+  }
+
+  /**
    * Handle game-over transition: determine if the human was eliminated
    * (vs. the game actually ending), build a replay for completed games,
    * optionally play a celebration, then show the gameOver screen.
@@ -1325,10 +1598,16 @@ export function createGameController(store, renderer, soundManager, preferencesM
     if (store.getState().screen !== 'playing') return;
 
     const { matchJournal, dailyChallenge, dailyResult } = store.getState();
-    const finishedJournal = finishMatchJournal(matchJournal, state);
+    const finishedJournal = closeJournal(matchJournal, state);
+    /*
+     * A daily attempt is recorded exactly once, on the first game-over of the
+     * match (`!matchJournal.finished`) — spectating on to the AIs' conclusion,
+     * a turn-cap draw watched from the game-over screen, or any later pass
+     * through here finds the journal already closed and changes nothing.
+     */
     const result =
       dailyChallenge && matchJournal && !matchJournal.finished
-        ? saveDailyResult(dailyChallenge.id, finishedJournal)
+        ? recordDailyAttempt(dailyChallenge, finishedJournal, replay, humanIdx, state)
         : dailyResult;
 
     store.setState({
@@ -1336,6 +1615,8 @@ export function createGameController(store, renderer, soundManager, preferencesM
       screen: 'gameOver',
       matchJournal: finishedJournal,
       dailyResult: result,
+      // The playing screen is going away; a dead-end notice must not outlive it.
+      noValidMoves: false,
       currentReplay: replay,
       humanEliminated,
       gameOverReason: drawReason,
@@ -1522,6 +1803,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
          * territory, so it is a seam a keyboard player can actually hit.
          */
         focusedAreaId: null,
+        ...ABANDONED_MATCH_STATE,
       });
       /*
        * The full wipe, which is what leaving the playing screen while nulling
@@ -1544,7 +1826,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     store.setState({
       gameState: nextState,
-      matchJournal: recordMatchStep(store.getState().matchJournal, prevState, nextState),
+      matchJournal: stepJournal(prevState, nextState),
       selectedFrom: null,
       selectedTo: null,
       awaitingInput: null,
@@ -1602,6 +1884,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
     startNewGame,
     startDailyGame,
     retryGame,
+    submitDailyScore,
     acceptMap,
     rejectMap,
     goToTitle,

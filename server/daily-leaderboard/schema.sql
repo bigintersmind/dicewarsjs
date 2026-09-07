@@ -33,9 +33,24 @@ CREATE INDEX IF NOT EXISTS idx_results_board ON results (date, won, turns, creat
 -- two in.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_results_replay ON results (date, ip_hash, replay_hash);
 
--- Accepted submissions per address per board. Bumped only after a successful
--- insert, so a rejected submission never costs an attempt.
+-- Accepted submissions per address per board. Bumped in the SAME batch as the
+-- insert, by a conditional upsert (`... DO UPDATE SET count = count + 1 WHERE
+-- count < N`), so the cap is enforced by the write itself: concurrent requests
+-- cannot all read an under-cap value and then all insert, and a failed bump
+-- cannot leave a row behind that nothing was charged for.
 CREATE TABLE IF NOT EXISTS submissions_per_ip (
+  date    TEXT    NOT NULL,
+  ip_hash TEXT    NOT NULL,
+  count   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (date, ip_hash)
+);
+
+-- Submission ATTEMPTS per address per board, charged before the replay is
+-- verified. `submissions_per_ip` counts what was accepted, which is exactly the
+-- traffic that costs nothing to produce: a body that fails verification is the
+-- expensive request, and it used to be free. This is the counter that bounds
+-- how much CPU one address can spend, whatever the verdict.
+CREATE TABLE IF NOT EXISTS requests_per_ip (
   date    TEXT    NOT NULL,
   ip_hash TEXT    NOT NULL,
   count   INTEGER NOT NULL DEFAULT 0,

@@ -10,8 +10,9 @@ import { dailyIdForDate } from '../../src/game/dailyChallenge.js';
 
 const today = '2026-09-07';
 const id = dailyIdForDate(today);
-const replay = { version: 2, actions: [] };
-const attempt = { won: true, turns: 9, attacks: 20, captures: 14, replay };
+const attempt = { won: true, turns: 9, attacks: 20, captures: 14 };
+/** What an older build stored on the official result, and no longer does. */
+const legacyReplay = { version: 2, actions: [{ type: 'END_TURN' }] };
 
 function memoryStorage(value = '{}') {
   return {
@@ -34,7 +35,6 @@ function storageWithOfficials(dates) {
           turns: 3,
           attacks: 4,
           captures: 1,
-          replay: null,
           at: `${date}T12:00:00.000Z`,
           submission: null,
         },
@@ -55,10 +55,10 @@ afterEach(() => {
 });
 
 describe('Personal daily records', () => {
-  it('records the one scored attempt with its replay and refuses to overwrite it', () => {
+  it('records the one scored attempt and refuses to overwrite it', () => {
     const storage = memoryStorage();
     const saved = saveDailyOfficial(id, attempt, storage);
-    expect(saved).toMatchObject({ available: true, streak: 1 });
+    expect(saved).toMatchObject({ available: true, streak: 1, wrote: true });
     expect(saved.record).toEqual({
       official: {
         won: true,
@@ -66,7 +66,6 @@ describe('Personal daily records', () => {
         turns: 9,
         attacks: 20,
         captures: 14,
-        replay,
         at: '2026-09-07T12:00:00.000Z',
         submission: null,
       },
@@ -74,21 +73,87 @@ describe('Personal daily records', () => {
     });
 
     // The rule the whole feature rests on: a better run later changes nothing.
-    const second = saveDailyOfficial(
-      id,
-      { won: true, turns: 2, attacks: 2, captures: 2, replay },
-      storage
-    );
+    const second = saveDailyOfficial(id, { won: true, turns: 2, attacks: 2, captures: 2 }, storage);
     expect(second.record).toEqual(saved.record);
     expect(storage.setItem).toHaveBeenCalledTimes(1); // the no-op did not rewrite storage
     expect(readDailyRecord(id, storage).record).toEqual(saved.record);
+
+    /*
+     * `wrote` is the difference between "your result was scored" and "someone
+     * else's already was". The record alone cannot say which happened — it
+     * comes back looking identical — so the flag is what the caller branches on
+     * when two tabs finish the same board.
+     */
+    expect(second.wrote).toBe(false);
+  });
+
+  it('reports wrote on every path that changes storage, and only those', () => {
+    const storage = memoryStorage();
+    expect(saveDailyOfficial(id, attempt, storage).wrote).toBe(true);
+    expect(recordDailyPractice(id, storage).wrote).toBe(true);
+    expect(saveDailySubmission(id, { name: 'Ada', rank: 1 }, storage).wrote).toBe(true);
+
+    // Nothing to attach a submission to is a no-op, not a write.
+    expect(saveDailySubmission(id, { name: 'Ada', rank: 1 }, memoryStorage()).wrote).toBe(false);
+
+    const denied = {
+      getItem() {
+        throw new Error('denied');
+      },
+      setItem() {
+        throw new Error('denied');
+      },
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Storage that throws never wrote either — but it is `available` that says so.
+    expect(saveDailyOfficial(id, attempt, denied)).toMatchObject({
+      available: false,
+      wrote: false,
+    });
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('drops a replay left on an older record, and prunes it on the next write', () => {
+    const stored = {
+      [id]: {
+        official: {
+          won: true,
+          drew: false,
+          turns: 9,
+          attacks: 20,
+          captures: 14,
+          replay: legacyReplay,
+          at: '2026-09-06T12:00:00.000Z',
+          submission: null,
+        },
+        practice: 0,
+      },
+    };
+    const storage = memoryStorage(JSON.stringify(stored));
+
+    // The old record still validates — the replay is accepted, then dropped.
+    const { record } = readDailyRecord(id, storage);
+    expect(record.official.turns).toBe(9);
+    expect(record.official).not.toHaveProperty('replay');
+
+    // ~22 KB per board of JSON that nothing reads: gone from storage on the
+    // next write, without a migration step.
+    recordDailyPractice(id, storage);
+    expect(storage.stored()[id].official).not.toHaveProperty('replay');
+    expect(storage.stored()[id].practice).toBe(1);
+  });
+
+  it('never writes a replay for a new result, whatever the caller passes', () => {
+    const storage = memoryStorage();
+    saveDailyOfficial(id, { ...attempt, replay: legacyReplay }, storage);
+    expect(storage.stored()[id].official).not.toHaveProperty('replay');
   });
 
   it('keeps a turn-cap draw apart from an elimination, and never calls a win a draw', () => {
     const storage = memoryStorage();
     const drawn = saveDailyOfficial(
       id,
-      { won: false, drew: true, turns: 40, attacks: 30, captures: 20, replay },
+      { won: false, drew: true, turns: 40, attacks: 30, captures: 20 },
       storage
     );
     expect(drawn.record.official).toMatchObject({ won: false, drew: true });
@@ -228,7 +293,6 @@ describe('Personal daily records', () => {
           turns: 3,
           attacks: 4,
           captures: 1,
-          replay: null,
           at: '2026-09-06T00:00:00.000Z',
           submission: null,
         },

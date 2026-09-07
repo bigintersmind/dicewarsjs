@@ -2,10 +2,11 @@
  * An in-memory stand-in for the Worker's D1 binding.
  *
  * It implements only the slice of the D1 API `server/daily-leaderboard/src/db.js`
- * uses — `prepare(sql).bind(...).first() / .all() / .run()` — on top of Node's
- * built-in SQLite. Real SQL against a real SQLite engine, so the schema, the
- * indexes and the ordering clauses are genuinely exercised; only the network
- * hop and Cloudflare's wire format are faked.
+ * uses — `prepare(sql).bind(...).first() / .all() / .run()`, plus `batch()` —
+ * on top of Node's built-in SQLite. Real SQL against a real SQLite engine, so
+ * the schema, the indexes, the conditional counter writes and the ordering
+ * clauses are genuinely exercised; only the network hop and Cloudflare's wire
+ * format are faked.
  *
  * `node:sqlite` is a Node built-in (unflagged since 22.13, and CI pins 22.x), so
  * this adds no dependency to the repo. It prints one ExperimentalWarning per
@@ -27,6 +28,14 @@ const SCHEMA_PATH = fileURLToPath(
  * @returns {{prepare: (sql: string) => Object}} D1-shaped binding
  */
 function asD1(sqlite) {
+  /*
+   * Batches are serialized through this chain. `node:sqlite` has one connection
+   * and no nested transactions, so two `batch()` calls interleaving at an await
+   * would collide on BEGIN — which a real D1, with its own connection pool,
+   * would not. Serializing here keeps the fake's failure modes to D1's.
+   */
+  let batches = Promise.resolve();
+
   const runners = (statement, params) => ({
     /** D1 returns the first row, or null — node:sqlite returns undefined. */
     first: async () => statement.get(...params) ?? null,
@@ -50,6 +59,31 @@ function asD1(sqlite) {
         bind: (...params) => runners(statement, params),
         ...runners(statement, []),
       };
+    },
+    /**
+     * D1's `batch`: the statements run in order inside one transaction, and one
+     * failure rolls the whole thing back. The atomicity is the part under test
+     * — an insert whose counter bump throws must not survive — so this is a
+     * real SQLite transaction, not a loop.
+     */
+    batch(statements) {
+      const run = batches.then(async () => {
+        sqlite.exec('BEGIN');
+        try {
+          const results = [];
+          for (const statement of statements) results.push(await statement.run());
+          sqlite.exec('COMMIT');
+          return results;
+        } catch (err) {
+          sqlite.exec('ROLLBACK');
+          throw err;
+        }
+      });
+      batches = run.then(
+        () => {},
+        () => {}
+      );
+      return run;
     },
   };
 }

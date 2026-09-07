@@ -8,6 +8,16 @@
  * a player cannot grind the same seeded board and post their best run. Quitting
  * completes nothing, so it is not recorded at all.
  *
+ * Two tabs on the same board are the case that makes this subtle: both start
+ * believing they are the scored attempt, and the second to finish must find out
+ * that it wasn't. Every write therefore reports `wrote` — whether it actually
+ * changed storage — and the caller demotes itself to practice when it didn't.
+ *
+ * The replay is NOT stored. It used to be, and nothing ever read it: a
+ * submission posts the live `store.currentReplay` from the result card. What it
+ * cost was ~22 KB per board, re-serialized on every write and re-parsed on
+ * every read of the title card. `loadRecords` drops it from older records.
+ *
  * Storage is best-effort. Two failure classes, deliberately distinguished:
  *   - the storage API itself throws (private mode, quota, a blocked origin) —
  *     `available: false`, so the UI can say results are not being saved;
@@ -34,8 +44,6 @@ const MAX_RECORDS = 30;
  * @property {number} turns - Human turns taken.
  * @property {number} attacks
  * @property {number} captures
- * @property {Object | null} replay - The game's replay, kept so the result can
- *   be submitted (and re-verified server-side) later in the session.
  * @property {string} at - ISO timestamp of the completed attempt.
  * @property {{ name: string, rank: number | null } | null} submission - Set once
  *   the result has been posted to the shared leaderboard.
@@ -83,7 +91,6 @@ function isValidOfficial(value) {
       isCount(value.attacks) &&
       isCount(value.captures) &&
       value.captures <= value.attacks &&
-      (value.replay === null || isPlainObject(value.replay)) &&
       typeof value.at === 'string' &&
       value.at.length > 0 &&
       isValidSubmission(value.submission))
@@ -130,7 +137,25 @@ function loadRecords(storage) {
   if (entries.length !== Object.keys(value).length) {
     console.warn('[Daily Conquest] Dropped personal result entries that failed validation.');
   }
-  return Object.fromEntries(entries);
+  return Object.fromEntries(entries.map(([id, record]) => [id, withoutReplay(record)]));
+}
+
+/**
+ * Strip the replay an older build stored on the official result.
+ *
+ * Nothing reads it — a submission posts `store.currentReplay`, which is live on
+ * the result card — but it is ~22 KB of JSON per board, re-parsed on every read
+ * and re-serialized on every write. Dropping it here means the next write
+ * quietly prunes it from storage too, rather than needing a migration.
+ *
+ * @param {DailyRecord} record
+ * @returns {DailyRecord}
+ */
+function withoutReplay(record) {
+  if (!record.official || !('replay' in record.official)) return record;
+  const official = { ...record.official };
+  delete official.replay;
+  return { ...record, official };
 }
 
 /**
@@ -154,12 +179,16 @@ function commit(records, storage) {
  * there is none), write back if it produced something new.
  *
  * `update` returning the existing record — or null — means "nothing to do", so
- * a no-op never rewrites storage and never invents an entry.
+ * a no-op never rewrites storage and never invents an entry. `wrote` reports
+ * which of those happened, because "the record you asked for" and "the record
+ * you just wrote" are different answers and one caller depends on telling them
+ * apart: `saveDailyOfficial` on a board that already has a result returns the
+ * STANDING result, which looks identical to a successful save.
  *
  * @param {string} id
  * @param {Storage | undefined} storage
  * @param {(existing: DailyRecord | null) => DailyRecord | null} update
- * @returns {{ record: DailyRecord | null, available: boolean, streak: number }}
+ * @returns {{ record: DailyRecord | null, available: boolean, streak: number, wrote: boolean }}
  */
 function mutate(id, storage, update) {
   try {
@@ -168,16 +197,16 @@ function mutate(id, storage, update) {
     const existing = records[id] ?? null;
     const next = update(existing);
     if (!next || next === existing) {
-      return { record: existing, available: true, streak: computeStreak(records) };
+      return { record: existing, available: true, streak: computeStreak(records), wrote: false };
     }
     records[id] = next;
     const kept = commit(records, target);
     // `next` even when the board fell outside the newest 30: it is this
     // attempt's result, and the caller is about to show it.
-    return { record: next, available: true, streak: computeStreak(kept) };
+    return { record: next, available: true, streak: computeStreak(kept), wrote: true };
   } catch (err) {
     console.warn('[Daily Conquest] Could not save personal result:', err);
-    return { record: null, available: false, streak: 0 };
+    return { record: null, available: false, streak: 0, wrote: false };
   }
 }
 
@@ -203,15 +232,16 @@ export function readDailyRecord(id, storage) {
  * returns the standing result — the rule the whole feature rests on, enforced
  * here rather than at the call site so no path can score a board twice.
  *
+ * Check `wrote` before telling the player their run was the scored one: on a
+ * board that already had a result, the record coming back is somebody else's
+ * game (usually this browser's other tab), not the one just played.
+ *
  * @param {string} id
- * @param {{ won: boolean, drew?: boolean, turns: number, attacks: number, captures: number, replay?: Object|null }} result
+ * @param {{ won: boolean, drew?: boolean, turns: number, attacks: number, captures: number }} result
  * @param {Storage} [storage]
+ * @returns {{ record: DailyRecord | null, available: boolean, streak: number, wrote: boolean }}
  */
-export function saveDailyOfficial(
-  id,
-  { won, drew = false, turns, attacks, captures, replay = null },
-  storage
-) {
+export function saveDailyOfficial(id, { won, drew = false, turns, attacks, captures }, storage) {
   return mutate(id, storage, existing => {
     if (existing?.official) return existing;
     const attackCount = toCount(attacks);
@@ -223,7 +253,6 @@ export function saveDailyOfficial(
         turns: toCount(turns),
         attacks: attackCount,
         captures: Math.min(toCount(captures), attackCount),
-        replay: isPlainObject(replay) ? replay : null,
         at: new Date().toISOString(),
         submission: null,
       },

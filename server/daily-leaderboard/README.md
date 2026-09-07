@@ -47,29 +47,61 @@ well-formed date is readable, including closed boards.
 
 All errors are `{ "error": "<code>", "message": "<player-readable>" }`.
 
-| Status | Code                 | Meaning                                                            |
-| ------ | -------------------- | ------------------------------------------------------------------ |
-| 400    | `invalid_body`       | Malformed date, oversized body (>64 KB), bad JSON, wrong `version` |
-| 400    | `name_rejected`      | Name fails the length/charset rules or is reserved/blocked         |
-| 400    | `wrong_board`        | Replay is not this date's board (seed, size, or a handicap)        |
-| 400    | `unverifiable`       | Illegal human move, edited opponent turn, or a torn replay         |
-| 400    | `not_finished`       | The game was abandoned rather than finished                        |
-| 400    | `duplicate`          | You already posted this exact replay to this board                 |
-| 400    | `date_closed`        | Not today's or yesterday's board (UTC)                             |
-| 429    | `rate_limited`       | 3 accepted submissions already from this address for this board    |
-| 404    | `not_found`          | No such endpoint                                                   |
-| 405    | `method_not_allowed` | Wrong verb for the route                                           |
-| 503    | `unavailable`        | Database error, or `IP_SALT` is not configured                     |
+| Status | Code                 | Meaning                                                                  |
+| ------ | -------------------- | ------------------------------------------------------------------------ |
+| 400    | `invalid_body`       | Malformed date, bad JSON, JSON nested >32 deep, wrong `version`          |
+| 400    | `name_rejected`      | Name fails the length/charset rules or is reserved/blocked               |
+| 400    | `wrong_board`        | Replay is not this date's board (seed, size, or a handicap)              |
+| 400    | `unverifiable`       | Illegal human move, edited opponent turn, or a torn replay               |
+| 400    | `not_finished`       | The game was abandoned rather than finished                              |
+| 400    | `duplicate`          | You already posted this exact replay to this board                       |
+| 400    | `date_closed`        | Not today's or yesterday's board (UTC)                                   |
+| 403    | `forbidden`          | POST without a listed `Origin` header                                    |
+| 415    | `invalid_body`       | POST whose `Content-Type` is not `application/json`                      |
+| 400    | `invalid_body`       | Body over 32 KB (measured in bytes)                                      |
+| 429    | `rate_limited`       | 12 submission attempts, or 3 accepted results, already from this address |
+| 404    | `not_found`          | No such endpoint                                                         |
+| 405    | `method_not_allowed` | Wrong verb for the route                                                 |
+| 503    | `unavailable`        | Database error, or `IP_SALT` is not configured                           |
 
-`duplicate` is an addition to the shared v2 contract, which lists the other
-codes. A client that doesn't know it should still show the `message`.
+`duplicate` and `forbidden` are additions to the shared v2 contract, which lists
+the other codes. A client that doesn't know one should still show the `message`.
 
-### CORS
+### CORS, and what actually guards the write
 
-Only the origins in `ALLOWED_ORIGINS` get an `Access-Control-Allow-Origin`
-header; every other origin gets a response the browser refuses. There is no
-wildcard — the write endpoint should not be callable from arbitrary pages.
-`OPTIONS` returns `204` with the preflight headers.
+`GET` is open to anyone: only the origins in `ALLOWED_ORIGINS` get an
+`Access-Control-Allow-Origin` header, so a page from anywhere else can't read
+the answer. `OPTIONS` returns `204` with the preflight headers, and there is no
+wildcard.
+
+CORS is **not** what protects `POST`, and it never could be: those headers
+decide whether a browser hands the response to a page, not whether this Worker
+runs. A form-style `text/plain` post from any page on the web is a "simple"
+request the browser sends without a preflight. So the write endpoint refuses,
+before it does anything else:
+
+- a request with no `Origin`, or an `Origin` that is not in `ALLOWED_ORIGINS`
+  → `403 forbidden`;
+- a `Content-Type` that isn't `application/json` → `415 invalid_body`, which
+  also means any cross-origin POST must survive a preflight to reach the
+  handler at all.
+
+### Rate limits
+
+Two counters per (board, address), both enforced by the write itself — a
+conditional `UPDATE … WHERE count < N` whose `changes` count is the verdict, so
+a burst of simultaneous requests cannot all read an under-cap value and all go
+through:
+
+| Counter              | Cap | Charged                          | Bounds            |
+| -------------------- | --- | -------------------------------- | ----------------- |
+| `requests_per_ip`    | 12  | before the replay is verified    | CPU spend         |
+| `submissions_per_ip` | 3   | by the insert, in the same batch | rows on the board |
+
+The attempt counter is the one that matters for abuse: verification is the
+expensive step, and counting only ACCEPTED posts left every rejected submission
+free. A malformed body, an unlisted origin or a bad name is refused before the
+charge, so a typo doesn't cost a player an attempt.
 
 ## What is stored, and what is not
 
@@ -142,7 +174,9 @@ npx wrangler login
    npm run deploy
    ```
 
-6. **Point the game at it.** Set the GitHub repository variable
+6. **Point the game at it** — only once the CPU ceiling is raised (see [Cost and
+   limits](#cost-and-limits); the free plan's 10 ms budget cuts off a long
+   replay mid-verification). Set the GitHub repository variable
    `DAILY_LEADERBOARD_URL` to that URL (no trailing slash). The Pages build
    passes it to Vite as `VITE_DAILY_LEADERBOARD_URL`; with the variable unset,
    the client treats the leaderboard as disabled and the UI hides it, so the
@@ -165,10 +199,26 @@ npm run migrate:local    # apply the schema to the local D1
 
 ### Cost and limits
 
-Verifying one replay re-simulates a whole game — roughly 2–3 ms of CPU on a
-20-territory board. That fits the free plan's 10 ms per-request CPU budget, but
-not with much room; on a paid plan, uncomment the `[limits] cpu_ms` block in
-`wrangler.toml`. Reads are a single indexed query and cost nothing to speak of.
+Verifying one replay re-simulates a whole game. Measured on an M-series Mac —
+Cloudflare's hardware is slower, so read these as a floor:
+
+| Replay                  | CPU                        |
+| ----------------------- | -------------------------- |
+| typical daily game      | 1.6 ms median              |
+| 840 actions / 215 turns | 6.5 ms median, 10.4 ms p90 |
+
+The long tail does **not** fit the free plan's 10 ms per-request budget, and it
+is a legitimate result — an eliminated player who spectates on to the turn-cap
+draw — not an attack. On the free plan those submissions get cut off
+mid-verification and the player who earned them sees an error.
+
+So: **move the Worker to Workers Paid and uncomment the `[limits] cpu_ms` block
+in `wrangler.toml` before setting the `DAILY_LEADERBOARD_URL` repository
+variable.** Until that variable is set the client treats the leaderboard as
+disabled and the game keeps working on local results, which is the honest state
+to ship in the meantime.
+
+Reads are a single indexed query and cost nothing to speak of.
 
 ## Tests
 

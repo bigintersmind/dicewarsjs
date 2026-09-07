@@ -20,12 +20,29 @@ export const NAME_MAX_LENGTH = 16;
  * markup/emoji that would let one entry hijack the look of the whole board.
  *
  * This is deliberately the SAME set as the client's `NAME_PATTERN` in
- * `src/game/dailyLeaderboard.js`. The two rules exist for different reasons —
- * the client's is instant feedback, this one is the only one that decides
- * anything — but a name the client accepted must never come back 400, so this
- * set may be widened independently and must never be narrowed.
+ * `src/game/dailyLeaderboard.js`, and the {@link IGNORABLE}/{@link VISIBLE}
+ * rules below are mirrored there too. The two copies exist for different
+ * reasons — the client's is instant feedback, this one is the only one that
+ * decides anything — but a name the client accepted must never come back 400,
+ * so this set may be widened independently and must never be narrowed.
  */
 const ALLOWED = /^[\p{L}\p{N} _-]+$/u;
+
+/**
+ * Code points that may not appear in a name at all, stripped here only so the
+ * "did it contain one?" test is a comparison rather than a stateful `/g` match.
+ *
+ * `\p{Default_Ignorable_Code_Point}` is the rule; the four Hangul fillers
+ * (U+115F, U+1160, U+3164, U+FFA0) are spelled out beside it because they are
+ * the reason it exists. They are `\p{L}`, they survive NFC, and they render as
+ * nothing — so `ㅤ` alone passes {@link ALLOWED} as a blank, unclaimable board
+ * entry, and sprinkled through a word they hide it from {@link squash}. Naming
+ * them explicitly also keeps the rule true on an engine whose Unicode data lags.
+ */
+const IGNORABLE = /[\p{Default_Ignorable_Code_Point}\u115F\u1160\u3164\uFFA0]/gu;
+
+/** A name has to show something: at least one letter or digit that renders. */
+const VISIBLE = /[\p{L}\p{N}]/u;
 
 /**
  * Names nobody gets to claim. Two rules, because they fail differently:
@@ -83,6 +100,14 @@ export function normalizeName(raw) {
   // because some of its letters live outside the BMP.
   if ([...collapsed].length > NAME_MAX_LENGTH) return null;
   if (!ALLOWED.test(collapsed)) return null;
+  /*
+   * Invisibles are refused rather than stripped: a name that only LOOKS like
+   * the one the player typed is exactly the confusion the board must not carry.
+   * Then require something visible, which also turns away `-`, `_` and `___`.
+   */
+  const visible = collapsed.replace(IGNORABLE, '');
+  if (visible !== collapsed) return null;
+  if (!VISIBLE.test(visible)) return null;
   if (isBlockedName(collapsed)) return null;
   return collapsed;
 }

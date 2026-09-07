@@ -1,5 +1,7 @@
 import {
   DAILY_LEADERBOARD_URL,
+  LEADERBOARD_MESSAGES,
+  NAME_PATTERN,
   fetchDailyLeaderboard,
   isLeaderboardEnabled,
   normalizeName,
@@ -54,6 +56,39 @@ describe('Daily leaderboard client', () => {
       ]) {
         expect(normalizeName(raw)).toBeNull();
       }
+    });
+
+    it('normalizes to NFC first, like the server, so a pasted accent is not refused', () => {
+      /*
+       * macOS pastes NFD: `É` arrives as `E` + U+0301. That is two code points,
+       * one of them a combining mark, so the raw string fails NAME_PATTERN —
+       * and the client used to refuse a name the SERVER (which has always
+       * normalized first) was perfectly happy to take.
+       */
+      const decomposed = 'E\u0301va';
+      expect(NAME_PATTERN.test(decomposed)).toBe(false);
+      expect(normalizeName(decomposed)).toBe('\u00C9va');
+      // Length is measured after composing, so a 16-character name still fits.
+      expect(normalizeName(`${'a'.repeat(15)}e\u0301`)).toBe(`${'a'.repeat(15)}\u00E9`);
+    });
+
+    it('refuses invisible code points, and a name with nothing left to show', () => {
+      /*
+       * The Hangul fillers are letters as far as `\p{L}` is concerned, they
+       * survive NFC, and they pass NAME_PATTERN — so without a rule of their own
+       * a board entry could be blank, or a blocked word padded apart.
+       */
+      for (const filler of ['\u3164', '\u115F', '\u1160', '\uFFA0']) {
+        expect(NAME_PATTERN.test(filler)).toBe(true);
+        expect(normalizeName(filler)).toBeNull();
+        expect(normalizeName(`Iv${filler}an`)).toBeNull();
+      }
+      expect(normalizeName('a\u200Db')).toBeNull(); // zero-width joiner
+      expect(normalizeName('a\u00ADb')).toBeNull(); // soft hyphen
+      // Nothing visible is not a name either.
+      expect(normalizeName('-')).toBeNull();
+      expect(normalizeName('___')).toBeNull();
+      expect(normalizeName('a-')).toBe('a-');
     });
   });
 
@@ -147,6 +182,8 @@ describe('Daily leaderboard client', () => {
         [400, 'unverifiable'],
         [400, 'not_finished'],
         [400, 'date_closed'],
+        [400, 'duplicate'],
+        [403, 'forbidden'],
         [429, 'rate_limited'],
       ];
       for (const [status, code] of cases) {
@@ -165,6 +202,55 @@ describe('Daily leaderboard client', () => {
         { url, fetch: respondWith({ status: 429, body: { error: 'rate_limited' } }) }
       ).catch(e => e);
       expect(rateLimited.message).toBe('Too many submissions from your network today.');
+    });
+
+    it('does not mistake an Object.prototype key for a message it publishes', async () => {
+      /*
+       * `LEADERBOARD_MESSAGES[code]` is truthy for `toString` and `constructor`
+       * — a server (or an intercepting proxy) answering `{"error":"toString"}`
+       * would have had a function stringified into the player's error dialog.
+       */
+      for (const code of ['toString', 'constructor', 'hasOwnProperty', '__proto__']) {
+        const err = await submitDailyResult(
+          { date: '2026-09-07', name: 'Ada', replay },
+          { url, fetch: respondWith({ status: 400, body: { error: code } }) }
+        ).catch(e => e);
+        expect(err.code).toBe(code);
+        expect(err.message).toBe(LEADERBOARD_MESSAGES.bad_response);
+        expect(err.message).not.toMatch(/function|native code/);
+      }
+    });
+
+    it('keeps the timeout armed while the body is still arriving', async () => {
+      vi.useFakeTimers();
+      try {
+        /*
+         * `fetch` resolves on the HEADERS. A server that answers 200 and then
+         * stalls mid-body left this awaiting forever, because the abort timer
+         * was cleared in a `finally` before `response.json()` was ever called.
+         */
+        const fetch = vi.fn(async (_, init) => ({
+          status: 200,
+          ok: true,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              init.signal.addEventListener('abort', () => {
+                const err = new Error('aborted');
+                err.name = 'AbortError';
+                reject(err);
+              });
+            }),
+        }));
+        const pending = submitDailyResult(
+          { date: '2026-09-07', name: 'Ada', replay },
+          { url, fetch }
+        ).catch(e => e);
+        await vi.advanceTimersByTimeAsync(8000);
+        const err = await pending;
+        expect(err.code).toBe('timeout');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('handles a 500, an unparseable body and an unacknowledged acceptance', async () => {

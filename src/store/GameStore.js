@@ -117,10 +117,16 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   already had an official result in storage when the match started: the run is
  *   played and counted, but it can never replace the one scored attempt.
  * @property {Object | null} dailyResult - How a finished daily attempt was
- *   recorded: `{ available, official, record, streak }` — whether storage
- *   worked, whether THIS run was the scored one, the stored DailyRecord
- *   (src/store/dailyRecords.js) and the current streak in UTC days. Set at game
- *   over of a daily; abandoned games are not counted at all.
+ *   recorded: `{ available, official, record, streak, outcome }` — whether
+ *   storage worked, whether THIS run was the scored one, the stored DailyRecord
+ *   (src/store/dailyRecords.js), the current streak in UTC days, and
+ *   `outcome: { won, drew, turns, attacks, captures }`, this attempt's own
+ *   numbers. Set at game over of a daily; abandoned games are not counted at all.
+ *   Read `outcome` — not `record.official`, which may be another tab's run, and
+ *   not `winner`/`gameOverReason`, which describe the game rather than the
+ *   player: an eliminated player who spectates on to a turn-cap draw lost, and
+ *   `outcome.drew` is false for them. `outcome` is set even when storage failed
+ *   (`available: false`), which is the case where there is no record at all.
  * @property {Object | null} matchJournal - Human turns, captures, peaks and territory
  *   samples. Frozen at the human's result, including an early elimination. `points`
  *   is sampled on the human's own END_TURN only, plus the start and final positions.

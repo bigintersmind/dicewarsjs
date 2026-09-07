@@ -152,15 +152,27 @@ describe('Daily Conquest controller with the real engine', () => {
     expect(store.getState()).toMatchObject({
       screen: 'gameOver',
       matchJournal: { won: true, turns: 1, attacks: 1, captures: 1 },
-      dailyResult: { available: true, official: true, streak: 1 },
+      dailyResult: {
+        available: true,
+        official: true,
+        streak: 1,
+        // This attempt's own numbers, so nothing downstream has to rebuild
+        // them from the record or from the terminal game state.
+        outcome: { won: true, drew: false, turns: 1, attacks: 1, captures: 1 },
+      },
     });
     const { record } = readDailyRecord(createDailyChallenge('2026-09-07').id);
     expect(record).toMatchObject({
       practice: 0,
       official: { won: true, turns: 1, attacks: 1, captures: 1, submission: null },
     });
-    // The replay travels with the result so it can be verified server-side later.
-    expect(record.official.replay).toBeTruthy();
+    /*
+     * The replay is NOT stored: submitting posts the live `currentReplay` from
+     * the result card, and keeping a second copy in localStorage cost ~22 KB a
+     * board for a field nothing ever read.
+     */
+    expect(record.official).not.toHaveProperty('replay');
+    expect(store.getState().currentReplay).toMatchObject({ actions: expect.any(Array) });
   });
 
   it('pins the daily lineup to ai_default through the loader, whatever the player last chose', async () => {
@@ -236,21 +248,29 @@ describe('Daily Conquest controller with the real engine', () => {
       screen: 'gameOver',
       humanEliminated: true,
       matchJournal: { finished: true, won: false, turns: 0 },
-      dailyResult: { official: true, available: true },
+      dailyResult: { official: true, available: true, outcome: { won: false, drew: false } },
     });
     // A loss by elimination is the most common daily result. It must carry the
     // game-so-far replay so it can be posted and re-verified like a win or a draw.
     expect(store.getState().currentReplay).toMatchObject({ actions: expect.any(Array) });
-    expect(
-      readDailyRecord(createDailyChallenge('2026-09-07').id).record.official.replay
-    ).toMatchObject({ actions: expect.any(Array) });
     const frozen = store.getState().matchJournal;
+    const frozenOutcome = store.getState().dailyResult.outcome;
     store.setState({ gameState: { ...store.getState().gameState, turnsTaken: 299 } });
     await controller.startSpectate();
     await vi.advanceTimersByTimeAsync(1000);
     expect(store.getState()).toMatchObject({ screen: 'gameOver', gameOverReason: 'turnLimit' });
     expect(store.getState().matchJournal).toBe(frozen);
     expect(readDailyRecord(createDailyChallenge('2026-09-07').id).record.practice).toBe(0);
+
+    /*
+     * The point of `outcome`: the GAME ended in a turn-cap draw, so `winner` is
+     * null and `gameOverReason` is 'turnLimit' — but this PLAYER was knocked
+     * out and lost. Anything reading the store's game-level fields would call
+     * that a draw on the card and in the share text.
+     */
+    expect(store.getState().dailyResult.outcome).toEqual(frozenOutcome);
+    expect(store.getState().dailyResult.outcome.drew).toBe(false);
+    expect(store.getState().dailyResult.outcome.won).toBe(false);
   });
 
   it('uses the canonical fair setup, refuses a reroll out loud, and preserves Custom preferences', async () => {
@@ -390,6 +410,15 @@ describe('Daily Conquest controller with the real engine', () => {
       drew: true,
       turns: 1,
     });
+    // A player who was still alive at the cap really did draw — the case that
+    // makes `outcome.drew` false for the eliminated spectator meaningful.
+    expect(store.getState().dailyResult.outcome).toEqual({
+      won: false,
+      drew: true,
+      turns: 1,
+      attacks: 0,
+      captures: 0,
+    });
     controller.viewGameReplay();
     controller.goBackFromReplay();
     expect(readDailyRecord(daily.id).record.practice).toBe(0);
@@ -418,7 +447,79 @@ describe('Daily Conquest controller with the real engine', () => {
       matchJournal: { won: true, finished: true },
       dailyResult: { available: false, official: true, record: null, streak: 0 },
     });
+    /*
+     * There is no record to read the numbers off, which is exactly when the UI
+     * needs them most — the card still has to say what happened, and "results
+     * are not being saved" is a separate sentence from "you won in one turn".
+     */
+    expect(store.getState().dailyResult.outcome).toEqual({
+      won: true,
+      drew: false,
+      turns: 1,
+      attacks: 1,
+      captures: 1,
+    });
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('demotes to practice when another tab scored the board first', async () => {
+    /*
+     * Two tabs on one board both START official — neither can know the other
+     * will finish first. The second to write finds `saveDailyOfficial` a no-op
+     * that hands back the STANDING result, which is indistinguishable from a
+     * successful save unless the store reports that it wrote nothing. Before
+     * that flag this tab claimed `official: true` over tab A's record, and
+     * `submitDailyScore` would have posted tab B's replay under it.
+     */
+    const tabA = setup();
+    const tabB = setup();
+    await tabA.controller.startDailyGame('2026-09-07');
+    await tabB.controller.startDailyGame('2026-09-07');
+    // Both were told they were playing the scored attempt.
+    expect(tabA.store.getState().dailyChallenge.practice).toBe(false);
+    expect(tabB.store.getState().dailyChallenge.practice).toBe(false);
+
+    const finishWin = async ({ store, controller }) => {
+      const { state, from, to } = decisivePosition(store.getState().gameState, 0);
+      store.setState({
+        gameState: state,
+        screen: 'playing',
+        awaitingInput: 'selectFrom',
+        matchJournal: createMatchJournal(state, 0),
+      });
+      controller.handleTerritoryClick(from);
+      controller.handleTerritoryClick(to);
+      await vi.advanceTimersByTimeAsync(1);
+    };
+
+    await finishWin(tabA);
+    expect(tabA.store.getState().dailyResult).toMatchObject({ official: true, available: true });
+    const scored = readDailyRecord(createDailyChallenge('2026-09-07').id).record.official;
+
+    await finishWin(tabB);
+    const late = tabB.store.getState().dailyResult;
+    expect(late.official).toBe(false);
+    // Counted as the practice run it turned out to be...
+    expect(late.record.practice).toBe(1);
+    // ...and tab A's scored attempt is untouched.
+    expect(late.record.official).toEqual(scored);
+    // The card still shows tab B's OWN game, not the record it did not write.
+    expect(late.outcome).toMatchObject({ won: true, turns: 1 });
+
+    // And a practice run has no standing to post.
+    await expect(tabB.controller.submitDailyScore('Ivan')).rejects.toMatchObject({
+      code: 'not_submittable',
+    });
+  });
+
+  it('warns instead of silently doing nothing when there is no game to retry', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { store, controller } = setup();
+    // The card always offers RETRY, so a no-op has to be findable in the log.
+    store.setState({ screen: 'gameOver' });
+    expect(await controller.retryGame()).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('retryGame ignored'));
+    expect(store.getState().screen).toBe('gameOver');
   });
 
   it('does not count an abandoned attempt or create a human journal for spectator games', async () => {

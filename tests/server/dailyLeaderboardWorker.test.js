@@ -12,8 +12,15 @@ import {
   handleRequest,
   isOpenBoard,
   MAX_BODY_BYTES,
+  MAX_JSON_DEPTH,
+  MAX_REQUESTS_PER_IP,
+  MAX_SUBMISSIONS_PER_IP,
+  sha256,
 } from '../../server/daily-leaderboard/src/index.js';
 import { normalizeName } from '../../server/daily-leaderboard/src/names.js';
+import { SQL, readIpCount, readRequestCount } from '../../server/daily-leaderboard/src/db.js';
+import { NAME_PATTERN } from '../../src/game/dailyLeaderboard.js';
+import { readFile } from 'node:fs/promises';
 import { createTestDatabase } from './d1Sqlite.js';
 import { playDailyGame, greedyHuman, cautiousHuman, timidHuman } from './dailyReplayFixture.js';
 
@@ -54,18 +61,21 @@ afterEach(() => {
 });
 
 /** POST a submission. */
-function post({ date = BOARD, name = 'Ivan', replay, ip = '203.0.113.7', origin = ORIGIN, body }) {
+function post({
+  date = BOARD,
+  name = 'Ivan',
+  replay,
+  ip = '203.0.113.7',
+  origin = ORIGIN,
+  contentType = 'application/json',
+  body,
+} = {}) {
   const payload = body ?? JSON.stringify({ version: 1, name, replay });
+  const headers = { 'CF-Connecting-IP': ip };
+  if (origin !== null) headers.Origin = origin;
+  if (contentType !== null) headers['Content-Type'] = contentType;
   return handleRequest(
-    new Request(`${BASE}/daily/${date}/results`, {
-      method: 'POST',
-      body: payload,
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: origin,
-        'CF-Connecting-IP': ip,
-      },
-    }),
+    new Request(`${BASE}/daily/${date}/results`, { method: 'POST', body: payload, headers }),
     env
   );
 }
@@ -79,6 +89,21 @@ function get({ date = BOARD, origin = ORIGIN } = {}) {
 }
 
 const bodyOf = response => response.json();
+
+/** The `ip_hash` the Worker stores for an address, so a test can read its counters. */
+function hashFor(ip) {
+  return sha256(`${env.IP_SALT}:${ip}`);
+}
+
+/**
+ * The same game with a different replay hash. `metadata` is never read by the
+ * verifier, so this still verifies identically — it is just not the byte-for-
+ * byte resubmission the duplicate index refuses, which is what lets a test
+ * reach the per-address CAP instead of stopping at `duplicate`.
+ */
+function variant(replay, tag) {
+  return { ...replay, metadata: { ...replay.metadata, tag } };
+}
 
 describe('GET /daily/:date', () => {
   it('serves an empty board with zeroed totals', async () => {
@@ -242,24 +267,31 @@ describe('POST /daily/:date/results', () => {
 
   it('caps one address at three accepted results per board', async () => {
     const ip = '192.0.2.55';
+    expect(MAX_SUBMISSIONS_PER_IP).toBe(3);
     for (const replay of [fastWin.replay, slowWin.replay, loss.replay]) {
       expect((await post({ replay, ip })).status).toBe(201);
     }
 
-    const fourth = await post({ replay: fastWin.replay, ip });
+    // The fourth verifies just as well and hashes differently — so it is the
+    // ACCEPTED cap that turns it away, not the duplicate index.
+    const fourth = await post({ replay: variant(fastWin.replay, '4th'), ip, name: 'Again' });
     expect(fourth.status).toBe(429);
     expect((await bodyOf(fourth)).error).toBe('rate_limited');
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(3);
 
     // Another address still has its own allowance.
     expect((await post({ replay: fastWin.replay, ip: '192.0.2.56' })).status).toBe(201);
   });
 
-  it('does not charge an attempt for a rejected submission', async () => {
+  it('does not charge an accepted result for a rejected submission', async () => {
     const ip = '192.0.2.77';
     for (let i = 0; i < 5; i++) {
       expect((await post({ name: 'admin', replay: fastWin.replay, ip })).status).toBe(400);
     }
     expect((await post({ replay: fastWin.replay, ip })).status).toBe(201);
+    // A refused name never reaches the verifier, so it costs neither counter.
+    expect(await readIpCount(env.DB, BOARD, await hashFor(ip))).toBe(1);
+    expect(await readRequestCount(env.DB, BOARD, await hashFor(ip))).toBe(1);
   });
 
   it.each([
@@ -274,16 +306,49 @@ describe('POST /daily/:date/results', () => {
   });
 
   it('refuses an oversized body without parsing it', async () => {
-    const response = await handleRequest(
-      new Request(`${BASE}/daily/${BOARD}/results`, {
-        method: 'POST',
-        body: 'x'.repeat(MAX_BODY_BYTES + 1),
-        headers: { Origin: ORIGIN, 'CF-Connecting-IP': '203.0.113.7' },
-      }),
-      env
-    );
+    const response = await post({ body: 'x'.repeat(MAX_BODY_BYTES + 1) });
     expect(response.status).toBe(400);
     expect((await bodyOf(response)).error).toBe('invalid_body');
+  });
+
+  it('measures the body cap in bytes, not UTF-16 units', async () => {
+    /*
+     * `raw.length` counts UTF-16 units, so a body of 3-byte characters is three
+     * times the size it reports. Just under the cap in code units, well over it
+     * in bytes — the shape a hostile submission takes when the limit is read
+     * off `.length`.
+     */
+    const wide = 'あ'.repeat(MAX_BODY_BYTES / 2); // 1 UTF-16 unit, 3 bytes
+    const payload = `{"pad":"${wide}"}`;
+    expect(payload.length).toBeLessThan(MAX_BODY_BYTES);
+    expect(new TextEncoder().encode(payload).length).toBeGreaterThan(MAX_BODY_BYTES);
+
+    const response = await post({ body: payload });
+    expect(response.status).toBe(400);
+    expect((await bodyOf(response)).error).toBe('invalid_body');
+  });
+
+  it('refuses JSON nested deep enough to overflow the stack, as a 400 and not a 503', async () => {
+    // Deep enough that `JSON.stringify` throws RangeError, which used to escape
+    // the handler and surface as "the leaderboard is unavailable".
+    const depth = 15000; // 30 KB of brackets: deep enough to overflow, small enough to accept
+    const nested = `${'['.repeat(depth)}${']'.repeat(depth)}`;
+    const payload = `{"version":1,"name":"Ivan","replay":${nested}}`;
+    expect(new TextEncoder().encode(payload).length).toBeLessThan(MAX_BODY_BYTES);
+    expect(() => JSON.stringify(JSON.parse(nested))).toThrow(RangeError);
+
+    const response = await post({ body: payload });
+    expect(response.status).toBe(400);
+    expect((await bodyOf(response)).error).toBe('invalid_body');
+    expect((await bodyOf(await post({ body: payload }))).message).toMatch(/nested too deeply/);
+  });
+
+  it('accepts nesting up to the documented depth', async () => {
+    const under = MAX_JSON_DEPTH - 2; // body(1) + replay(2) + this
+    const payload = `{"version":1,"name":"Ivan","replay":${'['.repeat(under)}${']'.repeat(under)}}`;
+    // Past the depth guard, so it fails on the replay's shape instead.
+    const response = await post({ body: payload });
+    expect((await bodyOf(response)).error).toBe('unverifiable');
   });
 
   it('refuses to store anything while IP_SALT is unset', async () => {
@@ -317,6 +382,200 @@ describe('POST /daily/:date/results', () => {
     // The address is only ever present as an unrecoverable digest.
     expect(row.ip_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(row.ip_hash).not.toContain('203.0.113');
+  });
+});
+
+describe('who may POST', () => {
+  /*
+   * CORS headers only decide whether a browser hands the response to the page.
+   * They never stopped the handler running, so before this guard a "simple"
+   * cross-origin post — no preflight, `text/plain` — landed a real row and
+   * spent the visitor's allowance from any page on the web.
+   */
+  it('refuses a submission with no Origin header at all', async () => {
+    const response = await post({ replay: fastWin.replay, origin: null });
+    expect(response.status).toBe(403);
+    expect((await bodyOf(response)).error).toBe('forbidden');
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(0);
+  });
+
+  it('refuses a submission from an unlisted origin', async () => {
+    const response = await post({ replay: fastWin.replay, origin: 'https://evil.example' });
+    expect(response.status).toBe(403);
+    expect((await bodyOf(response)).error).toBe('forbidden');
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(0);
+  });
+
+  it.each([
+    ['text/plain', 'text/plain;charset=UTF-8'],
+    ['a form post', 'application/x-www-form-urlencoded'],
+    ['multipart', 'multipart/form-data; boundary=x'],
+    ['nothing', null],
+  ])('refuses a %s content type, which needs no preflight', async (_label, contentType) => {
+    const response = await post({ replay: fastWin.replay, contentType });
+    expect(response.status).toBe(415);
+    expect((await bodyOf(response)).error).toBe('invalid_body');
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(0);
+  });
+
+  it('accepts application/json with a charset parameter', async () => {
+    const response = await post({
+      replay: fastWin.replay,
+      contentType: 'application/json; charset=utf-8',
+    });
+    expect(response.status).toBe(201);
+  });
+
+  it('leaves the read endpoint open to callers with no Origin', async () => {
+    const response = await handleRequest(new Request(`${BASE}/daily/${BOARD}`), env);
+    expect(response.status).toBe(200);
+  });
+
+  it('charges neither counter for a request it refuses at the door', async () => {
+    const ip = '198.51.100.99';
+    await post({ replay: fastWin.replay, ip, origin: 'https://evil.example' });
+    await post({ replay: fastWin.replay, ip, contentType: 'text/plain' });
+    expect(await readRequestCount(env.DB, BOARD, await hashFor(ip))).toBe(0);
+  });
+});
+
+describe('rate limiting', () => {
+  /** A well-formed submission that always fails verification, so it never inserts. */
+  const wrongBoard = replay => ({ ...replay, config: { ...replay.config, seed: 424242 } });
+
+  it('charges attempts, not just accepted results', async () => {
+    const ip = '203.0.113.44';
+    const replay = wrongBoard(fastWin.replay);
+    for (let i = 0; i < MAX_REQUESTS_PER_IP; i++) {
+      expect((await bodyOf(await post({ replay, ip }))).error).toBe('wrong_board');
+    }
+    const overLimit = await post({ replay, ip });
+    expect(overLimit.status).toBe(429);
+    expect((await bodyOf(overLimit)).error).toBe('rate_limited');
+
+    // The expensive path is what the cap protects: a valid game from the same
+    // address is refused too, because the budget is spent.
+    expect((await post({ replay: fastWin.replay, ip })).status).toBe(429);
+    expect((await post({ replay: fastWin.replay, ip: '203.0.113.45' })).status).toBe(201);
+  });
+
+  it('lets exactly the cap through when the requests arrive together', async () => {
+    /*
+     * The counter used to be read, compared, and written three round trips
+     * apart, so N simultaneous posts all read the same under-cap value and all
+     * went through. One conditional write is what makes this a real limit.
+     */
+    const ip = '203.0.113.77';
+    const replay = wrongBoard(fastWin.replay);
+    const responses = await Promise.all(
+      Array.from({ length: MAX_REQUESTS_PER_IP * 2 }, () => post({ replay, ip }))
+    );
+    const codes = await Promise.all(responses.map(r => bodyOf(r).then(b => b.error)));
+
+    expect(codes.filter(code => code === 'wrong_board')).toHaveLength(MAX_REQUESTS_PER_IP);
+    expect(codes.filter(code => code === 'rate_limited')).toHaveLength(MAX_REQUESTS_PER_IP);
+    expect(await readRequestCount(env.DB, BOARD, await hashFor(ip))).toBe(MAX_REQUESTS_PER_IP);
+  });
+
+  it('accepts exactly the cap when winning submissions arrive together', async () => {
+    const ip = '203.0.113.88';
+    const replays = [fastWin.replay, slowWin.replay, loss.replay, variant(fastWin.replay, 'racer')];
+    const responses = await Promise.all(
+      replays.map((replay, i) => post({ replay, ip, name: `Racer${i}` }))
+    );
+    const accepted = responses.filter(r => r.status === 201);
+    expect(accepted).toHaveLength(MAX_SUBMISSIONS_PER_IP);
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(
+      MAX_SUBMISSIONS_PER_IP
+    );
+    expect(await readIpCount(env.DB, BOARD, await hashFor(ip))).toBe(MAX_SUBMISSIONS_PER_IP);
+  });
+
+  it('does not leave a free slot behind when the counter bump fails', async () => {
+    /*
+     * The insert and the bump used to be two separate writes with the insert
+     * first: a bump that threw left a scored row that nothing had been charged
+     * for. They are one batch now, so the failure takes the row with it.
+     */
+    const ip = '203.0.113.66';
+    const realDb = env.DB;
+    env = {
+      ...env,
+      DB: {
+        ...realDb,
+        prepare: sql => realDb.prepare(sql),
+        batch: () => Promise.reject(new Error('D1_ERROR: disk I/O error')),
+      },
+    };
+    const response = await post({ replay: fastWin.replay, ip });
+    expect(response.status).toBe(503);
+    expect((await bodyOf(response)).error).toBe('unavailable');
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(0);
+    expect(await readIpCount(realDb, BOARD, await hashFor(ip))).toBe(0);
+    // The attempt is still charged: it cost the CPU whether or not it stored.
+    expect(await readRequestCount(realDb, BOARD, await hashFor(ip))).toBe(1);
+  });
+
+  it('rolls the whole batch back when the bump statement itself throws', async () => {
+    const realDb = env.DB;
+    env = {
+      ...env,
+      DB: {
+        ...realDb,
+        prepare(sql) {
+          if (sql !== SQL.bumpIpCount) return realDb.prepare(sql);
+          return { bind: () => ({ run: () => Promise.reject(new Error('bump exploded')) }) };
+        },
+        batch: statements => realDb.batch(statements),
+      },
+    };
+    expect((await post({ replay: fastWin.replay })).status).toBe(503);
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(0);
+  });
+
+  it('reports a raced duplicate as 400, not as an outage', async () => {
+    /*
+     * The handler's own duplicate check is a read, so two simultaneous posts of
+     * one replay can both pass it; the unique index is what actually decides.
+     * Blinding the check is how a test reaches that branch deterministically.
+     */
+    const ip = '203.0.113.55';
+    expect((await post({ replay: fastWin.replay, ip })).status).toBe(201);
+
+    const realDb = env.DB;
+    env = {
+      ...env,
+      DB: {
+        ...realDb,
+        prepare(sql) {
+          if (sql !== SQL.findReplay) return realDb.prepare(sql);
+          return { bind: () => ({ first: async () => null }) };
+        },
+        batch: statements => realDb.batch(statements),
+      },
+    };
+    const raced = await post({ replay: fastWin.replay, ip });
+    expect(raced.status).toBe(400);
+    expect((await bodyOf(raced)).error).toBe('duplicate');
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(1);
+  });
+});
+
+describe('the verifier the Worker calls', () => {
+  it('is never handed the test-only turn-cap override', async () => {
+    /*
+     * `verifyDailyReplay`'s `maxTurns` option exists so a test can reach the
+     * draw branch without playing 300 turns. A Worker that passed it would be
+     * scoring a different game from the one the player played, and no response
+     * would look wrong — so this is pinned at the source, where it is visible.
+     */
+    const source = await readFile(
+      new URL('../../server/daily-leaderboard/src/index.js', import.meta.url),
+      'utf8'
+    );
+    expect(source).toMatch(/verifyDailyReplay\(date, body\.replay\)/);
+    expect(source).not.toMatch(/maxTurns/);
   });
 });
 
@@ -390,18 +649,16 @@ describe('routing', () => {
 });
 
 describe('normalizeName', () => {
-  /**
-   * The client (`src/game/dailyLeaderboard.js`) gates on
-   * `/^[\p{L}\p{N} _-]{1,16}$/u` after trimming and collapsing whitespace. The
-   * server must accept everything that pattern does, or a player is told their
-   * name is fine and then refused by the board.
+  /*
+   * The client's gate is imported, not retyped: the two rules are separate on
+   * purpose (instant feedback vs. the only one that decides anything), but a
+   * name the client accepted must never come back 400 from the board, and a
+   * copied literal is exactly how that drifts.
    */
-  const CLIENT_PATTERN = /^[\p{L}\p{N} _-]{1,16}$/u;
-
   it.each(['Ivan', 'a', 'Éva Ó-Neil_2', '日本語の名前', '0123456789', 'x'.repeat(16)])(
     'accepts %s, which the client also accepts',
     name => {
-      expect(CLIENT_PATTERN.test(name)).toBe(true);
+      expect(NAME_PATTERN.test(name)).toBe(true);
       expect(normalizeName(name)).toBe(name);
     }
   );
@@ -416,6 +673,53 @@ describe('normalizeName', () => {
       expect(normalizeName(value)).toBeNull();
     }
   );
+
+  /*
+   * The fillers are the case that needed a rule of their own — written as
+   * escapes, because every one of them is invisible in a source file and a test
+   * whose input you cannot see is not one anyone can maintain.
+   */
+  const FILLERS = ['\u3164', '\u115F', '\u1160', '\uFFA0'];
+
+  it('shows why the fillers needed a rule of their own', () => {
+    for (const filler of FILLERS) {
+      // A letter, unchanged by NFC, and accepted by the charset gate on BOTH
+      // sides — so nothing but the ignorable rule turns it away.
+      expect(/\p{L}/u.test(filler)).toBe(true);
+      expect(filler.normalize('NFC')).toBe(filler);
+      expect(NAME_PATTERN.test(filler)).toBe(true);
+    }
+  });
+
+  it.each([
+    ['U+3164 hangul filler', '\u3164'],
+    ['U+115F choseong filler', '\u115F'],
+    ['U+1160 jungseong filler', '\u1160'],
+    ['U+FFA0 halfwidth filler', '\uFFA0'],
+    ['a run of fillers', '\u3164\u3164\u3164'],
+    ['a filler hidden inside a name', 'Iv\u3164an'],
+    ['a slur padded past the squasher', 'f\u3164u\u3164c\u3164k'],
+    ['a zero-width joiner', 'a\u200Db'],
+    ['a soft hyphen', 'a\u00ADb'],
+  ])('rejects %s', (_label, name) => {
+    expect(normalizeName(name)).toBeNull();
+  });
+
+  it('rejects a name with nothing visible in it', () => {
+    expect(normalizeName('-')).toBeNull();
+    expect(normalizeName('___')).toBeNull();
+    expect(normalizeName('- _ -')).toBeNull();
+    expect(normalizeName('a-')).toBe('a-');
+  });
+
+  it('accepts a decomposed name, which the client now normalizes the same way', () => {
+    // macOS pastes NFD, so a pasted `Éva` is really `E` + U+0301 + `va`: four
+    // code points, which used to fail the CLIENT's pattern for a name this
+    // server was always happy to take.
+    const decomposed = 'E\u0301va';
+    expect(NAME_PATTERN.test(decomposed)).toBe(false);
+    expect(normalizeName(decomposed)).toBe('\u00C9va');
+  });
 });
 
 describe('isOpenBoard', () => {

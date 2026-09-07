@@ -23,8 +23,19 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 # refused (503) while it is unset, because an unsalted address hash would be a
 # reversible record of who played.
 
-# Verifying a replay re-simulates a full game (~2-3 ms on a small board), which
-# fits the 10 ms free-plan CPU budget but leaves little room. On a paid plan,
-# raise the ceiling:
+# CPU budget. Verifying a replay re-simulates the whole game, and the long tail
+# does NOT fit the free plan's 10 ms per-request ceiling. Measured on an M-series
+# Mac (Worker hardware is slower, so treat these as a floor):
+#
+#   typical daily game .................... 1.6 ms median
+#   840 actions / 215 turns ............... 6.5 ms median, 10.4 ms p90
+#
+# That long tail is a real result — an eliminated player who spectates to the
+# turn cap — not an attack, so on the free plan those submissions would be cut
+# off mid-verification and come back as errors to the player who earned them.
+#
+# REQUIRED before `DAILY_LEADERBOARD_URL` is set on the game repo: move this
+# Worker to a Workers Paid plan and uncomment the block below. Until then the
+# client treats the leaderboard as disabled, which is the honest state.
 # [limits]
 # cpu_ms = 200

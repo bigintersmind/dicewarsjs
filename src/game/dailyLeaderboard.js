@@ -29,8 +29,24 @@ const REQUEST_TIMEOUT_MS = 8000;
 /** Wire version of the submission body; the server rejects anything else. */
 const SUBMISSION_VERSION = 1;
 
-/** 1–16 characters: letters, digits, spaces, hyphen, underscore. */
-const NAME_PATTERN = /^[\p{L}\p{N} _-]{1,16}$/u;
+/**
+ * 1–16 characters: letters, digits, spaces, hyphen, underscore.
+ *
+ * Exported so the Worker's own suite can assert the two rules agree rather than
+ * re-typing the literal beside its server twin (`server/daily-leaderboard/src/names.js`).
+ */
+export const NAME_PATTERN = /^[\p{L}\p{N} _-]{1,16}$/u;
+
+/**
+ * Code points that are never part of a name, mirroring the server's rule. The
+ * Hangul fillers are the reason it exists: U+115F, U+1160, U+3164 and U+FFA0
+ * are `\p{L}`, survive NFC and render as nothing, so `ㅤ` would otherwise pass
+ * {@link NAME_PATTERN} as a blank board entry.
+ */
+const IGNORABLE = /[\p{Default_Ignorable_Code_Point}\u115F\u1160\u3164\uFFA0]/gu;
+
+/** A name has to show something: at least one letter or digit that renders. */
+const VISIBLE = /[\p{L}\p{N}]/u;
 
 /** Player-facing sentence per failure code. */
 export const LEADERBOARD_MESSAGES = {
@@ -42,6 +58,8 @@ export const LEADERBOARD_MESSAGES = {
   unverifiable: "That result couldn't be verified against today's board.",
   not_finished: 'That game has not finished yet.',
   date_closed: 'That board is closed to new results.',
+  duplicate: 'You already posted this result today.',
+  forbidden: 'This build is not allowed to post to the leaderboard.',
   rate_limited: 'Too many submissions from your network today.',
   network: "Couldn't reach the leaderboard. Check your connection and try again.",
   timeout: 'The leaderboard took too long to answer. Try again.',
@@ -58,14 +76,27 @@ export const LEADERBOARD_MESSAGES = {
  * @returns {Error}
  */
 export function leaderboardError(code, message, cause) {
-  const err = new Error(
-    message || LEADERBOARD_MESSAGES[code] || LEADERBOARD_MESSAGES.bad_response,
-    {
-      cause,
-    }
-  );
+  const err = new Error(message || knownMessage(code) || LEADERBOARD_MESSAGES.bad_response, {
+    cause,
+  });
   err.code = code;
   return err;
+}
+
+/**
+ * The sentence for a code we actually publish.
+ *
+ * `Object.hasOwn`, not a truthiness test: a server answering `{"error":
+ * "toString"}` would otherwise "match" a function off Object.prototype and get
+ * rendered as source code.
+ *
+ * @param {unknown} code
+ * @returns {string | null}
+ */
+function knownMessage(code) {
+  return typeof code === 'string' && Object.hasOwn(LEADERBOARD_MESSAGES, code)
+    ? LEADERBOARD_MESSAGES[code]
+    : null;
 }
 
 /**
@@ -79,15 +110,26 @@ export function isLeaderboardEnabled(url = DAILY_LEADERBOARD_URL) {
 }
 
 /**
- * Trim, collapse runs of whitespace, and accept only a short, printable name.
+ * Normalize, collapse runs of whitespace, and accept only a short, printable
+ * name — the same steps in the same order as the server's `normalizeName`.
+ *
+ * NFC first, because that is what the server measures: a `é` pasted from macOS
+ * arrives decomposed (`e` + U+0301), which is two code points and fails
+ * {@link NAME_PATTERN}. Without this the client refuses a name the board would
+ * happily have taken.
  *
  * @param {unknown} raw
  * @returns {string | null} The name to send, or null when it can't be used.
  */
 export function normalizeName(raw) {
   if (typeof raw !== 'string') return null;
-  const name = raw.trim().replace(/\s+/g, ' ');
-  return NAME_PATTERN.test(name) ? name : null;
+  const name = raw.normalize('NFC').replace(/\s+/g, ' ').trim();
+  if (!NAME_PATTERN.test(name)) return null;
+  // Refuse invisibles rather than strip them, then insist on something visible
+  // — which is also what turns away a name of nothing but `-` and `_`.
+  const visible = name.replace(IGNORABLE, '');
+  if (visible !== name || !VISIBLE.test(visible)) return null;
+  return name;
 }
 
 function isPlainObject(value) {
@@ -117,25 +159,36 @@ async function request(doFetch, url, init) {
   }
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
+  const disarm = () => {
+    if (timer !== null) clearTimeout(timer);
+  };
 
   let response;
   try {
     response = await doFetch(url, { ...init, ...(controller && { signal: controller.signal }) });
   } catch (err) {
+    disarm();
     // An abort is our own timeout; anything else is the network refusing.
     const timedOut = err?.name === 'AbortError';
     throw leaderboardError(timedOut ? 'timeout' : 'network', undefined, err);
-  } finally {
-    if (timer !== null) clearTimeout(timer);
   }
 
+  /*
+   * The timer stays armed through the body read. `fetch` resolves on the
+   * HEADERS, so a server that answers and then stalls mid-body leaves this
+   * awaiting forever if the abort has already been cancelled — the exact hang
+   * the timeout exists to prevent.
+   */
   let body = null;
   try {
     body = await response.json();
   } catch (err) {
+    if (err?.name === 'AbortError') throw leaderboardError('timeout', undefined, err);
     // A body-less error status is still an error status; only a broken success
     // body is a protocol failure.
     if (response.ok) throw leaderboardError('bad_response', undefined, err);
+  } finally {
+    disarm();
   }
   return { status: response.status, body };
 }
@@ -143,7 +196,7 @@ async function request(doFetch, url, init) {
 /** Turn a non-2xx response into the coded Error the UI shows. */
 function responseError(status, body) {
   const code = isPlainObject(body) && typeof body.error === 'string' ? body.error : null;
-  if (code && LEADERBOARD_MESSAGES[code]) return leaderboardError(code);
+  if (code && knownMessage(code)) return leaderboardError(code);
   if (status === 429) return leaderboardError('rate_limited');
   if (status >= 500) return leaderboardError('server_error');
   /*

@@ -65,12 +65,26 @@ const MAX_MOVES_PER_TURN = 100;
 const MAX_CONSECUTIVE_INVALID = 3;
 
 /**
- * Hard bound on how long a submitted replay may be. A real daily game is a few
- * hundred actions; the turn cap alone bounds an honest game well under this.
- * The bound exists so a hostile submission can't buy unbounded CPU on a request
- * that is going to be rejected anyway.
+ * Hard bound on how long a submitted replay may be, checked before a single
+ * action is simulated. It exists so a hostile submission can't buy unbounded
+ * CPU on a request that is going to be rejected anyway.
+ *
+ * Where 3,000 comes from, and why not the arithmetic ceiling: the literal
+ * product of the {@link MAX_GAME_TURNS} cap and {@link MAX_MOVES_PER_TURN}
+ * (300 × 101 ≈ 30,300) is not a useful bound — it is *larger* than the 20,000
+ * this replaces, and no board can produce it. A turn's attacks are really
+ * bounded by the dice on the board (every attack, won or lost, removes at least
+ * one), and the measured worst case is a 215-turn game of 840 actions, under
+ * four per turn. Ten per turn across the full 300-turn cap is 3,000: three
+ * times the rate any real game sustains, and still an order of magnitude below
+ * the old ceiling.
+ *
+ * In the Worker this is the belt to the 32 KB body cap's braces (`MAX_BODY_BYTES`
+ * in `server/daily-leaderboard/src/index.js`) — that much JSON cannot hold much
+ * more than a thousand attack actions — so it should never be the thing that
+ * refuses an honest submission.
  */
-export const MAX_REPLAY_ACTIONS = 20000;
+export const MAX_REPLAY_ACTIONS = 3000;
 
 /**
  * Engine config fields a daily replay must reproduce exactly. These are the

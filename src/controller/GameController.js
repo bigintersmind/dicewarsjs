@@ -1471,10 +1471,19 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * Write a completed daily attempt to this browser's records and return what
    * the game-over card should show.
    *
-   * The scored/practice split is decided by the flag the match was STARTED
-   * with, not by re-reading storage here: a second tab finishing the same board
-   * mid-game must not retroactively demote this run, and the player was told
-   * which kind of run they were playing before they played it.
+   * The scored/practice split STARTS from the flag the match was begun with —
+   * the player was told which kind of run they were playing — but the record
+   * store has the final say, because it is the thing that knows whether the
+   * board was still unclaimed at the moment the write landed. Two tabs on one
+   * board both start official; the second to finish is told `wrote: false`,
+   * because `saveDailyOfficial` returned the OTHER tab's standing result, and is
+   * demoted to a practice run here. Without that, this tab would show "scored"
+   * over a record it did not produce, and offer to post its own replay under it.
+   *
+   * `outcome` is always THIS attempt's numbers, official or not, so nothing
+   * downstream has to reconstruct them from a record that may belong to another
+   * run — or from `winner`/`gameOverReason`, which describe the game rather than
+   * the player (an eliminated spectator watching a turn-cap draw did not draw).
    *
    * Nothing in here may stop the game reaching its game-over screen — the
    * record store already turns a storage failure into `available: false`, and
@@ -1483,36 +1492,49 @@ export function createGameController(store, renderer, soundManager, preferencesM
    *
    * @param {Object} challenge - store.dailyChallenge (carries `id` and `practice`).
    * @param {Object | null} journal - The closed match journal.
-   * @param {Object | null} replay - The replay built for this game.
    * @param {number | null} humanIdx
    * @param {Object} state - Terminal engine state.
    * @param {string | null} drawReason - Why the game was called a draw, if it was.
-   * @returns {{ available: boolean, official: boolean, record: Object|null, streak: number }}
+   * @returns {{ available: boolean, official: boolean, record: Object|null, streak: number,
+   *   outcome: { won: boolean, drew: boolean, turns: number, attacks: number, captures: number }}}
    */
-  function recordDailyAttempt(challenge, journal, replay, humanIdx, state, drawReason) {
-    const official = !challenge.practice;
+  function recordDailyAttempt(challenge, journal, humanIdx, state, drawReason) {
+    // `won` from the journal, with the terminal state as the fallback: a
+    // journal that failed to close still has to be scored honestly.
+    const won = journal?.won ?? state.winner === humanIdx;
+    const outcome = {
+      won,
+      // A win is never a draw; nor is a loss the player already took by
+      // elimination, whatever the game did after they stopped playing.
+      drew: !won && !!drawReason,
+      turns: journal?.turns ?? 0,
+      attacks: journal?.attacks ?? 0,
+      captures: journal?.captures ?? 0,
+    };
+
+    let official = !challenge.practice;
     try {
-      const saved = official
-        ? saveDailyOfficial(challenge.id, {
-            // `won` from the journal, with the terminal state as the fallback:
-            // a journal that failed to close still has to be scored honestly.
-            won: journal?.won ?? state.winner === humanIdx,
-            drew: !!drawReason,
-            turns: journal?.turns ?? 0,
-            attacks: journal?.attacks ?? 0,
-            captures: journal?.captures ?? 0,
-            replay,
-          })
+      let saved = official
+        ? saveDailyOfficial(challenge.id, outcome)
         : recordDailyPractice(challenge.id);
+
+      if (official && saved.available && !saved.wrote) {
+        // Another tab got there first. Count this run for what it turned out to
+        // be, and leave the standing result alone.
+        official = false;
+        saved = recordDailyPractice(challenge.id);
+      }
+
       return {
         available: saved.available,
         official,
         record: saved.record,
         streak: saved.streak,
+        outcome,
       };
     } catch (err) {
       console.error('[GameController] Could not record the daily attempt:', err);
-      return { available: false, official, record: null, streak: 0 };
+      return { available: false, official, record: null, streak: 0, outcome };
     }
   }
 
@@ -1618,7 +1640,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
      */
     const result =
       dailyChallenge && matchJournal && !matchJournal.finished
-        ? recordDailyAttempt(dailyChallenge, finishedJournal, replay, humanIdx, state, drawReason)
+        ? recordDailyAttempt(dailyChallenge, finishedJournal, humanIdx, state, drawReason)
         : dailyResult;
 
     store.setState({

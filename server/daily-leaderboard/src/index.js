@@ -22,7 +22,15 @@
  *
  * "One attempt per person" is not enforceable here and is not claimed to be:
  * the client's localStorage decides which attempt is official, and this Worker
- * only caps how many results one address can push onto a single board.
+ * only caps how much one address can push onto a single board. Two caps, not
+ * one: submission ATTEMPTS are charged before the replay is verified (that is
+ * the CPU bound), accepted RESULTS are charged by the insert itself (that is
+ * the board bound), and both are conditional single-statement writes so a burst
+ * of simultaneous requests can't slip past a stale read.
+ *
+ * Writes additionally require a listed `Origin` and a JSON content type. CORS
+ * headers alone were never that check — they decide whether a browser will let
+ * a page READ the answer, not whether the handler runs.
  *
  * @module server/daily-leaderboard/index
  */
@@ -31,13 +39,17 @@ import { verifyDailyReplay } from '../../../src/game/verifyDailyReplay.js';
 import { normalizeName } from './names.js';
 import {
   LEADERBOARD_LIMIT,
+  MAX_REQUESTS_PER_IP,
+  MAX_SUBMISSIONS_PER_IP,
+  chargeRequest,
   insertResult,
   rankOf,
-  readIpCount,
   readTopWins,
   readTotals,
   replayAlreadySubmitted,
 } from './db.js';
+
+export { MAX_REQUESTS_PER_IP, MAX_SUBMISSIONS_PER_IP };
 
 /** Submission envelope version this Worker speaks (`{ version, name, replay }`). */
 export const SUBMISSION_VERSION = 1;
@@ -47,14 +59,28 @@ export const DEFAULT_ALLOWED_ORIGINS =
   'https://ivanlay.com,http://localhost:3000,http://localhost:4173';
 
 /**
- * Largest submission body accepted, in bytes. A full daily replay is a few
- * hundred two-key objects — well under 20 KB serialized — so this leaves plenty
- * of headroom while keeping a hostile body from being parsed at all.
+ * Largest submission body accepted, in BYTES — `raw.length` counts UTF-16
+ * units, which a multi-byte body undercounts by up to 3x.
+ *
+ * 32 KB is the CPU bound as much as the memory one: the costly part of a
+ * submission is one re-simulated action, and an ATTACK action does not
+ * serialize under ~31 bytes, so this ceiling is also "about a thousand actions"
+ * — comfortably more than the longest real daily game (840) and about what the
+ * per-request CPU budget can carry. See `MAX_REPLAY_ACTIONS` in
+ * `src/game/verifyDailyReplay.js`, which is the same ceiling stated in actions.
  */
-export const MAX_BODY_BYTES = 64 * 1024;
+export const MAX_BODY_BYTES = 32 * 1024;
 
-/** Accepted submissions one address may add to one board. */
-export const MAX_SUBMISSIONS_PER_IP = 3;
+/**
+ * Deepest JSON nesting a submission may carry.
+ *
+ * A replay is `{version, config, actions:[{type, from, to}]}` — five levels at
+ * the very most. The guard is not about shape, though: `JSON.stringify` is
+ * recursive and blows the C++ stack on a body nested a few thousand deep, which
+ * would come back as a 503 for what is plainly a malformed request. Checked
+ * iteratively so the CHECK cannot overflow the stack it is protecting.
+ */
+export const MAX_JSON_DEPTH = 32;
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MS_PER_DAY = 86400000;
@@ -161,13 +187,31 @@ async function getBoard(env, date, cors) {
 /**
  * `POST /daily/{date}/results` — verify and record one finished attempt.
  *
- * Order matters and is chosen so the cheap refusals happen first: the date
- * window, then the body size, then the name, then the per-address cap, and only
- * then the re-simulation, which is the one step that costs real CPU. The
- * allowance is charged after the insert, so a rejected submission never burns
- * an attempt.
+ * Order matters and is chosen so the cheap refusals happen first: who is
+ * calling, what they sent it as, the date window, the body size and shape, the
+ * name — and only then the per-address ATTEMPT charge and the re-simulation,
+ * which is the one step that costs real CPU. The attempt is charged BEFORE the
+ * verification it pays for, so an address cannot buy unbounded CPU with
+ * submissions that were always going to be rejected; the separate accepted-post
+ * allowance is charged by the insert itself.
  */
 async function postResult(request, env, date, cors) {
+  /*
+   * The write endpoint is for this game's pages, not for the web. CORS alone
+   * never was that check: it only decides whether the browser SHOWS a response,
+   * so a `text/plain` form-style post from any page still ran the whole
+   * handler, spent the visitor's allowance and landed a row. Both halves are
+   * required — a listed Origin, and a content type that makes the request
+   * preflighted rather than "simple".
+   */
+  if (!isAllowedOrigin(request, env)) {
+    return fail(cors, 403, 'forbidden', 'This leaderboard does not accept results from that page.');
+  }
+  const contentType = request.headers.get('Content-Type') ?? '';
+  if (!/^application\/json\b/i.test(contentType.trim())) {
+    return fail(cors, 415, 'invalid_body', 'Submissions must be sent as application/json.');
+  }
+
   if (!isOpenBoard(date)) {
     return fail(
       cors,
@@ -188,7 +232,7 @@ async function postResult(request, env, date, cors) {
   } catch {
     return fail(cors, 400, 'invalid_body', 'Submission body could not be read.');
   }
-  if (raw.length > MAX_BODY_BYTES) {
+  if (byteLength(raw) > MAX_BODY_BYTES) {
     return fail(cors, 400, 'invalid_body', 'Submission is too large.');
   }
 
@@ -200,6 +244,9 @@ async function postResult(request, env, date, cors) {
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return fail(cors, 400, 'invalid_body', 'Submission body must be an object.');
+  }
+  if (exceedsDepth(body, MAX_JSON_DEPTH)) {
+    return fail(cors, 400, 'invalid_body', 'Submission body is nested too deeply.');
   }
   if (body.version !== SUBMISSION_VERSION) {
     return fail(
@@ -231,16 +278,16 @@ async function postResult(request, env, date, cors) {
   }
   const ipHash = await sha256(`${env.IP_SALT}:${clientAddress(request)}`);
 
-  if ((await readIpCount(env.DB, date, ipHash)) >= MAX_SUBMISSIONS_PER_IP) {
+  if (!(await chargeRequest(env.DB, date, ipHash))) {
     return fail(
       cors,
       429,
       'rate_limited',
-      `Only ${MAX_SUBMISSIONS_PER_IP} results per day can be posted from one connection.`
+      `Only ${MAX_REQUESTS_PER_IP} submissions a day can be tried from one connection.`
     );
   }
 
-  const replayHash = await sha256(JSON.stringify(body.replay ?? null));
+  const replayHash = await sha256(safeStringify(body.replay ?? null));
   if (await replayAlreadySubmitted(env.DB, date, ipHash, replayHash)) {
     return fail(cors, 400, 'duplicate', 'You have already posted that game to this board.');
   }
@@ -248,17 +295,40 @@ async function postResult(request, env, date, cors) {
   const verdict = verifyDailyReplay(date, body.replay);
   if (!verdict.ok) return fail(cors, 400, verdict.code, verdict.message);
 
-  const { id, createdAt } = await insertResult(env.DB, {
-    date,
-    name,
-    won: verdict.won,
-    drew: verdict.drew,
-    turns: verdict.turns,
-    attacks: verdict.attacks,
-    captures: verdict.captures,
-    ipHash,
-    replayHash,
-  });
+  let accepted;
+  let id;
+  let createdAt;
+  try {
+    ({ accepted, id, createdAt } = await insertResult(env.DB, {
+      date,
+      name,
+      won: verdict.won,
+      drew: verdict.drew,
+      turns: verdict.turns,
+      attacks: verdict.attacks,
+      captures: verdict.captures,
+      ipHash,
+      replayHash,
+    }));
+  } catch (err) {
+    /*
+     * The duplicate-replay index firing means another request for this same
+     * game won the race between the check above and this insert. That is the
+     * caller's `duplicate`, not our outage — everything else still throws
+     * through to the 503.
+     */
+    if (!isUniqueViolation(err)) throw err;
+    return fail(cors, 400, 'duplicate', 'You have already posted that game to this board.');
+  }
+
+  if (!accepted) {
+    return fail(
+      cors,
+      429,
+      'rate_limited',
+      `Only ${MAX_SUBMISSIONS_PER_IP} results per day can be posted from one connection.`
+    );
+  }
 
   const rank = verdict.won
     ? await rankOf(env.DB, date, { id, turns: verdict.turns, createdAt })
@@ -272,6 +342,54 @@ async function postResult(request, env, date, cors) {
     rank,
     totals,
   });
+}
+
+/** UTF-8 size of a string — what a body limit actually has to measure. */
+function byteLength(text) {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * Is this value nested deeper than `limit`?
+ *
+ * Iterative by necessity: the whole point is to refuse input that would
+ * overflow the stack in `JSON.stringify`, so the check may not recurse either.
+ *
+ * @param {unknown} value
+ * @param {number} limit
+ * @returns {boolean}
+ */
+function exceedsDepth(value, limit) {
+  const stack = [{ node: value, depth: 1 }];
+  while (stack.length > 0) {
+    const { node, depth } = stack.pop();
+    if (!node || typeof node !== 'object') continue;
+    if (depth > limit) return true;
+    for (const child of Array.isArray(node) ? node : Object.values(node)) {
+      if (child && typeof child === 'object') stack.push({ node: child, depth: depth + 1 });
+    }
+  }
+  return false;
+}
+
+/**
+ * `JSON.stringify` that answers with a sentinel instead of throwing. Only
+ * reachable for input the depth guard let through (a cycle can't come out of
+ * `JSON.parse`), and it hashes to a value like any other, so a body that
+ * somehow defeats both still gets a coded rejection rather than a 503.
+ */
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return ' unserializable';
+  }
+}
+
+/** A duplicate-key rejection from D1/SQLite, whichever layer wrapped it. */
+function isUniqueViolation(err) {
+  const text = `${err?.message ?? ''} ${err?.cause?.message ?? ''}`;
+  return /UNIQUE constraint failed/i.test(text);
 }
 
 /**
@@ -330,16 +448,37 @@ export async function sha256(input) {
  * @returns {Record<string, string>}
  */
 export function corsHeaders(request, env) {
-  const allowed = (env?.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS)
-    .split(',')
-    .map(origin => origin.trim())
-    .filter(Boolean);
   const origin = request.headers.get('Origin');
   // Vary regardless: the response body is origin-independent but the headers
   // are not, so a shared cache must not serve one origin's answer to another.
   const headers = { Vary: 'Origin' };
-  if (origin && allowed.includes(origin)) headers['Access-Control-Allow-Origin'] = origin;
+  if (isAllowedOrigin(request, env)) headers['Access-Control-Allow-Origin'] = origin;
   return headers;
+}
+
+/** The configured origin allow-list, as a list. */
+function allowedOrigins(env) {
+  return (env?.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS)
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Did this request come from a page we serve?
+ *
+ * A missing `Origin` is NOT allowed here, which is the whole difference between
+ * this and {@link corsHeaders}: reads are open to anyone (curl included), but a
+ * write has to name the page it came from, and browsers set that header on
+ * every cross-origin request whether or not the response will be readable.
+ *
+ * @param {Request} request
+ * @param {Object} env
+ * @returns {boolean}
+ */
+export function isAllowedOrigin(request, env) {
+  const origin = request.headers.get('Origin');
+  return !!origin && allowedOrigins(env).includes(origin);
 }
 
 /** JSON response with CORS + no-store (the board changes on every submission). */

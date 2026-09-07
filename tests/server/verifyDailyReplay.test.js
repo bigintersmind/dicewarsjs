@@ -299,6 +299,24 @@ describe('verifyDailyReplay rejects tampering', () => {
     expect(verdict.message).toMatch(/after the game ended/);
   });
 
+  it('bounds the action budget above any real game and far below the old ceiling', () => {
+    /*
+     * The number is asserted, not just used, because it is a CPU promise: the
+     * verifier is the expensive part of a submission and this is the only thing
+     * bounding how much of it one request can buy. 300 turns × ten actions a
+     * turn — roughly three times the rate a real game sustains, and 6.7x below
+     * the 20,000 it replaces.
+     */
+    expect(MAX_REPLAY_ACTIONS).toBe(3000);
+    expect(MAX_REPLAY_ACTIONS).toBe(MAX_GAME_TURNS * 10);
+
+    // Every fixture in this suite — including the long spectated ones — sits
+    // comfortably inside it, which is what "cannot refuse an honest game" means.
+    for (const game of [win, slowWin, loss, elimination]) {
+      expect(game.replay.actions.length).toBeLessThan(MAX_REPLAY_ACTIONS / 2);
+    }
+  });
+
   it('refuses to spend CPU on an absurdly long replay', () => {
     const flood = {
       ...win.replay,

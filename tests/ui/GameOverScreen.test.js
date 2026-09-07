@@ -66,9 +66,7 @@ function renderGameOver(overrides = {}) {
     // for `undefined` rather than truthiness — `{}` is a deliberate ask for an
     // empty preference set, and reads as truthy anyway.
     ...(overrides.preferences !== undefined ? { preferences: overrides.preferences } : {}),
-    ...(overrides.dailyChallenge !== undefined
-      ? { dailyChallenge: overrides.dailyChallenge }
-      : {}),
+    ...(overrides.dailyChallenge !== undefined ? { dailyChallenge: overrides.dailyChallenge } : {}),
     ...(overrides.dailyResult !== undefined ? { dailyResult: overrides.dailyResult } : {}),
     ...(overrides.matchJournal !== undefined ? { matchJournal: overrides.matchJournal } : {}),
   });

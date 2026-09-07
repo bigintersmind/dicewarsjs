@@ -367,9 +367,7 @@ describe('SupplyStatus', () => {
 
       mount(SupplyStatus, { store });
 
-      expect(
-        document.documentElement.style.getPropertyValue(SUPPLY_PANEL_HEIGHT_VAR)
-      ).toBe('92px');
+      expect(document.documentElement.style.getPropertyValue(SUPPLY_PANEL_HEIGHT_VAR)).toBe('92px');
       // The renderer only re-reads on a resize; publishing without one would
       // leave the board scaled to the whole window until something else moved.
       expect(resized).toHaveBeenCalled();

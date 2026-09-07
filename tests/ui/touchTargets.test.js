@@ -550,9 +550,7 @@ describe('Daily Conquest touch targets', () => {
   });
 
   it('gives the daily card button a 44px box on a coarse pointer only', () => {
-    const coarse = coarseRules(DAILY_CSS).find(
-      rule => rule.selector === '.dw-opt.dw-daily-opt'
-    );
+    const coarse = coarseRules(DAILY_CSS).find(rule => rule.selector === '.dw-opt.dw-daily-opt');
     expect(coarse).toBeDefined();
     expect(decl(coarse.body, 'min-height')).toBe('44px');
     expect(decl(coarse.body, 'padding')).toBe('0.45rem 0.9rem');
@@ -592,7 +590,9 @@ describe('Daily Conquest touch targets', () => {
         .flatMap(rule =>
           ['height', 'min-height', 'line-height', 'font-size']
             .map(prop => ({ prop, value: decl(rule.body, prop) }))
-            .filter(({ prop, value }) => value !== undefined && NEW_BASE[rule.selector][prop] !== value)
+            .filter(
+              ({ prop, value }) => value !== undefined && NEW_BASE[rule.selector][prop] !== value
+            )
             .map(({ prop, value }) => `${name} ${rule.selector} { ${prop}: ${value} }`)
         )
     );

@@ -61,7 +61,17 @@ const DAILY_CSS = `
 }
 `;
 
-/** The result line for an official attempt: what you did, in one sentence. */
+/**
+ * The result line for an official attempt: what you did, in one sentence.
+ *
+ * The draw branch reads a field the stored record does not carry yet
+ * (`DailyOfficial` is `{ won, turns, attacks, captures, replay, at, submission }`),
+ * so today a turn-cap draw falls through to the elimination line. The
+ * game-over screen has no such gap — it knows how the game it just watched
+ * ended — but this card only has the record, and the record has to say so.
+ * Written as the branch it wants to be, so adding `drew` to the stored result
+ * is the whole fix.
+ */
 function describeResult(official) {
   if (official.won) return `Today: won in ${official.turns} turns.`;
   if (official.drew) return `Today: a draw after ${official.turns} turns.`;

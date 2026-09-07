@@ -73,5 +73,8 @@ data/selfplay/
 # Claude Code worktrees (`claude -w <name>`) live inside the repo
 **/.claude/worktrees/
 
+# Local agent working notes (superpowers skill scratch); never part of the repo
+.superpowers/
+
 # Don't ignore these files even if they match patterns above
 !.gitkeep

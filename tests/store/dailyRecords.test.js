@@ -62,6 +62,7 @@ describe('Personal daily records', () => {
     expect(saved.record).toEqual({
       official: {
         won: true,
+        drew: false,
         turns: 9,
         attacks: 20,
         captures: 14,
@@ -81,6 +82,31 @@ describe('Personal daily records', () => {
     expect(second.record).toEqual(saved.record);
     expect(storage.setItem).toHaveBeenCalledTimes(1); // the no-op did not rewrite storage
     expect(readDailyRecord(id, storage).record).toEqual(saved.record);
+  });
+
+  it('keeps a turn-cap draw apart from an elimination, and never calls a win a draw', () => {
+    const storage = memoryStorage();
+    const drawn = saveDailyOfficial(
+      id,
+      { won: false, drew: true, turns: 40, attacks: 30, captures: 20, replay },
+      storage
+    );
+    expect(drawn.record.official).toMatchObject({ won: false, drew: true });
+    expect(readDailyRecord(id, storage).record.official.drew).toBe(true);
+
+    const other = memoryStorage();
+    const won = saveDailyOfficial(id, { ...attempt, drew: true }, other);
+    expect(won.record.official).toMatchObject({ won: true, drew: false });
+
+    // A record written before the flag existed still reads back.
+    const legacy = memoryStorage();
+    const withoutDrew = { ...drawn.record.official };
+    delete withoutDrew.drew;
+    legacy.setItem(
+      DAILY_STORAGE_KEY,
+      JSON.stringify({ [id]: { official: withoutDrew, practice: 0 } })
+    );
+    expect(readDailyRecord(id, legacy).record.official.won).toBe(false);
   });
 
   it('counts practice runs beside the official result without touching it', () => {

@@ -29,6 +29,8 @@ const MAX_RECORDS = 30;
 /**
  * @typedef {Object} DailyOfficial
  * @property {boolean} won
+ * @property {boolean} [drew] - Turn-cap draw: neither a win nor an elimination.
+ *   Optional so records written before the flag existed still validate.
  * @property {number} turns - Human turns taken.
  * @property {number} attacks
  * @property {number} captures
@@ -76,6 +78,7 @@ function isValidOfficial(value) {
     value === null ||
     (isPlainObject(value) &&
       typeof value.won === 'boolean' &&
+      (value.drew === undefined || typeof value.drew === 'boolean') &&
       isCount(value.turns) &&
       isCount(value.attacks) &&
       isCount(value.captures) &&
@@ -201,16 +204,22 @@ export function readDailyRecord(id, storage) {
  * here rather than at the call site so no path can score a board twice.
  *
  * @param {string} id
- * @param {{ won: boolean, turns: number, attacks: number, captures: number, replay?: Object|null }} result
+ * @param {{ won: boolean, drew?: boolean, turns: number, attacks: number, captures: number, replay?: Object|null }} result
  * @param {Storage} [storage]
  */
-export function saveDailyOfficial(id, { won, turns, attacks, captures, replay = null }, storage) {
+export function saveDailyOfficial(
+  id,
+  { won, drew = false, turns, attacks, captures, replay = null },
+  storage
+) {
   return mutate(id, storage, existing => {
     if (existing?.official) return existing;
     const attackCount = toCount(attacks);
     return {
       official: {
         won: !!won,
+        // A win is never a draw, whatever the caller said.
+        drew: !won && !!drew,
         turns: toCount(turns),
         attacks: attackCount,
         captures: Math.min(toCount(captures), attackCount),

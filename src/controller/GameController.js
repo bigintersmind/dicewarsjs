@@ -1482,9 +1482,10 @@ export function createGameController(store, renderer, soundManager, preferencesM
    * @param {Object | null} replay - The replay built for this game.
    * @param {number | null} humanIdx
    * @param {Object} state - Terminal engine state.
+   * @param {string | null} drawReason - Why the game was called a draw, if it was.
    * @returns {{ available: boolean, official: boolean, record: Object|null, streak: number }}
    */
-  function recordDailyAttempt(challenge, journal, replay, humanIdx, state) {
+  function recordDailyAttempt(challenge, journal, replay, humanIdx, state, drawReason) {
     const official = !challenge.practice;
     try {
       const saved = official
@@ -1492,6 +1493,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
             // `won` from the journal, with the terminal state as the fallback:
             // a journal that failed to close still has to be scored honestly.
             won: journal?.won ?? state.winner === humanIdx,
+            drew: !!drawReason,
             turns: journal?.turns ?? 0,
             attacks: journal?.attacks ?? 0,
             captures: journal?.captures ?? 0,
@@ -1612,7 +1614,7 @@ export function createGameController(store, renderer, soundManager, preferencesM
      */
     const result =
       dailyChallenge && matchJournal && !matchJournal.finished
-        ? recordDailyAttempt(dailyChallenge, finishedJournal, replay, humanIdx, state)
+        ? recordDailyAttempt(dailyChallenge, finishedJournal, replay, humanIdx, state, drawReason)
         : dailyResult;
 
     store.setState({

@@ -384,7 +384,12 @@ describe('Daily Conquest controller with the real engine', () => {
       gameOverReason: 'turnLimit',
       matchJournal: { finished: true, turns: 1 },
     });
-    expect(readDailyRecord(daily.id).record.official).toMatchObject({ won: false, turns: 1 });
+    // The stored result tells a draw apart from an elimination for the title card.
+    expect(readDailyRecord(daily.id).record.official).toMatchObject({
+      won: false,
+      drew: true,
+      turns: 1,
+    });
     controller.viewGameReplay();
     controller.goBackFromReplay();
     expect(readDailyRecord(daily.id).record.practice).toBe(0);

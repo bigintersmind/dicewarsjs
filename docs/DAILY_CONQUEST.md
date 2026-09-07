@@ -44,10 +44,10 @@ Stored per post: display name, result, turn count, attack counts, and a salted h
 Both daily and ordinary human games show your position during play:
 
 - **Land:** all territories you own.
-- **Largest connected group:** the territories that supply your reinforcement dice when you end your turn. Placement and stockpile caps follow the normal rules.
+- **Reinforcements:** the dice you earn when you end your turn, one per territory in your largest connected group. Placement and stockpile caps follow the normal rules.
 - **Stockpile:** reinforcement dice held in reserve.
 
-The end-of-match report shows your turns, attacks won, most land held, and your best connected group. Its chart samples your land at the start, after each of your turns, and at the finish. Peaks count every attack, so a brief mid-turn high can exceed the chart's samples. The chart has a text equivalent for screen readers.
+The end-of-match report shows your turns, attacks won, most land held, and your best reinforcement total. Its chart samples your land at the start, after each of your turns, and at the finish. Peaks count every attack, so a brief mid-turn high can exceed the chart's samples. The chart has a text equivalent for screen readers.
 
 **TRY AGAIN** after an ordinary match restores the original setup, starting board, dice and turn order and goes straight into play. If you used NEW MAP, it retries the board you accepted.
 

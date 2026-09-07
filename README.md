@@ -9,7 +9,7 @@ Built on the original [Dice Wars](https://www.gamedesign.jp/games/dicewars/) by 
 ## Features
 
 - **Daily Conquest.** One board a day for everyone: four players, a small map, Standard opponents, and the same dice for every player. Your first completed attempt is the one that counts; post it to the day's leaderboard, share the result, keep your streak going, then practice the same board as often as you like. A new board arrives at midnight UTC.
-- **See your supply line.** Your land, your largest connected group (the dice you earn each turn), and your stockpile are on screen while you play. After the match, a campaign report shows your turns, attacks won, and a territory chart.
+- **See your supply line.** Your land, your reinforcements (one die per territory in your largest connected group), and your stockpile are on screen while you play. After the match, a campaign report shows your turns, attacks won, and a territory chart.
 - **Try another opening.** TRY AGAIN restarts an ordinary game on the same starting board, dice and turn order.
 - **Play or spectate.** Face AI opponents yourself, or watch bots battle each other.
 - **Choose your opponents.** Pick a difficulty (Easy/Standard/Hard), or go Custom and pick a bot per slot, including the curated community bots. Duplicates are allowed.

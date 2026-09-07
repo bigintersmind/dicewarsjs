@@ -623,7 +623,11 @@ export function createGameController(store, renderer, soundManager, preferencesM
    */
   function retryGame() {
     const { screen, dailyChallenge } = store.getState();
-    if (screen !== 'gameOver' || !lastGameSetup) return;
+    if (screen !== 'gameOver' || !lastGameSetup) {
+      // The card always offers the button; a no-op here would look like a dead one.
+      console.warn('[GameController] retryGame ignored: no finished game to repeat');
+      return;
+    }
     const challenge = dailyChallenge
       ? { ...dailyChallenge, practice: isPracticeBoard(dailyChallenge.id) }
       : null;

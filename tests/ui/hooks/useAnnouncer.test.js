@@ -112,6 +112,56 @@ describe('ScreenReaderAnnouncer', () => {
     const { getText } = renderAnnouncer(store);
     expect(getText()).toContain('Your turn');
     expect(getText()).toContain('2 territories');
+    expect(getText()).toContain('Select a territory to attack from');
+  });
+
+  /*
+   * A turn with no legal attack is a real board state, and the sighted player
+   * is told about it (GameOverlay's instruction line). "Select a territory to
+   * attack from" would send a screen-reader player round every one of their own
+   * buttons to discover that none of them does anything — so the line says what
+   * is true and names the way out.
+   *
+   * `noValidMoves` is the controller's own derivation from the engine, kept
+   * independent of the boardHints preference (#196), which is why the hook reads
+   * the store rather than the board.
+   */
+  it('names the dead end, and the way out of it, when no attack is legal', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: 'selectFrom',
+      humanPlayerIndex: 0,
+      gameState: makeGameState(),
+      noValidMoves: true,
+    });
+
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Your turn');
+    expect(getText()).toContain('2 territories');
+    expect(getText()).toContain('No attacks available');
+    expect(getText()).toContain('Press E to end your turn and reinforce');
+    expect(getText()).not.toContain('Select a territory to attack from');
+  });
+
+  /*
+   * It can arrive mid-turn on its own: a bot's capture can leave the human with
+   * nothing legal while the screen, the phase and the turn all stay put, so the
+   * flag has to be a dependency of the announcement rather than a passenger on
+   * `awaitingInput`.
+   */
+  it('switches to the dead-end line when the board runs out mid-turn', () => {
+    store.setState({
+      screen: 'playing',
+      awaitingInput: 'selectFrom',
+      humanPlayerIndex: 0,
+      gameState: makeGameState(),
+    });
+    const { getText } = renderAnnouncer(store);
+    expect(getText()).toContain('Select a territory to attack from');
+
+    act(() => store.setState({ noValidMoves: true }));
+
+    expect(getText()).toContain('No attacks available');
   });
 
   /*

@@ -156,7 +156,7 @@ a.dw-btn { display: inline-block; text-decoration: none; }
  * This block is LAST in the sheet on purpose: its .dw-opt is the same
  * specificity as the base rule above, so source order is the whole reason it
  * wins (pinned in tests/ui/touchTargets.test.js), and the a.dw-btn rule below
- * ties with its own base rule the same way. The three places that must NOT be
+ * ties with its own base rule the same way. The four places that must NOT be
  * reached opt out the other way, on specificity, by doubling their class — so
  * none of them depends on which copy of this sheet a screen happens to mount,
  * nor on which other sheet a screen concatenates onto it:
@@ -180,6 +180,13 @@ a.dw-btn { display: inline-block; text-decoration: none; }
  *   class would tie with this block instead of losing to it. It keeps its tight
  *   padding on purpose and takes its 40px box from min-width / min-height
  *   instead.
+ *
+ *   .dw-opt.dw-daily-opt (the title screen's daily card button) — the card
+ *   mounts no copy of this sheet at all, so its option button is styled purely
+ *   by whichever copy another component happens to have mounted; doubling the
+ *   class is what makes its own box independent of that. It is a single wide
+ *   button rather than a row of them, so it can afford a roomier target than
+ *   the generic rule gives, and takes 44px on a coarse pointer.
  *
  * .dw-btn only needs the floor: the filled buttons already clear 40px, so the
  * rule is a floor rather than a resize, and two controls are short enough today

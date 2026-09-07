@@ -17,11 +17,46 @@ import {
   BG_COLOR,
   HUD_BAR_HEIGHT,
   HUD_BAR_HEIGHT_VAR,
+  SUPPLY_PANEL_HEIGHT_VAR,
 } from './constants.js';
 import { getTheme } from './themes.js';
 import { createBurstEffect } from './ParticleEffect.js';
 import { animateReinforcements } from './ReinforcementAnimation.js';
 import { playCelebration } from './CelebrationEffect.js';
+
+/**
+ * Fit and center the fixed base canvas inside the band the chrome leaves — the
+ * window minus a reservation at each end. Pure, and exported for its own unit
+ * test: this is the whole of the responsive layout, and its two reservations
+ * are what keep the board clear of the HUD bar below and the supply panel
+ * above (a Large map on a short window is height-bound, so a band that ignored
+ * the panel would slide the top rows straight under it).
+ *
+ * The band is floored at 1px rather than allowed to go negative: a window
+ * shorter than its own chrome still has to produce a positive scale.
+ *
+ * @param {Object} options
+ * @param {number} options.screenWidth - Canvas width in CSS pixels
+ * @param {number} options.screenHeight - Canvas height in CSS pixels
+ * @param {number} [options.topReserve=0] - Pixels reserved above the board
+ * @param {number} [options.bottomReserve=0] - Pixels reserved below the board
+ * @returns {{ scale: number, x: number, y: number }} Root transform
+ */
+export function computeBoardLayout({
+  screenWidth,
+  screenHeight,
+  topReserve = 0,
+  bottomReserve = 0,
+}) {
+  const availableHeight = Math.max(screenHeight - topReserve - bottomReserve, 1);
+  const scale = Math.min(screenWidth / BASE_WIDTH, availableHeight / BASE_HEIGHT);
+  return {
+    scale,
+    x: (screenWidth - BASE_WIDTH * scale) / 2,
+    // Centered inside the band, then pushed down past whatever sits above it.
+    y: topReserve + (availableHeight - BASE_HEIGHT * scale) / 2,
+  };
+}
 
 export class GameRenderer {
   constructor() {
@@ -51,8 +86,13 @@ export class GameRenderer {
     this._warnedDrawMap = false;
     /** @type {boolean} Whether an update pre-init warning has been logged */
     this._warnedUpdate = false;
-    /** @type {boolean} Whether an unparseable bar-height warning has been logged */
-    this._warnedBarHeight = false;
+    /**
+     * Custom properties whose unparseable value has already been warned about,
+     * so a resize storm never becomes a console storm. One set rather than a
+     * flag per property: both reservations are read the same way.
+     * @type {Set<string>}
+     */
+    this._warnedReserveVars = new Set();
   }
 
   /**
@@ -100,6 +140,39 @@ export class GameRenderer {
     }
   }
 
+  /**
+   * Read one of the chrome's published reservations off the document root.
+   *
+   * Only a plain px length is accepted. The value feeds arithmetic, and
+   * parseFloat is unit-blind: it would read '5rem' (80px at the default root
+   * size) as 5, reserving almost nothing, and 'calc(80px +
+   * env(safe-area-inset-bottom))' as NaN. An empty string is the ordinary
+   * nobody-published-one case and falls back silently; anything else is a
+   * writer bug, so it falls back loudly — once per property per renderer, so a
+   * resize storm never becomes a console storm.
+   *
+   * @param {string} cssVar - Custom property name
+   * @param {number} fallback - Reservation to use when it is absent or unusable
+   * @param {string} writer - Who publishes it, for the warning
+   * @returns {number} Pixels to reserve
+   */
+  _readReservedPx(cssVar, fallback, writer) {
+    const declared =
+      typeof document === 'undefined' || typeof getComputedStyle !== 'function'
+        ? ''
+        : getComputedStyle(document.documentElement).getPropertyValue(cssVar) || '';
+    const parsed = /^\s*(\d+(?:\.\d+)?)px\s*$/.exec(declared);
+    if (parsed) return Number(parsed[1]);
+    if (declared.trim() !== '' && !this._warnedReserveVars.has(cssVar)) {
+      console.warn(
+        `[GameRenderer] ${cssVar} is not a px length (got "${declared.trim()}"); ` +
+          `reserving ${fallback}px instead. The value is published by ${writer}.`
+      );
+      this._warnedReserveVars.add(cssVar);
+    }
+    return fallback;
+  }
+
   /** Recalculate scale to fit the game board in the window. */
   _resize() {
     if (!this.app) return;
@@ -112,41 +185,40 @@ export class GameRenderer {
      */
     this.app.resize();
     /*
-     * How much room the HUD bar needs is the HUD's to say: under 560px it goes
-     * to two rows so all eight seats fit (#222). GameHUD is the writer — it
-     * measures its own bar after layout and publishes the result as
-     * HUD_BAR_HEIGHT_VAR on the document root, then dispatches a 'resize' so
-     * this runs against the new value. So the read happens here, at resize
-     * time, and the publisher is what guarantees a resize to read it at.
-     * HUD_BAR_HEIGHT is the fallback for every context with no HUD in the DOM
-     * — the title screen, the tests, a headless render.
+     * How much room the chrome needs is the chrome's to say. Both bands are
+     * published by the component that owns them and read here, at resize time:
+     * GameHUD measures its bar and writes HUD_BAR_HEIGHT_VAR (under 560px it
+     * goes to two rows so all eight seats fit, #222), and SupplyStatus measures
+     * its panel and writes SUPPLY_PANEL_HEIGHT_VAR. Each dispatches a 'resize'
+     * after publishing, which is what guarantees a resize to read it at.
      *
-     * Only a plain px length is accepted. The value feeds arithmetic, and
-     * parseFloat is unit-blind: it would read '5rem' (80px at the default root
-     * size) as 5, reserving almost nothing, and 'calc(80px +
-     * env(safe-area-inset-bottom))' as NaN. An empty string is the ordinary
-     * no-HUD case and falls back silently; anything else is a writer bug, so it
-     * falls back loudly, once.
+     * Their fallbacks differ because their absences mean different things. A
+     * missing bar height is a context with no HUD in the DOM — the title
+     * screen, a test, a headless render — where HUD_BAR_HEIGHT is still the
+     * band the board has always left; a missing panel height is the panel not
+     * being mounted, which reserves nothing.
      */
-    const declaredBarHeight =
-      typeof document === 'undefined' || typeof getComputedStyle !== 'function'
-        ? ''
-        : getComputedStyle(document.documentElement).getPropertyValue(HUD_BAR_HEIGHT_VAR) || '';
-    const parsedBarHeight = /^\s*(\d+(?:\.\d+)?)px\s*$/.exec(declaredBarHeight);
-    if (!parsedBarHeight && declaredBarHeight.trim() !== '' && !this._warnedBarHeight) {
-      console.warn(
-        `[GameRenderer] ${HUD_BAR_HEIGHT_VAR} is not a px length (got "${declaredBarHeight.trim()}"); ` +
-          `reserving ${HUD_BAR_HEIGHT}px instead. The value is published by GameHUD (src/ui/GameHUD.jsx).`
-      );
-      this._warnedBarHeight = true;
-    }
-    const barHeight = parsedBarHeight ? Number(parsedBarHeight[1]) : HUD_BAR_HEIGHT;
-    const availableHeight = Math.max(this.app.screen.height - barHeight, 1);
-    const scale = Math.min(this.app.screen.width / BASE_WIDTH, availableHeight / BASE_HEIGHT);
+    const barHeight = this._readReservedPx(
+      HUD_BAR_HEIGHT_VAR,
+      HUD_BAR_HEIGHT,
+      'GameHUD (src/ui/GameHUD.jsx)'
+    );
+    const topReserve = this._readReservedPx(
+      SUPPLY_PANEL_HEIGHT_VAR,
+      0,
+      'SupplyStatus (src/ui/SupplyStatus.jsx)'
+    );
+    const {
+      scale,
+      x: newX,
+      y: newY,
+    } = computeBoardLayout({
+      screenWidth: this.app.screen.width,
+      screenHeight: this.app.screen.height,
+      topReserve,
+      bottomReserve: barHeight,
+    });
     this.root.scale.set(scale);
-    // Center the scaled root within available area (above HUD)
-    const newX = (this.app.screen.width - BASE_WIDTH * scale) / 2;
-    const newY = (availableHeight - BASE_HEIGHT * scale) / 2;
     if (this._shaking) {
       this._rootOrigin.x = newX;
       this._rootOrigin.y = newY;

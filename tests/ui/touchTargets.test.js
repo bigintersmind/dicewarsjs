@@ -22,9 +22,14 @@
  *
  * The rules that deliberately escape the generic `.dw-opt` do it on
  * specificity, by doubling their class, so each is pinned where it lives: the
- * settings dropdown's `.dw-opt.dw-set-opt` and the how-to-play card's
- * `.dw-opt.dw-rules-close` are in this file, the in-game bar's
- * `.dw-opt.dw-hud-opt` is #222 item 1's.
+ * settings dropdown's `.dw-opt.dw-set-opt`, the how-to-play card's
+ * `.dw-opt.dw-rules-close` and the daily card's `.dw-opt.dw-daily-opt` are in
+ * this file, the in-game bar's `.dw-opt.dw-hud-opt` is #222 item 1's.
+ *
+ * The game-over screen's share/post controls take the other route out: they are
+ * not `.dw-opt` at all, so nothing in the shared sheet reaches them and they
+ * carry their own coarse floor. Registered here so a control added beside them
+ * has to face the same question.
  */
 
 import { assert } from 'vitest';
@@ -35,6 +40,8 @@ import { CHROME_CSS } from '../../src/ui/menuChrome.jsx';
 const MENU_CHROME_SRC = resolve(process.cwd(), 'src/ui/menuChrome.jsx');
 const SETTINGS_SRC = resolve(process.cwd(), 'src/ui/SettingsPanel.jsx');
 const RULES_SRC = resolve(process.cwd(), 'src/ui/RulesModal.jsx');
+const DAILY_SRC = resolve(process.cwd(), 'src/ui/DailyChallengeCard.jsx');
+const RESULT_SRC = resolve(process.cwd(), 'src/ui/GameOverScreen.jsx');
 
 const COARSE = '@media (pointer: coarse)';
 
@@ -159,12 +166,16 @@ function sheetFromText(source, name, path) {
 const FOOTER_NAV_CSS = sheetFromSource(MENU_CHROME_SRC, 'FOOTER_NAV_CSS');
 const SETTINGS_CSS = sheetFromSource(SETTINGS_SRC, 'SETTINGS_CSS');
 const RULES_CSS = sheetFromSource(RULES_SRC, 'RULES_CSS');
+const DAILY_CSS = sheetFromSource(DAILY_SRC, 'DAILY_CSS');
+const RESULT_CSS = sheetFromSource(RESULT_SRC, 'RESULT_CSS');
 
 const SHEETS = {
   CHROME_CSS,
   FOOTER_NAV_CSS,
   SETTINGS_CSS,
   RULES_CSS,
+  DAILY_CSS,
+  RESULT_CSS,
 };
 
 /**
@@ -200,7 +211,7 @@ describe('the stylesheet reader', () => {
     expect(sheetFromSource(MENU_CHROME_SRC, 'CHROME_CSS')).toBe(CHROME_CSS);
   });
 
-  it('finds all four sheets', () => {
+  it('finds every registered sheet', () => {
     const empty = Object.entries(SHEETS)
       .filter(([, sheet]) => sheet.length < 200)
       .map(([name]) => name);
@@ -324,11 +335,12 @@ describe('coarse-pointer touch targets (#222 item 4)', () => {
       selector: '.dw-opt',
       properties: ['padding', 'min-height'],
       why:
-        'The coarse .dw-opt rule must declare exactly { padding, min-height }. Three doubled ' +
+        'The coarse .dw-opt rule must declare exactly { padding, min-height }. Four doubled ' +
         'selectors opt out of it — .dw-opt.dw-set-opt (SettingsPanel), .dw-opt.dw-hud-opt ' +
-        '(GameHUD) and .dw-opt.dw-rules-close (RulesModal) — and each only overrides the ' +
-        'properties it names, so a property added here reaches all three whatever their own ' +
-        'rules say. Add it to those overrides in the same change.',
+        '(GameHUD), .dw-opt.dw-rules-close (RulesModal) and .dw-opt.dw-daily-opt ' +
+        '(DailyChallengeCard) — and each only overrides the properties it names, so a property ' +
+        'added here reaches all four whatever their own rules say. Add it to those overrides in ' +
+        'the same change.',
     },
     {
       selector: '.dw-btn',
@@ -439,6 +451,7 @@ const BASE_BOXES = {
   '.dw-footlink': '0.15rem 0.45rem',
   '.dw-opt.dw-set-opt': '0.12rem 0.45rem',
   '.dw-opt.dw-rules-close': '0.1rem 0.5rem',
+  '.dw-opt.dw-daily-opt': '0.35rem 0.7rem',
 };
 
 /*
@@ -454,6 +467,7 @@ const BASE_GROWTH = {
   '.dw-footlink': { 'font-size': '0.85rem' },
   '.dw-opt.dw-set-opt': { 'font-size': '0.95rem' },
   '.dw-opt.dw-rules-close': { 'font-size': '1.35rem', 'line-height': '1' },
+  '.dw-opt.dw-daily-opt': { 'font-size': '1.05rem' },
 };
 
 const TOUCHED_CLASSES = /\.dw-(?:opt|btn|footlink)\b/;
@@ -504,5 +518,84 @@ describe('the desktop layout is untouched (#222 item 4)', () => {
       )
       .map(([selector, prop]) => `${selector} { ${prop} }`);
     expect(orphans).toEqual([]);
+  });
+});
+
+/*
+ * The two sheets Daily Conquest added. They are the same argument as the four
+ * above — a control the finger has to hit is a box, and the box grows only for
+ * a coarse pointer — settled two different ways, which is why both are pinned:
+ * the daily card's button IS the .dw-opt idiom and so has to opt out on
+ * specificity, while the share/post controls are not .dw-opt at all and so
+ * carry their own rule from the start.
+ */
+describe('Daily Conquest touch targets', () => {
+  it('doubles the daily card button class rather than relying on order', () => {
+    const daily = rules(stripComments(DAILY_CSS)).filter(rule =>
+      rule.selector.includes('dw-daily-opt')
+    );
+    // The base rule and the coarse one, both doubled.
+    expect(daily.map(rule => rule.selector)).toEqual([
+      '.dw-opt.dw-daily-opt',
+      '.dw-opt.dw-daily-opt',
+    ]);
+    /*
+     * The card mounts no copy of CHROME_CSS itself — it rides on whichever copy
+     * another component happens to have mounted (SettingsPanel's, on every
+     * screen) — so a bare class here would tie with the shared coarse block at
+     * (0,1,0) and let mount order decide the button's padding.
+     */
+    const source = readFileSync(DAILY_SRC, 'utf8');
+    expect(source).toMatch(/className="dw-opt dw-daily-opt"/);
+  });
+
+  it('gives the daily card button a 44px box on a coarse pointer only', () => {
+    const coarse = coarseRules(DAILY_CSS).find(
+      rule => rule.selector === '.dw-opt.dw-daily-opt'
+    );
+    expect(coarse).toBeDefined();
+    expect(decl(coarse.body, 'min-height')).toBe('44px');
+    expect(decl(coarse.body, 'padding')).toBe('0.45rem 0.9rem');
+    // One wide button rather than a row of them, so it can afford more than the
+    // generic 40px — but still nothing at all for a mouse.
+    expect(coarseRules(DAILY_CSS).map(rule => rule.selector)).not.toContain('.dw-opt');
+  });
+
+  it('sizes the share and post controls behind a coarse pointer too', () => {
+    const coarse = coarseRules(RESULT_CSS);
+    const button = coarse.find(rule => rule.selector === '.dw-share-btn');
+    const input = coarse.find(rule => rule.selector === '.dw-daily-name');
+    expect(decl(button.body, 'min-height')).toBe('44px');
+    expect(decl(input.body, 'min-height')).toBe('44px');
+    // Not the bare-text idiom, so the shared sheet never reaches them and there
+    // is nothing here to opt out of.
+    expect(RESULT_CSS).not.toMatch(/\.dw-opt\b/);
+  });
+
+  /*
+   * The other half, as for the four sheets above: nothing on the new controls
+   * grows for a mouse. Their base rules are listed with the sizes they ship
+   * with, so a later edit that fattens the desktop layout fails here.
+   */
+  const NEW_BASE = {
+    '.dw-share-btn': { 'font-size': '.95rem' },
+    '.dw-opt.dw-daily-opt': { 'font-size': '1.05rem' },
+  };
+
+  it('grows no box outside a coarse-pointer query', () => {
+    const strays = [
+      ['DAILY_CSS', DAILY_CSS],
+      ['RESULT_CSS', RESULT_CSS],
+    ].flatMap(([name, sheet]) =>
+      nonCoarseRules(sheet)
+        .filter(rule => NEW_BASE[rule.selector])
+        .flatMap(rule =>
+          ['height', 'min-height', 'line-height', 'font-size']
+            .map(prop => ({ prop, value: decl(rule.body, prop) }))
+            .filter(({ prop, value }) => value !== undefined && NEW_BASE[rule.selector][prop] !== value)
+            .map(({ prop, value }) => `${name} ${rule.selector} { ${prop}: ${value} }`)
+        )
+    );
+    expect(strays).toEqual([]);
   });
 });

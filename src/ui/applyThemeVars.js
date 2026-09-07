@@ -30,6 +30,10 @@ import { getTheme } from '../renderer/themes.js';
 export const VAR_MAP = {
   '--ui-bg': 'uiBg',
   '--ui-overlay-bg': 'uiOverlayBg',
+  // The opaque one. Panels of dense small text that float over the live board
+  // take this rather than `--ui-bg`, whose translucency hands their contrast to
+  // whichever territory drifts underneath (see themes.js).
+  '--ui-panel-bg': 'uiPanelBg',
   '--ui-text': 'uiText',
   '--ui-text-muted': 'uiTextMuted',
   '--ui-accent': 'uiAccent',

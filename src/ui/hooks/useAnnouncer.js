@@ -37,6 +37,7 @@ export function useAnnouncer(store) {
   const selectedTo = useGameStore(store, s => s.selectedTo);
   const humanEliminated = useGameStore(store, s => s.humanEliminated);
   const gameOverReason = useGameStore(store, s => s.gameOverReason);
+  const noValidMoves = useGameStore(store, s => s.noValidMoves);
 
   /*
    * The two screens that have a game to talk about. Everything else — title,
@@ -159,8 +160,23 @@ export function useAnnouncer(store) {
 
     if (isHumanTurn && awaitingInput === 'selectFrom') {
       const territories = gameState.players[humanPlayerIndex]?.territoryCount || 0;
+      /*
+       * A turn with no legal attack is a real board state — every territory of
+       * yours is down to one die, or hemmed in by your own land — and telling
+       * someone who cannot see the board to "select a territory to attack from"
+       * sends them round every one of their own buttons to discover that none
+       * of them will do anything. The sighted player is told (GameOverlay's
+       * instruction line), so this line owes the same.
+       *
+       * `store.noValidMoves` is the controller's own derivation, from the
+       * engine's `getValidMoves`, maintained wherever it refreshes the board
+       * hints and independent of the boardHints preference (#196: one owner, so
+       * the prompt, the hints and the territory buttons cannot disagree).
+       */
       setAnnouncement(
-        `Your turn. You have ${territories} territories. Select a territory to attack from.`
+        noValidMoves
+          ? `Your turn. You have ${territories} territories. No attacks available. Press E to end your turn and reinforce.`
+          : `Your turn. You have ${territories} territories. Select a territory to attack from.`
       );
       return;
     }
@@ -225,6 +241,13 @@ export function useAnnouncer(store) {
      */
     humanEliminated,
     gameOverReason,
+    /*
+     * The dead-end flag. It is written as the turn is armed, in the same pass
+     * that refreshes the hints, so it usually arrives with the `awaitingInput`
+     * above — but not always: a bot's capture can leave the human's board with
+     * no legal attack mid-turn, and then this is the only dep that moves.
+     */
+    noValidMoves,
   ]);
 
   useEffect(() => {

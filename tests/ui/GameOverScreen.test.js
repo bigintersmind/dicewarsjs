@@ -16,6 +16,25 @@ import { createGameStore } from '../../src/store/GameStore.js';
 import { PLAYER_COLORS_CSS, COLORBLIND_PLAYER_COLORS_CSS } from '../../src/renderer/constants.js';
 import { THEMES } from '../../src/renderer/themes.js';
 import { contrast, surface, WCAG } from '../helpers/contrast.js';
+import { createDailyChallenge } from '../../src/game/dailyChallenge.js';
+import { formatDailyShare } from '../../src/game/dailyShare.js';
+import { isLeaderboardEnabled } from '../../src/game/dailyLeaderboard.js';
+import { createMatchJournal, finishMatchJournal } from '../../src/game/matchJournal.js';
+import { createGame } from '../../src/engine/index.js';
+
+/*
+ * Agent A's modules. The share text's own wording is pinned in tests/game; what
+ * this screen owes is that it composes the right arguments and puts the result
+ * where a player can get at it.
+ */
+vi.mock('../../src/game/dailyShare.js', () => ({
+  GAME_URL: 'https://ivanlay.com/dicewarsjs/',
+  formatDailyShare: vi.fn(() => 'SHARE TEXT'),
+}));
+
+vi.mock('../../src/game/dailyLeaderboard.js', () => ({
+  isLeaderboardEnabled: vi.fn(() => false),
+}));
 
 let container;
 /*
@@ -47,14 +66,30 @@ function renderGameOver(overrides = {}) {
     // for `undefined` rather than truthiness — `{}` is a deliberate ask for an
     // empty preference set, and reads as truthy anyway.
     ...(overrides.preferences !== undefined ? { preferences: overrides.preferences } : {}),
+    ...(overrides.dailyChallenge !== undefined
+      ? { dailyChallenge: overrides.dailyChallenge }
+      : {}),
+    ...(overrides.dailyResult !== undefined ? { dailyResult: overrides.dailyResult } : {}),
+    ...(overrides.matchJournal !== undefined ? { matchJournal: overrides.matchJournal } : {}),
   });
 
   const onTitle = overrides.onTitle ?? vi.fn();
-  const { onHistory, onSpectate, onRules } = overrides;
+  const { onHistory, onSpectate, onRules, onRetry, onSubmitScore } = overrides;
   container = document.createElement('div');
   document.body.appendChild(container);
   act(() => {
-    render(h(GameOverScreen, { store, onTitle, onHistory, onSpectate, onRules }), container);
+    render(
+      h(GameOverScreen, {
+        store,
+        onTitle,
+        onHistory,
+        onSpectate,
+        onRules,
+        onRetry,
+        onSubmitScore,
+      }),
+      container
+    );
   });
   return { store, container };
 }
@@ -66,6 +101,12 @@ function cssColor(hex) {
   return probe.style.color;
 }
 
+beforeEach(() => {
+  localStorage.clear();
+  isLeaderboardEnabled.mockReturnValue(false);
+  formatDailyShare.mockReturnValue('SHARE TEXT');
+});
+
 afterEach(() => {
   anchor?.remove();
   anchor = null;
@@ -74,6 +115,7 @@ afterEach(() => {
     container.remove();
     container = null;
   }
+  vi.restoreAllMocks();
 });
 
 describe('GameOverScreen', () => {
@@ -278,6 +320,21 @@ describe('GameOverScreen', () => {
     expect(document.activeElement).toBe(home);
   });
 
+  /*
+   * ...and lets the browser scroll it into view. The card scrolls now
+   * (`overflowY: auto`, and on a daily it carries the match report and the
+   * share block above the buttons), so on a short window HOME can start below
+   * the fold — where `preventScroll` would leave the keyboard on a control
+   * nobody can see. The flag belongs to the screens whose primary control is
+   * always already visible, and this stopped being one of them.
+   */
+  it('claims HOME without refusing to scroll it into view', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    renderGameOver({ gameState: { winner: 2 } });
+    expect(focus).toHaveBeenCalled();
+    expect(focus.mock.calls.at(-1)).toEqual([]);
+  });
+
   // The "How to play" card survives the game ending behind it and owns focus
   // while it is up; mounting under its scrim must not pull focus out of it.
   it('leaves focus alone when it mounts behind an open rules card', () => {
@@ -329,5 +386,276 @@ describe('GameOverScreen — heading legibility (#220)', () => {
     const theme = THEMES[name];
     const backing = surface(theme.bodyBg, theme.uiOverlayBg);
     expect(contrast(theme.uiText, backing)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+  });
+});
+
+/*
+ * The end of a Daily Conquest run — the only screen where the scored result is
+ * in the player's hands. Two decisions are on trial here: that the FIRST
+ * finished attempt is the scored one (so the replay button says PRACTICE
+ * AGAIN, not TRY AGAIN, and a later run says outright that it is not scored),
+ * and that the result can leave the browser — copied, shared, posted — without
+ * the page ever depending on a clipboard or a network that might not be there.
+ */
+describe('GameOverScreen — a scored daily result', () => {
+  const DAILY = createDailyChallenge('2026-09-07');
+
+  const finishedJournal = () => {
+    const state = createGame({ seed: 17, playerCount: 4 });
+    return finishMatchJournal(createMatchJournal(state, 0), { ...state, winner: 0 });
+  };
+
+  /** A store at the end of the day's scored attempt. */
+  const officialResult = (official = {}, extra = {}) => ({
+    available: true,
+    official: true,
+    streak: 3,
+    record: {
+      official: {
+        won: true,
+        turns: 9,
+        attacks: 37,
+        captures: 36,
+        submission: null,
+        ...official,
+      },
+      practice: 0,
+    },
+    ...extra,
+  });
+
+  const renderDaily = (overrides = {}) =>
+    renderGameOver({
+      gameState: { winner: 0 },
+      humanPlayerIndex: 0,
+      dailyChallenge: DAILY,
+      dailyResult: officialResult(),
+      matchJournal: finishedJournal(),
+      ...overrides,
+    });
+
+  const btn = label =>
+    [...container.querySelectorAll('button')].find(b => b.textContent.startsWith(label));
+
+  describe('the button row', () => {
+    it('labels the replay button PRACTICE AGAIN on a daily, and puts HOME first', () => {
+      const onRetry = vi.fn();
+      renderDaily({ onRetry, onHistory: vi.fn(), onRules: vi.fn() });
+
+      const labels = [...container.querySelectorAll('button')]
+        .map(b => b.textContent.trim())
+        .filter(label => !label.startsWith('COPY') && label !== 'SHARE' && label !== 'POST');
+      expect(labels).toEqual(['HOME', 'PRACTICE AGAIN', 'HISTORY', 'HOW TO PLAY']);
+
+      act(() => btn('PRACTICE AGAIN').click());
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps TRY AGAIN for an ordinary game', () => {
+      const onRetry = vi.fn();
+      renderGameOver({ gameState: { winner: 2 }, onRetry });
+
+      expect(btn('TRY AGAIN')).toBeTruthy();
+      expect(btn('PRACTICE AGAIN')).toBeUndefined();
+      act(() => btn('TRY AGAIN').click());
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the share block', () => {
+    it('composes the share text from the stored result and this game’s ending', () => {
+      renderDaily();
+      expect(formatDailyShare).toHaveBeenCalledWith({
+        date: '2026-09-07',
+        won: true,
+        turns: 9,
+        attacks: 37,
+        captures: 36,
+        streak: 3,
+        drew: false,
+      });
+    });
+
+    /* The draw comes from the game, not the record: the stored result carries
+       only won/turns, and "eliminated" would be a lie about a turn-cap draw. */
+    it('marks a turn-cap draw as a draw', () => {
+      renderDaily({
+        gameState: { winner: null },
+        gameOverReason: 'turnLimit',
+        dailyResult: officialResult({ won: false, turns: 40 }),
+      });
+      expect(formatDailyShare).toHaveBeenCalledWith(expect.objectContaining({ drew: true }));
+    });
+
+    it('copies to the clipboard and confirms it in the button’s own name', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      renderDaily();
+
+      await act(async () => {
+        btn('COPY RESULT').click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      expect(writeText).toHaveBeenCalledWith('SHARE TEXT');
+      expect(btn('COPY RESULT').textContent).toContain('Copied');
+      // One live region on this screen, and it belongs to App's announcer: the
+      // confirmation rides inside the button's label instead.
+      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(btn('COPY RESULT').querySelector('[aria-live]')).toBeTruthy();
+      vi.unstubAllGlobals();
+    });
+
+    /* No clipboard (an insecure context) must not mean no result: the text
+       itself is offered, selectable, in a readonly field. */
+    it('falls back to a selectable field when there is no clipboard', () => {
+      vi.stubGlobal('navigator', {});
+      renderDaily();
+
+      act(() => btn('COPY RESULT').click());
+
+      const field = container.querySelector('textarea');
+      expect(field.value).toBe('SHARE TEXT');
+      expect(field.readOnly).toBe(true);
+      vi.unstubAllGlobals();
+    });
+
+    it('falls back the same way when writeText rejects', async () => {
+      vi.stubGlobal('navigator', {
+        clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+      });
+      renderDaily();
+
+      await act(async () => {
+        btn('COPY RESULT').click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      expect(container.querySelector('textarea')?.value).toBe('SHARE TEXT');
+      expect(container.textContent).not.toContain('denied');
+      vi.unstubAllGlobals();
+    });
+
+    it('offers SHARE only where the platform has a share sheet', () => {
+      vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn() } });
+      renderDaily();
+      expect(btn('SHARE')).toBeUndefined();
+      act(() => render(null, container));
+
+      const share = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { share, clipboard: { writeText: vi.fn() } });
+      renderDaily();
+      act(() => btn('SHARE').click());
+      expect(share).toHaveBeenCalledWith({ text: 'SHARE TEXT' });
+      vi.unstubAllGlobals();
+    });
+  });
+
+  describe('the leaderboard form', () => {
+    beforeEach(() => isLeaderboardEnabled.mockReturnValue(true));
+
+    it('is absent entirely when no leaderboard is configured', () => {
+      isLeaderboardEnabled.mockReturnValue(false);
+      renderDaily({ onSubmitScore: vi.fn() });
+      expect(btn('POST')).toBeUndefined();
+      expect(container.querySelector('input')).toBeNull();
+    });
+
+    it('posts the typed name and reports the rank it came back with', async () => {
+      const onSubmitScore = vi.fn().mockResolvedValue({ accepted: true, rank: 4 });
+      renderDaily({ onSubmitScore });
+
+      const input = container.querySelector('input');
+      input.value = 'ACE';
+      act(() => input.dispatchEvent(new Event('input', { bubbles: true })));
+      await act(async () => {
+        btn('POST').click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      expect(onSubmitScore).toHaveBeenCalledWith('ACE');
+      expect(container.textContent).toContain('Posted as ACE · #4');
+      expect(btn('POST')).toBeUndefined();
+      // ...and the name is remembered for tomorrow's run.
+      expect(localStorage.getItem('dicewars_daily_name')).toBe('ACE');
+    });
+
+    it('shows the error’s own message and leaves the form up', async () => {
+      const onSubmitScore = vi.fn().mockRejectedValue(new Error('That name is taken.'));
+      renderDaily({ onSubmitScore });
+
+      await act(async () => {
+        btn('POST').click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('That name is taken.');
+      expect(btn('POST')).toBeTruthy();
+    });
+
+    /* A double-tap must not post twice; the control stays in the tab order
+       while it is unavailable (aria-disabled, not disabled). */
+    it('refuses a second post while the first is in flight', () => {
+      let settle;
+      const onSubmitScore = vi.fn(
+        () =>
+          new Promise(resolve => {
+            settle = resolve;
+          })
+      );
+      renderDaily({ onSubmitScore });
+
+      act(() => btn('POST').click());
+      const posting = btn('POSTING');
+      expect(posting.getAttribute('aria-disabled')).toBe('true');
+      expect(posting.hasAttribute('disabled')).toBe(false);
+      act(() => posting.click());
+      expect(onSubmitScore).toHaveBeenCalledTimes(1);
+      settle({ rank: 1 });
+    });
+
+    it('prefills the name last posted, and caps it at 16 characters', () => {
+      localStorage.setItem('dicewars_daily_name', 'REMEMBERED');
+      renderDaily({ onSubmitScore: vi.fn() });
+
+      const input = container.querySelector('input');
+      expect(input.value).toBe('REMEMBERED');
+      expect(input.maxLength).toBe(16);
+      expect(container.querySelector(`label[for="${input.id}"]`)).toBeTruthy();
+    });
+
+    it('survives a browser that refuses storage', () => {
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('denied');
+      });
+      renderDaily({ onSubmitScore: vi.fn() });
+      expect(container.querySelector('input').value).toBe('');
+    });
+
+    /* An already-submitted result shows the posting, not the form again. */
+    it('shows the recorded submission instead of the form', () => {
+      renderDaily({
+        dailyResult: officialResult({ submission: { name: 'ACE', rank: 4 } }),
+        onSubmitScore: vi.fn(),
+      });
+      expect(container.textContent).toContain('Posted as ACE · #4');
+      expect(btn('POST')).toBeUndefined();
+    });
+  });
+
+  describe('a practice run', () => {
+    it('says it is not scored, and offers neither share nor post', () => {
+      isLeaderboardEnabled.mockReturnValue(true);
+      renderDaily({
+        dailyChallenge: { ...DAILY, practice: true },
+        dailyResult: { available: true, official: false, streak: 3, record: null },
+        onRetry: vi.fn(),
+      });
+
+      expect(container.textContent).toContain('Practice run · not scored');
+      expect(btn('COPY RESULT')).toBeUndefined();
+      expect(btn('POST')).toBeUndefined();
+      expect(btn('PRACTICE AGAIN')).toBeTruthy();
+    });
   });
 });

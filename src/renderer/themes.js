@@ -51,6 +51,22 @@ export const THEMES = {
     candidateHalo: 0x000000,
     uiBg: 'rgba(0, 0, 0, 0.5)',
     uiOverlayBg: 'rgba(0, 0, 0, 0.75)',
+    /*
+     * `uiPanelBg` is the OPAQUE panel surface, and opacity is the whole point:
+     * `uiBg` and `uiOverlayBg` are translucent, so what a panel painted with
+     * them really carries is the board pixel underneath, and the board is a
+     * palette of bright seats. Measured over the worst of them the in-game
+     * supply panel's own text ran 4.2:1 and its muted labels 2.6:1 in this
+     * theme, and the daily/result eyebrows and the campaign chart 2.8:1 — all
+     * short of their floor, none of it visible on a page-colored mock. A panel
+     * that carries dense small text (SupplyStatus, the daily card, the match
+     * report) takes this instead, and then reads the same over every seat.
+     *
+     * Near the page color rather than a new one: it is the same surface the
+     * game already sits on, made solid, so the panels read as raised rather
+     * than as a second palette.
+     */
+    uiPanelBg: '#12122a',
     uiText: '#ffffff',
     uiTextMuted: '#c9c9d6',
     uiAccent: '#e94560',
@@ -95,6 +111,9 @@ export const THEMES = {
     candidateHalo: 0x1a1a2e,
     uiBg: 'rgba(255, 255, 255, 0.85)',
     uiOverlayBg: 'rgba(240, 240, 245, 0.9)',
+    /* The opaque panel surface; see the dark theme's note. A shade above the
+       page so the panel edge reads without leaning on the border alone. */
+    uiPanelBg: '#f4f4fa',
     uiText: '#1a1a2e',
     uiTextMuted: '#3f3f52',
     uiAccent: '#c0283d',

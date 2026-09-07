@@ -186,8 +186,19 @@ export function MapPreview({ store, onAccept, onReject, onBack }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [onBack]);
 
+  /*
+   * A daily names itself instead of the remembered setup — and says so when the
+   * scored attempt is already spent, because the board looks identical either
+   * way and this is the last screen before you commit to playing it again.
+   */
   const setup = daily
-    ? `Daily Conquest · ${formatDailyDate(daily.date)} · ${describeSetup(daily)}`
+    ? [
+        `Daily Conquest · ${formatDailyDate(daily.date)}`,
+        describeSetup(daily),
+        daily.practice ? 'Practice run · not scored' : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
     : describeSetup(config, handicap);
 
   return (

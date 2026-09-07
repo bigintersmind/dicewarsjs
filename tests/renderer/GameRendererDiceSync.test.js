@@ -262,14 +262,19 @@ describe('GameRenderer _resize() — the HUD bar reservation (#222)', () => {
    *
    * The padded form has to come from a stubbed getComputedStyle: jsdom trims
    * the value on the way in through setProperty, so declaring ' 80px ' would
-   * quietly put the trimmed one under test.
+   * quietly put the trimmed one under test. The stub answers for the bar
+   * property alone — _resize() reads a second reservation (the supply panel's)
+   * through the same call, and a stub that answered every property would put
+   * this bar height at both ends of the board.
    */
   it.each([
     ['surrounding whitespace', ' 80px ', 80],
     ['a fractional px length', '79.5px', 79.5],
   ])('accepts %s', async (_label, declared, bar) => {
     const renderer = await shortWindow(null);
-    vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => declared }));
+    vi.stubGlobal('getComputedStyle', () => ({
+      getPropertyValue: prop => (prop === HUD_BAR_HEIGHT_VAR ? declared : ''),
+    }));
 
     renderer._resize();
 

@@ -188,6 +188,9 @@ export function App({ store, controller, preferencesManager }) {
             onSpectate={() => controller.startSpectate()}
             onRules={openRules}
             onRetry={() => controller.retryGame()}
+            /* Returns the SubmissionResult or throws; the screen shows the
+               rank on success and the error's own message on failure. */
+            onSubmitScore={name => controller.submitDailyScore(name)}
           />
         </div>
       );

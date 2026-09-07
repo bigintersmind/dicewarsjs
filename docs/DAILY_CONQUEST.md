@@ -8,7 +8,7 @@ Your **first completed attempt** on a date is the one that counts. A win, an eli
 
 After that, the same board stays open for **practice**. PRACTICE from the title and PRACTICE AGAIN from the result screen replay today's board as often as you like. Practice runs are counted but never change the scored result, and they cannot be posted to the leaderboard.
 
-The scored attempt is remembered per browser. Clearing site data, a private window, or another device starts the day over. The leaderboard's own guard against repeat posting is a small per-network daily cap, so a determined player can still practice elsewhere first. That tradeoff is deliberate: it keeps the game free of accounts.
+The scored attempt is remembered per browser. Clearing site data, a private window, or another device starts the day over. If two tabs play the same board at once, the first to finish is the scored one and the other is recorded as practice, whatever it was told at the start. The leaderboard's own guard against repeat posting is a small per-network daily cap, so a determined player can still practice elsewhere first. That tradeoff is deliberate: it keeps the game free of accounts.
 
 ## Same dice, on purpose
 
@@ -61,6 +61,6 @@ The end-of-match report shows your turns, attacks won, most land held, and your 
 - `src/store/dailyRecords.js` keeps the scored result, the practice count and the leaderboard post per date under `dicewars_daily_v<version>`, newest 30 dates retained. A real storage failure reports `available: false` and play continues; a corrupt stored value is replaced on the next save.
 - `src/game/matchJournal.js` reads resolved state transitions without consuming RNG or changing engine state. The controller records both human and AI actions and freezes the journal at the human's result. Statistics never block the game loop.
 - `src/game/dailyShare.js` formats the share text. `src/game/dailyLeaderboard.js` is the HTTP client; it is disabled unless the build sets `VITE_DAILY_LEADERBOARD_URL` (the Pages deploy reads the repository variable `DAILY_LEADERBOARD_URL`).
-- `src/game/verifyDailyReplay.js` is the pure verifier shared with the server in `server/daily-leaderboard/` (a Cloudflare Worker with D1). See that folder's README for deployment.
+- `src/game/verifyDailyReplay.js` is the pure verifier shared with the server in `server/daily-leaderboard/` (a Cloudflare Worker with D1). See that folder's README for deployment, including the measured CPU cost per verification: long games exceed the free plan's budget, so a paid plan with `[limits] cpu_ms` enabled is a prerequisite for setting `DAILY_LEADERBOARD_URL`.
 - Daily identity lives outside the ordinary `store.config`, so the player's own setup survives the daily detour. The controller resolves the daily setup and refuses a reroll; the UI is not the only guard.
 - No engine rules, AI strategies, handicap rules, arena/tournament fields, replay schemas, or ML encoding/weights are changed by this feature.

@@ -571,12 +571,28 @@ describe('Daily Conquest touch targets', () => {
   });
 
   /*
+   * The name field is the one text input in the game, and iOS zooms the whole
+   * page into any field it can focus whose type is under 16px — leaving the
+   * player pinched into a scrolled, magnified card with no way back but a
+   * manual zoom out. 16px exactly is the threshold, so this is the smallest
+   * type that avoids it; the desktop .9rem is untouched beside it.
+   */
+  it('lifts the name field to 16px on a coarse pointer so iOS does not zoom in', () => {
+    const input = coarseRules(RESULT_CSS).find(rule => rule.selector === '.dw-daily-name');
+    expect(decl(input.body, 'font-size')).toBe('16px');
+    // The mouse still gets the smaller type the card was designed around.
+    const base = nonCoarseRules(RESULT_CSS).find(rule => rule.selector === '.dw-daily-name');
+    expect(decl(base.body, 'font-size')).toBe('.9rem');
+  });
+
+  /*
    * The other half, as for the four sheets above: nothing on the new controls
    * grows for a mouse. Their base rules are listed with the sizes they ship
    * with, so a later edit that fattens the desktop layout fails here.
    */
   const NEW_BASE = {
     '.dw-share-btn': { 'font-size': '.95rem' },
+    '.dw-daily-name': { 'font-size': '.9rem' },
     '.dw-opt.dw-daily-opt': { 'font-size': '1.05rem' },
   };
 

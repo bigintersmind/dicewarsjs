@@ -176,6 +176,35 @@ describe('bevel tokens (#220)', () => {
 });
 
 /*
+ * The bordered-control edge (--ui-border-strong).
+ *
+ * `uiBorder` is a hairline BETWEEN SURFACES — a panel edge, a divider — and at
+ * ~2.5:1 on `uiPanelBg` (2.6:1 light) it does that job well. It was also doing
+ * a second job it never cleared the bar for: the share/post buttons and the
+ * name field on the result panel are CONTROLS whose only visible boundary is
+ * that line, and WCAG 1.4.11 asks 3:1 of a control boundary. Rather than
+ * thicken every divider in the game, the controls take their own token.
+ */
+describe('the bordered-control edge (--ui-border-strong)', () => {
+  it.each(['dark', 'light'])('clears 3:1 on the panel in the %s theme', name => {
+    const t = THEMES[name];
+    expect(contrast(t.uiBorderStrong, t.uiPanelBg)).toBeGreaterThanOrEqual(WCAG.AA_NON_TEXT);
+  });
+
+  /*
+   * And the point of adding one rather than raising `uiBorder`: the hairline is
+   * deliberately still below the control bar. If a later edit "fixes" it there,
+   * this token has no reason to exist and the two should be merged on purpose,
+   * not by drift.
+   */
+  it.each(['dark', 'light'])('leaves the divider hairline where it was (%s)', name => {
+    const t = THEMES[name];
+    expect(contrast(t.uiBorder, t.uiPanelBg)).toBeLessThan(WCAG.AA_NON_TEXT);
+    expect(t.uiBorderStrong).not.toBe(t.uiBorder);
+  });
+});
+
+/*
  * The opaque panel token (Daily Conquest v2).
  *
  * The in-game supply panel, the daily card and the match report all paint a box

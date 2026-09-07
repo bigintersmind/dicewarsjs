@@ -32,7 +32,10 @@ vi.mock('../../src/game/dailyShare.js', () => ({
   formatDailyShare: vi.fn(() => 'SHARE TEXT'),
 }));
 
-vi.mock('../../src/game/dailyLeaderboard.js', () => ({
+/* Only the on/off switch is faked: `normalizeName` is the rule the confirmation
+   and the remembered prefill are held to, so this screen has to run the real one. */
+vi.mock('../../src/game/dailyLeaderboard.js', async importOriginal => ({
+  ...(await importOriginal()),
   isLeaderboardEnabled: vi.fn(() => false),
 }));
 
@@ -333,6 +336,51 @@ describe('GameOverScreen', () => {
     expect(focus.mock.calls.at(-1)).toEqual([]);
   });
 
+  /*
+   * ...unless the card carries a scored daily result. Then the report and the
+   * share block sit ABOVE the button row, HOME is the last thing in the DOM,
+   * and claiming it there put COPY RESULT, the name field and POST behind a
+   * Shift+Tab — while the focus scroll pushed the result itself off the top of
+   * a phone screen. The one claim goes to the block's first control instead.
+   */
+  it('claims the share block’s first control after a scored daily', () => {
+    const store = createGameStore();
+    store.setState({
+      gameState: { winner: 0 },
+      humanPlayerIndex: 0,
+      dailyChallenge: createDailyChallenge('2026-09-07'),
+      dailyResult: {
+        available: true,
+        official: true,
+        streak: 3,
+        outcome: { won: true, drew: false, turns: 9, attacks: 37, captures: 36 },
+        record: { official: { won: true, turns: 9, submission: null }, practice: 0 },
+      },
+    });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => render(h(GameOverScreen, { store, onTitle: vi.fn() }), container));
+
+    const copy = [...container.querySelectorAll('button')].find(
+      b => b.textContent === 'COPY RESULT'
+    );
+    expect(document.activeElement).toBe(copy);
+    // Still exactly one claim, and still not `preventScroll` — the card
+    // scrolls, so refusing to scroll would strand the keyboard off screen.
+  });
+
+  /* A practice run has no share block, so HOME is the primary action again. */
+  it('keeps HOME for a practice daily run', () => {
+    renderGameOver({
+      gameState: { winner: 2 },
+      humanPlayerIndex: 0,
+      dailyChallenge: { ...createDailyChallenge('2026-09-07'), practice: true },
+      dailyResult: { available: true, official: false, streak: 3, record: null },
+    });
+    const home = [...container.querySelectorAll('button')].find(b => b.textContent === 'HOME');
+    expect(document.activeElement).toBe(home);
+  });
+
   // The "How to play" card survives the game ending behind it and owns focus
   // while it is up; mounting under its scrim must not pull focus out of it.
   it('leaves focus alone when it mounts behind an open rules card', () => {
@@ -403,22 +451,34 @@ describe('GameOverScreen — a scored daily result', () => {
     return finishMatchJournal(createMatchJournal(state, 0), { ...state, winner: 0 });
   };
 
-  /** A store at the end of the day's scored attempt. */
-  const officialResult = (official = {}, extra = {}) => ({
+  /**
+   * A store at the end of the day's scored attempt.
+   *
+   * `outcome` is the controller's frozen verdict for THIS attempt and the only
+   * thing the share text reads; `record` is what storage kept, and is consulted
+   * only for the leaderboard `submission`. They are separate arguments here
+   * because the screen must not confuse them — and because `record` can be null
+   * (a browser that refuses storage) while `outcome` is still perfectly good.
+   */
+  const officialResult = (outcome = {}, { official = {}, record, ...extra } = {}) => ({
     available: true,
     official: true,
     streak: 3,
-    record: {
-      official: {
-        won: true,
-        turns: 9,
-        attacks: 37,
-        captures: 36,
-        submission: null,
-        ...official,
-      },
-      practice: 0,
-    },
+    outcome: { won: true, drew: false, turns: 9, attacks: 37, captures: 36, ...outcome },
+    record:
+      record === null
+        ? null
+        : {
+            official: {
+              won: true,
+              turns: 9,
+              attacks: 37,
+              captures: 36,
+              submission: null,
+              ...official,
+            },
+            practice: 0,
+          },
     ...extra,
   });
 
@@ -461,7 +521,7 @@ describe('GameOverScreen — a scored daily result', () => {
   });
 
   describe('the share block', () => {
-    it('composes the share text from the stored result and this game’s ending', () => {
+    it('composes the share text from the controller’s frozen outcome', () => {
       renderDaily();
       expect(formatDailyShare).toHaveBeenCalledWith({
         date: '2026-09-07',
@@ -474,21 +534,80 @@ describe('GameOverScreen — a scored daily result', () => {
       });
     });
 
-    /* The draw comes from the game, not the record: the stored result carries
-       only won/turns, and "eliminated" would be a lie about a turn-cap draw. */
+    /* The draw flag is the controller's, computed at game over from this
+       attempt's journal and the draw reason. */
     it('marks a turn-cap draw as a draw', () => {
       renderDaily({
         gameState: { winner: null },
         gameOverReason: 'turnLimit',
-        dailyResult: officialResult({ won: false, turns: 40 }),
+        dailyResult: officialResult({ won: false, drew: true, turns: 40 }),
       });
       expect(formatDailyShare).toHaveBeenCalledWith(expect.objectContaining({ drew: true }));
     });
 
-    it('copies to the clipboard and confirms it in the button’s own name', async () => {
+    /*
+     * ...and NOT recomputed here from `winner`/`gameOverReason`. A player who
+     * was eliminated and then spectated on watches the survivors reach the turn
+     * cap, so the screen's own state says "winner: null, turnLimit" — while the
+     * record, the title card and the leaderboard all say eliminated. The share
+     * text is the copy of the four that gets pasted somewhere public, so it
+     * follows the frozen outcome rather than the board it happens to be over.
+     */
+    it('does not call a spectated turn-cap ending a draw for an eliminated player', () => {
+      renderDaily({
+        gameState: { winner: null },
+        gameOverReason: 'turnLimit',
+        humanEliminated: true,
+        dailyResult: officialResult({ won: false, drew: false, turns: 12 }),
+      });
+      expect(formatDailyShare).toHaveBeenCalledWith(
+        expect.objectContaining({ drew: false, won: false, turns: 12 })
+      );
+    });
+
+    /*
+     * Storage and sharing are independent. `submitDailyScore` needs the
+     * challenge, the verdict and the replay — none of which live in the record —
+     * so a browser that refuses storage must still be able to copy and post the
+     * result it just earned. The block used to be gated on `record.official`,
+     * and vanished entirely in private mode.
+     */
+    it('still offers the result when storage refused to keep it', () => {
+      isLeaderboardEnabled.mockReturnValue(true);
+      renderDaily({
+        dailyResult: officialResult({}, { record: null, available: false }),
+        onSubmitScore: vi.fn(),
+      });
+
+      expect(btn('COPY RESULT')).toBeTruthy();
+      expect(btn('POST')).toBeTruthy();
+      expect(formatDailyShare).toHaveBeenCalledWith(expect.objectContaining({ turns: 9 }));
+    });
+
+    /* No verdict from the controller means nothing to share. */
+    it('shows no block at all without an outcome', () => {
+      renderDaily({ dailyResult: { available: true, official: true, streak: 3, record: null } });
+      expect(btn('COPY RESULT')).toBeUndefined();
+    });
+
+    /*
+     * The confirmation is a SIBLING of the buttons, not part of one's name. It
+     * used to be a live span inside COPY RESULT, which mutates the accessible
+     * name of the control the player is standing on — a change screen readers
+     * announce inconsistently, and one that leaves the button called "COPY
+     * RESULT · Copied" for as long as it is up. The live element is also
+     * present and empty BEFORE the copy: a region that only appears once there
+     * is something to say is not reliably announced at all.
+     */
+    it('confirms the copy in a live region beside the buttons, not inside one', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined);
       vi.stubGlobal('navigator', { clipboard: { writeText } });
       renderDaily();
+
+      const live = container.querySelector('[aria-live]');
+      expect(live).toBeTruthy();
+      expect(live.textContent).toBe('');
+      expect(live.closest('button')).toBeNull();
 
       await act(async () => {
         btn('COPY RESULT').click();
@@ -496,11 +615,14 @@ describe('GameOverScreen — a scored daily result', () => {
       });
 
       expect(writeText).toHaveBeenCalledWith('SHARE TEXT');
-      expect(btn('COPY RESULT').textContent).toContain('Copied');
-      // One live region on this screen, and it belongs to App's announcer: the
-      // confirmation rides inside the button's label instead.
+      expect(container.querySelector('[aria-live]').textContent).toContain('Copied');
+      // Visible, unlike the post confirmation: no other control shows it.
+      expect(container.querySelector('[aria-live] span').className).toBeFalsy();
+      expect(btn('COPY RESULT').textContent).toBe('COPY RESULT');
+      // Exactly one, and it is not a second `role="status"`: this screen already
+      // has one live region of that kind and it is App's ScreenReaderAnnouncer.
+      expect(container.querySelectorAll('[aria-live]')).toHaveLength(1);
       expect(container.querySelector('[role="status"]')).toBeNull();
-      expect(btn('COPY RESULT').querySelector('[aria-live]')).toBeTruthy();
       vi.unstubAllGlobals();
     });
 
@@ -547,6 +669,39 @@ describe('GameOverScreen — a scored daily result', () => {
       expect(share).toHaveBeenCalledWith({ text: 'SHARE TEXT' });
       vi.unstubAllGlobals();
     });
+
+    /* Dismissing the share sheet is the user saying no, and gets no answer. */
+    it('says nothing when the share sheet is cancelled', async () => {
+      const abort = Object.assign(new Error('cancelled'), { name: 'AbortError' });
+      vi.stubGlobal('navigator', { share: vi.fn().mockRejectedValue(abort) });
+      renderDaily();
+
+      await act(async () => {
+        btn('SHARE').click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      expect(container.querySelector('textarea')).toBeNull();
+      expect(container.querySelector('[aria-live]').textContent).toBe('');
+      vi.unstubAllGlobals();
+    });
+
+    /* Anything else IS a failure, and the result must still be reachable — the
+       same readonly field the clipboard falls back to. Swallowing every
+       rejection alike left the button looking like it had worked. */
+    it('falls back to the selectable field when the share sheet fails', async () => {
+      vi.stubGlobal('navigator', { share: vi.fn().mockRejectedValue(new Error('no target')) });
+      renderDaily();
+
+      await act(async () => {
+        btn('SHARE').click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      expect(container.querySelector('textarea')?.value).toBe('SHARE TEXT');
+      expect(container.textContent).not.toContain('no target');
+      vi.unstubAllGlobals();
+    });
   });
 
   describe('the leaderboard form', () => {
@@ -559,26 +714,96 @@ describe('GameOverScreen — a scored daily result', () => {
       expect(container.querySelector('input')).toBeNull();
     });
 
-    it('posts the typed name and reports the rank it came back with', async () => {
+    /** Type into the name field, the way the player does. */
+    const typeName = value => {
+      const input = container.querySelector('input');
+      input.value = value;
+      act(() => input.dispatchEvent(new Event('input', { bubbles: true })));
+      return input;
+    };
+
+    /*
+     * The row STAYS. It used to be replaced by a static sentence on success,
+     * which unmounted the button the player had just pressed: focus fell to the
+     * body, and nothing was announced — the two failures compounding, since a
+     * screen reader user was left with no focus AND no message. The button
+     * becomes the confirmation instead, the field goes read-only beside it, and
+     * the live region says what happened.
+     */
+    it('posts the typed name, keeps focus, and announces the rank', async () => {
       const onSubmitScore = vi.fn().mockResolvedValue({ accepted: true, rank: 4 });
       renderDaily({ onSubmitScore });
 
-      const input = container.querySelector('input');
-      input.value = 'ACE';
-      act(() => input.dispatchEvent(new Event('input', { bubbles: true })));
+      typeName('ACE');
+      const posting = btn('POST');
+      posting.focus();
+      await act(async () => {
+        posting.click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      expect(onSubmitScore).toHaveBeenCalledWith('ACE');
+      // Same element, new content — so focus never went anywhere.
+      expect(document.activeElement).toBe(posting);
+      expect(posting.textContent).toBe('Posted as ACE · #4');
+      expect(posting.getAttribute('aria-disabled')).toBe('true');
+      expect(container.querySelector('input').disabled).toBe(true);
+      // ...and the outcome is announced from the live element beside it, whose
+      // text is clipped rather than printed: the button already shows this
+      // line, and the card should not say it twice.
+      expect(container.querySelector('[aria-live]').textContent).toBe('Posted as ACE · #4');
+      expect(container.querySelector('[aria-live] span').className).toBe('sr-only');
+      // ...and the name is remembered for tomorrow's run.
+      expect(localStorage.getItem('dicewars_daily_name')).toBe('ACE');
+    });
+
+    /*
+     * The server trims and collapses whitespace before it stores a name, so the
+     * confirmation and the remembered prefill have to be the NORMALIZED form —
+     * otherwise tomorrow's field is prefilled with something the leaderboard
+     * never shows. The raw value is still what gets submitted: rejecting it here
+     * would duplicate the controller's own validation and its coded message.
+     */
+    it('confirms and remembers the normalized name, not the raw input', async () => {
+      const onSubmitScore = vi.fn().mockResolvedValue({ rank: 2 });
+      renderDaily({ onSubmitScore });
+
+      typeName('  big   ace  ');
       await act(async () => {
         btn('POST').click();
         for (let i = 0; i < 5; i += 1) await Promise.resolve();
       });
 
-      expect(onSubmitScore).toHaveBeenCalledWith('ACE');
-      expect(container.textContent).toContain('Posted as ACE · #4');
-      expect(btn('POST')).toBeUndefined();
-      // ...and the name is remembered for tomorrow's run.
-      expect(localStorage.getItem('dicewars_daily_name')).toBe('ACE');
+      expect(onSubmitScore).toHaveBeenCalledWith('  big   ace  ');
+      expect(container.textContent).toContain('Posted as big ace · #2');
+      expect(localStorage.getItem('dicewars_daily_name')).toBe('big ace');
+      expect(container.querySelector('input').value).toBe('big ace');
     });
 
-    it('shows the error’s own message and leaves the form up', async () => {
+    /* Enter in a one-field form is how the field is submitted everywhere else
+       on the web; it used to do nothing here. */
+    it('posts on Enter in the name field', async () => {
+      const onSubmitScore = vi.fn().mockResolvedValue({ rank: 7 });
+      renderDaily({ onSubmitScore });
+
+      typeName('ACE');
+      const form = container.querySelector('form');
+      expect(btn('POST').getAttribute('type')).toBe('submit');
+      await act(async () => {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      expect(onSubmitScore).toHaveBeenCalledWith('ACE');
+      expect(container.textContent).toContain('Posted as ACE · #7');
+    });
+
+    /*
+     * A failure was rendered as an ordinary `<p>` — muted helper type, silent
+     * to a screen reader, sitting under a form that still looked ready. It goes
+     * to the same live region as every other outcome, and in the danger color.
+     */
+    it('announces the error’s own message in the danger color and leaves the form up', async () => {
       const onSubmitScore = vi.fn().mockRejectedValue(new Error('That name is taken.'));
       renderDaily({ onSubmitScore });
 
@@ -587,8 +812,15 @@ describe('GameOverScreen — a scored daily result', () => {
         for (let i = 0; i < 5; i += 1) await Promise.resolve();
       });
 
-      expect(container.textContent).toContain('That name is taken.');
+      const live = container.querySelector('[aria-live]');
+      expect(live.textContent).toBe('That name is taken.');
+      expect(live.className).toContain('dw-daily-live-error');
+      expect(container.querySelector('style').textContent).toContain(
+        '.dw-daily-live-error { color: var(--ui-danger); }'
+      );
+      // Still postable: the name may just need changing.
       expect(btn('POST')).toBeTruthy();
+      expect(container.querySelector('input').disabled).toBe(false);
     });
 
     /* A double-tap must not post twice; the control stays in the tab order
@@ -630,14 +862,28 @@ describe('GameOverScreen — a scored daily result', () => {
       expect(container.querySelector('input').value).toBe('');
     });
 
-    /* An already-submitted result shows the posting, not the form again. */
-    it('shows the recorded submission instead of the form', () => {
+    /* An already-submitted result comes back as the confirmation, on the same
+       row, with the field read-only — never a second chance to post. */
+    it('shows the recorded submission in place of the POST action', () => {
       renderDaily({
-        dailyResult: officialResult({ submission: { name: 'ACE', rank: 4 } }),
+        dailyResult: officialResult({}, { official: { submission: { name: 'ACE', rank: 4 } } }),
         onSubmitScore: vi.fn(),
       });
       expect(container.textContent).toContain('Posted as ACE · #4');
       expect(btn('POST')).toBeUndefined();
+      expect(container.querySelector('input').disabled).toBe(true);
+      expect(container.querySelector('input').value).toBe('ACE');
+    });
+
+    /* ...and pressing it anyway posts nothing. */
+    it('refuses a second post of a result already on the board', () => {
+      const onSubmitScore = vi.fn();
+      renderDaily({
+        dailyResult: officialResult({}, { official: { submission: { name: 'ACE', rank: 4 } } }),
+        onSubmitScore,
+      });
+      act(() => container.querySelector('form').querySelector('button').click());
+      expect(onSubmitScore).not.toHaveBeenCalled();
     });
   });
 

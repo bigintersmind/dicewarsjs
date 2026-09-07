@@ -87,6 +87,17 @@ export const THEMES = {
     uiBevelShade: '#875300',
     uiBevelDeep: '#4a2d00',
     uiBorder: '#555555',
+    /*
+     * The bordered-CONTROL edge. `uiBorder` is a hairline between surfaces and
+     * measures ~2.5:1 on `uiPanelBg` in this theme (2.6:1 in the light one),
+     * which is fine for a divider and short of the 3:1 WCAG 1.4.11 asks of a
+     * control's own boundary. The share/post buttons and the name field on the
+     * result panel are controls whose only visible edge IS that border, so they
+     * take this stronger step (3.65:1 here, 4.15:1 light) instead. `uiBorder`
+     * itself is deliberately unchanged: widening every panel edge to a control
+     * boundary would redraw the whole game as boxes.
+     */
+    uiBorderStrong: '#6f6f6f',
     bodyBg: '#1a1a2e',
     /*
      * `uiDanger` is the theme's one error/danger color, kept apart from `uiAccent` (the
@@ -135,6 +146,8 @@ export const THEMES = {
     uiBevelShade: '#4a2d00',
     uiBevelDeep: '#241600',
     uiBorder: '#999999',
+    /* The control edge, cast for the pale panel; see the dark theme's note. */
+    uiBorderStrong: '#767676',
     bodyBg: '#e8e8f0',
     uiDanger: '#a92d1c',
     uiScrim: 'rgba(244, 244, 250, 0.7)',

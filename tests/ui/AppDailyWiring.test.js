@@ -24,7 +24,10 @@ vi.mock('../../src/store/dailyRecords.js', () => ({
   readDailyRecord: vi.fn(() => ({ record: null, available: true, streak: 0 })),
 }));
 
-vi.mock('../../src/game/dailyLeaderboard.js', () => ({
+/* Only the switch and the network call are faked: `normalizeName` is the rule
+   the posted name is held to, so the real one runs. */
+vi.mock('../../src/game/dailyLeaderboard.js', async importOriginal => ({
+  ...(await importOriginal()),
   isLeaderboardEnabled: vi.fn(() => false),
   fetchDailyLeaderboard: vi.fn(() => Promise.resolve(null)),
 }));
@@ -69,6 +72,9 @@ function dailyGameOverState(overrides = {}) {
       available: true,
       official: true,
       streak: 3,
+      // The controller's frozen verdict for this attempt — the share block's
+      // only source, and its gate.
+      outcome: { won: true, drew: false, turns: 9, attacks: 20, captures: 15 },
       record: {
         official: { won: true, turns: 9, attacks: 20, captures: 15, submission: null },
         practice: 0,

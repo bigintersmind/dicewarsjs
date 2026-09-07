@@ -22,7 +22,9 @@
  * - It publishes its measured height as `--dw-supply-panel-height`, the way
  *   GameHUD publishes its bar height, and GameRenderer reserves that band at
  *   the top of the board. Without it a Large map on a short window is scaled to
- *   the full window height and its top rows sit under this panel.
+ *   the full window height and its top rows sit under this panel. The value is
+ *   quantized (SUPPLY_PANEL_HEIGHT_STEP) so a reflow of a few pixels does not
+ *   rescale the board mid-turn.
  *
  * @module ui/SupplyStatus
  */
@@ -43,7 +45,8 @@ const SUPPLY_CSS = `
 .dw-supply dl div { display: flex; align-items: baseline; gap: .35rem; }
 .dw-supply dt { font-size: .72rem; color: var(--ui-text-muted); }
 .dw-supply dd { margin: 0; font: 1.25rem Anton, sans-serif; font-variant-numeric: tabular-nums; }
-.dw-supply p { margin: .45rem 0 0; font-size: .7rem; line-height: 1.4; color: var(--ui-text-muted); }
+.dw-supply p { margin: .45rem 0 0; min-height: 2.8em; font-size: .7rem; line-height: 1.4;
+  color: var(--ui-text-muted); }
 @media (max-width: 440px) {
   .dw-supply { padding: .65rem .7rem; }
   .dw-supply dl div { flex-direction: column-reverse; gap: 0; }
@@ -58,6 +61,21 @@ const SUPPLY_CSS = `
   .dw-supply dd { font-size: 1rem; }
 }
 `;
+
+/**
+ * The published height is rounded UP to this many pixels.
+ *
+ * The panel is measured, and a measured box moves: a two-digit reinforcement
+ * count rewrapping the explanatory sentence, a font swapping in, a scrollbar
+ * appearing. Every one of those republished a new `--dw-supply-panel-height`,
+ * which dispatches a resize, which rescales the whole board — the map visibly
+ * shifting mid-turn because a sentence gained a line. Quantizing absorbs the
+ * small moves: the reservation only changes when it crosses a step, so an 88px
+ * panel and a 91px panel both reserve 96px and the board holds still. The
+ * paragraph also reserves its own two lines (SUPPLY_CSS), which stops the most
+ * common reflow at the source; this is the backstop for the rest.
+ */
+export const SUPPLY_PANEL_HEIGHT_STEP = 8;
 
 /**
  * @param {Object} props
@@ -97,7 +115,7 @@ export function SupplyStatus({ store }) {
       // The panel is `position: absolute` at `top: 1rem`, so what the board has
       // to clear is the panel plus the gap above it, not the panel alone.
       const box = el.getBoundingClientRect();
-      const height = Math.ceil(box.bottom);
+      const height = Math.ceil(box.bottom / SUPPLY_PANEL_HEIGHT_STEP) * SUPPLY_PANEL_HEIGHT_STEP;
       // A zero height is a panel that has not been laid out (jsdom, a hidden
       // subtree, a browser mid-font-swap): reserving nothing is what an absent
       // property already means, so publish nothing rather than a bogus 0px.
@@ -125,7 +143,15 @@ export function SupplyStatus({ store }) {
     <aside className="dw-supply" aria-label="Your supply" ref={panelRef}>
       <style>{SUPPLY_CSS}</style>
       <div className="dw-supply-heading">
-        <span>{daily ? `Daily · ${formatDailyDate(daily.date)}` : 'Your supply'}</span>
+        {/* PRACTICE AGAIN restarts straight into the game — it skips the map
+            preview, the only other place a practice run is labelled — so on a
+            second run of the day this heading is the one thing on screen that
+            can say the result will not be scored. */}
+        <span>
+          {daily
+            ? `Daily · ${formatDailyDate(daily.date)}${daily.practice ? ' · Practice' : ''}`
+            : 'Your supply'}
+        </span>
         <span>Round {(state.turnNumber ?? 0) + 1}</span>
       </div>
       <dl>
@@ -133,9 +159,13 @@ export function SupplyStatus({ store }) {
           <dt>Land</dt>
           <dd>{player.territoryCount}</dd>
         </div>
+        {/* No `+` here, unlike the HUD chip: the chip's `+N` is the stockpile
+            waiting to be spent, and one sign that means two different things
+            across two panels is worse than none. This is a count of dice the
+            group earns, so it reads as a count. */}
         <div>
           <dt>Reinforcements</dt>
-          <dd>+{player.largestGroup}</dd>
+          <dd>{player.largestGroup}</dd>
         </div>
         <div>
           <dt>Stockpile</dt>

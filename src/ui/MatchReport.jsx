@@ -78,9 +78,12 @@ export function MatchReport({ journal, daily, dailyResult }) {
           <dt>Most land held</dt>
           <dd>{peakTerritories}</dd>
         </div>
+        {/* No `+`, matching the supply panel: in this game `+N` means the
+            stockpile waiting to be spent (the HUD chip), and this is a count
+            of dice a group earned. One sign, one meaning. */}
         <div>
           <dt>Most reinforcements</dt>
-          <dd>+{peakIncome}</dd>
+          <dd>{peakIncome}</dd>
         </div>
       </dl>
       <figure>

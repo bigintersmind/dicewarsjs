@@ -16,7 +16,8 @@
  * page, so a slow or failed fetch shows nothing at all — no spinner, no error
  * text — rather than putting a network problem in front of someone who wants to
  * press a button. Only a real storage failure gets copy, because that one
- * changes what the card can promise.
+ * changes what the card can promise. A failure is still written to the console
+ * once, so a misconfigured origin is diagnosable without being player-facing.
  *
  * @module ui/DailyChallengeCard
  */
@@ -41,14 +42,16 @@ const DAILY_CSS = `
   border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-panel-bg);
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   flex-wrap: wrap; text-align: left; }
-.dw-daily h1 { margin: 0 0 .3rem; font: 1.25rem Anton, sans-serif; letter-spacing: .04em;
+.dw-daily h2 { margin: 0 0 .3rem; font: 1.25rem Anton, sans-serif; letter-spacing: .04em;
   color: var(--ui-text); }
 .dw-daily p { margin: .2rem 0 0; font: .8rem/1.5 Roboto, sans-serif; color: var(--ui-text-muted); }
 .dw-daily-date { color: var(--ui-text); font: .7rem Roboto, sans-serif;
   letter-spacing: .08em; text-transform: uppercase; margin-bottom: .3rem; }
 .dw-daily-result { color: var(--ui-text); font: .85rem/1.5 Roboto, sans-serif; }
 .dw-daily-board { margin: .6rem 0 0; padding: .5rem 0 0; border-top: 1px solid var(--ui-border);
-  width: 100%; font: .75rem/1.6 Roboto, sans-serif; color: var(--ui-text-muted); }
+  width: 100%; min-height: 4.4rem; font: .75rem/1.6 Roboto, sans-serif;
+  color: var(--ui-text-muted); }
+.dw-daily-board:empty { border-top-color: transparent; }
 .dw-daily-board ol { margin: 0; padding: 0; list-style: none; }
 .dw-daily-board li { display: flex; gap: .5rem; }
 .dw-daily-board li span:first-child { color: var(--ui-text); }
@@ -61,17 +64,7 @@ const DAILY_CSS = `
 }
 `;
 
-/**
- * The result line for an official attempt: what you did, in one sentence.
- *
- * The draw branch reads a field the stored record does not carry yet
- * (`DailyOfficial` is `{ won, turns, attacks, captures, replay, at, submission }`),
- * so today a turn-cap draw falls through to the elimination line. The
- * game-over screen has no such gap — it knows how the game it just watched
- * ended — but this card only has the record, and the record has to say so.
- * Written as the branch it wants to be, so adding `drew` to the stored result
- * is the whole fix.
- */
+/** The result line for an official attempt: what you did, in one sentence. */
 function describeResult(official) {
   if (official.won) return `Today: won in ${official.turns} turns.`;
   if (official.drew) return `Today: a draw after ${official.turns} turns.`;
@@ -84,11 +77,17 @@ function describeResult(official) {
  * card has unmounted — or after UTC midnight rolled the board over — is dropped
  * rather than written into a stale render.
  *
+ * The failure is silent to the PLAYER, not to us: anything but `disabled` (the
+ * build simply has no leaderboard) is warned once per mount, so a bad origin,
+ * an unmigrated database or a broken response can be diagnosed from the console
+ * instead of looking identical to "nobody has finished today".
+ *
  * @param {string} date - The board date being shown
  * @returns {import('../game/dailyLeaderboard.js').LeaderboardPage | null}
  */
 function useDailyLeaderboard(date) {
   const [page, setPage] = useState(null);
+  const warned = useRef(false);
   useEffect(() => {
     if (!isLeaderboardEnabled()) return undefined;
     let live = true;
@@ -98,8 +97,13 @@ function useDailyLeaderboard(date) {
       .then(result => {
         if (live) setPage(result);
       })
-      .catch(() => {
-        if (live) setPage(null);
+      .catch(err => {
+        if (!live) return;
+        setPage(null);
+        if (err?.code !== 'disabled' && !warned.current) {
+          warned.current = true;
+          console.warn('[Daily Conquest] leaderboard unavailable:', err);
+        }
       });
     return () => {
       live = false;
@@ -152,6 +156,23 @@ export function DailyChallengeCard({ onStart }) {
     };
   }, []);
 
+  /*
+   * The label and the record refresh on the 60s tick; the CLOCK does not wait
+   * for it. A tab left open across 00:00 UTC could therefore show PRACTICE and
+   * a spent result while this handler started a fresh, scored board — the card
+   * describing yesterday and the game playing today. So the date is read again
+   * at the click and, when it has moved, the card is caught up in the same
+   * gesture before the game starts.
+   */
+  const start = () => {
+    const today = dailyDate();
+    if (today !== dateRef.current) {
+      setDate(today);
+      setRecord(readDailyRecord(createDailyChallenge(today).id));
+    }
+    onStart(today);
+  };
+
   const page = useDailyLeaderboard(date);
   const official = record?.official ?? null;
   const submission = official?.submission ?? null;
@@ -162,13 +183,12 @@ export function DailyChallengeCard({ onStart }) {
       <style>{DAILY_CSS}</style>
       <div>
         <div className="dw-daily-date">{formatDailyDate(date)} · New board at 00:00 UTC</div>
-        {/* An h1, not an h2: the title screen's own name is the wordmark SVG
-            (an image with a label, not a heading), so this is the page's first
-            and only heading and an h2 here would open the outline at level 2.
-            The screen headline on every other screen is an h1 too
-            (menuChrome's MenuScreen). The section is labelled BY it rather than
-            carrying a duplicate aria-label. */}
-        <h1 id="dw-daily-title">DAILY CONQUEST</h1>
+        {/* An h2 under TitleScreen's own visually-hidden h1 ("Dice Wars"): the
+            screen's name is the wordmark SVG, an image with a label rather
+            than a heading, so the page needs an h1 of its own and this card is
+            a section within it. The section is labelled BY this heading rather
+            than carrying a duplicate aria-label. */}
+        <h2 id="dw-daily-title">DAILY CONQUEST</h2>
         {official ? (
           <>
             <p className="dw-daily-result">{describeResult(official)}</p>
@@ -179,7 +199,7 @@ export function DailyChallengeCard({ onStart }) {
                 {submission.rank ? ` · #${submission.rank}` : ''}
               </p>
             )}
-            <p>Practice runs don&rsquo;t count.</p>
+            <p>Practice runs don’t count.</p>
           </>
         ) : (
           <>
@@ -189,35 +209,39 @@ export function DailyChallengeCard({ onStart }) {
                 ? 'Small · Standard · Fair dice — everyone plays the same board and the same dice.'
                 : 'Personal results can’t be saved in this browser.'}
             </p>
+            {/* The rule the card is built around, in copy a player can read —
+                it used to live only in the button's `title`, which never
+                reaches a touch screen and rarely reaches anyone else. */}
+            <p>Your first finished run is the scored one; practice runs don’t count.</p>
           </>
         )}
       </div>
-      <button
-        className="dw-opt dw-daily-opt"
-        type="button"
-        onClick={() => onStart(dailyDate())}
-        title={
-          official
-            ? 'Play today’s board again — practice runs are not scored'
-            : 'Play today’s board — your first finished run is the scored one'
-        }
-      >
-        {official ? 'PRACTICE' : 'PLAY DAILY'} <span aria-hidden="true">↗</span>
+      <button className="dw-opt dw-daily-opt" type="button" onClick={start}>
+        {official ? 'PRACTICE' : 'PLAY DAILY'}
       </button>
-      {top.length > 0 && (
+      {/*
+       * The slot is reserved whether or not the fetch lands, so the footer
+       * below the card does not jump when it resolves — the snippet arrives
+       * into space that was already there.
+       */}
+      {isLeaderboardEnabled() && (
         <div className="dw-daily-board">
-          <ol>
-            {top.map(entry => (
-              <li key={entry.rank}>
-                <span>#{entry.rank}</span>
-                <span>{entry.name}</span>
-                <span>{entry.turns} turns</span>
-              </li>
-            ))}
-          </ol>
-          <div>
-            {page.totals.finished} finished today · {page.totals.won} won
-          </div>
+          {top.length > 0 && (
+            <>
+              <ol aria-label="Today’s top three">
+                {top.map(entry => (
+                  <li key={entry.rank}>
+                    <span>#{entry.rank}</span>
+                    <span>{entry.name}</span>
+                    <span>{entry.turns} turns</span>
+                  </li>
+                ))}
+              </ol>
+              <div>
+                {page.totals.finished} finished today · {page.totals.won} won
+              </div>
+            </>
+          )}
         </div>
       )}
     </section>

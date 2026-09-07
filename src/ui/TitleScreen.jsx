@@ -499,6 +499,16 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules, onDail
       <style>{CHROME_CSS + CSS}</style>
       <div style={STYLE.topSpacer} />
 
+      {/*
+       * The page's one h1, hidden. The screen's name is the wordmark SVG — an
+       * image with a label, not a heading — so without this the landing page's
+       * outline opened at whatever the Daily Conquest card happened to use, and
+       * a reader jumping by heading found a section before it found the game.
+       * Visually hidden rather than drawn, because the wordmark already IS the
+       * title in ink.
+       */}
+      <h1 className="sr-only">Dice Wars</h1>
+
       <TitleWordmark className={animate ? 'dw-anim-rise' : ''} style={STYLE.wordmark} />
 
       {/*

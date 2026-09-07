@@ -287,6 +287,31 @@ describe('GameOverlay — human turn', () => {
     expect(onEndTurn).not.toHaveBeenCalled();
   });
 
+  /*
+   * ...and stops advertising a key that does nothing. `aria-keyshortcuts="E"`
+   * on an `aria-disabled` control tells a screen reader user that E ends the
+   * turn, when for that second or two it does not — the controller ignores it
+   * for exactly as long as the click is a no-op. The tooltip goes with it.
+   */
+  it('withdraws the E shortcut hint while END TURN is unavailable', () => {
+    const { store } = renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+    });
+    expect(endTurnButton().getAttribute('aria-keyshortcuts')).toBe('E');
+
+    act(() => store.setState({ awaitingInput: null }));
+    expect(endTurnButton().getAttribute('aria-keyshortcuts')).toBeNull();
+    // `title` is a DOM property, so Preact blanks it rather than removing the
+    // attribute; either way there is no tooltip left to read.
+    expect(endTurnButton().title).toBe('');
+
+    // ...and comes back with the button.
+    act(() => store.setState({ awaitingInput: 'selectFrom' }));
+    expect(endTurnButton().getAttribute('aria-keyshortcuts')).toBe('E');
+    expect(endTurnButton().getAttribute('title')).toContain('(E)');
+  });
+
   /* The dimming has to follow the attribute the button actually carries. */
   it('styles the unavailable state off aria-disabled, not :disabled', () => {
     renderOverlay({

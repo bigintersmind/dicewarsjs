@@ -945,6 +945,31 @@ describe('TitleScreen', () => {
   });
 });
 
+/*
+ * The landing page's outline. The screen's name is drawn — the wordmark SVG is
+ * an image with a label, not a heading — so without an h1 of its own the page
+ * opened on whatever the Daily Conquest card used, and a reader jumping by
+ * heading found a sub-offer before the game. Hidden rather than drawn: the
+ * wordmark already IS the title in ink, and a second visible one would be
+ * clutter.
+ */
+describe('heading hierarchy (#211)', () => {
+  it('carries one visually hidden h1 naming the game', () => {
+    renderTitle();
+    const headings = [...container.querySelectorAll('h1')];
+    expect(headings).toHaveLength(1);
+    expect(headings[0].textContent).toBe('Dice Wars');
+    expect(headings[0].className).toContain('sr-only');
+  });
+
+  /* The card's own headline is a level below it, not a competing h1. */
+  it('leaves the daily card an h2 under it', () => {
+    renderTitle({ onDaily: vi.fn() });
+    expect(container.querySelector('h1').textContent).toBe('Dice Wars');
+    expect(container.querySelector('h2').textContent).toBe('DAILY CONQUEST');
+  });
+});
+
 describe('player color palettes', () => {
   it('keeps the color-name arrays index-aligned with their palettes', () => {
     expect(PLAYER_COLOR_NAMES).toHaveLength(PLAYER_COLORS_CSS.length);

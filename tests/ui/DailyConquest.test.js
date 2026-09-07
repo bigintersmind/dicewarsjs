@@ -94,6 +94,21 @@ describe('DailyChallengeCard — the one scored attempt', () => {
   });
 
   /*
+   * The one rule the whole card is built around. It used to live only in the
+   * button's `title` tooltip — which a touch screen never shows, and a mouse
+   * only shows to someone who already hovered and waited. The label says where
+   * the button goes, not that it leaves the page, so the ↗ is gone too: that
+   * glyph is the convention for a link OUT of the site.
+   */
+  it('says the scoring rule in visible copy rather than a tooltip', () => {
+    mount(DailyChallengeCard, { onStart: vi.fn() });
+
+    expect(container.textContent).toContain('Your first finished run is the scored one');
+    expect(button().getAttribute('title')).toBeNull();
+    expect(button().textContent).not.toContain('↗');
+  });
+
+  /*
    * The heart of v2: a finished run is spent. The card reports it, and the
    * button stops promising another scored attempt.
    */
@@ -166,21 +181,69 @@ describe('DailyChallengeCard — the leaderboard snippet', () => {
     expect(container.textContent).toContain('12 finished today · 5 won');
   });
 
-  /*
-   * A landing page must not put a network problem in front of someone who came
-   * to press a button — no spinner, no error, no empty frame.
-   */
-  it('shows nothing at all when the fetch fails', async () => {
+  /* A list of three names read out as a list needs to say what list it is. */
+  it('names the snippet for a screen reader', async () => {
     isLeaderboardEnabled.mockReturnValue(true);
-    fetchDailyLeaderboard.mockRejectedValue(new Error('offline'));
+    fetchDailyLeaderboard.mockResolvedValue(page);
     mount(DailyChallengeCard, { onStart: vi.fn() });
     await flush();
 
-    expect(container.querySelector('.dw-daily-board')).toBeNull();
+    expect(container.querySelector('ol').getAttribute('aria-label')).toBe('Today\u2019s top three');
+  });
+
+  /*
+   * A landing page must not put a network problem in front of someone who came
+   * to press a button — no spinner, no error text. What it must not do EITHER
+   * is jump: the slot is reserved from the first paint, so the snippet arrives
+   * into space that was already there instead of shoving the footer down.
+   */
+  it('shows nothing at all when the fetch fails, and says why in the console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    isLeaderboardEnabled.mockReturnValue(true);
+    const failure = Object.assign(new Error('offline'), { code: 'network' });
+    fetchDailyLeaderboard.mockRejectedValue(failure);
+    mount(DailyChallengeCard, { onStart: vi.fn() });
+    await flush();
+
+    expect(container.querySelector('.dw-daily-board').textContent).toBe('');
     expect(container.textContent).not.toContain('offline');
     expect(container.textContent).not.toContain('finished today');
     // ...and the card still does its actual job.
     expect(button().textContent).toContain('PLAY DAILY');
+    /*
+     * Silent to the player, not to us: a misconfigured origin or an unmigrated
+     * database otherwise looks exactly like "nobody has finished today".
+     */
+    expect(warn).toHaveBeenCalledWith('[Daily Conquest] leaderboard unavailable:', failure);
+  });
+
+  /* `disabled` is not a fault — it is a build with no leaderboard configured. */
+  it('stays quiet when the client reports the feature is off', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    isLeaderboardEnabled.mockReturnValue(true);
+    fetchDailyLeaderboard.mockRejectedValue(Object.assign(new Error('off'), { code: 'disabled' }));
+    mount(DailyChallengeCard, { onStart: vi.fn() });
+    await flush();
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  /* Once per mount: the card lives on the landing page for as long as the tab
+     is open, and a re-fetch a day later must not start a console log. */
+  it('warns once, not on every re-fetch', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    isLeaderboardEnabled.mockReturnValue(true);
+    fetchDailyLeaderboard.mockRejectedValue(Object.assign(new Error('down'), { code: 'network' }));
+    mount(DailyChallengeCard, { onStart: vi.fn() });
+    await flush();
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-08T00:01:00Z'));
+    act(() => vi.advanceTimersByTime(60000));
+    await flush();
+
+    expect(fetchDailyLeaderboard).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('shows nothing while the fetch is still in flight', () => {
@@ -188,7 +251,7 @@ describe('DailyChallengeCard — the leaderboard snippet', () => {
     fetchDailyLeaderboard.mockReturnValue(new Promise(() => {}));
     mount(DailyChallengeCard, { onStart: vi.fn() });
 
-    expect(container.querySelector('.dw-daily-board')).toBeNull();
+    expect(container.querySelector('.dw-daily-board').textContent).toBe('');
   });
 
   it('asks for nothing when no leaderboard is configured', async () => {
@@ -232,6 +295,30 @@ describe('DailyChallengeCard — staying current', () => {
     expect(readDailyRecord).not.toHaveBeenCalled();
   });
 
+  /*
+   * The label and the record only refresh on the 60s tick, but the click reads
+   * the clock live — so between 00:00 UTC and the next tick a stale card could
+   * say PRACTICE while starting a fresh, SCORED board. The click has to notice.
+   */
+  it('starts today’s board, not yesterday’s, when the clock rolled over mid-visit', () => {
+    readDailyRecord.mockReturnValue(officialRecord({ won: true, turns: 9 }));
+    const onStart = vi.fn();
+    mount(DailyChallengeCard, { onStart });
+    expect(button().textContent).toContain('PRACTICE');
+
+    // Midnight passes with no tick: the timer fires once a minute.
+    readDailyRecord.mockReturnValue(NO_RECORD);
+    vi.setSystemTime(new Date('2026-09-08T00:00:20Z'));
+
+    act(() => button().click());
+
+    expect(onStart).toHaveBeenCalledWith('2026-09-08');
+    // ...and the card caught up in the same gesture, rather than going on
+    // describing yesterday's spent result over today's fresh board.
+    expect(button().textContent).toContain('PLAY DAILY');
+    expect(container.textContent).not.toContain('Today: won');
+  });
+
   /* Another tab finishing today's run has to reach this one. */
   it('re-reads the record on a storage event', () => {
     mount(DailyChallengeCard, { onStart: vi.fn() });
@@ -256,19 +343,19 @@ describe('DailyChallengeCard — staying current', () => {
 
 describe('DailyChallengeCard — heading hierarchy', () => {
   /*
-   * The title screen has no h1 of its own: its name is the wordmark SVG, an
-   * image with a label rather than a heading. This card's headline used to be
-   * an h2, which opened the page's outline at level 2 — and the section
-   * repeated the same words as an aria-label, so the card announced its name
-   * twice.
+   * The title screen's name is the wordmark SVG — an image with a label rather
+   * than a heading — so it now carries a visually hidden h1 of its own, and
+   * this card is a SECTION inside that page: an h2. It was briefly an h1, which
+   * made the landing page's outline open on a sub-offer. The section is
+   * labelled BY the heading rather than repeating the words as an aria-label.
    */
-  it('is a top-level heading, and labels the card rather than repeating itself', () => {
+  it('is a second-level heading under the screen’s own h1, and labels the card', () => {
     mount(DailyChallengeCard, { onStart: vi.fn() });
     const section = container.querySelector('section');
-    const heading = container.querySelector('h1');
+    const heading = container.querySelector('h2');
 
     expect(heading.textContent).toBe('DAILY CONQUEST');
-    expect(container.querySelector('h2')).toBeNull();
+    expect(container.querySelector('h1')).toBeNull();
     expect(section.getAttribute('aria-label')).toBeNull();
     expect(section.getAttribute('aria-labelledby')).toBe(heading.id);
   });
@@ -313,7 +400,9 @@ describe('SupplyStatus', () => {
       'Reinforcements',
       'Stockpile',
     ]);
-    expect([...container.querySelectorAll('dd')].map(e => e.textContent)).toEqual(['7', '+3', '2']);
+    /* No `+` on Reinforcements: `+N` is the HUD chip's stockpile, and one sign
+       meaning two things across two panels is worse than no sign at all. */
+    expect([...container.querySelectorAll('dd')].map(e => e.textContent)).toEqual(['7', '3', '2']);
     // The same words the rules card uses, so the panel teaches the game's own language.
     expect(container.textContent).toContain(
       'Your largest connected group earns 3 reinforcement dice'
@@ -328,6 +417,26 @@ describe('SupplyStatus', () => {
       })
     );
     expect(container.textContent).toContain('Round 7');
+  });
+
+  /*
+   * PRACTICE AGAIN restarts straight into the game — it skips the map preview,
+   * the only other place a practice run is labelled — so on a second run of the
+   * day this heading is the one thing on screen that can say so.
+   */
+  it('labels a practice run in its heading', () => {
+    const players = [{ id: 0, territoryCount: 7, largestGroup: 3, stock: 2 }];
+    const daily = { ...createDailyChallenge('2026-09-07'), practice: true };
+    mount(SupplyStatus, { store: seatedStore(players, { dailyChallenge: daily }) });
+    expect(container.querySelector('.dw-supply-heading').textContent).toContain(
+      'Daily · Sep 7 · Practice'
+    );
+
+    act(() => render(null, container));
+    mount(SupplyStatus, {
+      store: seatedStore(players, { dailyChallenge: { ...daily, practice: false } }),
+    });
+    expect(container.querySelector('.dw-supply-heading').textContent).not.toContain('Practice');
   });
 
   it('disappears for a spectator', () => {
@@ -367,11 +476,43 @@ describe('SupplyStatus', () => {
 
       mount(SupplyStatus, { store });
 
-      expect(document.documentElement.style.getPropertyValue(SUPPLY_PANEL_HEIGHT_VAR)).toBe('92px');
+      // Rounded UP to the step: 92px of panel reserves 96px of board.
+      expect(document.documentElement.style.getPropertyValue(SUPPLY_PANEL_HEIGHT_VAR)).toBe('96px');
       // The renderer only re-reads on a resize; publishing without one would
       // leave the board scaled to the whole window until something else moved.
       expect(resized).toHaveBeenCalled();
       window.removeEventListener('resize', resized);
+    });
+
+    /*
+     * Why the rounding: every republish dispatches a resize, which rescales the
+     * whole board. A measured panel moves for reasons that have nothing to do
+     * with the game — the explanatory sentence gaining a wrap line, a font
+     * swapping in — and the map visibly shifting mid-turn because a sentence
+     * grew is not an acceptable cost for a pixel of accuracy. A whole step's
+     * worth of reflow therefore resolves to one reservation, and the
+     * `getPropertyValue` guard in `publish` then makes the republish a no-op.
+     */
+    it('resolves a step’s worth of reflow to one reservation', () => {
+      const players = [{ id: 0, territoryCount: 7, largestGroup: 3, stock: 2 }];
+      const published = [];
+      for (const measured of [89, 92, 95, 96]) {
+        withMeasuredPanel(measured);
+        mount(SupplyStatus, { store: seatedStore(players) });
+        published.push(document.documentElement.style.getPropertyValue(SUPPLY_PANEL_HEIGHT_VAR));
+        act(() => render(null, container));
+      }
+      expect(published).toEqual(['96px', '96px', '96px', '96px']);
+    });
+
+    /* ...and a real change still crosses a step and is published. */
+    it('publishes a new band once the panel crosses a step', () => {
+      const players = [{ id: 0, territoryCount: 7, largestGroup: 3, stock: 2 }];
+      withMeasuredPanel(97);
+      mount(SupplyStatus, { store: seatedStore(players) });
+      expect(document.documentElement.style.getPropertyValue(SUPPLY_PANEL_HEIGHT_VAR)).toBe(
+        '104px'
+      );
     });
 
     it('withdraws it when the panel goes away', () => {
@@ -443,5 +584,13 @@ describe('MatchReport', () => {
     ]);
     expect(container.textContent).not.toContain('income');
     expect(container.textContent).not.toContain('Income');
+  });
+
+  /* `+N` is the HUD chip's stockpile. Three plain counts here, no sign. */
+  it('prints the reinforcement peak as a count, not a signed number', () => {
+    mount(MatchReport, { journal: finished() });
+    const numbers = [...container.querySelectorAll('dd')].map(e => e.textContent);
+    expect(numbers).toHaveLength(3);
+    expect(numbers.some(text => text.startsWith('+'))).toBe(false);
   });
 });

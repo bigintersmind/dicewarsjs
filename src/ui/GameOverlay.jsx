@@ -128,6 +128,8 @@ export function GameOverlay({ store, onEndTurn }) {
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const currentPlayerId = gameState.turnOrder[gameState.currentPlayerIndex];
   const isHumanTurn = currentPlayerId === humanPlayerIndex;
+  // A roll is in flight: nothing is being awaited, so END TURN does nothing.
+  const endTurnUnavailable = awaitingInput === null;
 
   return (
     <div style={STYLE.overlay}>
@@ -168,14 +170,19 @@ export function GameOverlay({ store, onEndTurn }) {
           to the top of the page. The aria form says the same thing to a screen
           reader while keeping the control reachable. The click is a no-op here
           and guarded again in the controller. */}
+      {/* The shortcut is advertised only while it works. `aria-keyshortcuts`
+          on an `aria-disabled` control tells a screen reader that E does
+          something here, and during the roll it does not — the controller
+          ignores it for the same second or two the click is a no-op — so both
+          the hint and the tooltip stand down with the button. */}
       {isHumanTurn && (
         <button
           className="dw-end-turn"
           style={STYLE.endTurnBtn}
-          onClick={awaitingInput === null ? undefined : onEndTurn}
-          aria-disabled={awaitingInput === null ? 'true' : undefined}
-          title="End turn (E)"
-          aria-keyshortcuts="E"
+          onClick={endTurnUnavailable ? undefined : onEndTurn}
+          aria-disabled={endTurnUnavailable ? 'true' : undefined}
+          title={endTurnUnavailable ? undefined : 'End turn (E)'}
+          aria-keyshortcuts={endTurnUnavailable ? undefined : 'E'}
         >
           END TURN
         </button>

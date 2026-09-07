@@ -40,6 +40,10 @@ export const VAR_MAP = {
   '--ui-bevel-face': 'uiBevelFace',
   '--ui-bevel-face-display': 'uiBevelFaceDisplay',
   '--ui-border': 'uiBorder',
+  // The control edge. `--ui-border` is a hairline between surfaces and measures
+  // ~2.5:1 on the panel; a bordered CONTROL whose only visible boundary is that
+  // line owes 3:1 (WCAG 1.4.11), so it takes this one instead (see themes.js).
+  '--ui-border-strong': 'uiBorderStrong',
   '--ui-body-bg': 'bodyBg',
   '--ui-danger': 'uiDanger',
   '--ui-scrim': 'uiScrim',

@@ -18,7 +18,7 @@ The board's seed fixes the map, the turn order and the whole sequence of dice. T
 
 The score is **your turns**: a turn counts when you first attack or end it, and a victory during an attack includes that final turn. An elimination before your first action counts as zero turns.
 
-Your **streak** is the number of consecutive UTC dates with a scored attempt, ending today or, if you have not played yet today, yesterday. Wins are not required to keep a streak.
+Your **streak** is the number of consecutive UTC dates with a scored attempt, ending today or, if you have not played yet today, yesterday. Wins are not required to keep a streak. Only the newest 30 dates are kept on this browser, so a streak reads at most 30 days.
 
 **COPY RESULT** on the result screen produces a short, spoiler-free text for sharing:
 
@@ -37,7 +37,11 @@ Each day's leaderboard ranks scored **wins** by fewest turns; ties go to the ear
 
 The server never trusts a claimed score. A post is the game's replay, and the server rebuilds the game from the daily seed, replays your moves through the same engine, runs the same opponents itself, and derives the result. A replay with an illegal move, altered opponent moves, a different board, or an unfinished game is rejected. Posting is open for the current and previous UTC date.
 
-Stored per post: display name, result, turn count, attack counts, and a salted hash of the network address used only for the daily cap. Replays are not kept. There is no account, no email, and no cross-device sync of personal records.
+Stored per post: display name, result, turn count, attack counts, and a salted hash of the network address used only for the daily caps (a few posts and a bounded number of requests per network per day). Replays are not kept on the server or in the browser. There is no account, no email, and no cross-device sync of personal records.
+
+### Anti-cheat, honestly
+
+The verifier makes a posted score truthful: it is the result of a real game against the real opponents on the real board. It does not prove the game was the player's first. The date and the seed are both public, so a player can practice a board offline, in another browser, or with a forward-set clock before posting, and the streak in the share text is a local number nobody checks. The leaderboard is for bragging rights among friends, not for prizes.
 
 ## Supply and campaign reports
 

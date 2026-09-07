@@ -1571,12 +1571,17 @@ export function createGameController(store, renderer, soundManager, preferencesM
 
     /*
      * Build a replay for any game the player can meaningfully review: a completed game
-     * (someone conquered the board) or a turn-cap draw (finished, if inconclusive). Skip
-     * it only for a mid-game human elimination, where the game is still running for the
-     * remaining AIs (phase stays 'playing', no drawReason).
+     * (someone conquered the board), a turn-cap draw (finished, if inconclusive), or the
+     * human's own elimination. The elimination replay is the game up to the attack that
+     * removed them — the game is still running for the remaining AIs (phase stays
+     * 'playing', no drawReason) — and it is what a daily loss posts to the leaderboard:
+     * the server re-simulates it and reads the same frozen result the card shows. If
+     * the player spectates on, the completed game's replay replaces it below.
      */
     const replay =
-      state.phase === GAME_PHASES.GAME_OVER || drawReason ? buildGameReplay(state) : null;
+      state.phase === GAME_PHASES.GAME_OVER || drawReason || humanEliminated
+        ? buildGameReplay(state)
+        : null;
 
     if (renderer && state.winner !== null && !isReducedMotion()) {
       try {

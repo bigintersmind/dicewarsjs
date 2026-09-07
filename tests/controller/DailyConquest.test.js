@@ -238,6 +238,12 @@ describe('Daily Conquest controller with the real engine', () => {
       matchJournal: { finished: true, won: false, turns: 0 },
       dailyResult: { official: true, available: true },
     });
+    // A loss by elimination is the most common daily result. It must carry the
+    // game-so-far replay so it can be posted and re-verified like a win or a draw.
+    expect(store.getState().currentReplay).toMatchObject({ actions: expect.any(Array) });
+    expect(
+      readDailyRecord(createDailyChallenge('2026-09-07').id).record.official.replay
+    ).toMatchObject({ actions: expect.any(Array) });
     const frozen = store.getState().matchJournal;
     store.setState({ gameState: { ...store.getState().gameState, turnsTaken: 299 } });
     await controller.startSpectate();

@@ -1,0 +1,30 @@
+name = "dicewars-daily-leaderboard"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# The Worker imports the game engine straight out of ../../src — wrangler's
+# bundler follows the relative imports, so there is nothing to copy or vendor.
+# Everything it pulls in (engine, ai_default, matchJournal, dailyChallenge) is
+# pure JS with no DOM and no Node built-ins.
+
+[vars]
+# Comma-separated. Only these origins get an Access-Control-Allow-Origin header;
+# everything else is refused by the browser. Keep the localhost entries for
+# `npm run dev` (3000) and `npm run preview` (4173).
+ALLOWED_ORIGINS = "https://ivanlay.com,http://localhost:3000,http://localhost:4173"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dicewars-daily"
+# Filled in by `wrangler d1 create dicewars-daily` — see README.md.
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# IP_SALT is a SECRET, not a var: `wrangler secret put IP_SALT`. Submissions are
+# refused (503) while it is unset, because an unsalted address hash would be a
+# reversible record of who played.
+
+# Verifying a replay re-simulates a full game (~2-3 ms on a small board), which
+# fits the 10 ms free-plan CPU budget but leaves little room. On a paid plan,
+# raise the ceiling:
+# [limits]
+# cpu_ms = 200

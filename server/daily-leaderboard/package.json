@@ -1,0 +1,17 @@
+{
+  "name": "dicewars-daily-leaderboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker + D1 backing the Daily Conquest shared leaderboard",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 execute dicewars-daily --remote --file=./schema.sql",
+    "migrate:local": "wrangler d1 execute dicewars-daily --local --file=./schema.sql",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

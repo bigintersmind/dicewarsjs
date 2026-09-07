@@ -1,12 +1,12 @@
 import { defineConfig } from 'vite';
 import preact from '@preact/preset-vite';
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, isPreview }) => ({
   /*
    * GitHub Pages serves this project at https://ivanlay.com/dicewarsjs/, so the
-   * production build must emit subpath-relative asset URLs. Dev/test stay at '/'.
+   * production build and its preview use the same asset base. Dev/test stay at '/'.
    */
-  base: command === 'build' ? '/dicewarsjs/' : '/',
+  base: command === 'build' || isPreview ? '/dicewarsjs/' : '/',
 
   plugins: [preact({ devToolsEnabled: false })],
 

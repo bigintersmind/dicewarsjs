@@ -42,7 +42,7 @@ You may attack multiple times per turn with different territories. When you're d
 
 After your attack phase ends, you receive reinforcement dice equal to the size of your **largest connected group** of territories. For example, if you own 10 territories but only 6 of them form a connected chain, you receive 6 reinforcement dice.
 
-Reinforcements are distributed **randomly** across your territories that have fewer than 8 dice (the maximum). Any excess reinforcements that can't be placed are saved in a **stock** (up to 64) and carried over to future turns.
+Reinforcements are distributed **randomly** across your territories that have fewer than 8 dice (the maximum). Any excess reinforcements that can't be placed are saved in a **stockpile** (up to 64) and carried over to future turns.
 
 ## Winning
 
@@ -73,7 +73,7 @@ The bots do not know about it. Every AI that reasons about odds (`ai_strategist`
 | ------------------------------- | ------------------------------------------- |
 | Max dice per territory          | 8                                           |
 | Starting dice per area          | 1, plus 2 more on average (`dicePerArea` 3) |
-| Max reinforcement stock         | 64                                          |
+| Max reinforcement stockpile     | 64                                          |
 | Default player count            | 7                                           |
 | Default max territories         | 32                                          |
 | Default grid size               | 28 x 32 cells (Medium)                      |

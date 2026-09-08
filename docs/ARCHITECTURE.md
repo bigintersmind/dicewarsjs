@@ -72,6 +72,22 @@ applyAction({ type: 'END_TURN' })
   → advance to next player
 ```
 
+### Daily Conquest and the campaign journal
+
+Human games also keep a small campaign journal (`src/game/matchJournal.js`)
+beside each resolved attack and end-turn transition. It consumes no RNG and
+does not change engine state; the controller freezes it at the human's result,
+including an early elimination, for the campaign report.
+
+Daily Conquest (`src/game/dailyChallenge.js`) derives a versioned seed from the
+UTC date and starts the game with a fixed setup kept outside the ordinary
+setup config. The first completed attempt of a date is recorded locally as the
+official result (`src/store/dailyRecords.js`); later attempts are practice.
+A shared leaderboard accepts the game's replay, and the server re-simulates it
+with the same engine and `ai_default` to derive the score itself
+(`src/game/verifyDailyReplay.js`, deployed from `server/daily-leaderboard/`).
+See [Daily Conquest](DAILY_CONQUEST.md) for the rules and contracts.
+
 ## Data flow: arena match
 
 ```

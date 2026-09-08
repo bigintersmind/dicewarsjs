@@ -79,6 +79,14 @@ export default defineConfig(({ command, isPreview }) => ({
           functions: 70,
           lines: 70,
         },
+        // Daily Conquest recipe, journal, share text, leaderboard client and the
+        // replay verifier the server trusts: small pure modules, held near full.
+        'src/game/**/*.js': {
+          statements: 90,
+          branches: 80,
+          functions: 90,
+          lines: 90,
+        },
       },
     },
   },

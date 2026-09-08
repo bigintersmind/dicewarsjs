@@ -30,12 +30,20 @@ import { getTheme } from '../renderer/themes.js';
 export const VAR_MAP = {
   '--ui-bg': 'uiBg',
   '--ui-overlay-bg': 'uiOverlayBg',
+  // The opaque one. Panels of dense small text that float over the live board
+  // take this rather than `--ui-bg`, whose translucency hands their contrast to
+  // whichever territory drifts underneath (see themes.js).
+  '--ui-panel-bg': 'uiPanelBg',
   '--ui-text': 'uiText',
   '--ui-text-muted': 'uiTextMuted',
   '--ui-accent': 'uiAccent',
   '--ui-bevel-face': 'uiBevelFace',
   '--ui-bevel-face-display': 'uiBevelFaceDisplay',
   '--ui-border': 'uiBorder',
+  // The control edge. `--ui-border` is a hairline between surfaces and measures
+  // ~2.5:1 on the panel; a bordered CONTROL whose only visible boundary is that
+  // line owes 3:1 (WCAG 1.4.11), so it takes this one instead (see themes.js).
+  '--ui-border-strong': 'uiBorderStrong',
   '--ui-body-bg': 'bodyBg',
   '--ui-danger': 'uiDanger',
   '--ui-scrim': 'uiScrim',

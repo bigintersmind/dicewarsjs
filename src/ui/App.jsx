@@ -27,6 +27,7 @@ import { GameHUD } from './GameHUD.jsx';
 import { BoardFocus } from './BoardFocus.jsx';
 import { MapPreview } from './MapPreview.jsx';
 import { GameOverlay } from './GameOverlay.jsx';
+import { SupplyStatus } from './SupplyStatus.jsx';
 import { GameOverScreen } from './GameOverScreen.jsx';
 import { QuitConfirm } from './QuitConfirm.jsx';
 import { RulesModal } from './RulesModal.jsx';
@@ -124,6 +125,7 @@ export function App({ store, controller, preferencesManager }) {
           store={store}
           error={error}
           onStart={config => controller.startNewGame(config)}
+          onDaily={date => controller.startDailyGame(date)}
           onNavigate={id => controller[NAV_METHODS[id]]()}
           onRules={openRules}
         />
@@ -185,6 +187,10 @@ export function App({ store, controller, preferencesManager }) {
             onHistory={currentReplay ? () => controller.viewGameReplay() : undefined}
             onSpectate={() => controller.startSpectate()}
             onRules={openRules}
+            onRetry={() => controller.retryGame()}
+            /* Returns the SubmissionResult or throws; the screen shows the
+               rank on success and the error's own message on failure. */
+            onSubmitScore={name => controller.submitDailyScore(name)}
           />
         </div>
       );
@@ -194,6 +200,7 @@ export function App({ store, controller, preferencesManager }) {
     return (
       <div style={{ height: '100%', position: 'relative' }}>
         <GameHUD store={store} onQuit={() => controller.openQuitConfirm()} onRules={openRules} />
+        <SupplyStatus store={store} />
         {/* Its position here IS the tab order: settings die → QUIT → RULES → own
             territories → END TURN (#201, #211). */}
         <BoardFocus store={store} onSelect={id => controller.handleTerritoryClick(id)} />

@@ -106,6 +106,20 @@ export const HUD_BAR_HEIGHT = 50;
  */
 export const HUD_BAR_HEIGHT_VAR = '--dw-hud-bar-height';
 
+/**
+ * The custom property the mounted SupplyStatus publishes its measured panel
+ * height as — the same contract as HUD_BAR_HEIGHT_VAR, at the other end of the
+ * board. GameRenderer reads it and reserves that band at the TOP, so a Large
+ * map on a short window is scaled and centered below the panel instead of
+ * sliding under it.
+ *
+ * There is no constant fallback to pair with it: the panel is mounted only on
+ * the playing screen, and every other context (the title board, the game-over
+ * screen, a headless render) reserves nothing at all — so an absent property
+ * means zero rather than a default height.
+ */
+export const SUPPLY_PANEL_HEIGHT_VAR = '--dw-supply-panel-height';
+
 /** Hex cell pixel dimensions (before scaling). */
 export const CELL_WIDTH = 27;
 export const CELL_HEIGHT = 18;

@@ -35,6 +35,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Build
+        # DAILY_LEADERBOARD_URL is a repository *variable* (Settings → Secrets and variables →
+        # Actions → Variables): the deployed Daily Conquest leaderboard Worker's base URL.
+        # Unset → the game builds with the leaderboard disabled (local records only).
+        env:
+          VITE_DAILY_LEADERBOARD_URL: ${{ vars.DAILY_LEADERBOARD_URL }}
         run: npm run build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

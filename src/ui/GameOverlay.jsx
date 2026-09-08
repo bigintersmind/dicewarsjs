@@ -28,6 +28,7 @@ const OVERLAY_CSS = `
   outline: 3px solid var(--ui-text);
   outline-offset: 3px;
 }
+.dw-end-turn[aria-disabled='true'] { opacity: .55; cursor: default; }
 `;
 
 const STYLE = {
@@ -111,18 +112,34 @@ export function GameOverlay({ store, onEndTurn }) {
   const humanPlayerIndex = useGameStore(store, s => s.humanPlayerIndex);
   const playerNames = useGameStore(store, s => s.playerNames);
   const prefs = useGameStore(store, s => s.preferences);
+  /*
+   * The controller's verdict, not this component's. It derives the dead-end
+   * from the engine's own `getValidMoves` wherever it refreshes the board hints
+   * and publishes it as `noValidMoves` (#196: one owner for that derivation, so
+   * the board, the prompt and the rules cannot drift apart). Reading the engine
+   * here — as this used to — made the overlay a second, independent authority
+   * on the same question, and paid for a full scan of the board on every render
+   * of a line that changes once a turn.
+   */
+  const noAttacks = useGameStore(store, s => s.noValidMoves);
 
   if (!gameState) return null;
 
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const currentPlayerId = gameState.turnOrder[gameState.currentPlayerIndex];
   const isHumanTurn = currentPlayerId === humanPlayerIndex;
+  // A roll is in flight: nothing is being awaited, so END TURN does nothing.
+  const endTurnUnavailable = awaitingInput === null;
 
   return (
     <div style={STYLE.overlay}>
       <style>{OVERLAY_CSS}</style>
       {isHumanTurn && awaitingInput === 'selectFrom' && (
-        <p style={STYLE.message}>Click your territory to attack from</p>
+        <p style={STYLE.message}>
+          {noAttacks
+            ? 'No attacks available. End your turn to reinforce.'
+            : 'Click your territory to attack from'}
+        </p>
       )}
       {isHumanTurn && awaitingInput === 'selectTo' && (
         <p style={STYLE.message}>Click a neighbor to attack</p>
@@ -145,13 +162,27 @@ export function GameOverlay({ store, onEndTurn }) {
           overlay, so Tab past the last of them lands here and Shift+Tab goes
           back onto the board (#201, #211). E is the shortcut past that walk;
           the title advertises it the way QUIT advertises Esc. */}
+      {/* `aria-disabled`, never `disabled`. The button is unavailable only
+          while a roll is in flight — a second or two, mid-turn — and a real
+          `disabled` attribute pulls it out of the tab order for exactly that
+          window: a keyboard player tabbing off the end of the board during an
+          animation would find nothing there, and their focus would be thrown
+          to the top of the page. The aria form says the same thing to a screen
+          reader while keeping the control reachable. The click is a no-op here
+          and guarded again in the controller. */}
+      {/* The shortcut is advertised only while it works. `aria-keyshortcuts`
+          on an `aria-disabled` control tells a screen reader that E does
+          something here, and during the roll it does not — the controller
+          ignores it for the same second or two the click is a no-op — so both
+          the hint and the tooltip stand down with the button. */}
       {isHumanTurn && (
         <button
           className="dw-end-turn"
           style={STYLE.endTurnBtn}
-          onClick={onEndTurn}
-          title="End turn (E)"
-          aria-keyshortcuts="E"
+          onClick={endTurnUnavailable ? undefined : onEndTurn}
+          aria-disabled={endTurnUnavailable ? 'true' : undefined}
+          title={endTurnUnavailable ? undefined : 'End turn (E)'}
+          aria-keyshortcuts={endTurnUnavailable ? undefined : 'E'}
         >
           END TURN
         </button>

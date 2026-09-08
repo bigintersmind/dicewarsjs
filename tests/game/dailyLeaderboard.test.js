@@ -1,0 +1,369 @@
+import {
+  DAILY_LEADERBOARD_URL,
+  LEADERBOARD_MESSAGES,
+  NAME_PATTERN,
+  fetchDailyLeaderboard,
+  isLeaderboardEnabled,
+  normalizeName,
+  submitDailyResult,
+} from '../../src/game/dailyLeaderboard.js';
+import { SUBMISSION_VERSION } from '../../src/game/dailySubmission.js';
+
+const url = 'https://leaderboard.example/api';
+const replay = { version: 2, actions: [] };
+
+/** A fetch stub answering with one canned response. */
+function respondWith({ status = 200, body = {}, malformed = false } = {}) {
+  return vi.fn(async () => ({
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => {
+      if (malformed) throw new SyntaxError('Unexpected token < in JSON');
+      return body;
+    },
+  }));
+}
+
+const page = {
+  date: '2026-09-07',
+  entries: [{ rank: 1, name: 'Ada', turns: 7, at: '2026-09-07T01:00:00.000Z' }],
+  totals: { finished: 12, won: 4 },
+};
+const accepted = { accepted: true, won: true, turns: 9, rank: 3, totals: { finished: 12, won: 4 } };
+
+describe('Daily leaderboard client', () => {
+  describe('names', () => {
+    it('trims, collapses whitespace, and accepts a short printable name', () => {
+      expect(normalizeName('  Ada   Lovelace  ')).toBe('Ada Lovelace');
+      expect(normalizeName('dice_wars-99')).toBe('dice_wars-99');
+      expect(normalizeName('さいころ')).toBe('さいころ');
+      // A pasted line break is whitespace like any other, not a rejection.
+      expect(normalizeName('new\nline')).toBe('new line');
+    });
+
+    it('rejects anything unusable rather than sending it', () => {
+      for (const raw of [
+        '',
+        '   ',
+        'x'.repeat(17),
+        'drop <b>tags</b>',
+        'semi;colon',
+        'nul\u0000byte',
+        'rtl\u202Eoverride',
+        null,
+        undefined,
+        42,
+        {},
+      ]) {
+        expect(normalizeName(raw)).toBeNull();
+      }
+    });
+
+    it('normalizes to NFC first, like the server, so a pasted accent is not refused', () => {
+      /*
+       * macOS pastes NFD: `É` arrives as `E` + U+0301. That is two code points,
+       * one of them a combining mark, so the raw string fails NAME_PATTERN —
+       * and the client used to refuse a name the SERVER (which has always
+       * normalized first) was perfectly happy to take.
+       */
+      const decomposed = 'E\u0301va';
+      expect(NAME_PATTERN.test(decomposed)).toBe(false);
+      expect(normalizeName(decomposed)).toBe('\u00C9va');
+      // Length is measured after composing, so a 16-character name still fits.
+      expect(normalizeName(`${'a'.repeat(15)}e\u0301`)).toBe(`${'a'.repeat(15)}\u00E9`);
+    });
+
+    it('refuses invisible code points, and a name with nothing left to show', () => {
+      /*
+       * The Hangul fillers are letters as far as `\p{L}` is concerned, they
+       * survive NFC, and they pass NAME_PATTERN — so without a rule of their own
+       * a board entry could be blank, or a blocked word padded apart.
+       */
+      for (const filler of ['\u3164', '\u115F', '\u1160', '\uFFA0']) {
+        expect(NAME_PATTERN.test(filler)).toBe(true);
+        expect(normalizeName(filler)).toBeNull();
+        expect(normalizeName(`Iv${filler}an`)).toBeNull();
+      }
+      expect(normalizeName('a\u200Db')).toBeNull(); // zero-width joiner
+      expect(normalizeName('a\u00ADb')).toBeNull(); // soft hyphen
+      // Nothing visible is not a name either.
+      expect(normalizeName('-')).toBeNull();
+      expect(normalizeName('___')).toBeNull();
+      expect(normalizeName('a-')).toBe('a-');
+    });
+  });
+
+  describe('when no leaderboard is configured', () => {
+    it('is off, and neither call fires a request', async () => {
+      // The build under test has no VITE_DAILY_LEADERBOARD_URL.
+      expect(DAILY_LEADERBOARD_URL).toBeNull();
+      expect(isLeaderboardEnabled()).toBe(false);
+      expect(isLeaderboardEnabled(null)).toBe(false);
+      expect(isLeaderboardEnabled('')).toBe(false);
+      expect(isLeaderboardEnabled(url)).toBe(true);
+
+      const fetch = respondWith({ body: page });
+      await expect(fetchDailyLeaderboard('2026-09-07', { url: null, fetch })).rejects.toMatchObject(
+        {
+          code: 'disabled',
+          message: expect.stringContaining('not available'),
+        }
+      );
+      await expect(
+        submitDailyResult({ date: '2026-09-07', name: 'Ada', replay }, { url: null, fetch })
+      ).rejects.toMatchObject({ code: 'disabled' });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('fetchDailyLeaderboard', () => {
+    it('asks for the date and returns the page', async () => {
+      const fetch = respondWith({ body: page });
+      await expect(fetchDailyLeaderboard('2026-09-07', { url, fetch })).resolves.toEqual(page);
+      expect(fetch).toHaveBeenCalledWith(
+        'https://leaderboard.example/api/daily/2026-09-07',
+        expect.objectContaining({ method: 'GET' })
+      );
+    });
+
+    it('rejects a page of the wrong shape and a body that will not parse', async () => {
+      for (const body of [null, [], { entries: [] }, { entries: {}, totals: {} }]) {
+        await expect(
+          fetchDailyLeaderboard('2026-09-07', { url, fetch: respondWith({ body }) })
+        ).rejects.toMatchObject({ code: 'bad_response' });
+      }
+      await expect(
+        fetchDailyLeaderboard('2026-09-07', { url, fetch: respondWith({ malformed: true }) })
+      ).rejects.toMatchObject({ code: 'bad_response' });
+    });
+
+    it('reports a refusal from the board endpoint, not just a bad shape', async () => {
+      const fetch = respondWith({ status: 503, body: { error: 'unavailable' } });
+      await expect(fetchDailyLeaderboard('2026-09-07', { url, fetch })).rejects.toMatchObject({
+        code: 'unavailable',
+        message: LEADERBOARD_MESSAGES.unavailable,
+      });
+    });
+
+    it('falls back to the date it asked for when the page does not name one', async () => {
+      const fetch = respondWith({ body: { ...page, date: 42 } });
+      await expect(fetchDailyLeaderboard('2026-09-07', { url, fetch })).resolves.toMatchObject({
+        date: '2026-09-07',
+      });
+    });
+
+    it('reports an unreachable leaderboard in words a player can act on', async () => {
+      const fetch = vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      });
+      await expect(fetchDailyLeaderboard('2026-09-07', { url, fetch })).rejects.toMatchObject({
+        code: 'network',
+        message: expect.stringContaining("Couldn't reach the leaderboard"),
+      });
+    });
+
+    it('reports a build with no fetch at all as an unreachable network', async () => {
+      // Not a crash: an environment without `fetch` (an old embedded webview,
+      // a test harness that stubbed it away) is the leaderboard being
+      // unreachable, and the player is told exactly that.
+      await expect(fetchDailyLeaderboard('2026-09-07', { url, fetch: null })).rejects.toMatchObject(
+        { code: 'network', message: LEADERBOARD_MESSAGES.network }
+      );
+      await expect(
+        submitDailyResult({ date: '2026-09-07', name: 'Ada', replay }, { url, fetch: null })
+      ).rejects.toMatchObject({ code: 'network' });
+    });
+  });
+
+  describe('submitDailyResult', () => {
+    it('posts the replay — never a claimed score — and returns the server’s numbers', async () => {
+      const fetch = respondWith({ status: 201, body: accepted });
+      await expect(
+        submitDailyResult({ date: '2026-09-07', name: '  Ada  ', replay }, { url, fetch })
+      ).resolves.toEqual(accepted);
+
+      const [requestUrl, init] = fetch.mock.calls[0];
+      expect(requestUrl).toBe('https://leaderboard.example/api/daily/2026-09-07/results');
+      expect(init.method).toBe('POST');
+      const sent = JSON.parse(init.body);
+      // The version comes from the module both sides import, not a literal
+      // retyped here — a drift between client and Worker has to fail loudly.
+      expect(sent).toEqual({ version: SUBMISSION_VERSION, name: 'Ada', replay });
+      expect(sent).not.toHaveProperty('turns');
+      expect(sent).not.toHaveProperty('won');
+    });
+
+    it('refuses an unusable name or a missing replay before touching the network', async () => {
+      const fetch = respondWith({ status: 201, body: accepted });
+      await expect(
+        submitDailyResult({ date: '2026-09-07', name: '  ', replay }, { url, fetch })
+      ).rejects.toMatchObject({ code: 'name_rejected' });
+      await expect(
+        submitDailyResult({ date: '2026-09-07', name: 'Ada', replay: null }, { url, fetch })
+      ).rejects.toMatchObject({ code: 'not_submittable' });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('turns every documented rejection into a coded, readable error', async () => {
+      const cases = [
+        [400, 'invalid_body'],
+        [400, 'name_rejected'],
+        [400, 'wrong_board'],
+        [400, 'unverifiable'],
+        [400, 'not_finished'],
+        [400, 'date_closed'],
+        [400, 'duplicate'],
+        [403, 'forbidden'],
+        [429, 'rate_limited'],
+      ];
+      for (const [status, code] of cases) {
+        const fetch = respondWith({ status, body: { error: code, message: 'server copy' } });
+        const err = await submitDailyResult(
+          { date: '2026-09-07', name: 'Ada', replay },
+          { url, fetch }
+        ).catch(e => e);
+        expect(err.code).toBe(code);
+        // Our own copy, not the server's string rendered verbatim.
+        expect(err.message).not.toBe('server copy');
+        expect(err.message.length).toBeGreaterThan(10);
+      }
+      const rateLimited = await submitDailyResult(
+        { date: '2026-09-07', name: 'Ada', replay },
+        { url, fetch: respondWith({ status: 429, body: { error: 'rate_limited' } }) }
+      ).catch(e => e);
+      expect(rateLimited.message).toBe('Too many submissions from your network today.');
+    });
+
+    it('clamps a sentence from a server whose code it has never heard of', async () => {
+      /*
+       * An unknown code is the one case where the server's own words are shown
+       * — it is the only description of the failure this client has. That makes
+       * the string untrusted copy: clamp it to one line of readable length
+       * rather than pouring a page of it into a dialog.
+       */
+      const err = await submitDailyResult(
+        { date: '2026-09-07', name: 'Ada', replay },
+        {
+          url,
+          fetch: respondWith({
+            status: 400,
+            body: { error: 'from_the_future', message: `a\n\n b${'!'.repeat(500)}` },
+          }),
+        }
+      ).catch(e => e);
+      expect(err.code).toBe('from_the_future');
+      expect(err.message.length).toBeLessThanOrEqual(200);
+      expect(err.message).not.toMatch(/\n/);
+      expect(err.message.startsWith('a b')).toBe(true);
+    });
+
+    it('does not mistake an Object.prototype key for a message it publishes', async () => {
+      /*
+       * `LEADERBOARD_MESSAGES[code]` is truthy for `toString` and `constructor`
+       * — a server (or an intercepting proxy) answering `{"error":"toString"}`
+       * would have had a function stringified into the player's error dialog.
+       */
+      for (const code of ['toString', 'constructor', 'hasOwnProperty', '__proto__']) {
+        const err = await submitDailyResult(
+          { date: '2026-09-07', name: 'Ada', replay },
+          { url, fetch: respondWith({ status: 400, body: { error: code } }) }
+        ).catch(e => e);
+        expect(err.code).toBe(code);
+        expect(err.message).toBe(LEADERBOARD_MESSAGES.bad_response);
+        expect(err.message).not.toMatch(/function|native code/);
+      }
+    });
+
+    it('keeps the timeout armed while the body is still arriving', async () => {
+      vi.useFakeTimers();
+      try {
+        /*
+         * `fetch` resolves on the HEADERS. A server that answers 200 and then
+         * stalls mid-body left this awaiting forever, because the abort timer
+         * was cleared in a `finally` before `response.json()` was ever called.
+         */
+        const fetch = vi.fn(async (_, init) => ({
+          status: 200,
+          ok: true,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              init.signal.addEventListener('abort', () => {
+                const err = new Error('aborted');
+                err.name = 'AbortError';
+                reject(err);
+              });
+            }),
+        }));
+        const pending = submitDailyResult(
+          { date: '2026-09-07', name: 'Ada', replay },
+          { url, fetch }
+        ).catch(e => e);
+        await vi.advanceTimersByTimeAsync(8000);
+        const err = await pending;
+        expect(err.code).toBe('timeout');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('handles a 500, an unparseable body and an unacknowledged acceptance', async () => {
+      await expect(
+        submitDailyResult(
+          { date: '2026-09-07', name: 'Ada', replay },
+          { url, fetch: respondWith({ status: 500, malformed: true }) }
+        )
+      ).rejects.toMatchObject({ code: 'server_error' });
+
+      await expect(
+        submitDailyResult(
+          { date: '2026-09-07', name: 'Ada', replay },
+          { url, fetch: respondWith({ status: 201, malformed: true }) }
+        )
+      ).rejects.toMatchObject({ code: 'bad_response' });
+
+      await expect(
+        submitDailyResult(
+          { date: '2026-09-07', name: 'Ada', replay },
+          { url, fetch: respondWith({ status: 201, body: { accepted: false } }) }
+        )
+      ).rejects.toMatchObject({ code: 'bad_response' });
+    });
+
+    it('gives up on a silent server instead of hanging, and says so', async () => {
+      vi.useFakeTimers();
+      try {
+        const fetch = vi.fn(
+          (_, init) =>
+            new Promise((_resolve, reject) => {
+              init.signal.addEventListener('abort', () => {
+                const err = new Error('aborted');
+                err.name = 'AbortError';
+                reject(err);
+              });
+            })
+        );
+        const pending = submitDailyResult(
+          { date: '2026-09-07', name: 'Ada', replay },
+          { url, fetch }
+        ).catch(e => e);
+        await vi.advanceTimersByTimeAsync(8000);
+        const err = await pending;
+        expect(err.code).toBe('timeout');
+        expect(err.message).toMatch(/too long/i);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('strips a trailing slash so the path is never doubled', async () => {
+      const fetch = respondWith({ status: 201, body: accepted });
+      await submitDailyResult(
+        { date: '2026-09-07', name: 'Ada', replay },
+        { url: 'https://leaderboard.example/api/', fetch }
+      );
+      expect(fetch.mock.calls[0][0]).toBe(
+        'https://leaderboard.example/api/daily/2026-09-07/results'
+      );
+    });
+  });
+});

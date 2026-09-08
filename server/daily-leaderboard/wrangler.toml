@@ -1,0 +1,47 @@
+name = "dicewars-daily-leaderboard"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# The Worker imports the game engine straight out of ../../src — wrangler's
+# bundler follows the relative imports, so there is nothing to copy or vendor.
+# Everything it pulls in (engine, ai_default, matchJournal, dailyChallenge) is
+# pure JS with no DOM and no Node built-ins.
+
+[vars]
+# Comma-separated. Only these origins get an Access-Control-Allow-Origin header;
+# everything else is refused by the browser. Keep the localhost entries for
+# `npm run dev` (3000) and `npm run preview` (4173).
+ALLOWED_ORIGINS = "https://ivanlay.com,http://localhost:3000,http://localhost:4173"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dicewars-daily"
+# Filled in by `wrangler d1 create dicewars-daily` — see README.md.
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# IP_SALT is a SECRET, not a var: `wrangler secret put IP_SALT`. Submissions are
+# refused (503) while it is unset, because an unsalted address hash would be a
+# reversible record of who played.
+
+# TRUST_FORWARDED_FOR = "1" makes the Worker read `X-Forwarded-For` when there is
+# no `CF-Connecting-IP`. Leave it UNSET in production: the header is supplied by
+# the caller, so trusting it hands anyone a fresh rate-limit bucket per request.
+# It exists for `wrangler dev`, which sets no `CF-Connecting-IP` — put it in
+# `.dev.vars` alongside IP_SALT rather than here.
+
+# CPU budget. Verifying a replay re-simulates the whole game, and the long tail
+# does NOT fit the free plan's 10 ms per-request ceiling. Measured on an M-series
+# Mac (Worker hardware is slower, so treat these as a floor):
+#
+#   typical daily game .................... 1.6 ms median
+#   840 actions / 215 turns ............... 6.5 ms median, 10.4 ms p90
+#
+# That long tail is a real result — an eliminated player who spectates to the
+# turn cap — not an attack, so on the free plan those submissions would be cut
+# off mid-verification and come back as errors to the player who earned them.
+#
+# REQUIRED before `DAILY_LEADERBOARD_URL` is set on the game repo: move this
+# Worker to a Workers Paid plan and uncomment the block below. Until then the
+# client treats the leaderboard as disabled, which is the honest state.
+# [limits]
+# cpu_ms = 200

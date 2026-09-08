@@ -4,8 +4,13 @@
  */
 
 import { THEMES, getTheme } from '../../src/renderer/themes.js';
-import { PLAYER_COLORS, COLORBLIND_PLAYER_COLORS } from '../../src/renderer/constants.js';
-import { contrast, relativeLuminance, surface, WCAG } from '../helpers/contrast.js';
+import {
+  PLAYER_COLORS,
+  PLAYER_COLORS_CSS,
+  COLORBLIND_PLAYER_COLORS,
+  COLORBLIND_PLAYER_COLORS_CSS,
+} from '../../src/renderer/constants.js';
+import { contrast, parseColor, relativeLuminance, surface, WCAG } from '../helpers/contrast.js';
 
 describe('themes', () => {
   /*
@@ -167,5 +172,112 @@ describe('bevel tokens (#220)', () => {
     const t = THEMES[name];
     expect(contrast(t.uiTextMuted, scrim(name))).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
     expect(contrast(t.uiAccent, scrim(name))).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+  });
+});
+
+/*
+ * The bordered-control edge (--ui-border-strong).
+ *
+ * `uiBorder` is a hairline BETWEEN SURFACES — a panel edge, a divider — and at
+ * ~2.5:1 on `uiPanelBg` (2.6:1 light) it does that job well. It was also doing
+ * a second job it never cleared the bar for: the share/post buttons and the
+ * name field on the result panel are CONTROLS whose only visible boundary is
+ * that line, and WCAG 1.4.11 asks 3:1 of a control boundary. Rather than
+ * thicken every divider in the game, the controls take their own token.
+ */
+describe('the bordered-control edge (--ui-border-strong)', () => {
+  it.each(['dark', 'light'])('clears 3:1 on the panel in the %s theme', name => {
+    const t = THEMES[name];
+    expect(contrast(t.uiBorderStrong, t.uiPanelBg)).toBeGreaterThanOrEqual(WCAG.AA_NON_TEXT);
+  });
+
+  /*
+   * And the point of adding one rather than raising `uiBorder`: the hairline is
+   * deliberately still below the control bar. If a later edit "fixes" it there,
+   * this token has no reason to exist and the two should be merged on purpose,
+   * not by drift.
+   */
+  it.each(['dark', 'light'])('leaves the divider hairline where it was (%s)', name => {
+    const t = THEMES[name];
+    expect(contrast(t.uiBorder, t.uiPanelBg)).toBeLessThan(WCAG.AA_NON_TEXT);
+    expect(t.uiBorderStrong).not.toBe(t.uiBorder);
+  });
+});
+
+/*
+ * The opaque panel token (Daily Conquest v2).
+ *
+ * The in-game supply panel, the daily card and the match report all paint a box
+ * of dense small text straight over the live board, and all three used to do it
+ * on `uiBg` / `uiOverlayBg`. Those are translucent, so what they really carry
+ * is the territory underneath — and the territories are a palette of bright
+ * seats. Measured over the worst of them, in the dark theme:
+ *
+ *   supply panel text        4.22:1   (needs 4.5)
+ *   supply panel labels      2.58:1   (needs 4.5)
+ *   daily / result eyebrow   2.82:1   (needs 4.5, and it was the accent)
+ *   campaign chart stroke    2.82:1   (needs 3, a graphic)
+ *
+ * None of it shows on a page-colored mock, which is why it shipped. `uiPanelBg`
+ * is opaque, so those panels stop depending on the board at all — which is what
+ * the last test in here says in so many words, over both seat palettes.
+ */
+describe('the opaque panel token (--ui-panel-bg)', () => {
+  const seats = [...PLAYER_COLORS_CSS, ...COLORBLIND_PLAYER_COLORS_CSS];
+
+  it.each(['dark', 'light'])('is opaque in the %s theme', name => {
+    // An alpha anywhere in here would put the board back under the text.
+    expect(THEMES[name].uiPanelBg).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(parseColor(THEMES[name].uiPanelBg).a).toBe(1);
+  });
+
+  it.each(['dark', 'light'])('carries body and label text at 4.5:1 in the %s theme', name => {
+    const t = THEMES[name];
+    expect(contrast(t.uiText, t.uiPanelBg)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+    expect(contrast(t.uiTextMuted, t.uiPanelBg)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+  });
+
+  /* The campaign chart's line and fill are drawn in the accent: a graphic, so
+     3:1 — which it misses over the translucent overlay it used to sit on. */
+  it.each(['dark', 'light'])('carries the chart stroke at 3:1 in the %s theme', name => {
+    const t = THEMES[name];
+    expect(contrast(t.uiAccent, t.uiPanelBg)).toBeGreaterThanOrEqual(WCAG.AA_NON_TEXT);
+  });
+
+  /*
+   * The point of the token, stated as the property that actually holds: because
+   * it is opaque, the ratio is the same over every seat color in BOTH palettes —
+   * the panel measures identically on a board of lavender and on a board of
+   * black. That is what the translucent tokens could not promise.
+   */
+  it.each(['dark', 'light'])('measures the same over every seat in the %s theme', name => {
+    const t = THEMES[name];
+    const onPage = contrast(t.uiText, t.uiPanelBg);
+    for (const seat of seats) {
+      const overBoard = surface(seat, t.uiPanelBg);
+      expect(contrast(t.uiText, overBoard)).toBeCloseTo(onPage, 10);
+      expect(contrast(t.uiTextMuted, overBoard)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+      expect(contrast(t.uiAccent, overBoard)).toBeGreaterThanOrEqual(WCAG.AA_NON_TEXT);
+    }
+  });
+
+  /*
+   * The eyebrows over the game-over overlay do not get a panel — they are lines
+   * of text on the screen's own scrim, not boxes — so they were moved off the
+   * accent (2.82:1 in the dark theme over the worst board pixel) onto the ink.
+   * Measured where they actually sit: the overlay, flattened over each seat.
+   */
+  it.each(['dark', 'light'])('reads the result eyebrow on the %s overlay', name => {
+    const t = THEMES[name];
+    const overlays = seats.map(seat => surface(seat, t.uiOverlayBg));
+    for (const overlay of overlays) {
+      expect(contrast(t.uiText, overlay)).toBeGreaterThanOrEqual(WCAG.AA_TEXT);
+    }
+    // ...and the accent it used to be set in does not, over the seats that are
+    // nearest it in value. It clears the bar on some territories and misses it
+    // on others, which is exactly the property that makes it the wrong token
+    // for text: legibility that depends on which territory drifts underneath.
+    const worstAccent = Math.min(...overlays.map(overlay => contrast(t.uiAccent, overlay)));
+    expect(worstAccent).toBeLessThan(WCAG.AA_TEXT);
   });
 });

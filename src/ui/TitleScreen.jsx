@@ -39,6 +39,7 @@ import { getCommunityBotList } from '../arena/communityBots.js';
 import { useGameStore } from './hooks/useGameStore.js';
 import { CHROME_CSS, MENU_STYLE, FooterNav } from './menuChrome.jsx';
 import { TitleWordmark, TitleLogo } from './titleArt.jsx';
+import { DailyChallengeCard } from './DailyChallengeCard.jsx';
 import {
   PLAYER_COLORS_CSS,
   COLORBLIND_PLAYER_COLORS_CSS,
@@ -81,7 +82,7 @@ const CSS = `
 .dw-hero { display: flex; align-items: center; justify-content: center; }
 .dw-panel { display: flex; flex-direction: column; align-items: flex-start; }
 @media (max-width: 760px) {
-  .dw-hero { flex-direction: column; gap: 1rem; }
+  .dw-hero { flex-direction: column; gap: 1rem; --dw-title-logo-width: min(44vw, 180px); }
   .dw-panel { align-items: center; }
   .dw-panel .dw-rows { justify-content: center; }
   /* Labels and the caption follow their (now centered) rows; the players
@@ -141,7 +142,7 @@ const STYLE = {
     margin: '1.2rem 0 0',
   },
   logo: {
-    width: 'min(60vw, 250px)',
+    width: 'var(--dw-title-logo-width, min(60vw, 250px))',
     height: 'auto',
     flexShrink: 0,
   },
@@ -339,7 +340,7 @@ const STYLE = {
  * @param {() => void} [props.onRules] - Opens the "How to play" reference.
  *   Omitted only in isolated renders, which then get no link.
  */
-export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
+export function TitleScreen({ store, error, onStart, onNavigate, onRules, onDaily }) {
   const prefs = useGameStore(store, s => s.preferences);
   const colorPalette = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLORS_CSS : PLAYER_COLORS_CSS;
   const colorNames = prefs?.colorBlindMode ? COLORBLIND_PLAYER_COLOR_NAMES : PLAYER_COLOR_NAMES;
@@ -497,6 +498,16 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
     <div style={STYLE.container}>
       <style>{CHROME_CSS + CSS}</style>
       <div style={STYLE.topSpacer} />
+
+      {/*
+       * The page's one h1, hidden. The screen's name is the wordmark SVG — an
+       * image with a label, not a heading — so without this the landing page's
+       * outline opened at whatever the Daily Conquest card happened to use, and
+       * a reader jumping by heading found a section before it found the game.
+       * Visually hidden rather than drawn, because the wordmark already IS the
+       * title in ink.
+       */}
+      <h1 className="sr-only">Dice Wars</h1>
 
       <TitleWordmark className={animate ? 'dw-anim-rise' : ''} style={STYLE.wordmark} />
 
@@ -744,6 +755,8 @@ export function TitleScreen({ store, error, onStart, onNavigate, onRules }) {
           </div>
         </div>
       </div>
+
+      {onDaily && <DailyChallengeCard onStart={onDaily} />}
 
       {/* The footer is the link row alone, so it only mounts with it: an
           isolated render with no onNavigate gets no empty landmark. */}

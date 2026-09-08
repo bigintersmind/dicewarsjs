@@ -237,6 +237,91 @@ describe('GameOverlay — human turn', () => {
     renderOverlay();
     expect(endTurnButton()).toBeUndefined();
   });
+
+  /*
+   * The dead-end line comes from the store, not from the engine. The controller
+   * derives it from `getValidMoves` wherever it refreshes the board hints and
+   * publishes `noValidMoves` (#196: one owner, so the prompt, the hints and the
+   * territory buttons cannot disagree) — this overlay reading the engine itself
+   * made it a second authority on the same question, and rescanned the whole
+   * board on every render.
+   */
+  it('takes the dead-end line from the store rather than reading the engine', () => {
+    const { store } = renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+      noValidMoves: true,
+    });
+    expect(container.textContent).toContain('No attacks available. End your turn to reinforce.');
+    expect(container.textContent).not.toContain('Click your territory to attack from');
+
+    // ...and follows it back when a capture reopens the board.
+    act(() => store.setState({ noValidMoves: false }));
+    expect(container.textContent).toContain('Click your territory to attack from');
+  });
+
+  /*
+   * END TURN goes `aria-disabled` while a roll is in flight, never `disabled`.
+   * A `disabled` attribute takes the control out of the tab order for those
+   * couple of seconds — a keyboard player tabbing off the end of the board
+   * mid-animation would find nothing there and be thrown to the top of the
+   * page — so the button stays reachable and the click is the thing that does
+   * nothing (the controller guards it again).
+   */
+  it('marks END TURN unavailable during a roll without leaving the tab order', () => {
+    const { store, onEndTurn } = renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+    });
+    expect(endTurnButton().getAttribute('aria-disabled')).toBeNull();
+
+    act(() => store.setState({ awaitingInput: null }));
+
+    const button = endTurnButton();
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.hasAttribute('disabled')).toBe(false);
+    // Still focusable: a native `disabled` would refuse this.
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    act(() => button.click());
+    expect(onEndTurn).not.toHaveBeenCalled();
+  });
+
+  /*
+   * ...and stops advertising a key that does nothing. `aria-keyshortcuts="E"`
+   * on an `aria-disabled` control tells a screen reader user that E ends the
+   * turn, when for that second or two it does not — the controller ignores it
+   * for exactly as long as the click is a no-op. The tooltip goes with it.
+   */
+  it('withdraws the E shortcut hint while END TURN is unavailable', () => {
+    const { store } = renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+    });
+    expect(endTurnButton().getAttribute('aria-keyshortcuts')).toBe('E');
+
+    act(() => store.setState({ awaitingInput: null }));
+    expect(endTurnButton().getAttribute('aria-keyshortcuts')).toBeNull();
+    // `title` is a DOM property, so Preact blanks it rather than removing the
+    // attribute; either way there is no tooltip left to read.
+    expect(endTurnButton().title).toBe('');
+
+    // ...and comes back with the button.
+    act(() => store.setState({ awaitingInput: 'selectFrom' }));
+    expect(endTurnButton().getAttribute('aria-keyshortcuts')).toBe('E');
+    expect(endTurnButton().getAttribute('title')).toContain('(E)');
+  });
+
+  /* The dimming has to follow the attribute the button actually carries. */
+  it('styles the unavailable state off aria-disabled, not :disabled', () => {
+    renderOverlay({
+      gameState: makeGameState({ currentPlayerIndex: 0 }),
+      awaitingInput: 'selectFrom',
+    });
+    const sheet = container.querySelector('style').textContent;
+    expect(sheet).toContain(".dw-end-turn[aria-disabled='true']");
+    expect(sheet).not.toContain('.dw-end-turn:disabled');
+  });
 });
 
 describe('GameOverlay — theme-blind literals (#220)', () => {

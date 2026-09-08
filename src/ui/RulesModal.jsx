@@ -75,7 +75,7 @@ export const RULES_SECTIONS = [
     eyebrow: 'Reinforce',
     heading: 'Stay connected',
     Figure: ReinforceFigure,
-    body: 'Ending your turn earns you one new die for every territory in your largest connected group, dropped on your land at random. A territory holds 8 dice at most; the rest wait in your stockpile, the +N in the bottom bar, for later turns.',
+    body: 'Ending your turn earns reinforcements: one new die for every territory in your largest connected group, dropped on your land at random. A territory holds 8 dice at most; the rest wait in your stockpile, the +N in the bottom bar, for later turns.',
   },
   {
     id: 'tips',

@@ -494,6 +494,8 @@ describe('Daily Conquest controller with the real engine', () => {
 
     await finishWin(tabA);
     expect(tabA.store.getState().dailyResult).toMatchObject({ official: true, available: true });
+    // The tab that won the race keeps the flag it started with.
+    expect(tabA.store.getState().dailyChallenge.practice).toBe(false);
     const scored = readDailyRecord(createDailyChallenge('2026-09-07').id).record.official;
 
     await finishWin(tabB);
@@ -505,6 +507,13 @@ describe('Daily Conquest controller with the real engine', () => {
     expect(late.record.official).toEqual(scored);
     // The card still shows tab B's OWN game, not the record it did not write.
     expect(late.outcome).toMatchObject({ won: true, turns: 1 });
+    /*
+     * The demotion reaches the challenge too. `practice` was decided at match
+     * start — false, this tab started as the scored attempt — and the card's
+     * header reads it while its body reads `dailyResult.official`, so leaving it
+     * stale would print a scored header over "Practice run · not scored".
+     */
+    expect(tabB.store.getState().dailyChallenge.practice).toBe(true);
 
     // And a practice run has no standing to post.
     await expect(tabB.controller.submitDailyScore('Ivan')).rejects.toMatchObject({

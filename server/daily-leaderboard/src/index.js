@@ -35,24 +35,24 @@
  * @module server/daily-leaderboard/index
  */
 
-import { verifyDailyReplay } from '../../../src/game/verifyDailyReplay.js';
-import { normalizeName } from './names.js';
+import { BOARD_FIELDS, verifyDailyReplay } from '../../../src/game/verifyDailyReplay.js';
+import { SUBMISSION_VERSION } from '../../../src/game/dailySubmission.js';
+import { isBlockedName, normalizeName } from './names.js';
 import {
   LEADERBOARD_LIMIT,
   MAX_REQUESTS_PER_IP,
   MAX_SUBMISSIONS_PER_IP,
   chargeRequest,
+  findSubmittedResult,
   insertResult,
   rankOf,
   readTopWins,
   readTotals,
-  replayAlreadySubmitted,
 } from './db.js';
 
-export { MAX_REQUESTS_PER_IP, MAX_SUBMISSIONS_PER_IP };
-
-/** Submission envelope version this Worker speaks (`{ version, name, replay }`). */
-export const SUBMISSION_VERSION = 1;
+// Re-exported so a test can drive the Worker and read its constants from one
+// module; `SUBMISSION_VERSION` itself is shared with the client, not declared here.
+export { MAX_REQUESTS_PER_IP, MAX_SUBMISSIONS_PER_IP, SUBMISSION_VERSION };
 
 /** Origins allowed to call the API when `env.ALLOWED_ORIGINS` is unset. */
 export const DEFAULT_ALLOWED_ORIGINS =
@@ -62,23 +62,31 @@ export const DEFAULT_ALLOWED_ORIGINS =
  * Largest submission body accepted, in BYTES — `raw.length` counts UTF-16
  * units, which a multi-byte body undercounts by up to 3x.
  *
- * 32 KB is the CPU bound as much as the memory one: the costly part of a
- * submission is one re-simulated action, and an ATTACK action does not
- * serialize under ~31 bytes, so this ceiling is also "about a thousand actions"
- * — comfortably more than the longest real daily game (840) and about what the
- * per-request CPU budget can carry. See `MAX_REPLAY_ACTIONS` in
- * `src/game/verifyDailyReplay.js`, which is the same ceiling stated in actions.
+ * Sized off the real thing rather than a round number. Measured on the actual
+ * serialization: an ATTACK entry is 35 bytes, an END_TURN 19, and the envelope
+ * around them (version, name, replay config and metadata) 318 — so the longest
+ * documented honest result, the 215-turn / 840-action spectate-to-the-cap draw,
+ * is about 27 KB. A 32 KB ceiling left that barely 5 KB of headroom and would
+ * have refused a legitimate ~260-turn game outright; 64 KB clears roughly 480
+ * turns, which is past anything the 300-turn cap can produce.
+ *
+ * It is still a CPU bound as much as a memory one: the cost of a submission is
+ * one re-simulated action each, and 64 KB is about 1,800 actions — under
+ * `MAX_REPLAY_ACTIONS` (3,000) in `src/game/verifyDailyReplay.js`, which stays
+ * the ceiling stated in actions, and well inside the `cpu_ms` budget the README
+ * measures.
  */
-export const MAX_BODY_BYTES = 32 * 1024;
+export const MAX_BODY_BYTES = 64 * 1024;
 
 /**
  * Deepest JSON nesting a submission may carry.
  *
- * A replay is `{version, config, actions:[{type, from, to}]}` — five levels at
- * the very most. The guard is not about shape, though: `JSON.stringify` is
- * recursive and blows the C++ stack on a body nested a few thousand deep, which
- * would come back as a 503 for what is plainly a malformed request. Checked
- * iteratively so the CHECK cannot overflow the stack it is protecting.
+ * A replay is `{version, config, actions:[{type, from, to}]}` — four levels at
+ * the very most, the way this guard counts them. The guard is not about shape,
+ * though: `JSON.stringify` is recursive and blows the C++ stack on a body
+ * nested a few thousand deep, which would come back as a 503 for what is
+ * plainly a malformed request. Checked iteratively so the CHECK cannot overflow
+ * the stack it is protecting.
  */
 export const MAX_JSON_DEPTH = 32;
 
@@ -221,8 +229,20 @@ async function postResult(request, env, date, cors) {
     );
   }
 
+  /*
+   * The declared size is the only bound available BEFORE the body is buffered,
+   * so a submission that does not declare one is refused rather than read: with
+   * the header absent `Number(null)` is 0, which slipped past a `> cap` test
+   * and let a chunked body stream into memory in full before the byte count
+   * below could object. Junk (`NaN`) is refused for the same reason. A real
+   * client always has the header — `fetch` sets it for the string body the
+   * client sends.
+   */
   const declared = Number(request.headers.get('Content-Length'));
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+  if (!Number.isFinite(declared) || declared <= 0) {
+    return fail(cors, 400, 'invalid_body', 'Submissions must declare their Content-Length.');
+  }
+  if (declared > MAX_BODY_BYTES) {
     return fail(cors, 400, 'invalid_body', 'Submission is too large.');
   }
 
@@ -266,6 +286,15 @@ async function postResult(request, env, date, cors) {
       'Pick a name of 1-16 letters, numbers, spaces, hyphens or underscores.'
     );
   }
+  /*
+   * Separate from the charset rule, and a separate code, because they fail for
+   * different reasons: `admin` is a perfectly well-formed name, and answering
+   * it with "pick a name of 1-16 letters, numbers, spaces, hyphens or
+   * underscores" tells the player to fix something that is not wrong.
+   */
+  if (isBlockedName(name)) {
+    return fail(cors, 400, 'name_blocked', 'That name is not available. Pick another.');
+  }
 
   /*
    * Refuse rather than fall back to an unsalted hash: without the secret the
@@ -276,7 +305,10 @@ async function postResult(request, env, date, cors) {
     console.error('[daily-leaderboard] IP_SALT is not set; refusing to store submissions.');
     return fail(cors, 503, 'unavailable', 'The leaderboard is temporarily unavailable.');
   }
-  const ipHash = await sha256(`${env.IP_SALT}:${clientAddress(request)}`);
+  // The date is in the preimage, so the digest is a per-day pseudonym rather
+  // than a stable one: both counters and the duplicate index are date-scoped
+  // already, so nothing here needs to recognize an address across boards.
+  const ipHash = await sha256(`${env.IP_SALT}:${date}:${clientAddress(request, env)}`);
 
   if (!(await chargeRequest(env.DB, date, ipHash))) {
     return fail(
@@ -287,10 +319,9 @@ async function postResult(request, env, date, cors) {
     );
   }
 
-  const replayHash = await sha256(safeStringify(body.replay ?? null));
-  if (await replayAlreadySubmitted(env.DB, date, ipHash, replayHash)) {
-    return fail(cors, 400, 'duplicate', 'You have already posted that game to this board.');
-  }
+  const replayHash = await sha256(safeStringify(replayIdentity(date, body.replay)));
+  const existing = await findSubmittedResult(env.DB, date, ipHash, replayHash);
+  if (existing) return alreadyPosted(cors, env, date, name, existing);
 
   const verdict = verifyDailyReplay(date, body.replay);
   if (!verdict.ok) return fail(cors, 400, verdict.code, verdict.message);
@@ -314,10 +345,13 @@ async function postResult(request, env, date, cors) {
     /*
      * The duplicate-replay index firing means another request for this same
      * game won the race between the check above and this insert. That is the
-     * caller's `duplicate`, not our outage — everything else still throws
-     * through to the 503.
+     * caller's answer, not our outage — the row the winner stored is looked up
+     * and answered from, exactly as the pre-check would have. Everything else
+     * still throws through to the 503.
      */
     if (!isUniqueViolation(err)) throw err;
+    const raced = await findSubmittedResult(env.DB, date, ipHash, replayHash);
+    if (raced) return alreadyPosted(cors, env, date, name, raced);
     return fail(cors, 400, 'duplicate', 'You have already posted that game to this board.');
   }
 
@@ -330,10 +364,12 @@ async function postResult(request, env, date, cors) {
     );
   }
 
-  const rank = verdict.won
-    ? await rankOf(env.DB, date, { id, turns: verdict.turns, createdAt })
-    : null;
-  const totals = await readTotals(env.DB, date);
+  const { rank, totals } = await boardPosition(env, date, {
+    id,
+    won: verdict.won,
+    turns: verdict.turns,
+    createdAt,
+  });
 
   return json(cors, 201, {
     accepted: true,
@@ -342,6 +378,55 @@ async function postResult(request, env, date, cors) {
     rank,
     totals,
   });
+}
+
+/**
+ * The answer to a game this submitter has already landed on this board.
+ *
+ * A retry after a lost response is the ordinary case — the row is in, the
+ * player never saw the 201 — and a flat `duplicate` made that unrecoverable:
+ * the client throws on any non-2xx, so the form kept offering to post and every
+ * retry burned another attempt. The same name gets the same success answer the
+ * insert would have given, computed from the stored row, and nothing is
+ * inserted. A DIFFERENT name on the same replay is a real conflict (two players
+ * behind one address who played identically, or a rename attempt) and still
+ * gets the 400.
+ */
+async function alreadyPosted(cors, env, date, name, existing) {
+  if (existing.name !== name) {
+    return fail(cors, 400, 'duplicate', 'You have already posted that game to this board.');
+  }
+  const { rank, totals } = await boardPosition(env, date, existing);
+  return json(cors, 200, {
+    accepted: true,
+    won: existing.won,
+    turns: existing.turns,
+    rank,
+    totals,
+  });
+}
+
+/**
+ * Where a stored row sits on the board, plus the board's totals — the two reads
+ * that decorate an accepted answer.
+ *
+ * Deliberately not fatal. The row is committed and on the board by the time
+ * these run, so letting a read failure fall through to the catch-all 503 told
+ * the player their accepted result had failed; they would then retry, spend
+ * another attempt, and be told `duplicate`. Log it and answer with what is
+ * known for certain instead.
+ */
+async function boardPosition(env, date, entry) {
+  try {
+    const rank = entry.won ? await rankOf(env.DB, date, entry) : null;
+    return { rank, totals: await readTotals(env.DB, date) };
+  } catch (err) {
+    console.error(
+      '[daily-leaderboard] result stored, but reading the board back failed:',
+      err && err.stack ? err.stack : err
+    );
+    return { rank: null, totals: { finished: 0, won: 0 } };
+  }
 }
 
 /** UTF-8 size of a string — what a body limit actually has to measure. */
@@ -377,13 +462,46 @@ function exceedsDepth(value, limit) {
  * reachable for input the depth guard let through (a cycle can't come out of
  * `JSON.parse`), and it hashes to a value like any other, so a body that
  * somehow defeats both still gets a coded rejection rather than a 503.
+ *
+ * The sentinel opens with a NUL, which is what makes it unforgeable: a raw NUL
+ * never appears in `JSON.stringify` output (it is always escaped as `\u0000`),
+ * so no real body can serialize to a string that collides with it. It is
+ * written here as the ESCAPE `\u0000` rather than the byte itself — a raw NUL
+ * in the source makes this file binary to `grep` and `file`.
  */
 function safeStringify(value) {
   try {
     return JSON.stringify(value);
   } catch {
-    return ' unserializable';
+    return '\u0000unserializable';
   }
+}
+
+/**
+ * What a duplicate is measured against: the board's date, the config fields the
+ * verifier actually compares, and the action list.
+ *
+ * NOT the raw body. The submitted envelope carries `replay.metadata`, which the
+ * verifier ignores and which holds a wall-clock timestamp — so hashing the body
+ * keyed the duplicate index on the clock, and a re-post of the very same game
+ * (or the same game with its top-level keys in a different order) hashed as a
+ * new one. Projecting first means the hash is the identity the Worker verified.
+ *
+ * `BOARD_FIELDS` is the verifier's own list — the one that decides
+ * `wrong_board` — imported rather than mirrored so the two cannot drift.
+ */
+
+function replayIdentity(date, replay) {
+  const config = replay && typeof replay === 'object' ? replay.config : null;
+  const board =
+    config && typeof config === 'object'
+      ? Object.fromEntries(BOARD_FIELDS.map(field => [field, config[field] ?? null]))
+      : null;
+  return {
+    date,
+    config: board,
+    actions: replay && typeof replay === 'object' ? (replay.actions ?? null) : null,
+  };
 }
 
 /** A duplicate-key rejection from D1/SQLite, whichever layer wrapped it. */
@@ -411,18 +529,28 @@ export function isOpenBoard(date, now = new Date()) {
 }
 
 /**
- * The submitter's address, as Cloudflare reports it. `X-Forwarded-For` is only
- * a fallback for local `wrangler dev`; in production `CF-Connecting-IP` is set
- * by the edge and cannot be spoofed by the client.
+ * The submitter's address, as Cloudflare reports it. In production
+ * `CF-Connecting-IP` is set by the edge and cannot be spoofed by the client.
+ *
+ * `X-Forwarded-For` is a caller-supplied header — a fresh value on every
+ * request would hand an attacker a fresh rate-limit bucket each time — so it is
+ * read ONLY when the deployment opts in with `TRUST_FORWARDED_FOR = "1"`, which
+ * is for `wrangler dev` (no `CF-Connecting-IP`) and for a deployment behind a
+ * proxy that sets the header itself. Off, everything without a
+ * `CF-Connecting-IP` shares the single `unknown` bucket, which is the safe way
+ * to be wrong.
  *
  * @param {Request} request
+ * @param {Object} [env]
  * @returns {string}
  */
-function clientAddress(request) {
+function clientAddress(request, env) {
   const direct = request.headers.get('CF-Connecting-IP');
   if (direct) return direct;
-  const forwarded = request.headers.get('X-Forwarded-For');
-  if (forwarded) return forwarded.split(',')[0].trim();
+  if (env?.TRUST_FORWARDED_FOR === '1') {
+    const forwarded = request.headers.get('X-Forwarded-For');
+    if (forwarded) return forwarded.split(',')[0].trim();
+  }
   return 'unknown';
 }
 
@@ -456,11 +584,15 @@ export function corsHeaders(request, env) {
   return headers;
 }
 
-/** The configured origin allow-list, as a list. */
+/**
+ * The configured origin allow-list, as a list. Trailing slashes are stripped:
+ * a browser's `Origin` never has one, so a configured `https://ivanlay.com/`
+ * would silently 403 every write with nothing in the logs to explain it.
+ */
 function allowedOrigins(env) {
   return (env?.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS)
     .split(',')
-    .map(origin => origin.trim())
+    .map(origin => origin.trim().replace(/\/+$/, ''))
     .filter(Boolean);
 }
 
@@ -489,6 +621,8 @@ function json(cors, status, payload) {
       ...cors,
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
+      // Every response here is JSON; say so and stop a browser guessing otherwise.
+      'X-Content-Type-Options': 'nosniff',
     },
   });
 }

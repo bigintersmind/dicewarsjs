@@ -24,7 +24,7 @@
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { createDailyChallenge, dailyDate, formatDailyDate } from '../game/dailyChallenge.js';
-import { readDailyRecord } from '../store/dailyRecords.js';
+import { DAILY_STORAGE_KEY, readDailyRecord } from '../store/dailyRecords.js';
 import { fetchDailyLeaderboard, isLeaderboardEnabled } from '../game/dailyLeaderboard.js';
 
 /*
@@ -146,13 +146,24 @@ export function DailyChallengeCard({ onStart }) {
       if (today !== dateRef.current) setDate(today);
       reread(today);
     };
+    /*
+     * ...and 'storage' fires for EVERY key another tab writes on this origin —
+     * the remembered leaderboard name, the preferences, anything a later
+     * feature adds — so it is filtered down to the one key that can actually
+     * have changed the record. A `key` of null is a clear() of the whole
+     * origin, which certainly concerns us, so only a named OTHER key returns.
+     */
+    const onStorage = event => {
+      if (event?.key && event.key !== DAILY_STORAGE_KEY) return;
+      refresh();
+    };
     const timer = setInterval(tick, 60000);
     window.addEventListener('focus', refresh);
-    window.addEventListener('storage', refresh);
+    window.addEventListener('storage', onStorage);
     return () => {
       clearInterval(timer);
       window.removeEventListener('focus', refresh);
-      window.removeEventListener('storage', refresh);
+      window.removeEventListener('storage', onStorage);
     };
   }, []);
 
@@ -226,19 +237,35 @@ export function DailyChallengeCard({ onStart }) {
        */}
       {isLeaderboardEnabled() && (
         <div className="dw-daily-board">
-          {top.length > 0 && (
+          {/*
+           * The totals hang off the PAGE, not off the list. The list is the top
+           * three WINS, so a working board that nobody has won yet has no
+           * entries at all — and hiding the whole snippet behind the list made
+           * that look exactly like the failed fetch above it, which is the one
+           * thing this slot must not do. A page that arrived always says
+           * something; only a fetch that never landed stays blank.
+           */}
+          {page && (
             <>
-              <ol aria-label="Today’s top three">
-                {top.map(entry => (
-                  <li key={entry.rank}>
-                    <span>#{entry.rank}</span>
-                    <span>{entry.name}</span>
-                    <span>{entry.turns} turns</span>
-                  </li>
-                ))}
-              </ol>
+              {top.length > 0 && (
+                <ol aria-label="Today’s top three">
+                  {top.map(entry => (
+                    <li key={entry.rank}>
+                      <span>#{entry.rank}</span>
+                      <span>{entry.name}</span>
+                      <span>{entry.turns} turns</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
               <div>
-                {page.totals.finished} finished today · {page.totals.won} won
+                {page.totals.finished === 0 ? (
+                  'Nobody has finished today yet.'
+                ) : (
+                  <>
+                    {page.totals.finished} finished today · {page.totals.won} won
+                  </>
+                )}
               </div>
             </>
           )}

@@ -49,7 +49,18 @@ export function dailyDateFromId(id) {
 }
 
 export function createDailyChallenge(date = dailyDate()) {
-  if (!DAILY_DATE_PATTERN.test(date) || dailyDate(new Date(`${date}T00:00:00Z`)) !== date) {
+  /*
+   * Date.parse rather than `new Date(...)` straight into dailyDate: an
+   * out-of-range but well-shaped date ('2026-13-01') parses to NaN, and
+   * `new Date(NaN).toISOString()` throws a RangeError — the wrong error, from
+   * the middle of the guard that exists to produce the documented one.
+   */
+  const utcMidnight = Date.parse(`${date}T00:00:00Z`);
+  if (
+    !DAILY_DATE_PATTERN.test(date) ||
+    !Number.isFinite(utcMidnight) ||
+    dailyDate(new Date(utcMidnight)) !== date
+  ) {
     throw new Error('Daily Conquest requires a valid YYYY-MM-DD date.');
   }
   const id = dailyIdForDate(date);

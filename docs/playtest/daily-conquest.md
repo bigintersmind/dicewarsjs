@@ -2,8 +2,8 @@
 
 > **Superseded.** This log describes the first experiment on `feat/field-notes` at `551a250`. The
 > shipped rules changed afterwards: one scored attempt per day, practice runs, a streak, share text and a
-> verified shared leaderboard (see [DAILY_CONQUEST.md](../DAILY_CONQUEST.md)). The screenshots below show
-> the earlier interface.
+> verified shared leaderboard (see [DAILY_CONQUEST.md](../DAILY_CONQUEST.md)), and TRY AGAIN /
+> PRACTICE AGAIN now go straight into play. The screenshots below show the earlier interface.
 
 Baseline: `f8b87d4` on `origin/master`. Experiment: `feat/field-notes`.
 

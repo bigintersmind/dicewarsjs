@@ -11,6 +11,21 @@
  * `node:sqlite` is a Node built-in (unflagged since 22.13, and CI pins 22.x), so
  * this adds no dependency to the repo. It prints one ExperimentalWarning per
  * run, which is the whole cost.
+ *
+ * What it deliberately does NOT model, so a test does not read more into a pass
+ * than is there:
+ *
+ * - **D1's error wrapping.** A constraint failure surfaces here as `node:sqlite`
+ *   phrases it; real D1 wraps it (`D1_ERROR: …`, sometimes only on `.cause`).
+ *   `isUniqueViolation` is therefore pinned against BOTH shapes explicitly in
+ *   the Worker suite rather than being trusted to this shim's wording.
+ * - **Connection isolation.** There is one connection, so a `prepare(...).run()`
+ *   outside a batch can execute INSIDE an open batch transaction — impossible on
+ *   D1, where the batch has a connection of its own. Batches are serialized
+ *   below to keep the collision from being worse than that.
+ * - **Real concurrency.** Everything here is synchronous under the hood, so the
+ *   suite's "arrive together" tests exercise the SQL predicates that make the
+ *   caps safe, not a genuine race.
  */
 
 import { DatabaseSync } from 'node:sqlite';

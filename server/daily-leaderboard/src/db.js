@@ -38,8 +38,8 @@ export const MAX_SUBMISSIONS_PER_IP = 3;
  * replay is verified — the bound on how much CPU an address can spend.
  *
  * Four times the accepted cap, which leaves an honest player room to lose a
- * response and retry, to fumble the name, and to post their three results,
- * while capping a hostile address at 12 verifications a day per board.
+ * response and retry and still post their three results, while capping a
+ * hostile address at 12 verifications a day per board.
  */
 export const MAX_REQUESTS_PER_IP = 12;
 
@@ -103,7 +103,17 @@ export const SQL = {
     DO UPDATE SET count = requests_per_ip.count + 1
     WHERE requests_per_ip.count < ?`,
 
-  findReplay: `SELECT id FROM results WHERE date = ? AND ip_hash = ? AND replay_hash = ? LIMIT 1`,
+  /*
+   * Selects the whole row, not just its existence: a re-post of a game this
+   * submitter already landed is answered FROM this row (see `alreadyPosted` in
+   * index.js), so a retry after a lost response gets the same numbers the
+   * original insert returned instead of a dead-end `duplicate`.
+   */
+  findReplay: `
+    SELECT id, name, won, turns, created_at
+    FROM results
+    WHERE date = ? AND ip_hash = ? AND replay_hash = ?
+    LIMIT 1`,
 };
 
 /** Did a write actually change a row? The verdict every conditional bump gives. */
@@ -142,7 +152,7 @@ export async function readTopWins(db, date, limit = LEADERBOARD_LIMIT) {
 }
 
 /**
- * Has this submitter already posted this exact game to this board?
+ * The row this submitter already stored for this exact game, if there is one.
  *
  * Scoped to the submitter (see the schema note): two people can legitimately
  * produce identical replays on a fixed seed, so global replay uniqueness would
@@ -152,11 +162,19 @@ export async function readTopWins(db, date, limit = LEADERBOARD_LIMIT) {
  * @param {string} date
  * @param {string} ipHash
  * @param {string} replayHash
- * @returns {Promise<boolean>}
+ * @returns {Promise<{id: number, name: string, won: boolean, turns: number,
+ *   createdAt: string}|null>}
  */
-export async function replayAlreadySubmitted(db, date, ipHash, replayHash) {
+export async function findSubmittedResult(db, date, ipHash, replayHash) {
   const row = await db.prepare(SQL.findReplay).bind(date, ipHash, replayHash).first();
-  return row != null;
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    name: row.name,
+    won: Number(row.won) === 1,
+    turns: Number(row.turns),
+    createdAt: row.created_at,
+  };
 }
 
 /**

@@ -113,9 +113,12 @@ import { DEFAULT_LUCK } from '../utils/config.js';
  *   the controller: { playerCount, mapSize, difficulty, aiAssignments, luck }.
  * @property {Object | null} dailyChallenge - Versioned daily recipe for this match
  *   (`DailyChallenge & { practice: boolean }`), kept outside config so the player's
- *   ordinary setup survives the daily detour. `practice` is true when this board
- *   already had an official result in storage when the match started: the run is
- *   played and counted, but it can never replace the one scored attempt.
+ *   ordinary setup survives the daily detour. `practice` is true when this run can
+ *   never replace the board's one scored attempt — it is still played and counted.
+ *   Set at match start from storage (an official result was already on the books),
+ *   then reconciled at game over from the result actually recorded, which is where
+ *   a run that started scored and lost the two-tab race becomes practice. So it
+ *   always agrees with `dailyResult.official` once a daily match is over.
  * @property {Object | null} dailyResult - How a finished daily attempt was
  *   recorded: `{ available, official, record, streak, outcome }` — whether
  *   storage worked, whether THIS run was the scored one, the stored DailyRecord

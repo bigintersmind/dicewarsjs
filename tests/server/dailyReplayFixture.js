@@ -16,7 +16,8 @@
 
 import { createGameController } from '../../src/controller/GameController.js';
 import { createGameStore } from '../../src/store/GameStore.js';
-import { getValidMoves } from '../../src/engine/StateManager.js';
+import { createGame } from '../../src/engine/GameRunner.js';
+import { applyAction, getValidMoves } from '../../src/engine/StateManager.js';
 import { GAME_PHASES } from '../../src/engine/constants.js';
 
 /** Minimal `Storage` so `dailyRecords` works under the plain node environment. */
@@ -99,9 +100,27 @@ export const cautiousHuman = marginHuman(2);
 /** Attack only when it is nearly free — usually loses. */
 export const timidHuman = marginHuman(3);
 
-/** Never attacks. */
-export function passiveHuman() {
-  return null;
+/**
+ * Index just past the END_TURN that took a replay to `cap` completed turns, so a
+ * test can cut a real game exactly where the browser would have stopped on the
+ * turn cap. -1 when the replay never gets there.
+ *
+ * Shared because two suites need the same cut: the verifier's own draw test
+ * (with the test-only `maxTurns` override) and the Worker's proof that it never
+ * passes that override — where the same cut must come back `not_finished`,
+ * because the Worker uses the real 300-turn cap.
+ *
+ * @param {{config: Object, actions: {type: string}[]}} replay
+ * @param {number} cap - Completed player-turns to cut at
+ * @returns {number}
+ */
+export function turnCapCut(replay, cap) {
+  let state = createGame(replay.config);
+  for (const [i, action] of replay.actions.entries()) {
+    state = applyAction(state, action.type === 'ATTACK' ? action : { type: 'END_TURN' });
+    if (state.turnsTaken >= cap) return i + 1;
+  }
+  return -1;
 }
 
 /**

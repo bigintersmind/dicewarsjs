@@ -28,7 +28,13 @@
  * @module store/dailyRecords
  */
 
-import { DAILY_VERSION, dailyDate, dailyDateFromId, isDailyId } from '../game/dailyChallenge.js';
+import {
+  DAILY_VERSION,
+  dailyDate,
+  dailyDateFromId,
+  dailyIdForDate,
+  isDailyId,
+} from '../game/dailyChallenge.js';
 
 /** Namespaced by recipe version: a v2 board must never read v1's results. */
 export const DAILY_STORAGE_KEY = `dicewars_daily_v${DAILY_VERSION}`;
@@ -315,7 +321,8 @@ function previousDate(date) {
  * @returns {number}
  */
 export function computeStreak(records, today = dailyDate()) {
-  if (!isDailyId(`daily-v${DAILY_VERSION}-${today}`)) return 0;
+  // Ask the one place that spells a daily id, rather than spelling it again here.
+  if (!isDailyId(dailyIdForDate(today))) return 0;
 
   const played = new Set(
     Object.entries(records ?? {})

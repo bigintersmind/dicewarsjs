@@ -81,7 +81,7 @@ const RESULT_CSS = `
 .dw-daily-name { font-family: Roboto, sans-serif; font-size: .9rem; padding: .4rem .5rem;
   min-width: 9rem; color: var(--ui-text); background: var(--ui-panel-bg);
   border: 1px solid var(--ui-border-strong); border-radius: 6px; }
-.dw-daily-name:disabled { opacity: .7; }
+.dw-daily-name[readonly] { opacity: .7; }
 .dw-share-text { width: 100%; margin-top: .5rem; font-family: Roboto, sans-serif;
   font-size: .8rem; line-height: 1.5; padding: .4rem .5rem; color: var(--ui-text);
   background: var(--ui-panel-bg); border: 1px solid var(--ui-border-strong); border-radius: 6px; }
@@ -218,9 +218,25 @@ function DailyShareBlock({ shareText, submission, onSubmitScore, firstControlRef
 
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
 
+  /*
+   * A line is always cleared before it is set again, in a render of its own. A
+   * live region only speaks when its text CHANGES, so saying the same sentence
+   * twice — a second COPY inside the confirmation window, a second press with
+   * no clipboard behind it — is a setState no-op that announces nothing at all.
+   *
+   * `post()` and `copy()` get that empty render for free: both clear in the
+   * click and answer something asynchronous (a round trip, the clipboard) in a
+   * later tick. `revealText()` decides and speaks in the same breath, so the
+   * microtask is what hands the DOM the empty render in between.
+   */
+  const announce = next => {
+    setStatus(null);
+    queueMicrotask(() => setStatus(next));
+  };
+
   const revealText = () => {
     setShowText(true);
-    setStatus({ text: 'Copy it from the box below.', tone: 'info' });
+    announce({ text: 'Copy it from the box below.', tone: 'info' });
     // Queued: the textarea does not exist until this render commits.
     queueMicrotask(() => textRef.current?.select());
   };
@@ -234,6 +250,9 @@ function DailyShareBlock({ shareText, submission, onSubmitScore, firstControlRef
    * handled here rather than left to a rejection that never comes.
    */
   const copy = () => {
+    // Cleared in the click, said again when the clipboard answers — the same
+    // two-render shape `post()` uses, and what makes a repeat press audible.
+    setStatus(null);
     const clipboard = typeof navigator === 'undefined' ? null : navigator.clipboard;
     if (typeof clipboard?.writeText !== 'function') {
       revealText();
@@ -291,8 +310,21 @@ function DailyShareBlock({ shareText, submission, onSubmitScore, firstControlRef
     const normalized = normalizeName(raw) ?? raw;
     setPending(true);
     setStatus(null);
+    /*
+     * `.code` is the leaderboard client's own contract (dailyLeaderboard.js):
+     * a coded rejection carries a sentence written FOR the player, and that is
+     * the one we print. Anything else is a bug on our side — a broken store
+     * subscriber, a TypeError — whose message is jargon at best and internals
+     * at worst, so it goes to the console (where it was previously lost
+     * entirely) and the card says the one thing a player can act on.
+     */
     const fail = err => {
-      setStatus({ text: err?.message || 'Could not post your result.', tone: 'error' });
+      const coded = Boolean(err?.code);
+      if (!coded) console.error('[Daily Conquest] Submission failed:', err);
+      setStatus({
+        text: (coded && err.message) || 'Could not post your result.',
+        tone: 'error',
+      });
       setPending(false);
     };
     let submitted;
@@ -356,13 +388,22 @@ function DailyShareBlock({ shareText, submission, onSubmitScore, firstControlRef
       {isLeaderboardEnabled() && (
         <form className="dw-daily-row" style={{ marginTop: '0.7rem' }} onSubmit={submit}>
           <label htmlFor="dw-daily-name">Name</label>
+          {/* `readOnly`, not `disabled`: Enter in the field is a submit, so the
+              field is the control the player is STANDING on when the post
+              lands, and disabling it would drop the keyboard to the body — the
+              exact failure the note above says was fixed. Read-only spells the
+              same thing out (unchangeable, still there) without leaving the
+              document. `aria-describedby` ties it to the live line so a
+              rejected name is read back with the field it belongs to. */}
           <input
             id="dw-daily-name"
             className="dw-daily-name"
             type="text"
             maxLength={16}
             value={alreadyPosted ? alreadyPosted.name : name}
-            disabled={Boolean(alreadyPosted)}
+            readOnly={Boolean(alreadyPosted)}
+            aria-describedby="dw-daily-status"
+            aria-invalid={status?.tone === 'error' ? 'true' : undefined}
             onInput={event => setName(event.target.value)}
           />
           {/* `type="submit"`, so Enter in the field posts; `aria-disabled`
@@ -384,7 +425,7 @@ function DailyShareBlock({ shareText, submission, onSubmitScore, firstControlRef
        * clips rather than removing, so the announcement still fires — and the
        * slot the line sits in does not collapse under it.
        */}
-      <p className={liveClass} aria-live="polite">
+      <p id="dw-daily-status" className={liveClass} aria-live="polite">
         <span className={status?.tone === 'quiet' ? 'sr-only' : undefined}>
           {status?.text ?? ''}
         </span>
@@ -481,7 +522,10 @@ export function GameOverScreen({
 
   // Determine heading and subtitle
   const isHumanWinner = winner !== null && winner === humanPlayerIndex;
-  const heading = isHumanWinner ? 'Y O U  W I N !' : 'G A M E  O V E R';
+  // The word gaps are NBSPs on purpose: the letters are spaced by hand, so a
+  // plain space between the words collapses to the same width as the gap
+  // between letters and the heading reads as one run.
+  const heading = isHumanWinner ? 'Y O U\u00A0\u00A0W I N !' : 'G A M E\u00A0\u00A0O V E R';
 
   // The seat the subtitle names, if any — the one line here that belongs to a
   // particular player, so the one that gets a swatch. Null for the draw and for

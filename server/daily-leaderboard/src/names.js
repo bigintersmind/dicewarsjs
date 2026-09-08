@@ -23,8 +23,15 @@ export const NAME_MAX_LENGTH = 16;
  * `src/game/dailyLeaderboard.js`, and the {@link IGNORABLE}/{@link VISIBLE}
  * rules below are mirrored there too. The two copies exist for different
  * reasons — the client's is instant feedback, this one is the only one that
- * decides anything — but a name the client accepted must never come back 400,
- * so this set may be widened independently and must never be narrowed.
+ * decides anything — so the CHARSET may be widened here independently and must
+ * never be narrowed: a name the client accepted must not come back
+ * `name_rejected`, whose message describes exactly this rule.
+ *
+ * {@link RESERVED} and {@link BLOCKED} are the deliberate exception, and the
+ * reason they are checked separately from {@link normalizeName}: they are
+ * server-only, the client cannot predict them, and they get their own code
+ * (`name_blocked`) so the player is told the name is taken rather than told to
+ * fix a charset that was never wrong.
  */
 const ALLOWED = /^[\p{L}\p{N} _-]+$/u;
 
@@ -58,15 +65,23 @@ const RESERVED = new Set(['admin', 'administrator', 'moderator', 'mod', 'system'
 const BLOCKED = ['fuck', 'shit', 'cunt', 'nigger', 'nigga', 'faggot', 'retard', 'rape'];
 
 /**
- * Squash a name to the form the blocklist is checked against: lower-cased, with
- * the usual leet substitutions folded back and every separator removed, so
- * `f_u_c_k` and `f4ck` are caught alongside `fuck`.
+ * Squash a name to the form the blocklist is checked against: compatibility
+ * forms folded to plain letters, lower-cased, the usual leet substitutions
+ * folded back and every separator removed — so `f_u_c_k` and `f4ck` are caught
+ * alongside `fuck`.
+ *
+ * NFKD first, because the final step strips everything outside `a-z`: without
+ * it a name in math-bold or fullwidth letters squashed to the empty string and
+ * skipped the lists entirely, while still rendering as the word on the board.
+ * The STORED name stays NFC (see {@link normalizeName}) — this fold is only for
+ * the comparison.
  *
  * @param {string} name
  * @returns {string}
  */
 function squash(name) {
   return name
+    .normalize('NFKD')
     .toLowerCase()
     .replace(/[0]/g, 'o')
     .replace(/[1|!]/g, 'i')
@@ -84,6 +99,10 @@ function squash(name) {
  * length and charset rules. Returns `null` for anything that fails — the caller
  * turns that into `name_rejected`; there is no partial acceptance, because a
  * silently altered name is worse than a refused one.
+ *
+ * Length and charset ONLY. Whether the (well-formed) name is one nobody gets to
+ * claim is {@link isBlockedName}, which the caller asks separately so it can
+ * answer with `name_blocked` and a sentence that fits.
  *
  * @param {unknown} raw
  * @returns {string|null} The name to store, or null if it is not usable
@@ -108,12 +127,16 @@ export function normalizeName(raw) {
   const visible = collapsed.replace(IGNORABLE, '');
   if (visible !== collapsed) return null;
   if (!VISIBLE.test(visible)) return null;
-  if (isBlockedName(collapsed)) return null;
   return collapsed;
 }
 
 /**
  * Is this (already normalized) name off limits?
+ *
+ * Asked by the handler after {@link normalizeName} has accepted the name's
+ * shape, so the two failures can be told apart on the wire: `name_rejected` for
+ * a name the charset refuses, `name_blocked` for a well-formed one that is
+ * reserved or on the list.
  *
  * @param {string} name
  * @returns {boolean}

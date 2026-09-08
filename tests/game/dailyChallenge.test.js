@@ -6,7 +6,8 @@ import {
   formatDailyDate,
   isDailyId,
 } from '../../src/game/dailyChallenge.js';
-import { createGame } from '../../src/engine/index.js';
+import { createGame, simulateGame } from '../../src/engine/index.js';
+import { ai_default } from '../../src/ai/ai_default.js';
 import { resolveMapSize } from '../../src/utils/config.js';
 import { createHash } from 'node:crypto';
 
@@ -20,17 +21,41 @@ describe('Daily Conquest recipe', () => {
     expect(dailyDate(new Date('2027-01-01T00:30:00+09:00'))).toBe('2026-12-31');
   });
 
-  it('recreates the exact initial board, dice, turn order and RNG state', () => {
+  it('recreates the exact initial board, and the exact game that follows', () => {
     const recipe = createDailyChallenge('2026-09-07');
     const config = { ...recipe, ...resolveMapSize(recipe.mapSize) };
     const first = createGame(config);
     const second = createGame(config);
     expect(second).toEqual(first);
     expect(first.config.handicap).toBeNull();
-    // A map/engine change that alters the shared board needs an intentional recipe version bump.
+
+    /*
+     * Two pins, because the leaderboard's Worker verifies submissions by
+     * re-simulating them: if the game drifts under a deployed Worker, every
+     * honest post starts failing `unverifiable` and nothing else notices.
+     *
+     * The first pin is the initial state — the map, the turn order and the
+     * starting dice. The second is the whole tape of a full self-play game on
+     * that board, which is the part the initial state cannot see: it moves if
+     * BattleResolver, END_TURN's reinforcement, `ai_default`'s policy or
+     * anything else the journal reads changes.
+     *
+     * Either literal moving is a deliberate act: bump DAILY_VERSION (new boards,
+     * old results retired) and redeploy the Worker — never just re-pin.
+     */
     expect(createHash('sha256').update(JSON.stringify(first)).digest('hex')).toBe(
       'a1c2eccd124fe9b17a2f6b11f09a343021e6629a708d7e39dc76c73e0166184c'
     );
+
+    const played = simulateGame({ config, aiAssignments: Array(4).fill(ai_default) });
+    expect(played.completed).toBe(true);
+    const tape = played.finalState.history
+      .map(e => (e.type === 'ATTACK' ? `A${e.from}-${e.to}:${e.result.success ? 1 : 0}` : 'E'))
+      .join(',');
+    expect(createHash('sha256').update(tape).digest('hex')).toBe(
+      '3bc62497f23f34b3cfcc45569e0ed08c5e79accb31b3ba10d951ff5380d05829'
+    );
+
     expect(recipe.aiAssignments).toEqual([null, 'ai_default', 'ai_default', 'ai_default']);
     expect(createDailyChallenge('2026-09-08').seed).not.toBe(recipe.seed);
   });
@@ -39,8 +64,18 @@ describe('Daily Conquest recipe', () => {
     const recipe = createDailyChallenge('2026-09-07');
     recipe.aiAssignments[1] = 'ai_conqueror';
     expect(createDailyChallenge('2026-09-07').aiAssignments[1]).toBe('ai_default');
-    for (const date of ['2026-02-30', '2026-13-01', 'tomorrow', '2026-9-7']) {
-      expect(() => createDailyChallenge(date)).toThrow();
+    // The message is asserted, not just the throw: an out-of-range but
+    // well-shaped date ('2026-13-01') used to blow up as a RangeError from
+    // inside the guard rather than as the documented refusal.
+    for (const date of [
+      '2026-02-30',
+      '2026-13-01',
+      '2026-00-10',
+      '9999-99-99',
+      'tomorrow',
+      '2026-9-7',
+    ]) {
+      expect(() => createDailyChallenge(date)).toThrow(/valid YYYY-MM-DD date/);
     }
     expect(createDailyChallenge('2028-02-29').date).toBe('2028-02-29');
   });

@@ -23,6 +23,12 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 # refused (503) while it is unset, because an unsalted address hash would be a
 # reversible record of who played.
 
+# TRUST_FORWARDED_FOR = "1" makes the Worker read `X-Forwarded-For` when there is
+# no `CF-Connecting-IP`. Leave it UNSET in production: the header is supplied by
+# the caller, so trusting it hands anyone a fresh rate-limit bucket per request.
+# It exists for `wrangler dev`, which sets no `CF-Connecting-IP` — put it in
+# `.dev.vars` alongside IP_SALT rather than here.
+
 # CPU budget. Verifying a replay re-simulates the whole game, and the long tail
 # does NOT fit the free plan's 10 ms per-request ceiling. Measured on an M-series
 # Mac (Worker hardware is slower, so treat these as a floor):

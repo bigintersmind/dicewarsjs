@@ -140,6 +140,23 @@ describe('GameOverScreen', () => {
     expect(container.textContent).not.toContain('wins!');
   });
 
+  /*
+   * The heading's letters are spaced by hand, so the gap BETWEEN the words has
+   * to be wider than the gap between letters — and a plain space is not: it
+   * collapses under `white-space: normal` to the same width, and the line reads
+   * as one run. Two NBSPs hold it open. Pinned because they are invisible in a
+   * diff and were once silently flattened into ordinary spaces.
+   */
+  it('holds the word gap in each heading open with non-breaking spaces', () => {
+    renderGameOver({ gameState: { winner: 0 }, humanPlayerIndex: 0 });
+    expect(container.querySelector('h1').textContent).toBe('Y O U\u00A0\u00A0W I N !');
+    act(() => render(null, container));
+    container.remove();
+
+    renderGameOver({ gameState: { winner: null } });
+    expect(container.querySelector('h1').textContent).toBe('G A M E\u00A0\u00A0O V E R');
+  });
+
   // A store that never went through startNewGame (no lineup recorded) still
   // gets a readable subtitle — the seat number, as before bots were named.
   it('falls back to the seat number when no player names are recorded', () => {
@@ -626,6 +643,40 @@ describe('GameOverScreen — a scored daily result', () => {
       vi.unstubAllGlobals();
     });
 
+    /*
+     * A live region speaks when its text CHANGES, so a second COPY that set
+     * "Copied" over the identical "Copied" already up announced nothing at all
+     * — the button appeared to do nothing for anyone not watching the pixels.
+     * Every line now clears the region first, and the empty render in between
+     * is what makes the repeat audible.
+     */
+    it('says "Copied" again on a second press, passing through empty in between', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      renderDaily();
+      const live = () => container.querySelector('[aria-live]');
+
+      const press = async () => {
+        await act(async () => {
+          btn('COPY RESULT').click();
+          for (let i = 0; i < 5; i += 1) await Promise.resolve();
+        });
+      };
+
+      await press();
+      expect(live().textContent).toBe('Copied');
+
+      // The second press, mid-flight: the line is empty before it is said again.
+      act(() => btn('COPY RESULT').click());
+      expect(live().textContent).toBe('');
+      await act(async () => {
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+      expect(live().textContent).toBe('Copied');
+      expect(writeText).toHaveBeenCalledTimes(2);
+      vi.unstubAllGlobals();
+    });
+
     /* No clipboard (an insecure context) must not mean no result: the text
        itself is offered, selectable, in a readonly field. */
     it('falls back to a selectable field when there is no clipboard', () => {
@@ -747,7 +798,9 @@ describe('GameOverScreen — a scored daily result', () => {
       expect(document.activeElement).toBe(posting);
       expect(posting.textContent).toBe('Posted as ACE · #4');
       expect(posting.getAttribute('aria-disabled')).toBe('true');
-      expect(container.querySelector('input').disabled).toBe(true);
+      // Read-only, never disabled: see the Enter-to-post test below.
+      expect(container.querySelector('input').readOnly).toBe(true);
+      expect(container.querySelector('input').disabled).toBe(false);
       // ...and the outcome is announced from the live element beside it, whose
       // text is clipped rather than printed: the button already shows this
       // line, and the card should not say it twice.
@@ -799,12 +852,42 @@ describe('GameOverScreen — a scored daily result', () => {
     });
 
     /*
+     * ...and Enter is pressed with focus IN THE FIELD, so the field is the
+     * control the player is standing on when the answer lands. Disabling it
+     * there dropped the keyboard to the body with the confirmation announced
+     * from nowhere — the same failure the row was kept mounted to avoid. It
+     * goes read-only instead: unchangeable, still in the document, still
+     * focused.
+     */
+    it('keeps focus in the name field when Enter posts from inside it', async () => {
+      const onSubmitScore = vi.fn().mockResolvedValue({ rank: 7 });
+      renderDaily({ onSubmitScore });
+
+      const input = typeName('ACE');
+      input.focus();
+      expect(document.activeElement).toBe(input);
+
+      await act(async () => {
+        container
+          .querySelector('form')
+          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Posted as ACE · #7');
+      expect(document.activeElement).toBe(container.querySelector('input'));
+      expect(document.activeElement).not.toBe(document.body);
+      expect(container.querySelector('input').readOnly).toBe(true);
+    });
+
+    /*
      * A failure was rendered as an ordinary `<p>` — muted helper type, silent
      * to a screen reader, sitting under a form that still looked ready. It goes
      * to the same live region as every other outcome, and in the danger color.
      */
     it('announces the error’s own message in the danger color and leaves the form up', async () => {
-      const onSubmitScore = vi.fn().mockRejectedValue(new Error('That name is taken.'));
+      const coded = Object.assign(new Error('That name is taken.'), { code: 'name_rejected' });
+      const onSubmitScore = vi.fn().mockRejectedValue(coded);
       renderDaily({ onSubmitScore });
 
       await act(async () => {
@@ -820,7 +903,39 @@ describe('GameOverScreen — a scored daily result', () => {
       );
       // Still postable: the name may just need changing.
       expect(btn('POST')).toBeTruthy();
-      expect(container.querySelector('input').disabled).toBe(false);
+      expect(container.querySelector('input').readOnly).toBe(false);
+      // ...and the field the message is about says it is the one at fault, and
+      // points at the line saying why.
+      const input = container.querySelector('input');
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(input.getAttribute('aria-describedby')).toBe(live.id);
+      expect(live.id).toBeTruthy();
+    });
+
+    /*
+     * Only the CODED rejections carry a sentence written for a player
+     * (dailyLeaderboard.js). Anything else reaching here is a bug on our side —
+     * a broken subscriber, a TypeError — and its message is jargon, so the card
+     * says something actionable instead and the real error goes to the console,
+     * where it used to be thrown away entirely.
+     */
+    it('shows a plain sentence for an uncoded failure, and logs the real one', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const boom = new TypeError('subscriber.notify is not a function');
+      renderDaily({ onSubmitScore: vi.fn().mockRejectedValue(boom) });
+
+      await act(async () => {
+        btn('POST').click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      });
+
+      const live = container.querySelector('[aria-live]');
+      expect(live.textContent).toBe('Could not post your result.');
+      expect(container.textContent).not.toContain('subscriber.notify');
+      expect(error).toHaveBeenCalledWith('[Daily Conquest] Submission failed:', boom);
+      // Still postable, and still the danger color.
+      expect(live.className).toContain('dw-daily-live-error');
+      expect(btn('POST')).toBeTruthy();
     });
 
     /* A double-tap must not post twice; the control stays in the tab order
@@ -871,7 +986,7 @@ describe('GameOverScreen — a scored daily result', () => {
       });
       expect(container.textContent).toContain('Posted as ACE · #4');
       expect(btn('POST')).toBeUndefined();
-      expect(container.querySelector('input').disabled).toBe(true);
+      expect(container.querySelector('input').readOnly).toBe(true);
       expect(container.querySelector('input').value).toBe('ACE');
     });
 

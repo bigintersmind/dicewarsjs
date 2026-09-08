@@ -19,15 +19,14 @@
  * @module game/dailyLeaderboard
  */
 
+import { SUBMISSION_VERSION } from './dailySubmission.js';
+
 /** Configured base URL, trailing slash stripped; null when the build has none. */
 export const DAILY_LEADERBOARD_URL =
   (import.meta.env?.VITE_DAILY_LEADERBOARD_URL || '').replace(/\/$/, '') || null;
 
 /** Give up on a silent network rather than leaving a spinner up forever. */
 const REQUEST_TIMEOUT_MS = 8000;
-
-/** Wire version of the submission body; the server rejects anything else. */
-const SUBMISSION_VERSION = 1;
 
 /**
  * 1–16 characters: letters, digits, spaces, hyphen, underscore.
@@ -54,6 +53,7 @@ export const LEADERBOARD_MESSAGES = {
   not_submittable: 'There is no scored daily result to submit.',
   invalid_body: "The leaderboard couldn't read that result.",
   name_rejected: 'Pick a name of 1-16 letters, numbers, spaces, hyphens or underscores.',
+  name_blocked: 'That name is not available. Pick another.',
   wrong_board: "That result isn't from this daily board.",
   unverifiable: "That result couldn't be verified against today's board.",
   not_finished: 'That game has not finished yet.',
@@ -61,6 +61,9 @@ export const LEADERBOARD_MESSAGES = {
   duplicate: 'You already posted this result today.',
   forbidden: 'This build is not allowed to post to the leaderboard.',
   rate_limited: 'Too many submissions from your network today.',
+  not_found: "The leaderboard isn't where this build expects it to be.",
+  method_not_allowed: "The leaderboard didn't understand that request.",
+  unavailable: 'The leaderboard is temporarily unavailable. Try again later.',
   network: "Couldn't reach the leaderboard. Check your connection and try again.",
   timeout: 'The leaderboard took too long to answer. Try again.',
   bad_response: 'The leaderboard sent an unexpected response.',
@@ -202,10 +205,17 @@ function responseError(status, body) {
   /*
    * An unknown code from a newer server: keep the code so the UI can log it,
    * and prefer the server's own sentence over a generic one — it is the only
-   * description of a failure this client has never heard of.
+   * description of a failure this client has never heard of. Clamped first: it
+   * is rendered to a player, and an unbounded, newline-riddled string from a
+   * host we do not control is not copy.
    */
   const message = isPlainObject(body) && typeof body.message === 'string' ? body.message : null;
-  return leaderboardError(code ?? 'bad_response', message ?? undefined);
+  return leaderboardError(code ?? 'bad_response', message ? clampMessage(message) : undefined);
+}
+
+/** One line of a stranger's prose, trimmed to something that fits a dialog. */
+function clampMessage(message) {
+  return String(message).slice(0, 200).replace(/\s+/g, ' ');
 }
 
 /**

@@ -67,6 +67,11 @@ benchmark-results/
 # Self-play training data (scripts/selfplay.mjs) — large generated JSONL
 data/selfplay/
 
+# Cloudflare Worker local state (server/daily-leaderboard): .dev.vars holds IP_SALT
+.dev.vars
+.dev.vars.*
+.wrangler/
+
 # Specific files to ignore
 **/.claude/settings.local.json
 

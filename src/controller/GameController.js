@@ -38,11 +38,11 @@ const COMMUNITY_PREFIX = 'community:';
 /**
  * The per-match state that must not survive a route back to the title.
  *
- * Six routes reach the title screen: goToTitle (the deliberate quit) and five
+ * Seven routes reach the title screen: goToTitle (the deliberate quit) and six
  * failure exits — the daily recipe bail, startNewGame's luck bail and start
  * catch, rejectMap's two bounces, and endTurn's engine-error bounce. Each was
  * already clearing the state it happened to know about; this is the daily half
- * of the same rule, kept in one object so a seventh route (or a seventh field)
+ * of the same rule, kept in one object so an eighth route (or a fifth field)
  * cannot leave a finished daily's identity, its result card, or a dead-end
  * notice sitting behind the title screen.
  */
@@ -333,8 +333,9 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * are replaced wholesale by the game that replaces it — the success setState
      * below, in the same breath as the new gameState and screen — and emptied on
      * every route back to the title, where no game is named at all: goToTitle,
-     * this function's own two title-bound failure exits, rejectMap's two
-     * bounces, and endTurn's engine-error bounce. Never ahead of the game.
+     * this function's own two title-bound failure exits, startDailyGame's
+     * daily-recipe bail, rejectMap's two bounces, and endTurn's engine-error
+     * bounce. Never ahead of the game.
      *
      * TRY AGAIN now reaches this seam over a finished game. Keep that card's
      * names while its replacement loads, or the winner would briefly become
@@ -1636,17 +1637,40 @@ export function createGameController(store, renderer, soundManager, preferencesM
      * A daily attempt is recorded exactly once, on the first game-over of the
      * match (`!matchJournal.finished`) — spectating on to the AIs' conclusion,
      * a turn-cap draw watched from the game-over screen, or any later pass
-     * through here finds the journal already closed and changes nothing.
+     * through here finds the journal already closed and changes nothing. The
+     * `!dailyResult` half is the belt to that brace: closeJournal swallows a
+     * throw out of finishMatchJournal and hands back the OPEN journal, so
+     * without it a statistics bug could re-record a match on its second pass —
+     * demoting the run the player already saw scored. Every daily match starts
+     * from `dailyResult: null` (startNewGame's success setState, and
+     * ABANDONED_MATCH_STATE on every route out), so it can never block the
+     * first recording.
      */
     const result =
-      dailyChallenge && matchJournal && !matchJournal.finished
+      dailyChallenge && matchJournal && !matchJournal.finished && !dailyResult
         ? recordDailyAttempt(dailyChallenge, finishedJournal, humanIdx, state, drawReason)
         : dailyResult;
+
+    /*
+     * `practice` was decided at match start, from storage; `official` is decided
+     * here, by the write that actually happened. The two-tab demotion is the one
+     * case where they disagree — a run that started as the scored attempt and
+     * lost the race is recorded as practice — and the game-over card reads both
+     * (its header the challenge, its body the result). So reconcile the flag
+     * onto the challenge rather than leaving two answers in the store; a new
+     * object only when the answer actually changed.
+     */
+    const practice = result ? !result.official : dailyChallenge?.practice;
+    const reconciledChallenge =
+      dailyChallenge && dailyChallenge.practice !== practice
+        ? { ...dailyChallenge, practice }
+        : dailyChallenge;
 
     store.setState({
       gameState: state,
       screen: 'gameOver',
       matchJournal: finishedJournal,
+      dailyChallenge: reconciledChallenge,
       dailyResult: result,
       // The playing screen is going away; a dead-end notice must not outlive it.
       noValidMoves: false,

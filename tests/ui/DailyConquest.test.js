@@ -27,7 +27,7 @@ import { MatchReport } from '../../src/ui/MatchReport.jsx';
 import { MapPreview } from '../../src/ui/MapPreview.jsx';
 import { createGameStore } from '../../src/store/GameStore.js';
 import { createDailyChallenge } from '../../src/game/dailyChallenge.js';
-import { readDailyRecord } from '../../src/store/dailyRecords.js';
+import { DAILY_STORAGE_KEY, readDailyRecord } from '../../src/store/dailyRecords.js';
 import { fetchDailyLeaderboard, isLeaderboardEnabled } from '../../src/game/dailyLeaderboard.js';
 import { createMatchJournal, finishMatchJournal } from '../../src/game/matchJournal.js';
 import { createGame } from '../../src/engine/index.js';
@@ -246,6 +246,44 @@ describe('DailyChallengeCard — the leaderboard snippet', () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
+  /*
+   * The list is the top three WINS, so a board that plenty of people have
+   * finished and nobody has won yet has no entries at all. Hanging the totals
+   * off the list made that render identically to the failed fetch above — the
+   * one thing this slot must not do, since a fetch that never landed is exactly
+   * what the silence is reserved for. A page that arrived always says something.
+   */
+  it('still gives the day’s totals when nobody has won yet', async () => {
+    isLeaderboardEnabled.mockReturnValue(true);
+    fetchDailyLeaderboard.mockResolvedValue({
+      date: '2026-09-07',
+      entries: [],
+      totals: { finished: 4, won: 0 },
+    });
+    mount(DailyChallengeCard, { onStart: vi.fn() });
+    await flush();
+
+    expect(container.textContent).toContain('4 finished today · 0 won');
+    expect(container.querySelector('ol')).toBeNull();
+  });
+
+  /* ...and an untouched board says so in words, rather than "0 finished today". */
+  it('says nobody has finished yet on an empty board', async () => {
+    isLeaderboardEnabled.mockReturnValue(true);
+    fetchDailyLeaderboard.mockResolvedValue({
+      date: '2026-09-07',
+      entries: [],
+      totals: { finished: 0, won: 0 },
+    });
+    mount(DailyChallengeCard, { onStart: vi.fn() });
+    await flush();
+
+    expect(container.querySelector('.dw-daily-board').textContent).toBe(
+      'Nobody has finished today yet.'
+    );
+    expect(container.textContent).not.toContain('0 finished today');
+  });
+
   it('shows nothing while the fetch is still in flight', () => {
     isLeaderboardEnabled.mockReturnValue(true);
     fetchDailyLeaderboard.mockReturnValue(new Promise(() => {}));
@@ -320,15 +358,42 @@ describe('DailyChallengeCard — staying current', () => {
   });
 
   /* Another tab finishing today's run has to reach this one. */
-  it('re-reads the record on a storage event', () => {
+  it('re-reads the record on a storage event for its own key', () => {
     mount(DailyChallengeCard, { onStart: vi.fn() });
     expect(button().textContent).toContain('PLAY DAILY');
 
     readDailyRecord.mockReturnValue(officialRecord({ won: false, turns: 12 }));
-    act(() => window.dispatchEvent(new Event('storage')));
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key: DAILY_STORAGE_KEY })));
 
     expect(container.textContent).toContain('Today: eliminated after 12 turns');
     expect(button().textContent).toContain('PRACTICE');
+  });
+
+  /*
+   * ...but 'storage' fires for every key another tab writes on this origin, and
+   * the card only cares about one of them. A write to the remembered
+   * leaderboard name or the preferences would otherwise cost a storage read and
+   * a re-render of a record that cannot have changed.
+   */
+  it('ignores a cross-tab write to somebody else’s key', () => {
+    mount(DailyChallengeCard, { onStart: vi.fn() });
+    const reads = readDailyRecord.mock.calls.length;
+
+    readDailyRecord.mockReturnValue(officialRecord({ won: false, turns: 12 }));
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key: 'dicewars_daily_name' })));
+
+    expect(readDailyRecord).toHaveBeenCalledTimes(reads);
+    expect(button().textContent).toContain('PLAY DAILY');
+  });
+
+  /* A `key` of null is a clear() of the whole origin — that one does concern us. */
+  it('re-reads when another tab clears the origin', () => {
+    mount(DailyChallengeCard, { onStart: vi.fn() });
+
+    readDailyRecord.mockReturnValue(officialRecord({ won: false, turns: 12 }));
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key: null })));
+
+    expect(container.textContent).toContain('Today: eliminated after 12 turns');
   });
 
   it('re-reads the record when the tab is focused again', () => {

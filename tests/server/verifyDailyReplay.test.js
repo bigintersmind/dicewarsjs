@@ -60,6 +60,15 @@ function turnCapCut(replay, cap) {
   return -1;
 }
 
+/** Completed player-turns after the first `count` actions of a replay. */
+function turnsTakenAfter(replay, count) {
+  let state = createGame(replay.config);
+  for (const action of replay.actions.slice(0, count)) {
+    state = applyAction(state, action.type === 'ATTACK' ? action : { type: 'END_TURN' });
+  }
+  return state.turnsTaken;
+}
+
 /** The journal fields the leaderboard is built out of. */
 function scoreOf(journal) {
   return {
@@ -141,6 +150,30 @@ describe('verifyDailyReplay against real controller games', () => {
       drew: false,
       ...scoreOf(elimination.journal),
     });
+  });
+
+  it('scores an elimination as a loss even when the replay runs on to the turn cap', () => {
+    /*
+     * The two end conditions in one replay, in the order the player lived them:
+     * knocked out, then spectating on until the (test-only) cap. The FIRST one
+     * is the result — a loss, not a draw — and the journal it reports is the one
+     * that froze at the elimination. Without the `ended` latch the cap would win
+     * the argument and the server would store this attempt as a draw.
+     */
+    const cut = eliminationCut(elimination.replay);
+    expect(cut).toBeGreaterThan(0);
+
+    const cap = turnsTakenAfter(elimination.replay, cut) + 3;
+    const stalledCut = turnCapCut(elimination.replay, cap);
+    expect(stalledCut).toBeGreaterThan(cut);
+
+    const stalled = {
+      ...elimination.replay,
+      actions: elimination.replay.actions.slice(0, stalledCut),
+    };
+    const verdict = verifyDailyReplay(ELIMINATION_BOARD, stalled, { maxTurns: cap });
+    expect(verdict).toEqual({ ok: true, drew: false, ...scoreOf(elimination.journal) });
+    expect(verdict.won).toBe(false);
   });
 
   it('calls a game that stops on the turn cap a draw', () => {
@@ -396,5 +429,53 @@ describe('verifyDailyReplay rejects tampering', () => {
     const verdict = verifyDailyReplay(BOARD, booby);
     expect(verdict).toMatchObject({ ok: false, code: 'unverifiable' });
     expect(verdict.message).toMatch(/boom/);
+  });
+});
+
+/**
+ * The verifier re-derives the opponents itself, so it hard-codes v1's recipe.
+ * If the recipe is ever edited without the verifier, honest submissions would be
+ * simulated against the wrong game and rejected one by one as forgeries. These
+ * mock the recipe module — in an isolated module registry, so the suite above
+ * keeps the real one — and assert the verifier says so instead.
+ */
+describe('verifyDailyReplay refuses a recipe it was not written for', () => {
+  afterEach(() => {
+    vi.doUnmock('../../src/game/dailyChallenge.js');
+    vi.resetModules();
+  });
+
+  /** The verifier, freshly imported over a recipe patched with `changes`. */
+  async function verifierForRecipe(changes) {
+    const actual = await vi.importActual('../../src/game/dailyChallenge.js');
+    vi.doMock('../../src/game/dailyChallenge.js', () => ({
+      ...actual,
+      createDailyChallenge: date => ({ ...actual.createDailyChallenge(date), ...changes }),
+    }));
+    vi.resetModules();
+    return (await import('../../src/game/verifyDailyReplay.js')).verifyDailyReplay;
+  }
+
+  it.each([
+    [
+      'the human seat is handed to a bot',
+      { aiAssignments: ['ai_default', 'ai_default', 'ai_default', 'ai_default'] },
+    ],
+    [
+      'an opponent is not ai_default',
+      { aiAssignments: [null, 'ai_conqueror', 'ai_default', 'ai_default'] },
+    ],
+    ['the difficulty changes', { difficulty: 'hard' }],
+    ['the daily gains a luck handicap', { luck: 2 }],
+  ])('rejects a replay it cannot re-simulate when %s', async (_label, changes) => {
+    const verify = await verifierForRecipe(changes);
+    const verdict = verify(BOARD, win.replay);
+    expect(verdict).toMatchObject({ ok: false, code: 'unverifiable' });
+    expect(verdict.message).toMatch(/daily recipe changed/);
+  });
+
+  it('still verifies the same replay once the recipe is back', async () => {
+    const verify = await verifierForRecipe({});
+    expect(verify(BOARD, win.replay)).toEqual({ ok: true, drew: false, ...scoreOf(win.journal) });
   });
 });

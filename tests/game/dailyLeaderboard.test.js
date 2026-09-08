@@ -7,6 +7,7 @@ import {
   normalizeName,
   submitDailyResult,
 } from '../../src/game/dailyLeaderboard.js';
+import { SUBMISSION_VERSION } from '../../src/game/dailySubmission.js';
 
 const url = 'https://leaderboard.example/api';
 const replay = { version: 2, actions: [] };
@@ -136,6 +137,21 @@ describe('Daily leaderboard client', () => {
       ).rejects.toMatchObject({ code: 'bad_response' });
     });
 
+    it('reports a refusal from the board endpoint, not just a bad shape', async () => {
+      const fetch = respondWith({ status: 503, body: { error: 'unavailable' } });
+      await expect(fetchDailyLeaderboard('2026-09-07', { url, fetch })).rejects.toMatchObject({
+        code: 'unavailable',
+        message: LEADERBOARD_MESSAGES.unavailable,
+      });
+    });
+
+    it('falls back to the date it asked for when the page does not name one', async () => {
+      const fetch = respondWith({ body: { ...page, date: 42 } });
+      await expect(fetchDailyLeaderboard('2026-09-07', { url, fetch })).resolves.toMatchObject({
+        date: '2026-09-07',
+      });
+    });
+
     it('reports an unreachable leaderboard in words a player can act on', async () => {
       const fetch = vi.fn(async () => {
         throw new TypeError('Failed to fetch');
@@ -144,6 +160,18 @@ describe('Daily leaderboard client', () => {
         code: 'network',
         message: expect.stringContaining("Couldn't reach the leaderboard"),
       });
+    });
+
+    it('reports a build with no fetch at all as an unreachable network', async () => {
+      // Not a crash: an environment without `fetch` (an old embedded webview,
+      // a test harness that stubbed it away) is the leaderboard being
+      // unreachable, and the player is told exactly that.
+      await expect(fetchDailyLeaderboard('2026-09-07', { url, fetch: null })).rejects.toMatchObject(
+        { code: 'network', message: LEADERBOARD_MESSAGES.network }
+      );
+      await expect(
+        submitDailyResult({ date: '2026-09-07', name: 'Ada', replay }, { url, fetch: null })
+      ).rejects.toMatchObject({ code: 'network' });
     });
   });
 
@@ -158,7 +186,9 @@ describe('Daily leaderboard client', () => {
       expect(requestUrl).toBe('https://leaderboard.example/api/daily/2026-09-07/results');
       expect(init.method).toBe('POST');
       const sent = JSON.parse(init.body);
-      expect(sent).toEqual({ version: 1, name: 'Ada', replay });
+      // The version comes from the module both sides import, not a literal
+      // retyped here — a drift between client and Worker has to fail loudly.
+      expect(sent).toEqual({ version: SUBMISSION_VERSION, name: 'Ada', replay });
       expect(sent).not.toHaveProperty('turns');
       expect(sent).not.toHaveProperty('won');
     });
@@ -202,6 +232,29 @@ describe('Daily leaderboard client', () => {
         { url, fetch: respondWith({ status: 429, body: { error: 'rate_limited' } }) }
       ).catch(e => e);
       expect(rateLimited.message).toBe('Too many submissions from your network today.');
+    });
+
+    it('clamps a sentence from a server whose code it has never heard of', async () => {
+      /*
+       * An unknown code is the one case where the server's own words are shown
+       * — it is the only description of the failure this client has. That makes
+       * the string untrusted copy: clamp it to one line of readable length
+       * rather than pouring a page of it into a dialog.
+       */
+      const err = await submitDailyResult(
+        { date: '2026-09-07', name: 'Ada', replay },
+        {
+          url,
+          fetch: respondWith({
+            status: 400,
+            body: { error: 'from_the_future', message: `a\n\n b${'!'.repeat(500)}` },
+          }),
+        }
+      ).catch(e => e);
+      expect(err.code).toBe('from_the_future');
+      expect(err.message.length).toBeLessThanOrEqual(200);
+      expect(err.message).not.toMatch(/\n/);
+      expect(err.message.startsWith('a b')).toBe(true);
     });
 
     it('does not mistake an Object.prototype key for a message it publishes', async () => {

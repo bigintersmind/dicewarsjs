@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS results (
   attacks     INTEGER NOT NULL,
   captures    INTEGER NOT NULL,
   ip_hash     TEXT    NOT NULL,             -- salted SHA-256 of CF-Connecting-IP
-  replay_hash TEXT    NOT NULL,             -- SHA-256 of the submitted replay
+  replay_hash TEXT    NOT NULL,             -- SHA-256 of the replay's IDENTITY (see below)
   created_at  TEXT    NOT NULL              -- ISO 8601; ties break on id
 );
 
@@ -26,11 +26,17 @@ CREATE TABLE IF NOT EXISTS results (
 CREATE INDEX IF NOT EXISTS idx_results_board ON results (date, won, turns, created_at);
 
 -- One submitter re-posting the same game to the same board is a duplicate, not
--- a second attempt (usually a retry after a lost response). Scoped by ip_hash on
--- purpose: on a fixed seed two different people CAN produce byte-identical
--- replays — a short forced loss especially — and the second of them must not be
--- turned away. Enforced in SQL as well as in the handler so a race can't slip
--- two in.
+-- a second attempt (usually a retry after a lost response, which the handler
+-- answers idempotently: the same name gets the stored row's numbers back with a
+-- 200, and only a DIFFERENT name on the same replay is refused). Scoped by
+-- ip_hash on purpose: on a fixed seed two different people CAN produce
+-- byte-identical replays — a short forced loss especially — and the second of
+-- them must not be turned away. Enforced in SQL as well as in the handler so a
+-- race can't slip two in.
+--
+-- replay_hash is over the replay's verified IDENTITY — the date, the board
+-- fields and the actions — not the raw body, so a retry hashes the same however
+-- the client ordered its keys and whatever wall-clock `metadata` it carried.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_results_replay ON results (date, ip_hash, replay_hash);
 
 -- Accepted submissions per address per board. Bumped in the SAME batch as the

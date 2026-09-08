@@ -37,7 +37,7 @@ Each day's leaderboard ranks scored **wins** by fewest turns; ties go to the ear
 
 The server never trusts a claimed score. A post is the game's replay, and the server rebuilds the game from the daily seed, replays your moves through the same engine, runs the same opponents itself, and derives the result. A replay with an illegal move, altered opponent moves, a different board, or an unfinished game is rejected. Posting is open for the current and previous UTC date.
 
-Stored per post: display name, result, turn count, attack counts, and a salted hash of the network address used only for the daily caps (a few posts and a bounded number of requests per network per day). Replays are not kept on the server or in the browser. There is no account, no email, and no cross-device sync of personal records.
+Stored per post: display name, result, turn count, attack counts, a salted, per-day hash of the network address, used for the daily caps (a few posts and a bounded number of requests per network per day) and to recognise the same player re-posting the same game, and a hash of the game itself (board and moves). Replays are not kept on the server or in the browser. There is no account, no email, and no cross-device sync of personal records.
 
 ### Anti-cheat, honestly
 

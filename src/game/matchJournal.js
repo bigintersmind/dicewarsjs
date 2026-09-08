@@ -17,8 +17,14 @@ export function createMatchJournal(state, playerId) {
 
 export function recordMatchStep(journal, before, after) {
   if (!journal || journal.finished) return journal;
+  /*
+   * Same rule as finishMatchJournal below: a seat missing from the state being
+   * recorded (a truncated or mocked state) costs this step's sample, not the
+   * game. Statistics must never be the reason an attack seam throws.
+   */
+  const player = after?.players?.[journal.playerId];
+  if (!player) return journal;
   const action = after.history.at(-1);
-  const player = after.players[journal.playerId];
   const ownTurn = before.turnOrder[before.currentPlayerIndex] === journal.playerId;
   const attack = ownTurn && action?.type === 'ATTACK';
   const newTurn = ownTurn && journal.lastTurn !== before.turnsTaken;

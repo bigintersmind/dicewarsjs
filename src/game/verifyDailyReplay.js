@@ -91,7 +91,14 @@ export const MAX_REPLAY_ACTIONS = 3000;
  * fields `createReplayFromActions` whitelists, minus `handicap` (checked
  * separately so its failure gets its own message).
  */
-const BOARD_FIELDS = ['seed', 'playerCount', 'mapWidth', 'mapHeight', 'maxAreas', 'dicePerArea'];
+export const BOARD_FIELDS = [
+  'seed',
+  'playerCount',
+  'mapWidth',
+  'mapHeight',
+  'maxAreas',
+  'dicePerArea',
+];
 
 /**
  * What `take()` returns once the replay's actions are used up.
@@ -134,11 +141,12 @@ function reject(code, message) {
  * @param {string} date - Board date, `YYYY-MM-DD` UTC
  * @param {Object} replay - Replay v1/v2 object (`{ version, config, actions }`)
  * @param {Object} [options]
- * @param {number} [options.maxTurns=MAX_GAME_TURNS] - Turn-cap override. Tests
- *   only: a real daily game between `ai_default` bots resolves long before 300
- *   player-turns, so the draw branch is otherwise unreachable from a genuine
- *   replay. Production callers must leave it at the default or they are not
- *   verifying against the game the player played.
+ * @param {number} [options.maxTurns=MAX_GAME_TURNS] - Turn-cap override, clamped
+ *   to {@link MAX_GAME_TURNS}: it can only LOWER the cap, never raise it past
+ *   the browser's. Tests only: a real daily game between `ai_default` bots
+ *   resolves long before 300 player-turns, so the draw branch is otherwise
+ *   unreachable from a genuine replay. Production callers must leave it at the
+ *   default or they are not verifying against the game the player played.
  * @returns {VerifiedResult|RejectedResult}
  */
 export function verifyDailyReplay(date, replay, options = {}) {
@@ -157,7 +165,7 @@ export function verifyDailyReplay(date, replay, options = {}) {
 
 /** @returns {VerifiedResult|RejectedResult} */
 function runVerification(date, replay, options) {
-  const maxTurns = options.maxTurns ?? MAX_GAME_TURNS;
+  const maxTurns = Math.min(options.maxTurns ?? MAX_GAME_TURNS, MAX_GAME_TURNS);
 
   if (!replay || typeof replay !== 'object' || Array.isArray(replay)) {
     return reject('unverifiable', 'Replay is missing or is not an object.');
@@ -186,6 +194,33 @@ function runVerification(date, replay, options) {
     challenge = createDailyChallenge(date);
   } catch (err) {
     return reject('wrong_board', err.message);
+  }
+
+  /*
+   * Everything below hard-codes v1's recipe: the human in HUMAN_SEAT, ai_default
+   * in every other seat, standard difficulty and fair dice. Edit the recipe
+   * without teaching the verifier the new one and every honest submission gets
+   * re-simulated against the wrong opponents and rejected as a forgery — the one
+   * failure mode nobody would see in the logs. So say so instead: the throw is
+   * caught by verifyDailyReplay and answered as `unverifiable`, which is the
+   * truth (this server cannot verify that board), and the message names the fix.
+   */
+  const seats = challenge.aiAssignments;
+  if (
+    !Array.isArray(seats) ||
+    seats.length !== challenge.playerCount ||
+    seats[HUMAN_SEAT] !== null ||
+    seats.some((bot, seat) => seat !== HUMAN_SEAT && bot !== 'ai_default') ||
+    challenge.difficulty !== 'standard' ||
+    challenge.luck !== 0
+  ) {
+    throw new Error(
+      `the daily recipe changed (${JSON.stringify({
+        aiAssignments: seats,
+        difficulty: challenge.difficulty,
+        luck: challenge.luck,
+      })}); verifyDailyReplay hard-codes seat ${HUMAN_SEAT} + ai_default on fair dice and must be updated to match`
+    );
   }
 
   /*
@@ -253,11 +288,21 @@ function simulate(initialState, actions, maxTurns) {
    */
   let ended = false;
   let drew = false;
-  const endHere = (st, isDraw) => {
-    if (ended) return;
-    journal = finishMatchJournal(journal, st);
+  /**
+   * Close the journal at the first end condition, and hand the closed one back.
+   *
+   * It takes the journal to close because an elimination lands *inside* an AI
+   * turn, whose local journal is still open and has not been handed up to this
+   * scope yet: closing the stale outer one there would be undone the moment the
+   * turn returns. The caller adopts the return value; the outer `journal` is set
+   * either way, so the simulate-scope callers can ignore it.
+   */
+  const endHere = (st, isDraw, openJournal = journal) => {
+    if (ended) return openJournal;
+    journal = finishMatchJournal(openJournal, st);
     drew = isDraw;
     ended = true;
+    return journal;
   };
 
   /** @returns {VerifiedResult|RejectedResult} */
@@ -451,7 +496,7 @@ function playAITurn(state, take, journal, humanKnockedOut, endHere) {
      * itself keeps running for the surviving bots, and the replay only carries
      * on if the player chose to spectate. Either way the journal is done.
      */
-    if (humanKnockedOut(current)) endHere(current, false);
+    if (humanKnockedOut(current)) log = endHere(current, false, log);
 
     if (current.phase === GAME_PHASES.GAME_OVER) {
       return { state: current, journal: log, gameOver: true };

@@ -15,14 +15,21 @@ import {
   MAX_JSON_DEPTH,
   MAX_REQUESTS_PER_IP,
   MAX_SUBMISSIONS_PER_IP,
+  SUBMISSION_VERSION,
   sha256,
 } from '../../server/daily-leaderboard/src/index.js';
 import { normalizeName } from '../../server/daily-leaderboard/src/names.js';
 import { SQL, readIpCount, readRequestCount } from '../../server/daily-leaderboard/src/db.js';
-import { NAME_PATTERN } from '../../src/game/dailyLeaderboard.js';
-import { readFile } from 'node:fs/promises';
+import { LEADERBOARD_MESSAGES, NAME_PATTERN } from '../../src/game/dailyLeaderboard.js';
 import { createTestDatabase } from './d1Sqlite.js';
-import { playDailyGame, greedyHuman, cautiousHuman, timidHuman } from './dailyReplayFixture.js';
+import {
+  playDailyGame,
+  greedyHuman,
+  cautiousHuman,
+  timidHuman,
+  marginHuman,
+  turnCapCut,
+} from './dailyReplayFixture.js';
 
 /** The board every fixture below was played on; pinned as "today" for the suite. */
 const BOARD = '2026-09-16';
@@ -33,15 +40,19 @@ const BASE = 'https://daily.example.workers.dev';
 
 let db;
 let env;
-/** Three real outcomes on BOARD: a fast win, a slow win, and a loss. */
+/** Four real outcomes on BOARD: a fast win, a slow win, and two different losses. */
 let fastWin;
 let slowWin;
 let loss;
+let otherLoss;
 
 beforeAll(async () => {
   fastWin = await playDailyGame({ date: BOARD, human: greedyHuman });
   slowWin = await playDailyGame({ date: BOARD, human: cautiousHuman });
   loss = await playDailyGame({ date: BOARD, human: timidHuman });
+  // A fourth genuinely different game: the accepted cap needs a submission that
+  // both verifies and is not one of the three above.
+  otherLoss = await playDailyGame({ date: BOARD, human: marginHuman(0) });
 }, 120000);
 
 beforeEach(() => {
@@ -60,7 +71,14 @@ afterEach(() => {
   db.close();
 });
 
-/** POST a submission. */
+/**
+ * POST a submission.
+ *
+ * `Content-Length` is set here because the Worker requires it and `new Request`
+ * in Node does not add one, while a browser's `fetch` always does for the string
+ * body the client sends. Pass `contentLength: null` for a body that declares no
+ * size, or a string to declare a wrong one.
+ */
 function post({
   date = BOARD,
   name = 'Ivan',
@@ -69,11 +87,17 @@ function post({
   origin = ORIGIN,
   contentType = 'application/json',
   body,
+  contentLength,
+  headers: extraHeaders,
 } = {}) {
-  const payload = body ?? JSON.stringify({ version: 1, name, replay });
-  const headers = { 'CF-Connecting-IP': ip };
+  const payload = body ?? JSON.stringify({ version: SUBMISSION_VERSION, name, replay });
+  const headers = { ...extraHeaders };
+  if (ip !== null) headers['CF-Connecting-IP'] = ip;
   if (origin !== null) headers.Origin = origin;
   if (contentType !== null) headers['Content-Type'] = contentType;
+  if (contentLength !== null) {
+    headers['Content-Length'] = contentLength ?? String(new TextEncoder().encode(payload).length);
+  }
   return handleRequest(
     new Request(`${BASE}/daily/${date}/results`, { method: 'POST', body: payload, headers }),
     env
@@ -90,16 +114,19 @@ function get({ date = BOARD, origin = ORIGIN } = {}) {
 
 const bodyOf = response => response.json();
 
-/** The `ip_hash` the Worker stores for an address, so a test can read its counters. */
-function hashFor(ip) {
-  return sha256(`${env.IP_SALT}:${ip}`);
+/**
+ * The `ip_hash` the Worker stores for an address, so a test can read its
+ * counters. The board date is in the preimage: the digest is a per-day
+ * pseudonym, not a handle that follows an address across boards.
+ */
+function hashFor(ip, date = BOARD) {
+  return sha256(`${env.IP_SALT}:${date}:${ip}`);
 }
 
 /**
- * The same game with a different replay hash. `metadata` is never read by the
- * verifier, so this still verifies identically — it is just not the byte-for-
- * byte resubmission the duplicate index refuses, which is what lets a test
- * reach the per-address CAP instead of stopping at `duplicate`.
+ * The same game carrying different `metadata`. The verifier never reads
+ * `metadata`, and neither does the replay hash — which is the point: this is
+ * still the SAME submission as far as the duplicate index is concerned.
  */
 function variant(replay, tag) {
   return { ...replay, metadata: { ...replay.metadata, tag } };
@@ -202,8 +229,6 @@ describe('POST /daily/:date/results', () => {
     ['empty', ''],
     ['whitespace only', '   '],
     ['too long', 'abcdefghijklmnopq'],
-    ['reserved', 'admin'],
-    ['profane', 'sh1t'],
     ['markup', '<b>hi</b>'],
     ['emoji', '🔥🔥'],
     ['not a string', 42],
@@ -211,6 +236,30 @@ describe('POST /daily/:date/results', () => {
     const response = await post({ name, replay: fastWin.replay });
     expect(response.status).toBe(400);
     expect((await bodyOf(response)).error).toBe('name_rejected');
+  });
+
+  /*
+   * A blocked name is WELL FORMED — it passes every charset rule the client can
+   * check — so answering it with `name_rejected`, whose message is "pick a name
+   * of 1-16 letters, numbers, spaces, hyphens or underscores", told the player
+   * to fix something that was not wrong. Its own code, and its own sentence.
+   */
+  it.each([
+    ['reserved', 'admin'],
+    ['reserved, spaced out', 'M O D'],
+    ['the game itself', 'Dicewars'],
+    ['profane, leet-spelled', 'sh1t'],
+    // Math-bold and fullwidth letters are `\p{L}`, survive NFC and render as the
+    // word — they used to squash to the empty string and skip the lists.
+    ['reserved in math-bold letters', '\u{1D41A}dmin'],
+    ['reserved in fullwidth letters', '\uFF41\uFF44\uFF4D\uFF49\uFF4E'],
+  ])('refuses a %s name with its own code', async (_label, name) => {
+    const response = await post({ name, replay: fastWin.replay });
+    expect(response.status).toBe(400);
+    expect((await bodyOf(response)).error).toBe('name_blocked');
+    expect((await bodyOf(await post({ name, replay: fastWin.replay }))).message).toMatch(
+      /not available/i
+    );
   });
 
   it('accepts every name the client accepts, normalized the same way', async () => {
@@ -252,11 +301,57 @@ describe('POST /daily/:date/results', () => {
     expect(await bodyOf(response)).toMatchObject({ turns: fastWin.journal.turns });
   });
 
-  it('rejects a second copy of the same game from the same submitter', async () => {
-    await post({ replay: fastWin.replay, ip: '203.0.113.9' });
-    const response = await post({ replay: fastWin.replay, ip: '203.0.113.9' });
-    expect(response.status).toBe(400);
-    expect((await bodyOf(response)).error).toBe('duplicate');
+  it('answers a retry of the same game with the result it already stored', async () => {
+    /*
+     * The retry after a lost response is the ordinary case, and a flat 400 made
+     * it unrecoverable: the client throws on any non-2xx, so the form kept
+     * offering to post and each retry burned another attempt. The second post
+     * gets the same answer as the first, and stores nothing new.
+     */
+    const ip = '203.0.113.9';
+    const first = await post({ replay: fastWin.replay, ip });
+    expect(first.status).toBe(201);
+
+    const retry = await post({ replay: fastWin.replay, ip });
+    expect(retry.status).toBe(200);
+    expect(await bodyOf(retry)).toEqual(await bodyOf(first));
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(1);
+    expect(await readIpCount(env.DB, BOARD, await hashFor(ip))).toBe(1);
+  });
+
+  it('recognizes a retry that carries different metadata', async () => {
+    // The hash is over the replay's identity — date, board fields, actions —
+    // not the raw body, so `metadata`'s wall clock cannot make one game two.
+    const ip = '203.0.113.11';
+    await post({ replay: fastWin.replay, ip });
+    const retry = await post({ replay: variant(fastWin.replay, 'retry'), ip });
+    expect(retry.status).toBe(200);
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(1);
+  });
+
+  it('recognizes a retry whose replay keys arrive in a different order', async () => {
+    const ip = '203.0.113.12';
+    await post({ replay: fastWin.replay, ip });
+    const reordered = {
+      metadata: fastWin.replay.metadata,
+      actions: fastWin.replay.actions,
+      config: fastWin.replay.config,
+      version: fastWin.replay.version,
+    };
+    expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(fastWin.replay));
+    expect((await post({ replay: reordered, ip })).status).toBe(200);
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(1);
+  });
+
+  it('still refuses the same game posted under a different name', async () => {
+    // Two players behind one address CAN produce identical replays on a fixed
+    // seed — but then it is not a retry, and the board must not take it twice.
+    const ip = '203.0.113.13';
+    expect((await post({ name: 'Ivan', replay: fastWin.replay, ip })).status).toBe(201);
+    const other = await post({ name: 'Someone', replay: fastWin.replay, ip });
+    expect(other.status).toBe(400);
+    expect((await bodyOf(other)).error).toBe('duplicate');
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(1);
   });
 
   it('lets a different submitter post an identical game', async () => {
@@ -272,9 +367,9 @@ describe('POST /daily/:date/results', () => {
       expect((await post({ replay, ip })).status).toBe(201);
     }
 
-    // The fourth verifies just as well and hashes differently — so it is the
+    // The fourth is a different game that verifies just as well — so it is the
     // ACCEPTED cap that turns it away, not the duplicate index.
-    const fourth = await post({ replay: variant(fastWin.replay, '4th'), ip, name: 'Again' });
+    const fourth = await post({ replay: otherLoss.replay, ip, name: 'Again' });
     expect(fourth.status).toBe(429);
     expect((await bodyOf(fourth)).error).toBe('rate_limited');
     expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(3);
@@ -307,6 +402,47 @@ describe('POST /daily/:date/results', () => {
 
   it('refuses an oversized body without parsing it', async () => {
     const response = await post({ body: 'x'.repeat(MAX_BODY_BYTES + 1) });
+    expect(response.status).toBe(400);
+    expect((await bodyOf(response)).error).toBe('invalid_body');
+  });
+
+  it('refuses a body that declares no size at all, before reading it', async () => {
+    /*
+     * The cap used to be `Number(header) > MAX_BODY_BYTES`, and `Number(null)`
+     * is 0 — so a request with no `Content-Length` (a chunked, streamed body)
+     * sailed past it and `request.text()` buffered the whole thing before
+     * anything measured it. A real client always sends the header.
+     */
+    const response = await post({ replay: fastWin.replay, contentLength: null });
+    expect(response.status).toBe(400);
+    const failure = await bodyOf(response);
+    expect(failure.error).toBe('invalid_body');
+    expect(failure.message).toMatch(/Content-Length/i);
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(0);
+  });
+
+  it.each([
+    ['junk', 'lots'],
+    ['empty', ''],
+    ['zero', '0'],
+    ['negative', '-1'],
+  ])('refuses a %s Content-Length', async (_label, contentLength) => {
+    const response = await post({ replay: fastWin.replay, contentLength });
+    expect(response.status).toBe(400);
+    expect((await bodyOf(response)).error).toBe('invalid_body');
+  });
+
+  it('charges nothing for a body it refuses on its declared size', async () => {
+    const ip = '198.51.100.66';
+    await post({ replay: fastWin.replay, ip, contentLength: null });
+    await post({ body: 'x'.repeat(MAX_BODY_BYTES + 1), ip });
+    expect(await readRequestCount(env.DB, BOARD, await hashFor(ip))).toBe(0);
+  });
+
+  it('still measures the body it read, not the size the caller claimed', async () => {
+    // The declared size is only a pre-read bound; a lying header is caught by
+    // the byte count taken after the body is in hand.
+    const response = await post({ body: 'x'.repeat(MAX_BODY_BYTES + 1), contentLength: '20' });
     expect(response.status).toBe(400);
     expect((await bodyOf(response)).error).toBe('invalid_body');
   });
@@ -465,6 +601,10 @@ describe('rate limiting', () => {
      * The counter used to be read, compared, and written three round trips
      * apart, so N simultaneous posts all read the same under-cap value and all
      * went through. One conditional write is what makes this a real limit.
+     *
+     * The SQLite shim is synchronous, so this is not a genuine race: what it
+     * pins is that the cap lives in the statement's own predicate, which is the
+     * property that makes a real race safe.
      */
     const ip = '203.0.113.77';
     const replay = wrongBoard(fastWin.replay);
@@ -480,7 +620,7 @@ describe('rate limiting', () => {
 
   it('accepts exactly the cap when winning submissions arrive together', async () => {
     const ip = '203.0.113.88';
-    const replays = [fastWin.replay, slowWin.replay, loss.replay, variant(fastWin.replay, 'racer')];
+    const replays = [fastWin.replay, slowWin.replay, loss.replay, otherLoss.replay];
     const responses = await Promise.all(
       replays.map((replay, i) => post({ replay, ip, name: `Racer${i}` }))
     );
@@ -534,11 +674,77 @@ describe('rate limiting', () => {
     expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(0);
   });
 
+  it('keeps an accepted result accepted when the board read afterwards fails', async () => {
+    /*
+     * `rankOf` and `readTotals` run AFTER the insert has committed. Letting them
+     * fall through to the catch-all told the player their stored result had
+     * failed — and the retry they would then make costs an attempt and comes
+     * back `duplicate`. The row is on the board either way; answer with what is
+     * known.
+     */
+    const realDb = env.DB;
+    env = {
+      ...env,
+      DB: {
+        ...realDb,
+        prepare(sql) {
+          if (sql !== SQL.betterThan) return realDb.prepare(sql);
+          throw new Error('D1_ERROR: read failed');
+        },
+        batch: statements => realDb.batch(statements),
+      },
+    };
+    const response = await post({ replay: fastWin.replay });
+    expect(response.status).toBe(201);
+    expect(await bodyOf(response)).toEqual({
+      accepted: true,
+      won: true,
+      turns: fastWin.journal.turns,
+      rank: null,
+      totals: { finished: 0, won: 0 },
+    });
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(1);
+  });
+
+  it.each([
+    [
+      'a flat D1 message',
+      () => new Error('D1_ERROR: UNIQUE constraint failed: results.replay_hash'),
+    ],
+    [
+      'a wrapped D1 message',
+      () =>
+        Object.assign(new Error('D1_ERROR: Error in performing DB operation'), {
+          cause: new Error('UNIQUE constraint failed: results.date, results.ip_hash'),
+        }),
+    ],
+  ])('reads %s as a duplicate rather than an outage', async (_label, makeError) => {
+    /*
+     * The shim reports SQLite's own wording; real D1 wraps it, sometimes only on
+     * `.cause`. Both shapes are pinned here so `isUniqueViolation` cannot be
+     * narrowed to the one the tests happen to produce.
+     */
+    const realDb = env.DB;
+    env = {
+      ...env,
+      DB: {
+        ...realDb,
+        prepare: sql => realDb.prepare(sql),
+        batch: () => Promise.reject(makeError()),
+      },
+    };
+    const response = await post({ replay: fastWin.replay });
+    expect(response.status).toBe(400);
+    expect((await bodyOf(response)).error).toBe('duplicate');
+  });
+
   it('reports a raced duplicate as 400, not as an outage', async () => {
     /*
      * The handler's own duplicate check is a read, so two simultaneous posts of
      * one replay can both pass it; the unique index is what actually decides.
-     * Blinding the check is how a test reaches that branch deterministically.
+     * Blinding the check is how a test reaches that branch deterministically —
+     * and it blinds the recovery lookup too, so this lands on the plain 400
+     * rather than on the idempotent answer a real retry would get.
      */
     const ip = '203.0.113.55';
     expect((await post({ replay: fastWin.replay, ip })).status).toBe(201);
@@ -563,19 +769,94 @@ describe('rate limiting', () => {
 });
 
 describe('the verifier the Worker calls', () => {
-  it('is never handed the test-only turn-cap override', async () => {
+  it('scores against the real turn cap, never the test-only override', async () => {
     /*
      * `verifyDailyReplay`'s `maxTurns` option exists so a test can reach the
      * draw branch without playing 300 turns. A Worker that passed it would be
      * scoring a different game from the one the player played, and no response
-     * would look wrong — so this is pinned at the source, where it is visible.
+     * would look wrong.
+     *
+     * So: a real game cut at exactly 12 completed turns. Under `maxTurns: 12`
+     * that is a turn-cap DRAW and would be accepted; under the 300 the browser
+     * uses it is simply an abandoned game. The Worker must say `not_finished`.
      */
-    const source = await readFile(
-      new URL('../../server/daily-leaderboard/src/index.js', import.meta.url),
-      'utf8'
-    );
-    expect(source).toMatch(/verifyDailyReplay\(date, body\.replay\)/);
-    expect(source).not.toMatch(/maxTurns/);
+    const cap = 12;
+    const cut = turnCapCut(fastWin.replay, cap);
+    expect(cut).toBeGreaterThan(0);
+    const stalled = { ...fastWin.replay, actions: fastWin.replay.actions.slice(0, cut) };
+
+    const response = await post({ replay: stalled });
+    expect(response.status).toBe(400);
+    expect((await bodyOf(response)).error).toBe('not_finished');
+    expect(db.sqlite.prepare('SELECT COUNT(*) AS n FROM results').get().n).toBe(0);
+  });
+});
+
+describe('the address the caps are charged to', () => {
+  it('ignores X-Forwarded-For unless the deployment opts in', async () => {
+    /*
+     * The header is caller-supplied: honouring it unconditionally handed anyone
+     * a fresh rate-limit bucket per request, which is the cap defeating itself.
+     */
+    const ip = null; // no CF-Connecting-IP, as `wrangler dev` sees it
+    await post({ replay: fastWin.replay, ip, headers: { 'X-Forwarded-For': '198.51.100.200' } });
+    expect(await readRequestCount(env.DB, BOARD, await hashFor('198.51.100.200'))).toBe(0);
+    expect(await readRequestCount(env.DB, BOARD, await hashFor('unknown'))).toBe(1);
+  });
+
+  it('reads X-Forwarded-For when TRUST_FORWARDED_FOR is set', async () => {
+    env = { ...env, TRUST_FORWARDED_FOR: '1' };
+    await post({
+      replay: fastWin.replay,
+      ip: null,
+      headers: { 'X-Forwarded-For': '198.51.100.200, 10.0.0.1' },
+    });
+    expect(await readRequestCount(env.DB, BOARD, await hashFor('198.51.100.200'))).toBe(1);
+    expect(await readRequestCount(env.DB, BOARD, await hashFor('unknown'))).toBe(0);
+  });
+
+  it('scopes the address digest to the board it was charged on', async () => {
+    const ip = '203.0.113.200';
+    await post({ replay: fastWin.replay, ip });
+    expect(await readRequestCount(env.DB, BOARD, await hashFor(ip))).toBe(1);
+    // Yesterday's board is open too, and hashes the same address differently.
+    expect(await readRequestCount(env.DB, '2026-09-15', await hashFor(ip, '2026-09-15'))).toBe(0);
+  });
+});
+
+describe('the codes this Worker emits', () => {
+  /**
+   * Every code the handler can answer with. The client renders its OWN sentence
+   * per code (`LEADERBOARD_MESSAGES`) and only falls back to the server's string
+   * for a code it has never heard of — so a code missing from that table shows
+   * the player server copy instead of ours.
+   */
+  const CODES = [
+    'invalid_body',
+    'name_rejected',
+    'name_blocked',
+    'wrong_board',
+    'unverifiable',
+    'not_finished',
+    'duplicate',
+    'date_closed',
+    'forbidden',
+    'rate_limited',
+    'not_found',
+    'method_not_allowed',
+    'unavailable',
+  ];
+
+  it.each(CODES)('publishes a player-facing sentence for %s', code => {
+    expect(Object.hasOwn(LEADERBOARD_MESSAGES, code)).toBe(true);
+    expect(LEADERBOARD_MESSAGES[code].length).toBeGreaterThan(10);
+  });
+
+  it('answers every response as JSON a browser may not re-sniff', async () => {
+    for (const response of [await get(), await post({ replay: fastWin.replay })]) {
+      expect(response.headers.get('Content-Type')).toMatch(/^application\/json/);
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    }
   });
 });
 

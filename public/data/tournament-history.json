@@ -1,79 +1,5 @@
 [
   {
-    "date": "2026-07-02",
-    "gamesPlayed": 100,
-    "failedGames": 0,
-    "botCount": 13,
-    "champion": "Expectimax",
-    "standings": [
-      {
-        "name": "Expectimax",
-        "elo": 1404,
-        "wins": 11
-      },
-      {
-        "name": "Lookahead",
-        "elo": 1322,
-        "wins": 9
-      },
-      {
-        "name": "Strategist",
-        "elo": 1232,
-        "wins": 1
-      },
-      {
-        "name": "Conqueror",
-        "elo": 1229,
-        "wins": 22
-      },
-      {
-        "name": "Survivor",
-        "elo": 1220,
-        "wins": 23
-      },
-      {
-        "name": "Connector (bigintersmind)",
-        "elo": 1205,
-        "wins": 0
-      },
-      {
-        "name": "Example",
-        "elo": 1203,
-        "wins": 0
-      },
-      {
-        "name": "Defensive",
-        "elo": 1188,
-        "wins": 9
-      },
-      {
-        "name": "Adaptive",
-        "elo": 1157,
-        "wins": 2
-      },
-      {
-        "name": "Giant Slayer (bigintersmind)",
-        "elo": 1130,
-        "wins": 1
-      },
-      {
-        "name": "Default",
-        "elo": 1114,
-        "wins": 2
-      },
-      {
-        "name": "Blitz",
-        "elo": 1103,
-        "wins": 9
-      },
-      {
-        "name": "Berserker (bigintersmind)",
-        "elo": 1060,
-        "wins": 0
-      }
-    ]
-  },
-  {
     "date": "2026-07-03",
     "gamesPlayed": 100,
     "failedGames": 0,
@@ -6423,6 +6349,76 @@
       {
         "name": "Default",
         "elo": 1027,
+        "wins": 0,
+        "errors": 0
+      }
+    ],
+    "flagged": []
+  },
+  {
+    "date": "2026-09-19",
+    "gamesPlayed": 100,
+    "failedGames": 0,
+    "botCount": 10,
+    "champion": "Conqueror",
+    "standings": [
+      {
+        "name": "Conqueror",
+        "elo": 1411,
+        "wins": 39,
+        "errors": 0
+      },
+      {
+        "name": "Survivor",
+        "elo": 1290,
+        "wins": 16,
+        "errors": 0
+      },
+      {
+        "name": "Lookahead",
+        "elo": 1264,
+        "wins": 4,
+        "errors": 0
+      },
+      {
+        "name": "Strategist",
+        "elo": 1240,
+        "wins": 6,
+        "errors": 0
+      },
+      {
+        "name": "Blitz",
+        "elo": 1239,
+        "wins": 30,
+        "errors": 0
+      },
+      {
+        "name": "Connector (bigintersmind)",
+        "elo": 1159,
+        "wins": 2,
+        "errors": 0
+      },
+      {
+        "name": "Adaptive",
+        "elo": 1139,
+        "wins": 1,
+        "errors": 0
+      },
+      {
+        "name": "Giant Slayer (bigintersmind)",
+        "elo": 1093,
+        "wins": 0,
+        "errors": 0
+      },
+      {
+        "name": "Berserker (bigintersmind)",
+        "elo": 1089,
+        "wins": 0,
+        "errors": 0
+      },
+      {
+        "name": "Default",
+        "elo": 1026,
         "wins": 0,
         "errors": 0
       }
